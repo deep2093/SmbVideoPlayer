@@ -648,6 +648,12 @@ fun SettingsScreen(vm: LibraryViewModel) {
     var brightnessGestureEnabled by remember { mutableStateOf(gesturePrefs.getBoolean("brightness_gesture_enabled", true)) }
     val syncPrefs = remember(context) { context.getSharedPreferences(com.deepak.videolibrary.scan.PeriodicSyncWorker.DIAGNOSTICS, android.content.Context.MODE_PRIVATE) }
     var syncRefresh by remember { mutableIntStateOf(0) }
+    var artworkCacheBytes by remember { mutableLongStateOf(-1L) }
+    LaunchedEffect(syncRefresh) {
+        artworkCacheBytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            com.deepak.videolibrary.thumbs.ThumbStore.artworkBytes(context)
+        }
+    }
     val syncAttempt = remember(syncRefresh) { syncPrefs.getLong("last_attempt", 0L) }
     val syncSuccess = remember(syncRefresh) { syncPrefs.getLong("last_success", 0L) }
     val syncStatus = remember(syncRefresh) { syncPrefs.getString("last_status", "Not run yet") ?: "Not run yet" }
@@ -712,6 +718,10 @@ fun SettingsScreen(vm: LibraryViewModel) {
                 Text("Last attempt: ${syncDate(syncAttempt)}")
                 Text("Last success: ${syncDate(syncSuccess)}")
                 Text("Status: $syncStatus", style = MaterialTheme.typography.bodySmall)
+                Text("Artwork cache: " + if (artworkCacheBytes < 0) "Calculating…" else Formatter.formatShortFileSize(context, artworkCacheBytes),
+                    style = MaterialTheme.typography.bodySmall)
+                Text("Artwork is cached privately on the device; playback uses ExoPlayer's memory buffer, not a persistent video download cache.",
+                    style = MaterialTheme.typography.bodySmall)
                 Text("For immediate changes, use Scan → Refresh. Save SMB credentials for unattended authenticated sync.",
                     style = MaterialTheme.typography.bodySmall)
                 OutlinedButton(onClick = { syncRefresh++ }) { Text("Refresh sync status") }
