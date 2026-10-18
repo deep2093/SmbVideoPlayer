@@ -98,8 +98,10 @@ import java.io.File
 import java.util.Locale
 
 /** Presets represent columns × target visible rows in the scrollable library viewport. */
-private val GRID_PRESETS = listOf("3×3", "3×4", "4×3", "4×4", "5×4", "5×5")
+private val GRID_PRESETS = listOf("2×2", "2×3", "3×3", "3×4", "4×3", "4×4", "5×4", "5×5")
 private fun gridDimensions(choice: String): Pair<Int, Int> = when (choice) {
+    "2×2" -> 2 to 2
+    "2×3" -> 2 to 3
     "3×3" -> 3 to 3
     "3×4" -> 3 to 4
     "4×3" -> 4 to 3
@@ -207,8 +209,12 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
     var videoSearch by remember { mutableStateOf("") }
     val context = LocalContext.current
     val resumePrefs = remember { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
-    val continueWatching = remember(videos) {
-        videos.filter { resumePrefs.getLong("resume_path_${it.relativePath}", resumePrefs.getLong("resume_${it.id}", 0L)) > 15_000L }.take(16)
+    var continueRefresh by remember { mutableIntStateOf(0) }
+    val continueWatching = remember(videos, continueRefresh) {
+        videos.filter { video ->
+            val pos = resumePrefs.getLong("resume_path_${video.relativePath}", resumePrefs.getLong("resume_${video.id}", 0L))
+            !resumePrefs.getBoolean("hide_continue_${video.relativePath}", false) && pos > 15_000L
+        }.take(16)
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -242,7 +248,11 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
             androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(continueWatching, key = { it.id }) { video ->
                     androidx.compose.foundation.layout.Box(Modifier.width(210.dp)) {
-                        VideoCard(video, onClick = { onPlay(video, listOf(video)) }, vm = vm)
+                        VideoCard(video, onClick = { onPlay(video, listOf(video)) }, vm = vm,
+                            onRemoveFromContinue = {
+                                resumePrefs.edit().putBoolean("hide_continue_${video.relativePath}", true).apply()
+                                continueRefresh++
+                            })
                     }
                 }
             }
@@ -756,29 +766,46 @@ fun SettingsScreen(vm: LibraryViewModel) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Text("Personalize your library, playback controls and network connection.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        var gesturesExpanded by rememberSaveable { mutableStateOf(false) }
+        var layoutExpanded by rememberSaveable { mutableStateOf(false) }
         Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Player gestures", style = MaterialTheme.typography.titleLarge)
-                Text("Volume is controlled from the right side; brightness from the left.",
-                    style = MaterialTheme.typography.bodySmall)
-                Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Brightness and volume swipe")
-                        Text("Left: brightness · Right: volume", style = MaterialTheme.typography.labelSmall)
+                Row(Modifier.fillMaxWidth().clickable { gesturesExpanded = !gesturesExpanded },
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text("Player gestures", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    Text(if (gesturesExpanded) "▲" else "▼", color = MaterialTheme.colorScheme.primary)
+                }
+                if (gesturesExpanded) {
+                    Text("Volume is controlled from the right side; brightness from the left.", style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Brightness and volume swipe")
+                            Text("Left: brightness · Right: volume", style = MaterialTheme.typography.labelSmall)
+                        }
+                        androidx.compose.material3.Switch(checked = swipeGesturesEnabled, onCheckedChange = {
+                            swipeGesturesEnabled = it
+                            gesturePrefs.edit().putBoolean("volume_gesture_enabled", it)
+                                .putBoolean("brightness_gesture_enabled", it).apply()
+                        })
                     }
-                    androidx.compose.material3.Switch(checked = swipeGesturesEnabled, onCheckedChange = {
-                        swipeGesturesEnabled = it
-                        gesturePrefs.edit().putBoolean("volume_gesture_enabled", it)
-                            .putBoolean("brightness_gesture_enabled", it).apply()
-                    })
                 }
             }
         }
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-        Text("Library layout", style = MaterialTheme.typography.titleLarge)
-        Text("Choose columns × target visible rows. Videos and Folders have independent layouts, saved on this device.", style = MaterialTheme.typography.bodySmall)
-        GridPresetSetting("Folders grid", vm.folderGridPreset, vm::updateFolderGridPreset)
-        GridPresetSetting("Videos grid", vm.videoGridPreset, vm::updateVideoGridPreset)
+        Spacer(Modifier.height(8.dp))
+        Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth().clickable { layoutExpanded = !layoutExpanded },
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text("Library layout", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    Text(if (layoutExpanded) "▲" else "▼", color = MaterialTheme.colorScheme.primary)
+                }
+                if (layoutExpanded) {
+                    Text("Choose columns × target visible rows. Videos and Folders have independent layouts, saved on this device.", style = MaterialTheme.typography.bodySmall)
+                    GridPresetSetting("Folders grid", vm.folderGridPreset, vm::updateFolderGridPreset)
+                    GridPresetSetting("Videos grid", vm.videoGridPreset, vm::updateVideoGridPreset)
+                }
+            }
+        }
         HorizontalDivider(Modifier.padding(vertical = 12.dp))
         Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
