@@ -56,6 +56,12 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -98,7 +104,7 @@ private fun gridDimensions(choice: String): Pair<Int, Int> = when (choice) {
 }
 
 private val TAB_LABELS = listOf("Folders", "Videos", "Browse", "Scan", "Settings")
-private val TAB_GLYPHS = listOf("▦", "▶", "▤", "⟳", "⚙")
+private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Sync, Icons.Filled.Settings)
 
 
 @Composable
@@ -131,7 +137,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                 folderDetails = false
                                 vm.groupFilter.value = null
                             },
-                            icon = { Text(TAB_GLYPHS[index]) }, label = { Text(label) },
+                            icon = { Icon(TAB_ICONS[index], contentDescription = label) }, label = { Text(label) },
                         )
                     }
                 }
@@ -139,7 +145,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         ) { padding ->
             Row(Modifier.padding(padding).fillMaxSize()) {
                 if (tabletLayout) {
-                    androidx.compose.material3.NavigationRail {
+                    androidx.compose.material3.NavigationRail(containerColor = MaterialTheme.colorScheme.surface) {
                         TAB_LABELS.forEachIndexed { index, label ->
                             androidx.compose.material3.NavigationRailItem(
                                 selected = tab == index,
@@ -282,11 +288,11 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewMo
     Box(modifier) {
         Card(
             modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menuOpen = true }),
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(14.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
-            Column(Modifier.padding(8.dp)) {
-                FileImage(thumb, Modifier.fillMaxWidth().aspectRatio(16f / 10f).clip(RoundedCornerShape(10.dp)))
+            Column(Modifier.padding(6.dp)) {
+                FileImage(thumb, Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)))
                 val prefs = remember(context) { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
                 val watchedMs = prefs.getLong("resume_path_${video.relativePath}", prefs.getLong("resume_${video.id}", 0L))
                 val totalMs = prefs.getLong("duration_path_${video.relativePath}", 0L)
@@ -384,7 +390,11 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text("SMB Video Library", style = MaterialTheme.typography.titleLarge, maxLines = 1)
+            Column {
+                Text("SMB Video Library", style = MaterialTheme.typography.titleLarge, maxLines = 1)
+                Text("Your network media, beautifully organized", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Spacer(Modifier.weight(1f))
             IconButton(onClick = { editFolders = !editFolders }) {
                 Icon(Icons.Filled.Edit, contentDescription = if (editFolders) "Finish organizing folders" else "Organize folders")
@@ -400,12 +410,7 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
                 Icon(Icons.Filled.Settings, contentDescription = "Settings")
             }
         }
-        Text(
-            "Organize your library without modifying files on the SMB drive.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 12.dp),
-        )
+        Spacer(Modifier.height(12.dp))
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (searchExpanded) {
             OutlinedTextField(value = folderQuery, onValueChange = { folderQuery = it },
@@ -417,14 +422,14 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
                 modifier = Modifier.padding(top = 8.dp, bottom = 10.dp))
             androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(recentlyWatched, key = { it.id }) { video ->
-                    Box(Modifier.width(196.dp)) {
+                    Box(Modifier.width(218.dp)) {
                         VideoCard(video, onClick = { onPlay(video) }, vm = vm)
                     }
                 }
             }
             Spacer(Modifier.height(14.dp))
         }
-        Text("Folders", style = MaterialTheme.typography.titleLarge,
+        Text("Your Folders", style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(vertical = 6.dp))
         Text("${shownGroups.size} folders · ${groups.size} total", style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(bottom = 8.dp))
@@ -482,11 +487,18 @@ private fun FolderCard(vm: LibraryViewModel, row: GroupRow, modifier: Modifier =
         value = vm.coverFor(row.groupKey)
     }
 
-    Card(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    Card(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
       Column(Modifier.fillMaxWidth().padding(6.dp)) {
-        FileImage(
+        if (cover == null) {
+            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp)),
+                contentAlignment = androidx.compose.ui.Alignment.Center) {
+                Icon(Icons.Filled.Folder, contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.height(46.dp).width(46.dp))
+            }
+        } else FileImage(
             cover,
-            Modifier.fillMaxWidth().aspectRatio(16f / 10f).clip(RoundedCornerShape(10.dp)),
+            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)),
         )
         Text(
             row.groupKey.replaceFirstChar { it.titlecase(Locale.ROOT) },
