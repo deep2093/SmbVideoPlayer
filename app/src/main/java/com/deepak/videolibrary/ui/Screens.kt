@@ -44,6 +44,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -143,6 +148,7 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
     val query by vm.query.collectAsStateWithLifecycle()
     val group by vm.groupFilter.collectAsStateWithLifecycle()
     val selectedGroup = group
+    var searchExpanded by rememberSaveable { mutableStateOf(false) }
     val total by vm.videoCount.collectAsStateWithLifecycle()
     var addDialog by remember { mutableStateOf(false) }
     var videoSearch by remember { mutableStateOf("") }
@@ -153,13 +159,19 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = { vm.query.value = it },
-            label = { Text("Search videos") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-        )
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text(if (selectedGroup == null) "Videos" else "Videos in folder", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) vm.query.value = "" }) {
+                Icon(if (searchExpanded) Icons.Filled.Close else Icons.Filled.Search,
+                    contentDescription = if (searchExpanded) "Close search" else "Search videos")
+            }
+        }
+        if (searchExpanded) {
+            OutlinedTextField(value = query, onValueChange = { vm.query.value = it },
+                label = { Text("Search videos by filename") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+        }
         if (selectedGroup != null) {
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 TextButton(onClick = { if (onBackToFolders != null) onBackToFolders() else vm.groupFilter.value = null }) {
@@ -193,9 +205,8 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val (columns, rows) = gridDimensions(vm.videoGridPreset)
-            val itemHeight = ((maxHeight - 14.dp * (rows - 1) - 16.dp) / rows).coerceAtLeast(120.dp)
+        val (columns, _) = gridDimensions(vm.videoGridPreset)
+        Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -204,9 +215,8 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
                 modifier = Modifier.fillMaxSize(),
             ) {
                 gridItems(videos, key = { it.id }) { video ->
-                    Box(Modifier.height(itemHeight)) {
-                        VideoCard(video, onClick = { onPlay(video, if (group != null) videos.toList() else listOf(video)) }, onRename = { vm.renameOriginal(video.relativePath, it) }, modifier = Modifier.fillMaxSize())
-                    }
+                    VideoCard(video, onClick = { onPlay(video, if (group != null) videos.toList() else listOf(video)) },
+                        onRename = { vm.renameOriginal(video.relativePath, it) })
                 }
             }
         }
@@ -239,7 +249,7 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit, onRename: ((Strin
       Column(if (modifier == Modifier) Modifier.padding(8.dp) else Modifier.fillMaxSize().padding(6.dp)) {
         FileImage(
             thumb,
-            (if (modifier == Modifier) Modifier.fillMaxWidth().aspectRatio(16f / 9f) else Modifier.fillMaxWidth().weight(1f)).clip(RoundedCornerShape(10.dp)),
+            (if (modifier == Modifier) Modifier.fillMaxWidth().aspectRatio(16f / 10f) else Modifier.fillMaxWidth().weight(1f)).clip(RoundedCornerShape(10.dp)),
         )
         Text(
             video.name,
@@ -272,6 +282,7 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit, onRename: ((Strin
 fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
     val groups by vm.groups.collectAsStateWithLifecycle()
     var folderQuery by rememberSaveable { mutableStateOf("") }
+    var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var createDialog by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
     var sourceFolder by remember { mutableStateOf<String?>(null) }
@@ -284,11 +295,14 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Text(
-            "Folders",
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(top = 16.dp),
-        )
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text("Folders", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) folderQuery = "" }) {
+                Icon(if (searchExpanded) Icons.Filled.Close else Icons.Filled.Search,
+                    contentDescription = if (searchExpanded) "Close folder search" else "Search folders")
+            }
+        }
         Text(
             "Organize your library without modifying files on the SMB drive.",
             style = MaterialTheme.typography.bodySmall,
@@ -301,18 +315,15 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
             TextButton(onClick = { editFolders = !editFolders }) { Text(if (editFolders) "Done" else "✎ Organize") }
         }
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        OutlinedTextField(
-            value = folderQuery,
-            onValueChange = { folderQuery = it },
-            label = { Text("Search folders by name") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        if (searchExpanded) {
+            OutlinedTextField(value = folderQuery, onValueChange = { folderQuery = it },
+                label = { Text("Search folders by name") }, singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
+        }
         Text("${shownGroups.size} of ${groups.size} virtual folders", style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(bottom = 8.dp))
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val (columns, rows) = gridDimensions(vm.folderGridPreset)
-            val itemHeight = ((maxHeight - 14.dp * (rows - 1) - 16.dp) / rows).coerceAtLeast(120.dp)
+        val (columns, _) = gridDimensions(vm.folderGridPreset)
+        Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -321,8 +332,8 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
                 modifier = Modifier.fillMaxSize(),
             ) {
                 gridItems(shownGroups, key = { it.groupKey }) { row ->
-                    Column(Modifier.height(itemHeight)) {
-                        FolderCard(vm, row, Modifier.weight(1f)) {
+                    Column {
+                        FolderCard(vm, row) {
                             vm.groupFilter.value = row.groupKey
                             onOpenGroup()
                         }
@@ -373,10 +384,10 @@ private fun FolderCard(vm: LibraryViewModel, row: GroupRow, modifier: Modifier =
     }
 
     Card(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-      Column(Modifier.fillMaxSize().padding(6.dp)) {
+      Column(Modifier.fillMaxWidth().padding(6.dp)) {
         FileImage(
             cover,
-            Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(10.dp)),
+            Modifier.fillMaxWidth().aspectRatio(16f / 10f).clip(RoundedCornerShape(10.dp)),
         )
         Text(
             row.groupKey.replaceFirstChar { it.titlecase(Locale.ROOT) },

@@ -69,10 +69,22 @@ object LanDiscovery {
         try {
             val tasks = candidates.map { host -> Callable {
                 try {
-                    (network?.socketFactory?.createSocket() ?: Socket()).use { sock ->
-                        sock.connect(InetSocketAddress(host, 445), 400)
-                        host
+                    // Network-bound sockets can fail on some Samsung/Android builds even
+                    // when the regular LAN route works. Probe both routes before rejecting.
+                    var reachable = false
+                    if (network != null) {
+                        reachable = runCatching {
+                            network.socketFactory.createSocket().use { sock ->
+                                sock.connect(InetSocketAddress(host, 445), 650)
+                            }
+                        }.isSuccess
                     }
+                    if (!reachable) {
+                        reachable = runCatching {
+                            Socket().use { sock -> sock.connect(InetSocketAddress(host, 445), 650) }
+                        }.isSuccess
+                    }
+                    if (reachable) host else null
                 } catch (_: Exception) { null }
             } }
             val futures = executor.invokeAll(tasks, 12, TimeUnit.SECONDS)
@@ -82,7 +94,8 @@ object LanDiscovery {
         } finally { executor.shutdownNow() }
 
         val explanation = if (found.isEmpty()) {
-            "No SMB server answered on TCP port 445. Checked ${prefixes.size} local subnet(s)" +
+            "No SMB server answered on TCP port 445. Probed ${candidates.size} addresses across ${prefixes.size} local subnet(s). " +
+                "If manual SMB access works, check the saved host, Wi-Fi client isolation, VPN and router SMB service. " +
                 if (!onLocalNetwork) "; Android does not report an active Wi-Fi/Ethernet network. Disable VPN or switch to Wi-Fi and retry." else ". Check router SMB sharing and guest-network isolation."
         } else "Found ${found.size} SMB server(s). Select one, then enter the share name and credentials."
         Result(found.sorted(), explanation)
