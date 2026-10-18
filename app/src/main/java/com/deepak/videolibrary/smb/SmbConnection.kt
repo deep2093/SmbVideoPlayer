@@ -111,6 +111,73 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
         )
     }
 
+    /** Remote file management. These operations WRITE to the SMB share, unlike virtual folders. */
+    private fun safePath(value: String): String {
+        val normalized = value.replace('\\', '/').trim('/')
+        require(normalized.isNotBlank() && normalized.split('/').none { it == "." || it == ".." || it.isBlank() }) {
+            "Invalid or root file path"
+        }
+        return normalized.replace('/', '\\')
+    }
+
+    fun renamePath(source: String, destination: String, directory: Boolean = false) {
+        val disk = share ?: throw IOException("Not connected")
+        val src = safePath(source)
+        val dst = safePath(destination)
+        require(src != dst) { "Source and destination are the same" }
+        require(!disk.fileExists(dst) && !disk.folderExists(dst)) { "Destination already exists" }
+        if (directory) {
+            disk.openDirectory(src, EnumSet.of(AccessMask.DELETE), null, SMB2ShareAccess.ALL,
+                SMB2CreateDisposition.FILE_OPEN, null).use { it.rename(dst, false) }
+        } else {
+            disk.openFile(src, EnumSet.of(AccessMask.DELETE), null, SMB2ShareAccess.ALL,
+                SMB2CreateDisposition.FILE_OPEN, null).use { it.rename(dst, false) }
+        }
+    }
+
+    fun deletePath(path: String, isDirectory: Boolean) {
+        val disk = share ?: throw IOException("Not connected")
+        val safe = safePath(path)
+        if (isDirectory) disk.rmdir(safe, true) else disk.rm(safe)
+    }
+
+    fun copyPath(source: String, destination: String, isDirectory: Boolean) {
+        val disk = share ?: throw IOException("Not connected")
+        val src = safePath(source)
+        val dst = safePath(destination)
+        require(src != dst && !dst.startsWith("$src\\", ignoreCase = true)) { "Cannot copy a folder into itself" }
+        require(!disk.fileExists(dst) && !disk.folderExists(dst)) { "Destination already exists" }
+        if (isDirectory) {
+            disk.mkdir(dst)
+            try {
+                for (child in list(source)) {
+                    val from = source.trimEnd('/') + "/" + child.name
+                    val to = destination.trimEnd('/') + "/" + child.name
+                    copyPath(from, to, child.isDirectory)
+                }
+            } catch (e: Exception) {
+                // A partially copied directory remains so the user can inspect it; never delete source.
+                throw IOException("Copy interrupted. Destination folder may contain incomplete files: ${e.message}", e)
+            }
+        } else {
+            disk.openFile(src, EnumSet.of(AccessMask.GENERIC_READ), null, SMB2ShareAccess.ALL,
+                SMB2CreateDisposition.FILE_OPEN, null).use { input ->
+                disk.openFile(dst, EnumSet.of(AccessMask.GENERIC_WRITE), null, SMB2ShareAccess.ALL,
+                    SMB2CreateDisposition.FILE_CREATE, null).use { output ->
+                    input.inputStream.use { stream -> output.outputStream.use { sink ->
+                        val buffer = ByteArray(1024 * 1024)
+                        while (true) {
+                            val count = stream.read(buffer)
+                            if (count < 0) break
+                            sink.write(buffer, 0, count)
+                        }
+                        sink.flush()
+                    } }
+                }
+            }
+        }
+    }
+
     override fun close() {
         runCatching { share?.close() }
         runCatching { session?.close() }

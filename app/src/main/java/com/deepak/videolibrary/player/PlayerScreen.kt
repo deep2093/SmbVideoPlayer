@@ -9,6 +9,11 @@ import android.net.Uri
 import android.os.Build
 import android.util.Rational
 import android.view.ViewGroup
+import android.view.View
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.text.style.TextOverflow
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -53,26 +58,51 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-fun PlayerScreen(video: VideoEntity, settings: SmbSettings, onClose: () -> Unit) {
+fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<VideoEntity> = listOf(video), onClose: () -> Unit) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val lifecycleOwner = LocalLifecycleOwner.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val prefs = remember { context.getSharedPreferences("player_prefs", Context.MODE_PRIVATE) }
     val profile = remember(settings) { SmbProfile(settings.host, settings.share, settings.rootPath, settings.username, settings.password) }
-    val mediaUri = remember(video.id) {
-        Uri.Builder().scheme("smbvideo").authority("library")
-            .appendQueryParameter("path", video.relativePath)
-            .appendQueryParameter("size", video.size.toString()).build()
+    // A virtual folder is a real ExoPlayer playlist: video N advances to N+1 automatically.
+    val queue = remember(video.id, playlist) {
+        val entries = playlist.ifEmpty { listOf(video) }
+        entries.distinctBy { it.id }.ifEmpty { listOf(video) }
     }
-    val player = remember(video.id, profile) {
+    val initialIndex = remember(video.id, queue) { queue.indexOfFirst { it.id == video.id }.coerceAtLeast(0) }
+    val player = remember(queue, profile) {
         ExoPlayer.Builder(context).build().apply {
-            setMediaSource(ProgressiveMediaSource.Factory(SmbPlaybackDataSource.Factory(profile))
-                .createMediaSource(MediaItem.fromUri(mediaUri)))
+            val factory = ProgressiveMediaSource.Factory(SmbPlaybackDataSource.Factory(profile))
+            setMediaSources(queue.map { item ->
+                val uri = Uri.Builder().scheme("smbvideo").authority("library")
+                    .appendQueryParameter("path", item.relativePath)
+                    .appendQueryParameter("size", item.size.toString()).build()
+                factory.createMediaSource(MediaItem.fromUri(uri))
+            })
+            seekTo(initialIndex, prefs.getLong("resume_${video.id}", 0L).coerceAtLeast(0))
             prepare()
-            seekTo(prefs.getLong("resume_${video.id}", 0L).coerceAtLeast(0))
             playWhenReady = true
         }
+    }
+    var currentIndex by remember { mutableIntStateOf(initialIndex) }
+    val activeVideo = queue.getOrElse(currentIndex) { video }
+    var controlsVisible by remember { mutableStateOf(true) }
+    var controlsInteraction by remember { mutableIntStateOf(0) }
+    fun revealControls() { controlsVisible = true; controlsInteraction++ }
+    // Hide Android status/navigation bars while the fullscreen player is on screen.
+    DisposableEffect(activity) {
+        val window = activity?.window
+        val decor = window?.decorView
+        val before = decor?.systemUiVisibility
+        decor?.systemUiVisibility = (before ?: 0) or View.SYSTEM_UI_FLAG_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        onDispose { if (before != null) decor?.systemUiVisibility = before }
+    }
+    LaunchedEffect(controlsVisible, controlsInteraction, currentIndex) {
+        if (controlsVisible) { delay(2_000); controlsVisible = false }
     }
     var aspect by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var zoom by remember { mutableFloatStateOf(1f) }
@@ -93,7 +123,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, onClose: () -> Unit)
             position = player.currentPosition.coerceAtLeast(0)
             duration = player.duration.coerceAtLeast(0)
             isPlaying = player.isPlaying
-            if (position > 2_000) prefs.edit().putLong("resume_${video.id}", position).apply()
+            currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
+            if (position > 2_000) prefs.edit().putLong("resume_${queue.getOrElse(currentIndex) { video }.id}", position).apply()
             delay(1_000)
         }
     }
@@ -122,11 +153,16 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, onClose: () -> Unit)
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) { retry = 0; message = null }
+                if (playbackState == Player.STATE_ENDED) revealControls()
+            }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
+                revealControls()
             }
         }
         player.addListener(listener)
         onDispose {
-            prefs.edit().putLong("resume_${video.id}", player.currentPosition.coerceAtLeast(0)).apply()
+            prefs.edit().putLong("resume_${queue.getOrElse(player.currentMediaItemIndex.coerceAtLeast(0)) { video }.id}", player.currentPosition.coerceAtLeast(0)).apply()
             player.removeListener(listener)
             player.release()
         }
@@ -142,105 +178,135 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, onClose: () -> Unit)
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    BackHandler { onClose() }
-    Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onClose) { Text("‹ Library") }
-            Text(video.name, maxLines = 1, color = Color.White, modifier = Modifier.weight(1f))
-            TextButton(onClick = { showSettings = !showSettings }) { Text("Options") }
-        }
-        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-            AndroidView(factory = { PlayerView(it).apply {
-                this.player = player
-                useController = false // Custom controls remain clickable beneath gesture regions
-                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            } }, update = { view ->
-                view.resizeMode = aspect
-                view.videoSurfaceView?.apply { scaleX = zoom; scaleY = zoom }
-            }, modifier = Modifier.fillMaxSize())
-            Row(Modifier.fillMaxSize()) {
-                repeat(2) { side ->
-                    Box(Modifier.weight(1f).fillMaxHeight()) {
-                        Box(Modifier.fillMaxSize().pointerInput(player, side, holdSpeed) {
-                            detectTapGestures(onDoubleTap = {
-                                val delta = if (side == 0) -5_000L else 10_000L
-                                player.seekTo((player.currentPosition + delta).coerceIn(0L, player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE))
-                                gestureMessage = if (side == 0) "−5 sec" else "+10 sec"
-                            }, onPress = {
-                                val earlyRelease = withTimeoutOrNull(450L) { tryAwaitRelease() }
-                                if (earlyRelease == null) {
-                                    val previous = player.playbackParameters.speed
-                                    boost = true
-                                    player.setPlaybackSpeed(holdSpeed)
-                                    try { tryAwaitRelease() } finally { player.setPlaybackSpeed(previous); boost = false }
-                                }
-                            })
-                        })
-                        // Vertical right-side volume, left-side screen brightness.
-                        Box(Modifier.fillMaxSize().pointerInput(side, activity) {
-                            detectDragGestures { change, drag ->
-                                change.consume()
-                                val delta = -drag.y / size.height.coerceAtLeast(1).toFloat()
-                                if (side == 0) {
-                                    activity?.window?.let { window ->
-                                        val lp = window.attributes
-                                        val current = if (lp.screenBrightness < 0) 0.5f else lp.screenBrightness
-                                        lp.screenBrightness = (current + delta * 2f).coerceIn(0.02f, 1f)
-                                        window.attributes = lp
-                                        gestureMessage = "Brightness ${(lp.screenBrightness * 100).roundToInt()}%"
-                                    }
-                                } else {
-                                    val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                                    val current = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
-                                    val target = (current + delta * max * 2).roundToInt().coerceIn(0, max)
-                                    audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
-                                    gestureMessage = "Volume ${(100f * target / max.coerceAtLeast(1)).roundToInt()}%"
-                                }
+    BackHandler { if (showSettings) showSettings = false else onClose() }
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        AndroidView(factory = { PlayerView(it).apply {
+            this.player = player
+            useController = false
+            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        } }, update = { view ->
+            view.resizeMode = aspect
+            view.videoSurfaceView?.apply { scaleX = zoom; scaleY = zoom }
+        }, modifier = Modifier.fillMaxSize())
+        // Gesture regions. Tap reveals/hides overlay; double tap skips by side.
+        Row(Modifier.fillMaxSize()) {
+            repeat(2) { side ->
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    Box(Modifier.fillMaxSize().pointerInput(player, side, holdSpeed) {
+                        detectTapGestures(onTap = {
+                            if (controlsVisible) controlsVisible = false else revealControls()
+                        }, onDoubleTap = {
+                            val delta = if (side == 0) -5_000L else 10_000L
+                            player.seekTo((player.currentPosition + delta).coerceIn(0L, player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE))
+                            gestureMessage = if (side == 0) "−5 sec" else "+10 sec"
+                        }, onPress = {
+                            val earlyRelease = withTimeoutOrNull(450L) { tryAwaitRelease() }
+                            if (earlyRelease == null) {
+                                val previous = player.playbackParameters.speed
+                                boost = true
+                                player.setPlaybackSpeed(holdSpeed)
+                                try { tryAwaitRelease() } finally { player.setPlaybackSpeed(previous); boost = false }
                             }
                         })
+                    }.pointerInput(side, activity) {
+                        detectDragGestures { change, drag ->
+                            change.consume()
+                            val delta = -drag.y / size.height.coerceAtLeast(1).toFloat()
+                            if (side == 0) {
+                                activity?.window?.let { window ->
+                                    val lp = window.attributes
+                                    val current = if (lp.screenBrightness < 0) 0.5f else lp.screenBrightness
+                                    lp.screenBrightness = (current + delta * 2f).coerceIn(0.02f, 1f)
+                                    window.attributes = lp
+                                    gestureMessage = "Brightness ${(lp.screenBrightness * 100).roundToInt()}%"
+                                }
+                            } else {
+                                val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                                val current = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+                                val target = (current + delta * max * 2).roundToInt().coerceIn(0, max)
+                                audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+                                gestureMessage = "Volume ${(100f * target / max.coerceAtLeast(1)).roundToInt()}%"
+                            }
+                        }
+                    }.pointerInput(Unit) {
+                        detectTransformGestures { _, _, zoomChange, _ ->
+                            if (zoomChange != 1f) {
+                                zoom = (zoom * zoomChange).coerceIn(1f, 3f)
+                                gestureMessage = "Zoom ${(zoom * 100).roundToInt()}%"
+                            }
+                        }
+                    })
+                }
+            }
+        }
+        if (boost) Text("${holdSpeed}×", color = Color.White, modifier = Modifier.align(Alignment.TopCenter).padding(16.dp))
+        LaunchedEffect(gestureMessage) {
+            if (gestureMessage.isNotEmpty()) { delay(1_100); gestureMessage = "" }
+        }
+        if (gestureMessage.isNotBlank()) Text(gestureMessage, color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color(0xA6000000), RoundedCornerShape(14.dp)).padding(12.dp))
+        if (controlsVisible) {
+            // Overlay is transient; controls never permanently consume video height.
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                Row(Modifier.fillMaxWidth().background(Color(0xA6000000)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onClose) { Text("‹ Back", color = Color.White) }
+                    Text(activeVideo.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)
+                    TextButton(onClick = { showSettings = !showSettings; revealControls() }) { Text("⚙", color = Color.White) }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { player.seekTo((player.currentPosition - 5_000).coerceAtLeast(0)); revealControls() }) { Text("↶ 5", color = Color.White) }
+                    TextButton(onClick = { if (player.isPlaying) player.pause() else player.play(); revealControls() }) { Text(if (isPlaying) "❚❚" else "▶", color = Color.White, style = MaterialTheme.typography.headlineLarge) }
+                    TextButton(onClick = { player.seekTo((player.currentPosition + 10_000).coerceAtMost(duration.coerceAtLeast(0))); revealControls() }) { Text("10 ↷", color = Color.White) }
+                }
+                Column(Modifier.fillMaxWidth().background(Color(0xB8000000)).padding(horizontal = 12.dp, vertical = 5.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(formatPlaybackTime(position), color = Color.White, style = MaterialTheme.typography.labelMedium)
+                        Spacer(Modifier.weight(1f))
+                        Text(formatPlaybackTime(duration), color = Color.White, style = MaterialTheme.typography.labelMedium)
+                    }
+                    var scrubbing by remember { mutableStateOf(false) }
+                    var seekPosition by remember { mutableFloatStateOf(0f) }
+                    Slider(value = if (scrubbing) seekPosition else position.coerceIn(0L, duration.coerceAtLeast(1L)).toFloat(),
+                        onValueChange = { scrubbing = true; seekPosition = it; revealControls() },
+                        onValueChangeFinished = { player.seekTo(seekPosition.toLong()); scrubbing = false; revealControls() },
+                        valueRange = 0f..duration.coerceAtLeast(1L).toFloat(), modifier = Modifier.fillMaxWidth().height(22.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("${currentIndex + 1}/${queue.size}", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
+                        TextButton(onClick = { aspect = AspectRatioFrameLayout.RESIZE_MODE_FIT; zoom = 1f; revealControls() }) { Text("Fit") }
+                        TextButton(onClick = { aspect = AspectRatioFrameLayout.RESIZE_MODE_ZOOM; zoom = 1f; revealControls() }) { Text("Crop") }
+                        TextButton(onClick = { aspect = AspectRatioFrameLayout.RESIZE_MODE_FILL; zoom = 1f; revealControls() }) { Text("Stretch") }
+                        if (queue.size > 1) TextButton(onClick = { if (player.hasNextMediaItem()) player.seekToNextMediaItem(); revealControls() }) { Text("Next ›") }
                     }
                 }
             }
-            Box(Modifier.fillMaxSize().pointerInput(Unit) {
-                detectTransformGestures { _, _, zoomChange, _ ->
-                    if (zoomChange != 1f) {
-                        zoom = (zoom * zoomChange).coerceIn(1f, 3f)
-                        gestureMessage = "Zoom ${(zoom * 100).roundToInt()}%"
-                    }
-                }
-            })
-            if (boost) Text("${holdSpeed}×", color = Color.White, modifier = Modifier.align(Alignment.TopCenter).padding(12.dp))
-            if (gestureMessage.isNotBlank()) Text(gestureMessage, color = Color.White, modifier = Modifier.align(Alignment.BottomCenter).padding(18.dp))
         }
-        if (showSettings) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (showSettings && controlsVisible) {
+            Column(Modifier.align(Alignment.TopEnd).padding(top = 52.dp, end = 10.dp).background(Color(0xEE202020), RoundedCornerShape(12.dp)).padding(12.dp)) {
+                Text("Hold to fast-forward", color = Color.White)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(1.5f, 1.75f, 2f).forEach { speed ->
-                        FilterChip(selected = holdSpeed == speed, onClick = { holdSpeed = speed; prefs.edit().putFloat("hold_speed", speed).apply() }, label = { Text("Hold ${speed}×") })
+                        FilterChip(selected = holdSpeed == speed, onClick = { holdSpeed = speed; prefs.edit().putFloat("hold_speed", speed).apply(); revealControls() }, label = { Text("${speed}×") })
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Picture in Picture (optional)", color = Color.White, modifier = Modifier.weight(1f))
-                    Switch(checked = pipEnabled, onCheckedChange = { pipEnabled = it; prefs.edit().putBoolean("pip_enabled", it).apply() })
+                    Text("Picture in Picture", color = Color.White)
+                    Switch(checked = pipEnabled, onCheckedChange = { pipEnabled = it; prefs.edit().putBoolean("pip_enabled", it).apply(); revealControls() })
                 }
-                Text("Pinch to zoom (1–3×), swipe left for brightness, right for volume", style = MaterialTheme.typography.labelSmall, color = Color.LightGray)
+                TextButton(onClick = { zoom = 1f; revealControls() }) { Text("Reset zoom") }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = { player.seekTo((player.currentPosition - 5_000L).coerceAtLeast(0)) }) { Text("−5s") }
-            TextButton(onClick = { if (player.isPlaying) player.pause() else player.play() }) { Text(if (isPlaying) "Pause" else "Play") }
-            TextButton(onClick = { player.seekTo(player.currentPosition + 10_000L) }) { Text("+10s") }
-            TextButton(onClick = { zoom = 1f }) { Text("Reset zoom") }
-        }
-        Slider(value = position.coerceAtMost(duration).toFloat(), onValueChange = { player.seekTo(it.toLong()) }, valueRange = 0f..duration.coerceAtLeast(1).toFloat(), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            listOf("Fit" to AspectRatioFrameLayout.RESIZE_MODE_FIT, "Crop" to AspectRatioFrameLayout.RESIZE_MODE_ZOOM, "Stretch" to AspectRatioFrameLayout.RESIZE_MODE_FILL).forEach { (name, mode) ->
-                TextButton(onClick = { aspect = mode; zoom = 1f }) { Text(name) }
+        message?.let { warning ->
+            Row(Modifier.align(Alignment.BottomCenter).background(Color(0xDD202020)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(warning, color = Color.White, modifier = Modifier.weight(1f))
+                TextButton(onClick = { retry = 0; retryPending = true }) { Text("Retry") }
             }
         }
-        message?.let { Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f).padding(8.dp))
-            TextButton(onClick = { retry = 0; retryPending = true }) { Text("Retry") }
-        } }
     }
+}
+
+private fun formatPlaybackTime(milliseconds: Long): String {
+    val seconds = milliseconds.coerceAtLeast(0) / 1_000
+    val minutes = seconds / 60
+    val hours = minutes / 60
+    return if (hours > 0) "%d:%02d:%02d".format(hours, minutes % 60, seconds % 60)
+    else "%d:%02d".format(minutes, seconds % 60)
 }

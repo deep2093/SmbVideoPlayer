@@ -22,6 +22,7 @@ import com.deepak.videolibrary.thumbs.ThumbnailWorker
 import java.io.File
 import com.deepak.videolibrary.settings.SettingsStore
 import com.deepak.videolibrary.settings.SmbSettings
+import com.deepak.videolibrary.smb.SmbEntry
 import com.deepak.videolibrary.smb.SmbConnection
 import com.deepak.videolibrary.smb.SmbErrors
 import kotlinx.coroutines.Dispatchers
@@ -55,23 +56,28 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private fun <T> Flow<T>.state(initial: T): StateFlow<T> =
         stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), initial)
 
-    // Each layout has a separate, device-local tile-size preference. A tablet starts
-    // with larger previews; users can fine-tune both grids without rescanning.
+    // Grid preset preferences are independent for each library tab.
     private val layoutPrefs = app.getSharedPreferences("library_layout", Application.MODE_PRIVATE)
     private val isTablet = app.resources.configuration.smallestScreenWidthDp >= 600
-    var videoTileDp by mutableIntStateOf(layoutPrefs.getInt("video_tile_dp", if (isTablet) 300 else 180))
+    private val allowedGridPresets = setOf("3×3", "3×4", "4×3", "4×4", "5×4", "5×5")
+    private fun restoredGrid(key: String, default: String): String =
+        layoutPrefs.getString(key, default)?.takeIf { it in allowedGridPresets } ?: default
+
+    var videoGridPreset by mutableStateOf(restoredGrid("video_grid_preset", if (isTablet) "4×3" else "3×4"))
         private set
-    var folderTileDp by mutableIntStateOf(layoutPrefs.getInt("folder_tile_dp", if (isTablet) 320 else 190))
+    var folderGridPreset by mutableStateOf(restoredGrid("folder_grid_preset", if (isTablet) "3×3" else "3×4"))
         private set
 
-    fun setVideoTileSize(size: Int) {
-        videoTileDp = size.coerceIn(160, 440)
-        layoutPrefs.edit().putInt("video_tile_dp", videoTileDp).apply()
+    fun setVideoGridPreset(preset: String) {
+        if (preset !in allowedGridPresets) return
+        videoGridPreset = preset
+        layoutPrefs.edit().putString("video_grid_preset", preset).apply()
     }
 
-    fun setFolderTileSize(size: Int) {
-        folderTileDp = size.coerceIn(160, 440)
-        layoutPrefs.edit().putInt("folder_tile_dp", folderTileDp).apply()
+    fun setFolderGridPreset(preset: String) {
+        if (preset !in allowedGridPresets) return
+        folderGridPreset = preset
+        layoutPrefs.edit().putString("folder_grid_preset", preset).apply()
     }
 
     // ---- library ----
@@ -230,13 +236,97 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var discoveryRunning by mutableStateOf(false)
         private set
 
+    var discoveryMessage by mutableStateOf("Connect to Wi-Fi, then search for SMB servers.")
+        private set
+
     fun discoverHosts() {
         if (discoveryRunning) return
         discoveryRunning = true
         viewModelScope.launch {
-            try { discoveredHosts = com.deepak.videolibrary.smb.LanDiscovery.hosts() }
-            catch (_: Exception) { discoveredHosts = emptyList() }
+            try {
+                val result = com.deepak.videolibrary.smb.LanDiscovery.find(getApplication(), settings.host)
+                discoveredHosts = result.hosts
+                discoveryMessage = result.description
+            } catch (e: Exception) {
+                discoveredHosts = emptyList()
+                discoveryMessage = "Discovery failed: ${e.message ?: e.javaClass.simpleName}"
+            }
             finally { discoveryRunning = false }
+        }
+    }
+
+    // ---- Read/write SMB explorer (paths are relative to share root) ----
+    var explorerPath by mutableStateOf("")
+        private set
+    var explorerEntries by mutableStateOf<List<SmbEntry>>(emptyList())
+        private set
+    var explorerBusy by mutableStateOf(false)
+        private set
+    var explorerMessage by mutableStateOf<String?>(null)
+        private set
+    var explorerClipboard by mutableStateOf<Triple<String, Boolean, Boolean>?>(null)
+        private set // path, isDirectory, cut
+
+    fun browse(path: String = explorerPath) {
+        val normalized = path.trim('/')
+        explorerBusy = true
+        explorerMessage = null
+        viewModelScope.launch {
+            try {
+                val profile = settingsStore.loadProfile() ?: error("Configure SMB in Settings first")
+                val result = withContext(Dispatchers.IO) {
+                    SmbConnection(profile).use { conn -> conn.open(); conn.list(normalized) }
+                }
+                explorerPath = normalized
+                explorerEntries = result.sortedWith(compareByDescending<SmbEntry> { it.isDirectory }.thenBy { it.name.lowercase() })
+            } catch (e: Exception) { explorerMessage = SmbErrors.describe(e) }
+            finally { explorerBusy = false }
+        }
+    }
+
+    fun stageExplorer(path: String, directory: Boolean, cut: Boolean) {
+        explorerClipboard = Triple(path, directory, cut)
+        explorerMessage = if (cut) "Ready to move: $path" else "Ready to copy: $path"
+    }
+
+    fun pasteExplorer() {
+        val staged = explorerClipboard ?: return
+        val filename = staged.first.substringAfterLast('/')
+        val target = listOf(explorerPath, filename).filter { it.isNotBlank() }.joinToString("/")
+        if (target == staged.first) { explorerMessage = "Choose another destination folder"; return }
+        explorerOperate {
+            if (staged.third) it.renamePath(staged.first, target, staged.second)
+            else it.copyPath(staged.first, target, staged.second)
+        }
+        explorerClipboard = null
+    }
+
+    fun renameOriginal(path: String, newName: String, directory: Boolean = false) {
+        val clean = newName.trim()
+        if (clean.isEmpty() || clean == "." || clean == ".." || '/' in clean || '\\' in clean) {
+            explorerMessage = "Invalid file name"; return
+        }
+        val parent = path.substringBeforeLast('/', "")
+        val dest = listOf(parent, clean).filter { it.isNotBlank() }.joinToString("/")
+        explorerOperate { it.renamePath(path, dest, directory) }
+    }
+
+    fun deleteOriginal(path: String, directory: Boolean) = explorerOperate { it.deletePath(path, directory) }
+
+    private fun explorerOperate(action: (SmbConnection) -> Unit) {
+        if (explorerBusy) return
+        explorerBusy = true
+        explorerMessage = null
+        viewModelScope.launch {
+            try {
+                val profile = settingsStore.loadProfile() ?: error("Configure SMB in Settings first")
+                withContext(Dispatchers.IO) {
+                    SmbConnection(profile).use { conn -> conn.open(); action(conn) }
+                }
+                explorerMessage = "Done. Refreshing the library index…"
+                ScanWorker.enqueue(getApplication(), ScanMode.REFRESH)
+            } catch (e: Exception) { explorerMessage = SmbErrors.describe(e) }
+            finally { explorerBusy = false; browse(explorerPath) }
         }
     }
 

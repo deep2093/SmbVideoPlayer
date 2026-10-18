@@ -13,8 +13,8 @@ android {
         applicationId = "com.deepak.videolibrary"
         minSdk = 29
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 8
+        versionName = "0.8.0"
     }
 
     buildTypes {

@@ -5,13 +5,16 @@ import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +27,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
@@ -38,7 +43,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -66,8 +71,20 @@ import com.deepak.videolibrary.thumbs.ThumbStore
 import java.io.File
 import java.util.Locale
 
-private val TAB_LABELS = listOf("Videos", "Folders", "Scan", "Settings")
-private val TAB_GLYPHS = listOf("▶", "▦", "⟳", "⚙")
+/** Presets represent columns × target visible rows in the scrollable library viewport. */
+private val GRID_PRESETS = listOf("3×3", "3×4", "4×3", "4×4", "5×4", "5×5")
+private fun gridDimensions(choice: String): Pair<Int, Int> = when (choice) {
+    "3×3" -> 3 to 3
+    "3×4" -> 3 to 4
+    "4×3" -> 4 to 3
+    "4×4" -> 4 to 4
+    "5×4" -> 5 to 4
+    "5×5" -> 5 to 5
+    else -> 3 to 3
+}
+
+private val TAB_LABELS = listOf("Folders", "Videos", "Browse", "Scan", "Settings")
+private val TAB_GLYPHS = listOf("▦", "▶", "▤", "⟳", "⚙")
 
 
 @Composable
@@ -75,15 +92,16 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var folderDetails by rememberSaveable { mutableStateOf(false) }
     var playing by remember { mutableStateOf<VideoEntity?>(null) }
+    var playQueue by remember { mutableStateOf<List<VideoEntity>>(emptyList()) }
     BackHandler(enabled = playing != null || folderDetails || tab != 0) {
         when {
             playing != null -> playing = null
-            folderDetails -> { folderDetails = false; vm.groupFilter.value = null; tab = 1 }
+            folderDetails -> { folderDetails = false; vm.groupFilter.value = null; tab = 0 }
             else -> { tab = 0; vm.groupFilter.value = null }
         }
     }
     if (playing != null) {
-        PlayerScreen(video = playing!!, settings = vm.settings, onClose = { playing = null })
+        PlayerScreen(video = playing!!, settings = vm.settings, playlist = playQueue, onClose = { playing = null; playQueue = emptyList() })
         return
     }
     Scaffold(
@@ -105,11 +123,12 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
-                0 -> VideosScreen(vm, onPlay = { playing = it }, onBackToFolders = if (folderDetails) ({
-                    folderDetails = false; vm.groupFilter.value = null; tab = 1
+                0 -> FoldersScreen(vm, onOpenGroup = { folderDetails = true; tab = 1 })
+                1 -> VideosScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
+                    folderDetails = false; vm.groupFilter.value = null; tab = 0
                 }) else null)
-                1 -> FoldersScreen(vm, onOpenGroup = { folderDetails = true; tab = 0 })
-                2 -> ScanScreen(vm)
+                2 -> ExplorerScreen(vm)
+                3 -> ScanScreen(vm)
                 else -> SettingsScreen(vm)
             }
         }
@@ -119,7 +138,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
 // ---------------------------------------------------------------- Videos
 
 @Composable
-fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit, onBackToFolders: (() -> Unit)? = null) {
+fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, onBackToFolders: (() -> Unit)? = null) {
     val videos by vm.videos.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
     val group by vm.groupFilter.collectAsStateWithLifecycle()
@@ -141,15 +160,16 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit, onBackToFo
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
-        TileSizeSetting(label = "Video thumbnail size", size = vm.videoTileDp, onChange = vm::setVideoTileSize)
-        if (group != null) {
+        if (selectedGroup != null) {
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 TextButton(onClick = { if (onBackToFolders != null) onBackToFolders() else vm.groupFilter.value = null }) {
-                    Text("‹  $group")
+                    Text("‹  $selectedGroup")
                 }
-                TextButton(onClick = { videoSearch = ""; selectedGroup?.let { groupName ->
-    vm.findVideosToAdd(groupName, "")
-}; addDialog = true }) { Text("+ Add videos") }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { if (videos.isNotEmpty()) onPlay(videos.first(), videos.toList()) }, enabled = videos.isNotEmpty()) {
+                    Text("▶ Play all (${videos.size})")
+                }
+                TextButton(onClick = { videoSearch = ""; vm.findVideosToAdd(selectedGroup, ""); addDialog = true }) { Text("+ Add") }
             }
         }
         if (group == null && query.isEmpty() && continueWatching.isNotEmpty()) {
@@ -157,7 +177,7 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit, onBackToFo
             androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(continueWatching, key = { it.id }) { video ->
                     androidx.compose.foundation.layout.Box(Modifier.width(210.dp)) {
-                        VideoCard(video, onClick = { onPlay(video) })
+                        VideoCard(video, onClick = { onPlay(video, listOf(video)) })
                     }
                 }
             }
@@ -173,14 +193,22 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit, onBackToFo
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(vm.videoTileDp.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 16.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            gridItems(videos, key = { it.id }) { video -> VideoCard(video, onClick = { onPlay(video) }) }
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val (columns, rows) = gridDimensions(vm.videoGridPreset)
+            val itemHeight = ((maxHeight - 14.dp * (rows - 1) - 16.dp) / rows).coerceAtLeast(120.dp)
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(bottom = 16.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                gridItems(videos, key = { it.id }) { video ->
+                    Box(Modifier.height(itemHeight)) {
+                        VideoCard(video, onClick = { onPlay(video, if (group != null) videos.toList() else listOf(video)) }, onRename = { vm.renameOriginal(video.relativePath, it) }, modifier = Modifier.fillMaxSize())
+                    }
+                }
+            }
         }
     }
     if (addDialog && selectedGroup != null) {
@@ -201,15 +229,17 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit, onBackToFo
 }
 
 @Composable
-private fun VideoCard(video: VideoEntity, onClick: () -> Unit) {
+private fun VideoCard(video: VideoEntity, onClick: () -> Unit, onRename: ((String) -> Unit)? = null, modifier: Modifier = Modifier) {
+    var renameOpen by remember(video.id) { mutableStateOf(false) }
+    var newFileName by remember(video.id) { mutableStateOf(video.name) }
     val context = LocalContext.current
     val thumb: File? = if (video.thumbStatus == "DONE") ThumbStore.thumbFile(context, video.id) else null
 
-    Card(onClick = onClick, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-      Column(Modifier.padding(8.dp)) {
+    Card(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+      Column(if (modifier == Modifier) Modifier.padding(8.dp) else Modifier.fillMaxSize().padding(6.dp)) {
         FileImage(
             thumb,
-            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)),
+            (if (modifier == Modifier) Modifier.fillMaxWidth().aspectRatio(16f / 9f) else Modifier.fillMaxWidth().weight(1f)).clip(RoundedCornerShape(10.dp)),
         )
         Text(
             video.name,
@@ -218,12 +248,21 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp),
         )
+        if (onRename != null) {
+            TextButton(onClick = { newFileName = video.name; renameOpen = true }) { Text("⋮ Rename", maxLines = 1) }
+        }
         Text(
             Formatter.formatShortFileSize(context, video.size),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
+    }
+    if (renameOpen && onRename != null) {
+        AlertDialog(onDismissRequest = { renameOpen = false }, title = { Text("Rename original SMB file") },
+            text = { OutlinedTextField(value = newFileName, onValueChange = { newFileName = it }, label = { Text("Filename including extension") }) },
+            confirmButton = { TextButton(onClick = { onRename(newFileName); renameOpen = false }) { Text("Rename") } },
+            dismissButton = { TextButton(onClick = { renameOpen = false }) { Text("Cancel") } })
     }
 }
 
@@ -238,6 +277,7 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
     var sourceFolder by remember { mutableStateOf<String?>(null) }
     var operation by remember { mutableStateOf("") }
     var targetName by remember { mutableStateOf("") }
+    var editFolders by rememberSaveable { mutableStateOf(false) }
 
     val shownGroups = remember(groups, folderQuery) {
         groups.filter { it.groupKey.contains(folderQuery.trim(), ignoreCase = true) }
@@ -245,7 +285,7 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Text(
-            "Virtual folders",
+            "Folders",
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.padding(top = 16.dp),
         )
@@ -255,7 +295,11 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp),
         )
-        Button(onClick = { newName = ""; createDialog = true }) { Text("+ New virtual folder") }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Button(onClick = { newName = ""; createDialog = true }) { Text("+ New virtual folder") }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { editFolders = !editFolders }) { Text(if (editFolders) "Done" else "✎ Organize") }
+        }
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         OutlinedTextField(
             value = folderQuery,
@@ -264,25 +308,36 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        TileSizeSetting(label = "Folder thumbnail size", size = vm.folderTileDp, onChange = vm::setFolderTileSize)
         Text("${shownGroups.size} of ${groups.size} virtual folders", style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(bottom = 8.dp))
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(vm.folderTileDp.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 16.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            gridItems(shownGroups, key = { it.groupKey }) { row ->
-                Column {
-                    FolderCard(vm, row) {
-                        vm.groupFilter.value = row.groupKey
-                        onOpenGroup()
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(onClick = { sourceFolder = row.groupKey; operation = "Rename"; targetName = row.groupKey }) { Text("Rename") }
-                        TextButton(onClick = { sourceFolder = row.groupKey; operation = "Merge"; targetName = "" }) { Text("Merge") }
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val (columns, rows) = gridDimensions(vm.folderGridPreset)
+            val itemHeight = ((maxHeight - 14.dp * (rows - 1) - 16.dp) / rows).coerceAtLeast(120.dp)
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(bottom = 16.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                gridItems(shownGroups, key = { it.groupKey }) { row ->
+                    Column(Modifier.height(itemHeight)) {
+                        FolderCard(vm, row, Modifier.weight(1f)) {
+                            vm.groupFilter.value = row.groupKey
+                            onOpenGroup()
+                        }
+                        var menuExpanded by remember(row.groupKey) { mutableStateOf(false) }
+                        if (editFolders) Box {
+                            TextButton(onClick = { menuExpanded = true }) { Text("⋮ Options") }
+                            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                DropdownMenuItem(text = { Text("Rename folder") }, onClick = {
+                                    menuExpanded = false; sourceFolder = row.groupKey; operation = "Rename"; targetName = row.groupKey
+                                })
+                                DropdownMenuItem(text = { Text("Merge into…") }, onClick = {
+                                    menuExpanded = false; sourceFolder = row.groupKey; operation = "Merge"; targetName = ""
+                                })
+                            }
+                        }
                     }
                 }
             }
@@ -311,17 +366,17 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
 }
 
 @Composable
-private fun FolderCard(vm: LibraryViewModel, row: GroupRow, onClick: () -> Unit) {
+private fun FolderCard(vm: LibraryViewModel, row: GroupRow, modifier: Modifier = Modifier, onClick: () -> Unit) {
     // Rebuilt whenever more thumbnails of this folder become ready.
     val cover by produceState<File?>(initialValue = null, row.groupKey, row.thumbsDone) {
         value = vm.coverFor(row.groupKey)
     }
 
-    Card(onClick = onClick, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-      Column(Modifier.padding(8.dp)) {
+    Card(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+      Column(Modifier.fillMaxSize().padding(6.dp)) {
         FileImage(
             cover,
-            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)),
+            Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(10.dp)),
         )
         Text(
             row.groupKey.replaceFirstChar { it.titlecase(Locale.ROOT) },
@@ -339,17 +394,21 @@ private fun FolderCard(vm: LibraryViewModel, row: GroupRow, onClick: () -> Unit)
     }
 }
 
-/** Drag to choose larger thumbnails (fewer columns) or smaller thumbnails (more columns). */
+/** Selection lives only in Settings. Rows are an on-screen target; the list scrolls for more. */
 @Composable
-private fun TileSizeSetting(label: String, size: Int, onChange: (Int) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, style = MaterialTheme.typography.labelMedium)
-            Text("${size} dp", style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary)
+private fun GridPresetSetting(label: String, selected: String, onSelect: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.titleMedium)
+        GRID_PRESETS.chunked(3).forEach { options ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                options.forEach { option ->
+                    Row(Modifier.clickable { onSelect(option) }, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        RadioButton(selected = selected == option, onClick = { onSelect(option) })
+                        Text(option, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
         }
-        Slider(value = size.toFloat(), onValueChange = { onChange(it.toInt()) },
-            valueRange = 160f..440f, modifier = Modifier.fillMaxWidth())
     }
 }
 
@@ -521,6 +580,11 @@ fun SettingsScreen(vm: LibraryViewModel) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        Text("Library layout", style = MaterialTheme.typography.titleLarge)
+        Text("Choose columns × target visible rows. Videos and Folders have independent layouts, saved on this device.", style = MaterialTheme.typography.bodySmall)
+        GridPresetSetting("Folders grid", vm.folderGridPreset, vm::setFolderGridPreset)
+        GridPresetSetting("Videos grid", vm.videoGridPreset, vm::setVideoGridPreset)
+        HorizontalDivider(Modifier.padding(vertical = 12.dp))
         Text("SMB connection", style = MaterialTheme.typography.titleLarge)
 
         OutlinedTextField(
@@ -536,10 +600,8 @@ fun SettingsScreen(vm: LibraryViewModel) {
         OutlinedButton(onClick = vm::discoverHosts, enabled = !vm.discoveryRunning) {
             Text(if (vm.discoveryRunning) "Searching your network…" else "Discover network drives")
         }
-        if (vm.discoveredHosts.isEmpty() && !vm.discoveryRunning) {
-            Text("Discovery finds devices offering SMB (port 445). You still need to enter the share name and login. Some routers do not respond to discovery.",
-                style = MaterialTheme.typography.bodySmall)
-        }
+        Text(vm.discoveryMessage, style = MaterialTheme.typography.bodySmall,
+            color = if (vm.discoveredHosts.isEmpty() && !vm.discoveryRunning) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
         vm.discoveredHosts.forEach { address ->
             TextButton(onClick = { host = address }) { Text("SMB device: $address  → Use") }
         }
