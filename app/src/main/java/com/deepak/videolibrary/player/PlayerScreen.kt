@@ -52,6 +52,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -92,7 +93,9 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     }
     val initialIndex = remember(video.id, queue) { queue.indexOfFirst { it.id == video.id }.coerceAtLeast(0) }
     val player = remember(queue, profile) {
-        ExoPlayer.Builder(context).build().apply {
+        AppDiagnostics.record(context, "player", "open")
+        val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        ExoPlayer.Builder(context, renderers).build().apply {
             val factory = ProgressiveMediaSource.Factory(SmbPlaybackDataSource.Factory(profile))
             setMediaSources(queue.map { item ->
                 val uri = Uri.Builder().scheme("smbvideo").authority("library")
@@ -179,12 +182,22 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     }
     DisposableEffect(player) {
         val listener = object : Player.Listener {
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                AppDiagnostics.record(context, "video", "width=" + videoSize.width + " height=" + videoSize.height)
+            }
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                val format = player.videoFormat
+                if (format != null) AppDiagnostics.record(context, "codec",
+                    "mime=" + format.sampleMimeType + " width=" + format.width + " height=" + format.height + " fps=" + format.frameRate)
+            }
             override fun onPlayerError(error: PlaybackException) {
+                AppDiagnostics.record(context, "error", error.errorCodeName)
                 message = "Playback interruption: ${error.errorCodeName}"
                 retryPending = true
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) { retry = 0; message = null }
+                if (playbackState == Player.STATE_READY) { retry = 0; message = null; AppDiagnostics.record(context, "player", "ready") }
+                if (playbackState == Player.STATE_BUFFERING) AppDiagnostics.record(context, "player", "buffering")
                 if (playbackState == Player.STATE_ENDED) revealControls()
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -196,6 +209,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
         onDispose {
             prefs.edit().putLong("resume_path_${queue.getOrElse(player.currentMediaItemIndex.coerceAtLeast(0)) { video }.relativePath}", player.currentPosition.coerceAtLeast(0)).apply()
             player.removeListener(listener)
+            AppDiagnostics.record(context, "player", "closed")
             player.release()
         }
     }

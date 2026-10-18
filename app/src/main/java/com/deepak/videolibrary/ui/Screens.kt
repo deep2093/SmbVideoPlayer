@@ -33,6 +33,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
@@ -117,6 +119,9 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     var folderDetails by rememberSaveable { mutableStateOf(false) }
     var playing by remember { mutableStateOf<VideoEntity?>(null) }
     var playQueue by remember { mutableStateOf<List<VideoEntity>>(emptyList()) }
+    val foldersScrollState = rememberLazyGridState()
+    val videosScrollState = rememberLazyGridState()
+    val folderVideosScrollState = rememberLazyGridState()
     BackHandler(enabled = playing != null || folderDetails || tab != 0) {
         when {
             playing != null -> playing = null
@@ -177,8 +182,8 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                 }
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     when (tab) {
-                        0 -> FoldersScreen(vm, onOpenGroup = { folderDetails = true; tab = 1 }, onPlay = { video -> playing = video; playQueue = listOf(video) }, onOpenSettings = { tab = 4 })
-                        1 -> VideosScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
+                        0 -> FoldersScreen(vm, gridState = foldersScrollState, onOpenGroup = { folderDetails = true; tab = 1 }, onPlay = { video -> playing = video; playQueue = listOf(video) }, onOpenSettings = { tab = 4 })
+                        1 -> VideosScreen(vm, gridState = if (folderDetails) folderVideosScrollState else videosScrollState, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
                             folderDetails = false; vm.groupFilter.value = null; tab = 0
                         }) else null)
                         2 -> ExplorerScreen(vm, onPlay = { video -> playing = video; playQueue = listOf(video) })
@@ -194,7 +199,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
 // ---------------------------------------------------------------- Videos
 
 @Composable
-fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, onBackToFolders: (() -> Unit)? = null) {
+fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, onBackToFolders: (() -> Unit)? = null) {
     val videos by vm.videos.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
     val group by vm.groupFilter.collectAsStateWithLifecycle()
@@ -245,6 +250,7 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
         val columns = LibraryLayout.columns(vm.videoGridPreset)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(if (vm.videoListMode) 1 else columns),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -280,7 +286,7 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
                     Text(if (total == 0) "No videos yet. Add your server in Settings, then run a scan."
                         else "No videos match your search.", modifier = Modifier.padding(vertical = 24.dp))
                 }
-                gridItems(displayedVideos, key = { it.id }) { video ->
+                gridItems(displayedVideos, key = { it.id }, contentType = { "video" }) { video ->
                     VideoCard(video, onClick = {
                         onPlay(video, if (group != null) displayedVideos else listOf(video))
                     }, vm = vm, listMode = vm.videoListMode)
@@ -419,7 +425,7 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewMo
 // ---------------------------------------------------------------- Virtual folders
 
 @Composable
-fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoEntity) -> Unit, onOpenSettings: () -> Unit) {
+fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: () -> Unit, onPlay: (VideoEntity) -> Unit, onOpenSettings: () -> Unit) {
     val groups by vm.groups.collectAsStateWithLifecycle()
     val dashboardVideos by vm.videos.collectAsStateWithLifecycle()
     val dashboardContext = LocalContext.current
@@ -439,8 +445,16 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
     var targetName by remember { mutableStateOf("") }
     var editFolders by rememberSaveable { mutableStateOf(false) }
 
-    val shownGroups = remember(groups, folderQuery) {
-        groups.filter { it.groupKey.contains(folderQuery.trim(), ignoreCase = true) }
+    val shownGroups = remember(groups, folderQuery, vm.folderSort, vm.folderSortDescending, dashboardVideos) {
+        val folderVideos = dashboardVideos.groupBy { it.customGroup?.takeIf { name -> name.isNotBlank() } ?: it.groupKey }
+        val filtered = groups.filter { it.groupKey.contains(folderQuery.trim(), ignoreCase = true) }
+        val comparator = when (vm.folderSort) {
+            "COUNT" -> compareBy<GroupRow> { it.count }
+            "DATE" -> compareBy<GroupRow> { folderVideos[it.groupKey]?.maxOfOrNull { video -> video.modified } ?: 0L }
+            "SIZE" -> compareBy<GroupRow> { folderVideos[it.groupKey]?.sumOf { video -> video.size } ?: 0L }
+            else -> compareBy<GroupRow> { it.groupKey.lowercase(Locale.ROOT) }
+        }.thenBy { it.groupKey.lowercase(Locale.ROOT) }
+        filtered.sortedWith(if (vm.folderSortDescending) comparator.reversed() else comparator)
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -449,6 +463,23 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
             IconButton(onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) folderQuery = "" }) {
                 Icon(if (searchExpanded) Icons.Filled.Close else Icons.Filled.Search,
                     contentDescription = if (searchExpanded) "Close folder search" else "Search folders")
+            }
+            Box {
+                var sortExpanded by remember { mutableStateOf(false) }
+                IconButton(onClick = { sortExpanded = true }) {
+                    Icon(Icons.Filled.Sort, contentDescription = "Sort virtual folders")
+                }
+                DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+                    listOf("NAME" to "Name", "COUNT" to "Number of items",
+                        "DATE" to "Latest by date", "SIZE" to "Total size").forEach { (sort, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label + if (vm.folderSort == sort) {
+                                if (vm.folderSortDescending) " ↓" else " ↑"
+                            } else "") },
+                            onClick = { vm.selectFolderSort(sort); sortExpanded = false }
+                        )
+                    }
+                }
             }
             IconButton(onClick = vm::toggleFolderLayout) {
                 Icon(if (vm.folderListMode) Icons.Filled.GridView else Icons.Filled.ViewList,
@@ -475,6 +506,7 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
         val columns = LibraryLayout.columns(vm.folderGridPreset)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(if (vm.folderListMode) 1 else columns),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -502,14 +534,16 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
                     }
                 }
                 item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
-                    Text("${shownGroups.size} folders", style = MaterialTheme.typography.labelMedium,
+                    Text("${shownGroups.size} folders · " + when (vm.folderSort) {
+                        "COUNT" -> "Number of items"; "DATE" -> "Latest by date"; "SIZE" -> "Total size"; else -> "Name"
+                    } + if (vm.folderSortDescending) " ↓" else " ↑", style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
                 }
                 if (shownGroups.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(if (folderQuery.isNotBlank()) "No matching folders." else "Your virtual folders appear after a scan.",
                         modifier = Modifier.padding(vertical = 24.dp))
                 }
-                gridItems(shownGroups, key = { it.groupKey }) { row ->
+                gridItems(shownGroups, key = { it.groupKey }, contentType = { "folder" }) { row ->
                     Column {
                         FolderCard(vm, row, listMode = vm.folderListMode) {
                             vm.groupFilter.value = row.groupKey
@@ -837,6 +871,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Text("Personalize your library, playback controls and network connection.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        DiagnosticsSettings()
         var gesturesExpanded by rememberSaveable { mutableStateOf(false) }
         var layoutExpanded by rememberSaveable { mutableStateOf(false) }
         Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
