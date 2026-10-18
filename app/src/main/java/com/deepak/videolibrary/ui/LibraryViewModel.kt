@@ -61,11 +61,11 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val isTablet = app.resources.configuration.smallestScreenWidthDp >= 600
     private val allowedGridPresets = LibraryLayout.presets.toSet()
     private fun restoredGrid(key: String, default: String): String =
-        layoutPrefs.getString(key, default)?.takeIf { it in allowedGridPresets } ?: default
+        LibraryLayout.normalize(layoutPrefs.getString(key, default), default)
 
-    var videoGridPreset by mutableStateOf(restoredGrid("video_grid_preset", if (isTablet) "4×3" else "2×3"))
+    var videoGridPreset by mutableStateOf(restoredGrid("video_grid_preset", if (isTablet) "4" else "2"))
         private set
-    var folderGridPreset by mutableStateOf(restoredGrid("folder_grid_preset", if (isTablet) "3×3" else "2×3"))
+    var folderGridPreset by mutableStateOf(restoredGrid("folder_grid_preset", if (isTablet) "3" else "2"))
         private set
 
     var videoListMode by mutableStateOf(layoutPrefs.getBoolean("video_list", false))

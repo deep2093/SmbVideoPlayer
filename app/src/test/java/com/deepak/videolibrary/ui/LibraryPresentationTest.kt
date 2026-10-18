@@ -9,11 +9,14 @@ class LibraryPresentationTest {
         relativePath = path, name = name, parentDir = "", size = size, modified = 0,
         groupKey = "", lastSeenSession = 0, addedAt = added)
 
-    @Test fun twoColumnPresetsKeepDistinctRowTargets() {
-        assertEquals(2 to 2, LibraryLayout.dimensions("2×2"))
-        assertEquals(2 to 3, LibraryLayout.dimensions("2×3"))
-        assertEquals(3 to 3, LibraryLayout.dimensions("invalid"))
-        LibraryLayout.presets.forEach { assertTrue(LibraryLayout.dimensions(it).first >= 2) }
+    @Test fun legacyPresetsMigrateWithoutChangingColumnCount() {
+        listOf("2×2", "2×3", "3×3", "3×4", "4×3", "4×4", "5×4", "5×5").forEach {
+            assertEquals(it.substringBefore('×'), LibraryLayout.normalize(it))
+        }
+        assertEquals("2", LibraryLayout.normalize(null, "2"))
+        assertEquals("3", LibraryLayout.normalize("invalid"))
+        LibraryLayout.presets.forEach { assertEquals(it.toInt(), LibraryLayout.columns(it)) }
+        assertEquals(0, LibraryLayout.presets.size % 2)
     }
 
     @Test fun continueExcludesHiddenUnstartedAndCompletedMedia() {

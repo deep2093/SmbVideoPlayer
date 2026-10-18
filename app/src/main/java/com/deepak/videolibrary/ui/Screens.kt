@@ -3,6 +3,8 @@ package com.deepak.videolibrary.ui
 import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -77,7 +80,6 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -104,7 +106,6 @@ import java.io.File
 import java.util.Locale
 
 private val GRID_PRESETS = LibraryLayout.presets
-private fun gridDimensions(choice: String) = LibraryLayout.dimensions(choice)
 
 private val TAB_LABELS = listOf("Folders", "Videos", "Browse", "Scan", "Settings")
 private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Sync, Icons.Filled.Settings)
@@ -241,9 +242,8 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
                 TextButton(onClick = { videoSearch = ""; vm.findVideosToAdd(selectedGroup, ""); addDialog = true }) { Text("+ Add") }
             }
         }
-        val (columns, rows) = gridDimensions(vm.videoGridPreset)
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val thumbHeight = ((maxHeight - 12.dp) / rows - 68.dp).coerceIn(64.dp, 240.dp)
+        val columns = LibraryLayout.columns(vm.videoGridPreset)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(if (vm.videoListMode) 1 else columns),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -283,8 +283,7 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
                 gridItems(displayedVideos, key = { it.id }) { video ->
                     VideoCard(video, onClick = {
                         onPlay(video, if (group != null) displayedVideos else listOf(video))
-                    }, vm = vm, listMode = vm.videoListMode,
-                        thumbnailHeight = if (vm.videoListMode) null else thumbHeight)
+                    }, vm = vm, listMode = vm.videoListMode)
                 }
             }
         }
@@ -310,8 +309,7 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewModel, modifier: Modifier = Modifier,
-    onRemoveFromContinue: (() -> Unit)? = null, listMode: Boolean = false,
-    thumbnailHeight: androidx.compose.ui.unit.Dp? = null) {
+    onRemoveFromContinue: (() -> Unit)? = null, listMode: Boolean = false) {
     var menuOpen by remember(video.id) { mutableStateOf(false) }
     var renameOpen by remember(video.id) { mutableStateOf(false) }
     var deleteOpen by remember(video.id) { mutableStateOf(false) }
@@ -325,7 +323,7 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewMo
     val totalMs = prefs.getLong("duration_path_${video.relativePath}", 0L)
     val artwork: @Composable () -> Unit = {
         Box(if (listMode) Modifier.width(120.dp).height(76.dp)
-            else Modifier.fillMaxWidth().then(if (thumbnailHeight != null) Modifier.height(thumbnailHeight) else Modifier.aspectRatio(16f / 9f))) {
+            else Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
             FileImage(thumb, Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)))
             if (totalMs > 0L) Text(DateUtils.formatElapsedTime(totalMs / 1_000),
                 color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.labelSmall,
@@ -339,7 +337,7 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewMo
     val caption: @Composable () -> Unit = {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(start = if (listMode) 12.dp else 2.dp)) {
-                Text(video.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2,
+                Text(video.name, style = MaterialTheme.typography.bodyMedium, minLines = 2, maxLines = 2,
                     overflow = TextOverflow.Ellipsis)
                 Text(Formatter.formatShortFileSize(context, video.size),
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -474,9 +472,8 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
                 label = { Text("Search folders by name") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
         }
-        val (columns, rows) = gridDimensions(vm.folderGridPreset)
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            val thumbHeight = ((maxHeight - 12.dp) / rows - 64.dp).coerceIn(64.dp, 240.dp)
+        val columns = LibraryLayout.columns(vm.folderGridPreset)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(if (vm.folderListMode) 1 else columns),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -514,8 +511,7 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
                 }
                 gridItems(shownGroups, key = { it.groupKey }) { row ->
                     Column {
-                        FolderCard(vm, row, listMode = vm.folderListMode,
-                            thumbnailHeight = if (vm.folderListMode) null else thumbHeight) {
+                        FolderCard(vm, row, listMode = vm.folderListMode) {
                             vm.groupFilter.value = row.groupKey
                             onOpenGroup()
                         }
@@ -553,13 +549,12 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
 
 @Composable
 private fun FolderCard(vm: LibraryViewModel, row: GroupRow, modifier: Modifier = Modifier,
-    listMode: Boolean = false, thumbnailHeight: androidx.compose.ui.unit.Dp? = null, onClick: () -> Unit) {
+    listMode: Boolean = false, onClick: () -> Unit) {
     val cover by produceState<File?>(initialValue = null, row.groupKey, row.thumbsDone) {
         value = vm.coverFor(row.groupKey)
     }
     val artwork: @Composable () -> Unit = {
-        Box((if (listMode) Modifier.width(104.dp).height(68.dp) else Modifier.fillMaxWidth()
-            .then(if (thumbnailHeight != null) Modifier.height(thumbnailHeight) else Modifier.aspectRatio(16f / 9f)))
+        Box((if (listMode) Modifier.width(104.dp).height(68.dp) else Modifier.fillMaxWidth().aspectRatio(16f / 9f))
             .clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = androidx.compose.ui.Alignment.Center) {
             if (cover == null) Icon(Icons.Filled.Folder, contentDescription = null,
@@ -570,7 +565,7 @@ private fun FolderCard(vm: LibraryViewModel, row: GroupRow, modifier: Modifier =
     val caption: @Composable () -> Unit = {
         Column(Modifier.padding(vertical = 6.dp, horizontal = if (listMode) 12.dp else 2.dp)) {
             Text(row.groupKey.replaceFirstChar { it.titlecase(Locale.ROOT) },
-                style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                style = MaterialTheme.typography.bodyMedium, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text("${row.count} video" + if (row.count == 1) "" else "s",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -601,17 +596,22 @@ private fun LibraryDisplayMenu(vm: LibraryViewModel) {
     }
 }
 
-/** Density presets stay in the expandable Settings section; toolbar toggles grid/list. */
+/** Four equally sized choices, with no incomplete last row or screen-height coupling. */
 @Composable
 private fun GridPresetSetting(label: String, selected: String, onSelect: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.widthIn(max = 560.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, style = MaterialTheme.typography.titleMedium)
-        GRID_PRESETS.chunked(3).forEach { options ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+        GRID_PRESETS.chunked(2).forEach { options ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 options.forEach { option ->
-                    Row(Modifier.clickable { onSelect(option) }, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        RadioButton(selected = selected == option, onClick = { onSelect(option) })
-                        Text(option, style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.weight(1f).heightIn(min = 48.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (selected == option) MaterialTheme.colorScheme.primaryContainer
+                            else MaterialTheme.colorScheme.surface)
+                        .selectable(selected = selected == option, role = Role.RadioButton, onClick = { onSelect(option) })
+                        .padding(horizontal = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        RadioButton(selected = selected == option, onClick = null)
+                        Text("$option columns", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }
@@ -639,6 +639,7 @@ fun ScanScreen(vm: LibraryViewModel) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Text("Scan & Sync", style = MaterialTheme.typography.titleLarge) }
+        item { AutomaticSyncSummary() }
 
         vm.notice?.let { message ->
             item {
@@ -762,6 +763,44 @@ fun ScanScreen(vm: LibraryViewModel) {
     }
 }
 
+@Composable
+private fun AutomaticSyncSummary() {
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences(
+        com.deepak.videolibrary.scan.PeriodicSyncWorker.DIAGNOSTICS, android.content.Context.MODE_PRIVATE) }
+    val snapshot by produceState(initialValue = prefs.getString("last_status", "Not run yet") to prefs.getLong("last_success", 0L), prefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            value = prefs.getString("last_status", "Not run yet") to prefs.getLong("last_success", 0L)
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        value = prefs.getString("last_status", "Not run yet") to prefs.getLong("last_success", 0L)
+        awaitDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    val status = when (val raw = snapshot.first.orEmpty()) {
+        "RUNNING" -> "Syncing…"
+        "COMPLETED" -> "Up to date"
+        "INTERRUPTED" -> "Interrupted · will try again"
+        else -> when {
+            raw.startsWith("SKIPPED:") -> raw.removePrefix("SKIPPED:").trim()
+            raw.startsWith("FAILED:") -> "Couldn't sync · will retry"
+            else -> "Not run yet"
+        }
+    }
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Automatic library sync", style = MaterialTheme.typography.titleMedium)
+            Text("About every 12 hours when your server is reachable.", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(status, style = MaterialTheme.typography.bodyMedium)
+            Text("Last successful sync: " + if (snapshot.second == 0L) "Never" else
+                java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+                    .format(java.util.Date(snapshot.second)), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
 // ---------------------------------------------------------------- Settings
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -782,20 +821,6 @@ fun SettingsScreen(vm: LibraryViewModel) {
     }
     val keyboardScope = rememberCoroutineScope()
     val passwordBringIntoView = remember { BringIntoViewRequester() }
-    val syncPrefs = remember(context) { context.getSharedPreferences(com.deepak.videolibrary.scan.PeriodicSyncWorker.DIAGNOSTICS, android.content.Context.MODE_PRIVATE) }
-    var syncRefresh by remember { mutableIntStateOf(0) }
-    var artworkCacheBytes by remember { mutableLongStateOf(-1L) }
-    LaunchedEffect(syncRefresh) {
-        artworkCacheBytes = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            com.deepak.videolibrary.thumbs.ThumbStore.artworkBytes(context)
-        }
-    }
-    val syncAttempt = remember(syncRefresh) { syncPrefs.getLong("last_attempt", 0L) }
-    val syncSuccess = remember(syncRefresh) { syncPrefs.getLong("last_success", 0L) }
-    val syncStatus = remember(syncRefresh) { syncPrefs.getString("last_status", "Not run yet") ?: "Not run yet" }
-    fun syncDate(time: Long): String = if (time == 0L) "Never" else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(time))
-
-
     fun current() = SmbSettings(
         host = host,
         share = share,
@@ -846,7 +871,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
                     Text(if (layoutExpanded) "▲" else "▼", color = MaterialTheme.colorScheme.primary)
                 }
                 if (layoutExpanded) {
-                    Text("Choose columns × target visible rows. Videos and Folders have independent layouts, saved on this device.", style = MaterialTheme.typography.bodySmall)
+                    Text("Choose the number of columns. Thumbnails keep their 16:9 shape in every layout.", style = MaterialTheme.typography.bodySmall)
                     Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Text("Show videos as a list", modifier = Modifier.weight(1f))
                         androidx.compose.material3.Switch(checked = vm.videoListMode, onCheckedChange = { vm.toggleVideoLayout() })
@@ -854,24 +879,6 @@ fun SettingsScreen(vm: LibraryViewModel) {
                     GridPresetSetting("Folders grid", vm.folderGridPreset, vm::updateFolderGridPreset)
                     GridPresetSetting("Videos grid", vm.videoGridPreset, vm::updateVideoGridPreset)
                 }
-            }
-        }
-        HorizontalDivider(Modifier.padding(vertical = 12.dp))
-        Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Automatic library sync", style = MaterialTheme.typography.titleLarge)
-                Text("Best-effort every 12 hours when Android allows it, network is connected, battery is not low and storage is not low. Wi-Fi/LAN SMB access is not guaranteed by the network constraint.",
-                    style = MaterialTheme.typography.bodySmall)
-                Text("Last attempt: ${syncDate(syncAttempt)}")
-                Text("Last success: ${syncDate(syncSuccess)}")
-                Text("Status: $syncStatus", style = MaterialTheme.typography.bodySmall)
-                Text("Artwork cache: " + if (artworkCacheBytes < 0) "Calculating…" else Formatter.formatShortFileSize(context, artworkCacheBytes),
-                    style = MaterialTheme.typography.bodySmall)
-                Text("Artwork is cached privately on the device; playback uses ExoPlayer's memory buffer, not a persistent video download cache.",
-                    style = MaterialTheme.typography.bodySmall)
-                Text("For immediate changes, use Scan → Refresh. Save SMB credentials for unattended authenticated sync.",
-                    style = MaterialTheme.typography.bodySmall)
-                OutlinedButton(onClick = { syncRefresh++ }) { Text("Refresh sync status") }
             }
         }
         HorizontalDivider(Modifier.padding(vertical = 8.dp))

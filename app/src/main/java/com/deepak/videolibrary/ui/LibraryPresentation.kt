@@ -5,11 +5,13 @@ import java.util.Locale
 
 /** Presentation choices shared by the toolbar and Settings. Existing preference keys stay valid. */
 object LibraryLayout {
-    val presets = listOf("2×2", "2×3", "3×3", "3×4", "4×3", "4×4", "5×4", "5×5")
-    fun dimensions(preset: String): Pair<Int, Int> {
-        val safe = preset.takeIf { it in presets } ?: "3×3"
-        return safe.substringBefore('×').toInt() to safe.substringAfter('×').toInt()
-    }
+    val presets = listOf("2", "3", "4", "5")
+    // Migrate old columns × rows choices without losing the user's column count.
+    fun normalize(preset: String?, fallback: String = "3"): String =
+        preset?.substringBefore('×')?.takeIf { it in presets } ?: fallback
+
+    fun columns(preset: String): Int = normalize(preset).toInt()
+
 }
 
 enum class VideoSort(val label: String) {

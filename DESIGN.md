@@ -21,9 +21,12 @@ have been copied. The app continues to use its existing Media3 player and SMB st
 
 - Black surfaces and the user's red accent, compact headers, simple thumbnail tiles,
   visible per-video overflow actions, and icon-based playback controls.
-- Independent, persistent folder/video list or grid display. Grid density remains
-  inside the expandable Library layout settings. Both 2×2 and 2×3 now validate and
-  persist, and the row target changes thumbnail height within usable bounds.
+- Independent, persistent folder/video list or grid display. Library layout offers
+  four equally sized choices (2, 3, 4 or 5 columns) in a balanced two-by-two selector.
+  Legacy columns × rows choices migrate by column count. All grid artwork keeps a
+  fixed 16:9 ratio, independent of viewport height; captions reserve two title lines.
+- Automatic sync lives in Scan, showing schedule, current status and last success.
+  Status updates automatically; verbose cache and scheduling details are removed.
 - Video sorting by name, added date, modified date, or size; repeat a sort to reverse
   it. Play all follows the displayed order. Titles and file size are always available;
   duration and watched progress appear once playback has discovered duration.
@@ -39,7 +42,7 @@ have been copied. The app continues to use its existing Media3 player and SMB st
 
 Run `gradle testDebugUnitTest assembleDebug` with JDK 17, Gradle 8.9 and Android SDK
 35, or use the existing Android APK GitHub Actions workflow. Presentation tests cover
-both two-column presets, continue-watching boundary cases and deterministic sorting.
+legacy grid preference migration, continue-watching boundary cases and deterministic sorting.
 
 The development machine has no Gradle/JDK/Android SDK on PATH. The pushed commit's
 GitHub Actions result is the build authority. Physical phone/tablet checks still need
