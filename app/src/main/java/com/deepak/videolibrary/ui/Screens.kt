@@ -147,7 +147,9 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit, onBackToFo
                 TextButton(onClick = { if (onBackToFolders != null) onBackToFolders() else vm.groupFilter.value = null }) {
                     Text("‹  $group")
                 }
-                TextButton(onClick = { videoSearch = ""; vm.findVideosToAdd(selectedGroup, ""); addDialog = true }) { Text("+ Add videos") }
+                TextButton(onClick = { videoSearch = ""; selectedGroup?.let { groupName ->
+    vm.findVideosToAdd(groupName, "")
+}; addDialog = true }) { Text("+ Add videos") }
             }
         }
         if (group == null && query.isEmpty() && continueWatching.isNotEmpty()) {
