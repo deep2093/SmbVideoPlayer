@@ -32,8 +32,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.input.pointer.awaitPointerEvent
-import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -225,7 +223,17 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                         var holding = false
                         var released = false
                         while (!released) {
-                            val event = awaitPointerEvent()
+                            val remainingHold = if (!moved && !holding) (450L - (System.currentTimeMillis() - startTime)).coerceAtLeast(1L) else 10_000L
+                            val event = withTimeoutOrNull(remainingHold) { awaitPointerEvent() }
+                            if (event == null) {
+                                if (!moved && !holding) {
+                                    previousSpeed = player.playbackParameters.speed
+                                    player.setPlaybackSpeed(holdSpeed)
+                                    holding = true
+                                    boost = true
+                                }
+                                continue
+                            }
                             val pointer = event.changes.firstOrNull { it.id == down.id }
                             if (pointer == null || !pointer.pressed) {
                                 released = true
