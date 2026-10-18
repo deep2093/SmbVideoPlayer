@@ -51,6 +51,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Text
@@ -349,6 +350,9 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Text("Folders", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.weight(1f))
+            IconButton(onClick = { editFolders = !editFolders }) {
+                Icon(Icons.Filled.Edit, contentDescription = if (editFolders) "Finish organizing folders" else "Organize folders")
+            }
             IconButton(onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) folderQuery = "" }) {
                 Icon(if (searchExpanded) Icons.Filled.Close else Icons.Filled.Search,
                     contentDescription = if (searchExpanded) "Close folder search" else "Search folders")
@@ -360,10 +364,6 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(bottom = 12.dp),
         )
-        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Spacer(Modifier.weight(1f))
-            TextButton(onClick = { editFolders = !editFolders }) { Text(if (editFolders) "Done" else "✎ Organize") }
-        }
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (searchExpanded) {
             OutlinedTextField(value = folderQuery, onValueChange = { folderQuery = it },
