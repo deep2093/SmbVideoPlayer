@@ -18,6 +18,8 @@ import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.geometry.Offset
+import kotlin.math.abs
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
@@ -80,7 +82,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                     .appendQueryParameter("size", item.size.toString()).build()
                 factory.createMediaSource(MediaItem.fromUri(uri))
             })
-            seekTo(initialIndex, prefs.getLong("resume_${video.id}", 0L).coerceAtLeast(0))
+            seekTo(initialIndex, prefs.getLong("resume_path_${video.relativePath}", prefs.getLong("resume_${video.id}", 0L)).coerceAtLeast(0))
             prepare()
             playWhenReady = true
         }
@@ -104,7 +106,10 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     LaunchedEffect(controlsVisible, controlsInteraction, currentIndex) {
         if (controlsVisible) { delay(2_000); controlsVisible = false }
     }
-    var aspect by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    val aspectModes = listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT, AspectRatioFrameLayout.RESIZE_MODE_ZOOM, AspectRatioFrameLayout.RESIZE_MODE_FILL, AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH, AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT)
+    val aspectLabels = listOf("Fit", "Crop", "Stretch", "Width", "Height")
+    var aspectIndex by remember { mutableIntStateOf(0) }
+    val aspect = aspectModes[aspectIndex]
     var zoom by remember { mutableFloatStateOf(1f) }
     var holdSpeed by remember { mutableFloatStateOf(prefs.getFloat("hold_speed", 1.5f)) }
     var pipEnabled by remember { mutableStateOf(prefs.getBoolean("pip_enabled", false)) }
@@ -117,6 +122,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     var retryPending by remember { mutableStateOf(false) }
     var boost by remember { mutableStateOf(false) }
     var gestureMessage by remember { mutableStateOf("") }
+    var seekingGesture by remember { mutableStateOf(false) }
+    var seekingTarget by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(player) {
         while (true) {
@@ -124,7 +131,10 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
             duration = player.duration.coerceAtLeast(0)
             isPlaying = player.isPlaying
             currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
-            if (position > 2_000) prefs.edit().putLong("resume_${queue.getOrElse(currentIndex) { video }.id}", position).apply()
+            if (position > 2_000) {
+                val item = queue.getOrElse(currentIndex) { video }
+                prefs.edit().putLong("resume_path_${item.relativePath}", position).putLong("duration_path_${item.relativePath}", duration).apply()
+            }
             delay(1_000)
         }
     }
@@ -162,7 +172,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
         }
         player.addListener(listener)
         onDispose {
-            prefs.edit().putLong("resume_${queue.getOrElse(player.currentMediaItemIndex.coerceAtLeast(0)) { video }.id}", player.currentPosition.coerceAtLeast(0)).apply()
+            prefs.edit().putLong("resume_path_${queue.getOrElse(player.currentMediaItemIndex.coerceAtLeast(0)) { video }.relativePath}", player.currentPosition.coerceAtLeast(0)).apply()
             player.removeListener(listener)
             player.release()
         }
@@ -208,24 +218,57 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                                 try { tryAwaitRelease() } finally { player.setPlaybackSpeed(previous); boost = false }
                             }
                         })
-                    }.pointerInput(side, activity) {
-                        detectDragGestures { change, drag ->
-                            change.consume()
-                            val delta = -drag.y / size.height.coerceAtLeast(1).toFloat()
-                            if (side == 0) {
-                                activity?.window?.let { window ->
-                                    val lp = window.attributes
-                                    val current = if (lp.screenBrightness < 0) 0.5f else lp.screenBrightness
-                                    lp.screenBrightness = (current + delta * 2f).coerceIn(0.02f, 1f)
-                                    window.attributes = lp
-                                    gestureMessage = "Brightness ${(lp.screenBrightness * 100).roundToInt()}%"
+                    }.pointerInput(side, activity, duration) {
+                        var accumulated = Offset.Zero
+                        var mode = 0
+                        var baseSeek = 0L
+                        var startBrightness = 0.5f
+                        var startVolume = 0
+                        var maxVolume = 1
+                        detectDragGestures(
+                            onDragStart = {
+                                accumulated = Offset.Zero
+                                mode = 0
+                                baseSeek = player.currentPosition.coerceAtLeast(0L)
+                                startBrightness = activity?.window?.attributes?.screenBrightness?.takeIf { it >= 0f } ?: 0.5f
+                                startVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+                                maxVolume = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                            },
+                            onDragEnd = {
+                                if (mode == 1 && seekingGesture) player.seekTo(seekingTarget)
+                                seekingGesture = false
+                                mode = 0
+                            },
+                            onDragCancel = { seekingGesture = false; mode = 0 }
+                        ) { change, drag ->
+                            accumulated += drag
+                            if (mode == 0 && (abs(accumulated.x) > 18f || abs(accumulated.y) > 18f)) {
+                                mode = if (abs(accumulated.x) > abs(accumulated.y) * 1.25f) 1 else 2
+                            }
+                            if (mode != 0) change.consume()
+                            when (mode) {
+                                1 -> {
+                                    val span = player.duration.takeIf { it > 0 } ?: duration
+                                    val offsetMs = (accumulated.x / size.width.coerceAtLeast(1) * 90_000f).toLong()
+                                    seekingTarget = (baseSeek + offsetMs).coerceIn(0L, span.takeIf { it > 0 } ?: Long.MAX_VALUE)
+                                    seekingGesture = true
+                                    gestureMessage = "Seek ${formatPlaybackTime(seekingTarget)}"
                                 }
-                            } else {
-                                val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                                val current = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
-                                val target = (current + delta * max * 2).roundToInt().coerceIn(0, max)
-                                audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
-                                gestureMessage = "Volume ${(100f * target / max.coerceAtLeast(1)).roundToInt()}%"
+                                2 -> {
+                                    val delta = -accumulated.y / size.height.coerceAtLeast(1).toFloat()
+                                    if (side == 0) {
+                                        val target = (startVolume + delta * maxVolume).roundToInt().coerceIn(0, maxVolume)
+                                        audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+                                        gestureMessage = "Volume ${(100f * target / maxVolume).roundToInt()}%"
+                                    } else {
+                                        activity?.window?.let { window ->
+                                            val lp = window.attributes
+                                            lp.screenBrightness = (startBrightness + delta).coerceIn(0.02f, 1f)
+                                            window.attributes = lp
+                                            gestureMessage = "Brightness ${(lp.screenBrightness * 100).roundToInt()}%"
+                                        }
+                                    }
+                                }
                             }
                         }
                     }.pointerInput(Unit) {
@@ -239,6 +282,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                 }
             }
         }
+        if (seekingGesture) Text("Release to seek: ${formatPlaybackTime(seekingTarget)}", color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color(0xCC101010), RoundedCornerShape(12.dp)).padding(12.dp))
         if (boost) Text("${holdSpeed}×", color = Color.White, modifier = Modifier.align(Alignment.TopCenter).padding(16.dp))
         LaunchedEffect(gestureMessage) {
             if (gestureMessage.isNotEmpty()) { delay(1_100); gestureMessage = "" }
@@ -271,9 +315,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                         valueRange = 0f..duration.coerceAtLeast(1L).toFloat(), modifier = Modifier.fillMaxWidth().height(22.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("${currentIndex + 1}/${queue.size}", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
-                        TextButton(onClick = { aspect = AspectRatioFrameLayout.RESIZE_MODE_FIT; zoom = 1f; revealControls() }) { Text("Fit") }
-                        TextButton(onClick = { aspect = AspectRatioFrameLayout.RESIZE_MODE_ZOOM; zoom = 1f; revealControls() }) { Text("Crop") }
-                        TextButton(onClick = { aspect = AspectRatioFrameLayout.RESIZE_MODE_FILL; zoom = 1f; revealControls() }) { Text("Stretch") }
+                        TextButton(onClick = { aspectIndex = (aspectIndex + 1) % aspectModes.size; zoom = 1f; revealControls() }) { Text("Aspect: ${aspectLabels[aspectIndex]} ↻", color = Color.White) }
                         if (queue.size > 1) TextButton(onClick = { if (player.hasNextMediaItem()) player.seekToNextMediaItem(); revealControls() }) { Text("Next ›") }
                     }
                 }
