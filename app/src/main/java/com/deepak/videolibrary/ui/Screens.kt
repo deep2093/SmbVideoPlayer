@@ -620,6 +620,10 @@ fun SettingsScreen(vm: LibraryViewModel) {
     var user by remember { mutableStateOf(saved.username) }
     var password by remember { mutableStateOf(saved.password) }
     var savePassword by remember { mutableStateOf(saved.savePassword) }
+    val context = LocalContext.current
+    val gesturePrefs = remember(context) { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
+    var volumeGestureEnabled by remember { mutableStateOf(gesturePrefs.getBoolean("volume_gesture_enabled", true)) }
+    var brightnessGestureEnabled by remember { mutableStateOf(gesturePrefs.getBoolean("brightness_gesture_enabled", true)) }
 
     fun current() = SmbSettings(
         host = host,
@@ -634,6 +638,38 @@ fun SettingsScreen(vm: LibraryViewModel) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        Text("Settings", style = MaterialTheme.typography.headlineMedium)
+        Text("Personalize your library, playback controls and network connection.",
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Player gestures", style = MaterialTheme.typography.titleLarge)
+                Text("Volume is controlled from the right side; brightness from the left.",
+                    style = MaterialTheme.typography.bodySmall)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Volume swipe")
+                        Text("Swipe vertically on the right", style = MaterialTheme.typography.labelSmall)
+                    }
+                    androidx.compose.material3.Switch(checked = volumeGestureEnabled, onCheckedChange = {
+                        volumeGestureEnabled = it
+                        gesturePrefs.edit().putBoolean("volume_gesture_enabled", it).apply()
+                    })
+                }
+                HorizontalDivider()
+                Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Brightness swipe")
+                        Text("Swipe vertically on the left", style = MaterialTheme.typography.labelSmall)
+                    }
+                    androidx.compose.material3.Switch(checked = brightnessGestureEnabled, onCheckedChange = {
+                        brightnessGestureEnabled = it
+                        gesturePrefs.edit().putBoolean("brightness_gesture_enabled", it).apply()
+                    })
+                }
+            }
+        }
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("Library layout", style = MaterialTheme.typography.titleLarge)
         Text("Choose columns × target visible rows. Videos and Folders have independent layouts, saved on this device.", style = MaterialTheme.typography.bodySmall)
         GridPresetSetting("Folders grid", vm.folderGridPreset, vm::updateFolderGridPreset)
