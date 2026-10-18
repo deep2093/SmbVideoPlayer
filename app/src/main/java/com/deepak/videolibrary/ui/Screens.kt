@@ -871,6 +871,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Text("Personalize your library, playback controls and network connection.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        DiagnosticsSettings()
         var gesturesExpanded by rememberSaveable { mutableStateOf(false) }
         var layoutExpanded by rememberSaveable { mutableStateOf(false) }
         Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
