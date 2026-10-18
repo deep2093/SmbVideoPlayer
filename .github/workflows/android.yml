@@ -20,6 +20,29 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - name: Export complete source as plain text
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          roots = ['app', 'gradle', 'tools', '.github']
+          include = {'.kt', '.kts', '.java', '.xml', '.gradle', '.properties', '.toml', '.yml', '.yaml', '.py', '.md', '.json', '.pro', '.txt'}
+          files = [p for root in roots for p in Path(root).rglob('*') if p.is_file() and p.suffix in include and not any(x in {'build', '.gradle', '.git'} for x in p.parts)]
+          files += [p for p in (Path('settings.gradle.kts'), Path('build.gradle.kts'), Path('gradle.properties'), Path('README.md')) if p.is_file()]
+          files = sorted(set(files))
+          with open('SMB-Video-Player-complete-source.txt', 'w', encoding='utf-8') as out:
+              out.write('SMB VIDEO PLAYER - COMPLETE SOURCE CODE\\n')
+              out.write('Each section begins with its relative repository path.\\n\\n')
+              for p in files:
+                  out.write('\\n' + '=' * 90 + '\\nFILE: ' + str(p) + '\\n' + '=' * 90 + '\\n')
+                  out.write(p.read_text(encoding='utf-8', errors='replace'))
+                  out.write('\\n')
+          print('Exported', len(files), 'files')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SMB-Video-Player-source-text
+          path: SMB-Video-Player-complete-source.txt
+          if-no-files-found: error
       - name: Synthetic SQLite search benchmark
         run: python3 tools/benchmark_search.py
       - name: Unit tests
