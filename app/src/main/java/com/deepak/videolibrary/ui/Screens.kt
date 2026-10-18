@@ -155,7 +155,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                 }
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     when (tab) {
-                        0 -> FoldersScreen(vm, onOpenGroup = { folderDetails = true; tab = 1 })
+                        0 -> FoldersScreen(vm, onOpenGroup = { folderDetails = true; tab = 1 }, onPlay = { video -> playing = video; playQueue = listOf(video) }, onOpenSettings = { tab = 4 })
                         1 -> VideosScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
                             folderDetails = false; vm.groupFilter.value = null; tab = 0
                         }) else null)
@@ -357,8 +357,18 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewMo
 // ---------------------------------------------------------------- Virtual folders
 
 @Composable
-fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
+fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoEntity) -> Unit, onOpenSettings: () -> Unit) {
     val groups by vm.groups.collectAsStateWithLifecycle()
+    val dashboardVideos by vm.videos.collectAsStateWithLifecycle()
+    val dashboardContext = LocalContext.current
+    val playbackPrefs = remember(dashboardContext) { dashboardContext.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
+    val recentlyWatched = remember(dashboardVideos) {
+        dashboardVideos.mapNotNull { video ->
+            val pos = playbackPrefs.getLong("resume_path_${video.relativePath}", playbackPrefs.getLong("resume_${video.id}", 0L))
+            val duration = playbackPrefs.getLong("duration_path_${video.relativePath}", 0L)
+            if (pos > 15_000L && (duration <= 0L || pos < duration - 10_000L)) video else null
+        }.take(18)
+    }
     var folderQuery by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var sourceFolder by remember { mutableStateOf<String?>(null) }
@@ -372,7 +382,7 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text("Folders", style = MaterialTheme.typography.headlineMedium)
+            Text("SMB Video Library", style = MaterialTheme.typography.titleLarge, maxLines = 1)
             Spacer(Modifier.weight(1f))
             IconButton(onClick = { editFolders = !editFolders }) {
                 Icon(Icons.Filled.Edit, contentDescription = if (editFolders) "Finish organizing folders" else "Organize folders")
@@ -380,6 +390,12 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
             IconButton(onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) folderQuery = "" }) {
                 Icon(if (searchExpanded) Icons.Filled.Close else Icons.Filled.Search,
                     contentDescription = if (searchExpanded) "Close folder search" else "Search folders")
+            }
+            IconButton(onClick = { vm.startScan(ScanMode.REFRESH) }) {
+                Icon(Icons.Filled.Refresh, contentDescription = "Refresh SMB library")
+            }
+            IconButton(onClick = onOpenSettings) {
+                Icon(Icons.Filled.Settings, contentDescription = "Settings")
             }
         }
         Text(
@@ -394,6 +410,20 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
                 label = { Text("Search folders by name") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
         }
+        if (recentlyWatched.isNotEmpty() && folderQuery.isBlank()) {
+            Text("Continue Watching", style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(top = 8.dp, bottom = 10.dp))
+            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(recentlyWatched, key = { it.id }) { video ->
+                    Box(Modifier.width(196.dp)) {
+                        VideoCard(video, onClick = { onPlay(video) }, vm = vm)
+                    }
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+        }
+        Text("Folders", style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.padding(vertical = 6.dp))
         Text("${shownGroups.size} folders · ${groups.size} total", style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(bottom = 8.dp))
         val (columns, _) = gridDimensions(vm.folderGridPreset)
