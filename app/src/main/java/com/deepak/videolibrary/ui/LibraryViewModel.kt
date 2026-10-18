@@ -68,13 +68,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var folderGridPreset by mutableStateOf(restoredGrid("folder_grid_preset", if (isTablet) "3×3" else "3×4"))
         private set
 
-    fun setVideoGridPreset(preset: String) {
+    fun updateVideoGridPreset(preset: String) {
         if (preset !in allowedGridPresets) return
         videoGridPreset = preset
         layoutPrefs.edit().putString("video_grid_preset", preset).apply()
     }
 
-    fun setFolderGridPreset(preset: String) {
+    fun updateFolderGridPreset(preset: String) {
         if (preset !in allowedGridPresets) return
         folderGridPreset = preset
         layoutPrefs.edit().putString("folder_grid_preset", preset).apply()

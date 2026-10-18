@@ -582,8 +582,8 @@ fun SettingsScreen(vm: LibraryViewModel) {
     ) {
         Text("Library layout", style = MaterialTheme.typography.titleLarge)
         Text("Choose columns × target visible rows. Videos and Folders have independent layouts, saved on this device.", style = MaterialTheme.typography.bodySmall)
-        GridPresetSetting("Folders grid", vm.folderGridPreset, vm::setFolderGridPreset)
-        GridPresetSetting("Videos grid", vm.videoGridPreset, vm::setVideoGridPreset)
+        GridPresetSetting("Folders grid", vm.folderGridPreset, vm::updateFolderGridPreset)
+        GridPresetSetting("Videos grid", vm.videoGridPreset, vm::updateVideoGridPreset)
         HorizontalDivider(Modifier.padding(vertical = 12.dp))
         Text("SMB connection", style = MaterialTheme.typography.titleLarge)
 
