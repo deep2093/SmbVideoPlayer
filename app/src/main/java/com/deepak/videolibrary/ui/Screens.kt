@@ -4,6 +4,8 @@ import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
@@ -189,7 +191,7 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
             androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(continueWatching, key = { it.id }) { video ->
                     androidx.compose.foundation.layout.Box(Modifier.width(210.dp)) {
-                        VideoCard(video, onClick = { onPlay(video, listOf(video)) })
+                        VideoCard(video, onClick = { onPlay(video, listOf(video)) }, vm = vm)
                     }
                 }
             }
@@ -215,8 +217,7 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
                 modifier = Modifier.fillMaxSize(),
             ) {
                 gridItems(videos, key = { it.id }) { video ->
-                    VideoCard(video, onClick = { onPlay(video, if (group != null) videos.toList() else listOf(video)) },
-                        onRename = { vm.renameOriginal(video.relativePath, it) })
+                    VideoCard(video, onClick = { onPlay(video, if (group != null) videos.toList() else listOf(video)) }, vm = vm)
                 }
             }
         }
@@ -238,41 +239,88 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
 
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun VideoCard(video: VideoEntity, onClick: () -> Unit, onRename: ((String) -> Unit)? = null, modifier: Modifier = Modifier) {
+private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewModel, modifier: Modifier = Modifier) {
+    var menuOpen by remember(video.id) { mutableStateOf(false) }
     var renameOpen by remember(video.id) { mutableStateOf(false) }
+    var deleteOpen by remember(video.id) { mutableStateOf(false) }
+    var detailsOpen by remember(video.id) { mutableStateOf(false) }
     var newFileName by remember(video.id) { mutableStateOf(video.name) }
     val context = LocalContext.current
     val thumb: File? = if (video.thumbStatus == "DONE") ThumbStore.thumbFile(context, video.id) else null
 
-    Card(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-      Column(if (modifier == Modifier) Modifier.padding(8.dp) else Modifier.fillMaxSize().padding(6.dp)) {
-        FileImage(
-            thumb,
-            (if (modifier == Modifier) Modifier.fillMaxWidth().aspectRatio(16f / 10f) else Modifier.fillMaxWidth().weight(1f)).clip(RoundedCornerShape(10.dp)),
-        )
-        Text(
-            video.name,
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp),
-        )
-        if (onRename != null) {
-            TextButton(onClick = { newFileName = video.name; renameOpen = true }) { Text("⋮ Rename", maxLines = 1) }
+    Box(modifier) {
+        Card(
+            modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menuOpen = true }),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Column(Modifier.padding(8.dp)) {
+                FileImage(thumb, Modifier.fillMaxWidth().aspectRatio(16f / 10f).clip(RoundedCornerShape(10.dp)))
+                val prefs = remember(context) { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
+                val watchedMs = prefs.getLong("resume_path_${video.relativePath}", prefs.getLong("resume_${video.id}", 0L))
+                val totalMs = prefs.getLong("duration_path_${video.relativePath}", 0L)
+                if (totalMs > 0L && watchedMs > 0L) {
+                    LinearProgressIndicator(
+                        progress = { (watchedMs.toFloat() / totalMs).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().height(3.dp),
+                        color = androidx.compose.ui.graphics.Color(0xFFE53935),
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                }
+                Text(video.name, style = MaterialTheme.typography.bodySmall, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                Text(Formatter.formatShortFileSize(context, video.size),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        Text(
-            Formatter.formatShortFileSize(context, video.size),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(text = { Text("Copy") }, onClick = {
+                menuOpen = false
+                vm.stageExplorer(video.relativePath, false, false)
+            })
+            DropdownMenuItem(text = { Text("Rename") }, onClick = {
+                menuOpen = false; newFileName = video.name; renameOpen = true
+            })
+            DropdownMenuItem(text = { Text("Delete") }, onClick = {
+                menuOpen = false; deleteOpen = true
+            })
+            DropdownMenuItem(text = { Text("Details") }, onClick = {
+                menuOpen = false; detailsOpen = true
+            })
+        }
     }
-    if (renameOpen && onRename != null) {
-        AlertDialog(onDismissRequest = { renameOpen = false }, title = { Text("Rename original SMB file") },
-            text = { OutlinedTextField(value = newFileName, onValueChange = { newFileName = it }, label = { Text("Filename including extension") }) },
-            confirmButton = { TextButton(onClick = { onRename(newFileName); renameOpen = false }) { Text("Rename") } },
+    if (renameOpen) {
+        AlertDialog(onDismissRequest = { renameOpen = false }, title = { Text("Rename original SMB video") },
+            text = { Column {
+                Text("This changes the filename on your network drive.")
+                OutlinedTextField(value = newFileName, onValueChange = { newFileName = it },
+                    label = { Text("Full filename including extension") }, singleLine = true)
+            } },
+            confirmButton = { TextButton(onClick = {
+                vm.renameOriginal(video.relativePath, newFileName); renameOpen = false
+            }, enabled = newFileName.isNotBlank() && newFileName != video.name) { Text("Rename") } },
             dismissButton = { TextButton(onClick = { renameOpen = false }) { Text("Cancel") } })
+    }
+    if (deleteOpen) {
+        AlertDialog(onDismissRequest = { deleteOpen = false }, title = { Text("Delete original video?") },
+            text = { Text("Permanently delete '${video.name}' from your SMB drive? This cannot be undone.") },
+            confirmButton = { TextButton(onClick = {
+                vm.deleteOriginal(video.relativePath, false); deleteOpen = false
+            }) { Text("Delete permanently") } },
+            dismissButton = { TextButton(onClick = { deleteOpen = false }) { Text("Cancel") } })
+    }
+    if (detailsOpen) {
+        AlertDialog(onDismissRequest = { detailsOpen = false }, title = { Text("Video details") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Full name: ${video.name}")
+                Text("File size: ${Formatter.formatFileSize(context, video.size)} (${video.size} bytes)")
+                Text("SMB location: ${vm.originalVideoLocation(video.relativePath)}")
+                Text("Relative path: ${video.relativePath}")
+            } },
+            confirmButton = { TextButton(onClick = { detailsOpen = false }) { Text("Close") } })
     }
 }
 
