@@ -708,6 +708,7 @@ fun ScanScreen(vm: LibraryViewModel) {
 
 // ---------------------------------------------------------------- Settings
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(vm: LibraryViewModel) {
     val saved = vm.settings
