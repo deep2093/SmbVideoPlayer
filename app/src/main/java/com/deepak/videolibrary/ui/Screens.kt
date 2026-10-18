@@ -7,6 +7,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.ui.focus.onFocusChanged
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
@@ -128,10 +134,15 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         val tabletLayout = maxWidth >= 700.dp
         Scaffold(
             bottomBar = {
-                if (!tabletLayout) NavigationBar {
+                if (!tabletLayout) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceVariant) {
                     TAB_LABELS.forEachIndexed { index, label ->
                         NavigationBarItem(
                             selected = tab == index,
+                            colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
+                                selectedIconColor = androidx.compose.ui.graphics.Color.White,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primary,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant),
                             onClick = {
                                 tab = index
                                 folderDetails = false
@@ -149,6 +160,11 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         TAB_LABELS.forEachIndexed { index, label ->
                             androidx.compose.material3.NavigationRailItem(
                                 selected = tab == index,
+                                colors = androidx.compose.material3.NavigationRailItemDefaults.colors(
+                                    selectedIconColor = androidx.compose.ui.graphics.Color.White,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primary,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant),
                                 onClick = {
                                     tab = index
                                     folderDetails = false
@@ -276,7 +292,8 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewModel, modifier: Modifier = Modifier) {
+private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewModel, modifier: Modifier = Modifier,
+    onRemoveFromContinue: (() -> Unit)? = null) {
     var menuOpen by remember(video.id) { mutableStateOf(false) }
     var renameOpen by remember(video.id) { mutableStateOf(false) }
     var deleteOpen by remember(video.id) { mutableStateOf(false) }
@@ -315,6 +332,12 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewMo
             }
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            if (onRemoveFromContinue != null) {
+                DropdownMenuItem(text = { Text("Remove from Continue Watching") }, onClick = {
+                    menuOpen = false
+                    onRemoveFromContinue()
+                })
+            }
             DropdownMenuItem(text = { Text("Copy") }, onClick = {
                 menuOpen = false
                 vm.stageExplorer(video.relativePath, false, false)
@@ -370,11 +393,13 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
     val dashboardVideos by vm.videos.collectAsStateWithLifecycle()
     val dashboardContext = LocalContext.current
     val playbackPrefs = remember(dashboardContext) { dashboardContext.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
-    val recentlyWatched = remember(dashboardVideos) {
+    var continueRefresh by remember { mutableIntStateOf(0) }
+    val recentlyWatched = remember(dashboardVideos, continueRefresh) {
         dashboardVideos.mapNotNull { video ->
             val pos = playbackPrefs.getLong("resume_path_${video.relativePath}", playbackPrefs.getLong("resume_${video.id}", 0L))
             val duration = playbackPrefs.getLong("duration_path_${video.relativePath}", 0L)
-            if (pos > 15_000L && (duration <= 0L || pos < duration - 10_000L)) video else null
+            if (!playbackPrefs.getBoolean("hide_continue_${video.relativePath}", false) &&
+                pos > 15_000L && (duration <= 0L || pos < duration - 10_000L)) video else null
         }.take(18)
     }
     var folderQuery by rememberSaveable { mutableStateOf("") }
@@ -423,7 +448,11 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
             androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(recentlyWatched, key = { it.id }) { video ->
                     Box(Modifier.width(218.dp)) {
-                        VideoCard(video, onClick = { onPlay(video) }, vm = vm)
+                        VideoCard(video, onClick = { onPlay(video) }, vm = vm,
+                            onRemoveFromContinue = {
+                                playbackPrefs.edit().putBoolean("hide_continue_${video.relativePath}", true).apply()
+                                continueRefresh++
+                            })
                     }
                 }
             }
@@ -690,8 +719,12 @@ fun SettingsScreen(vm: LibraryViewModel) {
     var savePassword by remember { mutableStateOf(saved.savePassword) }
     val context = LocalContext.current
     val gesturePrefs = remember(context) { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
-    var volumeGestureEnabled by remember { mutableStateOf(gesturePrefs.getBoolean("volume_gesture_enabled", true)) }
-    var brightnessGestureEnabled by remember { mutableStateOf(gesturePrefs.getBoolean("brightness_gesture_enabled", true)) }
+    var swipeGesturesEnabled by remember {
+        mutableStateOf(gesturePrefs.getBoolean("volume_gesture_enabled", true) &&
+            gesturePrefs.getBoolean("brightness_gesture_enabled", true))
+    }
+    val keyboardScope = rememberCoroutineScope()
+    val passwordBringIntoView = remember { BringIntoViewRequester() }
     val syncPrefs = remember(context) { context.getSharedPreferences(com.deepak.videolibrary.scan.PeriodicSyncWorker.DIAGNOSTICS, android.content.Context.MODE_PRIVATE) }
     var syncRefresh by remember { mutableIntStateOf(0) }
     var artworkCacheBytes by remember { mutableLongStateOf(-1L) }
@@ -716,7 +749,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
     )
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
@@ -729,23 +762,13 @@ fun SettingsScreen(vm: LibraryViewModel) {
                     style = MaterialTheme.typography.bodySmall)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Volume swipe")
-                        Text("Swipe vertically on the right", style = MaterialTheme.typography.labelSmall)
+                        Text("Brightness and volume swipe")
+                        Text("Left: brightness · Right: volume", style = MaterialTheme.typography.labelSmall)
                     }
-                    androidx.compose.material3.Switch(checked = volumeGestureEnabled, onCheckedChange = {
-                        volumeGestureEnabled = it
-                        gesturePrefs.edit().putBoolean("volume_gesture_enabled", it).apply()
-                    })
-                }
-                HorizontalDivider()
-                Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Brightness swipe")
-                        Text("Swipe vertically on the left", style = MaterialTheme.typography.labelSmall)
-                    }
-                    androidx.compose.material3.Switch(checked = brightnessGestureEnabled, onCheckedChange = {
-                        brightnessGestureEnabled = it
-                        gesturePrefs.edit().putBoolean("brightness_gesture_enabled", it).apply()
+                    androidx.compose.material3.Switch(checked = swipeGesturesEnabled, onCheckedChange = {
+                        swipeGesturesEnabled = it
+                        gesturePrefs.edit().putBoolean("volume_gesture_enabled", it)
+                            .putBoolean("brightness_gesture_enabled", it).apply()
                     })
                 }
             }
@@ -815,7 +838,13 @@ fun SettingsScreen(vm: LibraryViewModel) {
             singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().bringIntoViewRequester(passwordBringIntoView)
+                .onFocusChanged { state ->
+                    if (state.isFocused) keyboardScope.launch {
+                        kotlinx.coroutines.delay(250)
+                        passwordBringIntoView.bringIntoView()
+                    }
+                },
         )
         Row(
             Modifier.fillMaxWidth().clickable { savePassword = !savePassword },
