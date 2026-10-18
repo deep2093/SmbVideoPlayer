@@ -120,6 +120,8 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     var playing by remember { mutableStateOf<VideoEntity?>(null) }
     var playQueue by remember { mutableStateOf<List<VideoEntity>>(emptyList()) }
     val foldersScrollState = rememberLazyGridState()
+    val videosScrollState = rememberLazyGridState()
+    val folderVideosScrollState = rememberLazyGridState()
     BackHandler(enabled = playing != null || folderDetails || tab != 0) {
         when {
             playing != null -> playing = null
@@ -181,7 +183,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     when (tab) {
                         0 -> FoldersScreen(vm, gridState = foldersScrollState, onOpenGroup = { folderDetails = true; tab = 1 }, onPlay = { video -> playing = video; playQueue = listOf(video) }, onOpenSettings = { tab = 4 })
-                        1 -> VideosScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
+                        1 -> VideosScreen(vm, gridState = if (folderDetails) folderVideosScrollState else videosScrollState, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
                             folderDetails = false; vm.groupFilter.value = null; tab = 0
                         }) else null)
                         2 -> ExplorerScreen(vm, onPlay = { video -> playing = video; playQueue = listOf(video) })
@@ -197,7 +199,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
 // ---------------------------------------------------------------- Videos
 
 @Composable
-fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, onBackToFolders: (() -> Unit)? = null) {
+fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, onBackToFolders: (() -> Unit)? = null) {
     val videos by vm.videos.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
     val group by vm.groupFilter.collectAsStateWithLifecycle()
@@ -248,6 +250,7 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
         val columns = LibraryLayout.columns(vm.videoGridPreset)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(if (vm.videoListMode) 1 else columns),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -283,7 +286,7 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
                     Text(if (total == 0) "No videos yet. Add your server in Settings, then run a scan."
                         else "No videos match your search.", modifier = Modifier.padding(vertical = 24.dp))
                 }
-                gridItems(displayedVideos, key = { it.id }) { video ->
+                gridItems(displayedVideos, key = { it.id }, contentType = { "video" }) { video ->
                     VideoCard(video, onClick = {
                         onPlay(video, if (group != null) displayedVideos else listOf(video))
                     }, vm = vm, listMode = vm.videoListMode)
@@ -540,7 +543,7 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
                     Text(if (folderQuery.isNotBlank()) "No matching folders." else "Your virtual folders appear after a scan.",
                         modifier = Modifier.padding(vertical = 24.dp))
                 }
-                gridItems(shownGroups, key = { it.groupKey }) { row ->
+                gridItems(shownGroups, key = { it.groupKey }, contentType = { "folder" }) { row ->
                     Column {
                         FolderCard(vm, row, listMode = vm.folderListMode) {
                             vm.groupFilter.value = row.groupKey
