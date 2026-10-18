@@ -284,6 +284,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Read-only display string. No credentials are included. */
+    fun originalVideoLocation(relativePath: String): String {
+        val profile = settingsStore.loadProfile() ?: return relativePath
+        val parts = listOf(profile.host, profile.share, profile.rootPath, relativePath)
+            .filter { it.isNotBlank() }
+        return "\\\\" + parts.joinToString("\\") { it.trim('/', '\\').replace('/', '\\') }
+    }
+
     fun stageExplorer(path: String, directory: Boolean, cut: Boolean) {
         explorerClipboard = Triple(path, directory, cut)
         explorerMessage = if (cut) "Ready to move: $path" else "Ready to copy: $path"
