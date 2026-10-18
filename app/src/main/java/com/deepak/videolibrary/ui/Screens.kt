@@ -3,6 +3,7 @@ package com.deepak.videolibrary.ui
 import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -262,12 +264,15 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewMo
                 val watchedMs = prefs.getLong("resume_path_${video.relativePath}", prefs.getLong("resume_${video.id}", 0L))
                 val totalMs = prefs.getLong("duration_path_${video.relativePath}", 0L)
                 if (totalMs > 0L && watchedMs > 0L) {
-                    LinearProgressIndicator(
-                        progress = { (watchedMs.toFloat() / totalMs).coerceIn(0f, 1f) },
-                        modifier = Modifier.fillMaxWidth().height(3.dp),
-                        color = androidx.compose.ui.graphics.Color(0xFFE53935),
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
+                    // A continuous left-to-right watched indicator, without Material3's
+                    // separate end-of-track stop dot.
+                    val watchedFraction = (watchedMs.toFloat() / totalMs).coerceIn(0f, 1f)
+                    Box(Modifier.fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                        Box(
+                            Modifier.fillMaxWidth(watchedFraction).fillMaxHeight()
+                                .background(androidx.compose.ui.graphics.Color(0xFFE53935))
+                        )
+                    }
                 }
                 Text(video.name, style = MaterialTheme.typography.bodySmall, maxLines = 2,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
