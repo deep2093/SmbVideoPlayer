@@ -20,6 +20,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
     var selected by remember { mutableStateOf<SmbEntry?>(null) }
     var renameDialog by remember { mutableStateOf(false) }
     var deleteDialog by remember { mutableStateOf(false) }
+    var pasteDialog by remember { mutableStateOf(false) }
     var renameValue by remember { mutableStateOf("") }
     val playableExtensions = remember { setOf("mp4", "mkv", "avi", "mov", "m4v", "webm", "ts", "m2ts", "wmv", "flv", "mpg", "mpeg", "3gp") }
     LaunchedEffect(Unit) { vm.browse("") }
@@ -39,7 +40,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
             val clip = vm.explorerClipboard!!
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("${if (clip.third) "Move" else "Copy"}: ${clip.first.substringAfterLast('/')}", modifier = Modifier.weight(1f), maxLines = 1)
-                Button(onClick = vm::pasteExplorer, enabled = !vm.explorerBusy) { Text("Paste here") }
+                Button(onClick = { pasteDialog = true }, enabled = !vm.explorerBusy) { Text("Paste here") }
             }
         }
         if (vm.explorerBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -60,7 +61,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
                     },
                         maxLines = 2, style = MaterialTheme.typography.bodyMedium)
                     Box {
-                        TextButton(onClick = { selected = entry; menu = true }) { Text("⋮") }
+                        TextButton(onClick = { selected = entry; menu = true }) { Text("⋮", style = MaterialTheme.typography.titleMedium) }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             if (playable) DropdownMenuItem(text = { Text("▶ Play video") }, onClick = {
                                 menu = false
@@ -87,6 +88,22 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
             }
         }
     }
+    if (pasteDialog && vm.explorerClipboard != null) {
+        val clip = vm.explorerClipboard!!
+        val target = listOf(vm.explorerPath, clip.first.substringAfterLast('/')).filter { it.isNotBlank() }.joinToString("/")
+        AlertDialog(
+            onDismissRequest = { pasteDialog = false },
+            title = { Text(if (clip.third) "Move original SMB item?" else "Copy original SMB item?") },
+            text = { Text("From: ${clip.first}\\nTo: $target\\n\\nThis changes files on your network drive. An existing destination will not be overwritten.") },
+            confirmButton = {
+                TextButton(onClick = { vm.pasteExplorer(); pasteDialog = false },
+                    enabled = !vm.explorerBusy && target != clip.first) {
+                    Text(if (clip.third) "Move" else "Copy")
+                }
+            },
+            dismissButton = { TextButton(onClick = { pasteDialog = false }) { Text("Cancel") } },
+        )
+    }
     if (renameDialog && selected != null) {
         val entry = selected!!
         AlertDialog(onDismissRequest = { renameDialog = false },
@@ -95,7 +112,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
             confirmButton = { TextButton(onClick = {
                 vm.renameOriginal(listOf(vm.explorerPath, entry.name).filter { it.isNotBlank() }.joinToString("/"), renameValue, entry.isDirectory)
                 renameDialog = false
-            }) { Text("Rename") } },
+            }, enabled = renameValue.isNotBlank() && renameValue != entry.name && !renameValue.contains("/") && !renameValue.contains("\\\\")) { Text("Rename") } },
             dismissButton = { TextButton(onClick = { renameDialog = false }) { Text("Cancel") } })
     }
     if (deleteDialog && selected != null) {
