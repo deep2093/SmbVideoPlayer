@@ -102,7 +102,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun selectVideoSort(sort: VideoSort) {
-        sortDescending = if (sort == videoSort) !sortDescending else sort != VideoSort.NAME
+        sortDescending = if (sort == videoSort) !sortDescending else false
         videoSort = sort
         layoutPrefs.edit().putString("video_sort", sort.name).putBoolean("sort_descending", sortDescending).apply()
     }
