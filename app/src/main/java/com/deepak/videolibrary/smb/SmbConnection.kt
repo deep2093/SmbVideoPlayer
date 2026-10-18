@@ -201,10 +201,11 @@ object SmbErrors {
             }
             cause = cause.cause
         }
-        val msg = e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
+        // Raw exception messages can include a URL, username or share path.
+        // Never surface arbitrary library exception text to the UI or scan logs.
         return when (e) {
-            is TransportException, is IOException -> "Network problem: $msg"
-            else -> msg
+            is TransportException, is IOException -> "Network problem. Check SMB address, Wi-Fi, permissions and connection."
+            else -> "SMB operation failed (${e.javaClass.simpleName}). Check connection and access permissions."
         }
     }
 
