@@ -114,32 +114,54 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         PlayerScreen(video = playing!!, settings = vm.settings, playlist = playQueue, onClose = { playing = null; playQueue = emptyList() })
         return
     }
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                TAB_LABELS.forEachIndexed { index, label ->
-                    NavigationBarItem(
-                        selected = tab == index,
-                        onClick = {
-                            tab = index
-                            folderDetails = false
-                            vm.groupFilter.value = null
-                        },
-                        icon = { Text(TAB_GLYPHS[index]) }, label = { Text(label) },
-                    )
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val tabletLayout = maxWidth >= 700.dp
+        Scaffold(
+            bottomBar = {
+                if (!tabletLayout) NavigationBar {
+                    TAB_LABELS.forEachIndexed { index, label ->
+                        NavigationBarItem(
+                            selected = tab == index,
+                            onClick = {
+                                tab = index
+                                folderDetails = false
+                                vm.groupFilter.value = null
+                            },
+                            icon = { Text(TAB_GLYPHS[index]) }, label = { Text(label) },
+                        )
+                    }
                 }
-            }
-        },
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            when (tab) {
-                0 -> FoldersScreen(vm, onOpenGroup = { folderDetails = true; tab = 1 })
-                1 -> VideosScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
-                    folderDetails = false; vm.groupFilter.value = null; tab = 0
-                }) else null)
-                2 -> ExplorerScreen(vm, onPlay = { video -> playing = video; playQueue = listOf(video) })
-                3 -> ScanScreen(vm)
-                else -> SettingsScreen(vm)
+            },
+        ) { padding ->
+            Row(Modifier.padding(padding).fillMaxSize()) {
+                if (tabletLayout) {
+                    androidx.compose.material3.NavigationRail {
+                        TAB_LABELS.forEachIndexed { index, label ->
+                            androidx.compose.material3.NavigationRailItem(
+                                selected = tab == index,
+                                onClick = {
+                                    tab = index
+                                    folderDetails = false
+                                    vm.groupFilter.value = null
+                                },
+                                icon = { Text(TAB_GLYPHS[index]) },
+                                label = { Text(label) },
+                                alwaysShowLabel = true,
+                            )
+                        }
+                    }
+                }
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    when (tab) {
+                        0 -> FoldersScreen(vm, onOpenGroup = { folderDetails = true; tab = 1 })
+                        1 -> VideosScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
+                            folderDetails = false; vm.groupFilter.value = null; tab = 0
+                        }) else null)
+                        2 -> ExplorerScreen(vm, onPlay = { video -> playing = video; playQueue = listOf(video) })
+                        3 -> ScanScreen(vm)
+                        else -> SettingsScreen(vm)
+                    }
+                }
             }
         }
     }
