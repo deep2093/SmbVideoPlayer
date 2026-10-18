@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.media3.common.C
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -118,6 +120,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     var holdSpeed by remember { mutableFloatStateOf(prefs.getFloat("hold_speed", 1.5f)) }
     var pipEnabled by remember { mutableStateOf(prefs.getBoolean("pip_enabled", false)) }
     var showSettings by remember { mutableStateOf(false) }
+    var showTracks by remember { mutableStateOf(false) }
+    var trackRefresh by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
     var isPlaying by remember { mutableStateOf(true) }
     var position by remember { mutableLongStateOf(0L) }
@@ -194,7 +198,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    BackHandler { if (showSettings) showSettings = false else onClose() }
+    BackHandler { if (showTracks) showTracks = false else if (showSettings) showSettings = false else onClose() }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(factory = { PlayerView(it).apply {
             this.player = player
@@ -295,10 +299,10 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                         if (!moved && !holding) {
                             val now = System.currentTimeMillis()
                             if (now - lastTapTime < 350L && lastTapSide == side) {
-                                val delta = if (side == 0) -5_000L else 10_000L
+                                val delta = if (side == 0) -10_000L else 10_000L
                                 player.seekTo((player.currentPosition + delta).coerceIn(0L,
                                     player.duration.takeIf { it > 0L } ?: Long.MAX_VALUE))
-                                gestureMessage = if (side == 0) "−5 sec" else "+10 sec"
+                                gestureMessage = if (side == 0) "−10 sec" else "+10 sec"
                                 lastTapTime = 0L
                             } else {
                                 lastTapTime = now
@@ -322,10 +326,11 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                 Row(Modifier.fillMaxWidth().background(Color(0xA6000000)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = onClose) { Text("‹ Back", color = Color.White) }
                     Text(activeVideo.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)
-                    TextButton(onClick = { showSettings = !showSettings; revealControls() }) { Text("⚙", color = Color.White) }
+                    TextButton(onClick = { showTracks = !showTracks; showSettings = false; revealControls() }) { Text("Audio / CC", color = Color.White) }
+                    TextButton(onClick = { showSettings = !showSettings; showTracks = false; revealControls() }) { Text("⚙", color = Color.White) }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { player.seekTo((player.currentPosition - 5_000).coerceAtLeast(0)); revealControls() }) { Text("↶ 5", color = Color.White) }
+                    TextButton(onClick = { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)); revealControls() }) { Text("↶ 10", color = Color.White) }
                     TextButton(onClick = { if (player.isPlaying) player.pause() else player.play(); revealControls() }) { Text(if (isPlaying) "❚❚" else "▶", color = Color.White, style = MaterialTheme.typography.headlineLarge) }
                     TextButton(onClick = { player.seekTo((player.currentPosition + 10_000).coerceAtMost(duration.coerceAtLeast(0))); revealControls() }) { Text("10 ↷", color = Color.White) }
                 }
@@ -347,6 +352,51 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                         if (queue.size > 1) TextButton(onClick = { if (player.hasNextMediaItem()) player.seekToNextMediaItem(); revealControls() }) { Text("Next ›") }
                     }
                 }
+            }
+        }
+        if (showTracks && controlsVisible) {
+            val trackGroups = player.currentTracks.groups
+            Column(
+                Modifier.align(Alignment.TopEnd).padding(top = 56.dp, end = 12.dp)
+                    .widthIn(max = 290.dp)
+                    .background(Color(0xF21A1A1E), RoundedCornerShape(16.dp))
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                Text("Audio & subtitles", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                listOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_TEXT).forEach { trackType ->
+                    Text(if (trackType == C.TRACK_TYPE_AUDIO) "Audio tracks" else "Subtitles",
+                        color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
+                    if (trackType == C.TRACK_TYPE_TEXT) {
+                        TextButton(onClick = {
+                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+                            trackRefresh++
+                            revealControls()
+                        }) { Text("Off", color = Color.White) }
+                    }
+                    val groups = trackGroups.filter { it.type == trackType && it.isSupported }
+                    if (groups.isEmpty()) Text("No available tracks", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                    groups.forEach { group ->
+                        for (index in 0 until group.length) {
+                            if (!group.isTrackSupported(index)) continue
+                            val format = group.getTrackFormat(index)
+                            val label = format.label ?: format.language ?: "Track ${index + 1}"
+                            TextButton(onClick = {
+                                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                                    .setTrackTypeDisabled(trackType, false)
+                                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
+                                    .build()
+                                trackRefresh++
+                                revealControls()
+                            }) {
+                                Text(label, color = if (group.isTrackSelected(index)) Color(0xFF8AB4F8) else Color.White,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+                TextButton(onClick = { showTracks = false }) { Text("Close") }
             }
         }
         if (showSettings && controlsVisible) {
