@@ -94,7 +94,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
         AlertDialog(
             onDismissRequest = { pasteDialog = false },
             title = { Text(if (clip.third) "Move original SMB item?" else "Copy original SMB item?") },
-            text = { Text("From: ${clip.first}\\nTo: $target\\n\\nThis changes files on your network drive. An existing destination will not be overwritten.") },
+            text = { Text("From: ${clip.first}\nTo: $target\n\nThis changes files on your network drive. An existing destination will not be overwritten.") },
             confirmButton = {
                 TextButton(onClick = { vm.pasteExplorer(); pasteDialog = false },
                     enabled = !vm.explorerBusy && target != clip.first) {
@@ -112,7 +112,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
             confirmButton = { TextButton(onClick = {
                 vm.renameOriginal(listOf(vm.explorerPath, entry.name).filter { it.isNotBlank() }.joinToString("/"), renameValue, entry.isDirectory)
                 renameDialog = false
-            }, enabled = renameValue.isNotBlank() && renameValue != entry.name && !renameValue.contains("/") && !renameValue.contains("\\\\")) { Text("Rename") } },
+            }, enabled = renameValue.isNotBlank() && renameValue != entry.name && !renameValue.contains("/") && !renameValue.contains("\\")) { Text("Rename") } },
             dismissButton = { TextButton(onClick = { renameDialog = false }) { Text("Cancel") } })
     }
     if (deleteDialog && selected != null) {
