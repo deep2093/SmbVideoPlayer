@@ -97,6 +97,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     val activeVideo = queue.getOrElse(currentIndex) { video }
     var controlsVisible by remember { mutableStateOf(true) }
     var controlsInteraction by remember { mutableIntStateOf(0) }
+    var showTracks by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     fun revealControls() { controlsVisible = true; controlsInteraction++ }
     // Hide Android status/navigation bars while the fullscreen player is on screen.
     DisposableEffect(activity) {
@@ -109,8 +111,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
             View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         onDispose { if (before != null) decor?.systemUiVisibility = before }
     }
-    LaunchedEffect(controlsVisible, controlsInteraction, currentIndex) {
-        if (controlsVisible) { delay(2_000); controlsVisible = false }
+    LaunchedEffect(controlsVisible, controlsInteraction, currentIndex, showTracks, showSettings) {
+        if (controlsVisible && !showTracks && !showSettings) { delay(2_000); controlsVisible = false }
     }
     val aspectModes = listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT, AspectRatioFrameLayout.RESIZE_MODE_ZOOM, AspectRatioFrameLayout.RESIZE_MODE_FILL, AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH, AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT)
     val aspectLabels = listOf("Fit", "Crop", "Stretch", "Width", "Height")
@@ -119,8 +121,6 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     var zoom by remember { mutableFloatStateOf(1f) }
     var holdSpeed by remember { mutableFloatStateOf(prefs.getFloat("hold_speed", 1.5f)) }
     var pipEnabled by remember { mutableStateOf(prefs.getBoolean("pip_enabled", false)) }
-    var showSettings by remember { mutableStateOf(false) }
-    var showTracks by remember { mutableStateOf(false) }
     var trackRefresh by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
     var isPlaying by remember { mutableStateOf(true) }
