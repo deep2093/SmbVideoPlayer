@@ -1,0 +1,45 @@
+package com.deepak.videolibrary.thumbs
+
+import android.content.Context
+import android.util.LruCache
+import androidx.compose.ui.graphics.ImageBitmap
+import java.io.File
+
+/** Where thumbnails and folder covers live. Both are in the app's private storage. */
+object ThumbStore {
+    const val THUMB_WIDTH = 480
+
+    fun thumbDir(context: Context) = File(context.filesDir, "thumbs")
+
+    fun coverDir(context: Context) = File(context.filesDir, "covers")
+
+    fun thumbFile(context: Context, videoId: Long) = File(thumbDir(context), "$videoId.jpg")
+
+    /** Deletes cached artwork only. Nothing on the SMB drive is touched. */
+    fun clearAll(context: Context) {
+        thumbDir(context).deleteRecursively()
+        coverDir(context).deleteRecursively()
+        ImageMemoryCache.clear()
+    }
+}
+
+/** Small in-memory cache of decoded images, capped by size so it cannot grow with the library. */
+object ImageMemoryCache {
+    private val cache = object : LruCache<String, ImageBitmap>(24 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
+    }
+
+    fun get(key: String): ImageBitmap? = cache.get(key)
+
+    fun put(key: String, image: ImageBitmap) {
+        cache.put(key, image)
+    }
+
+    fun remove(key: String) {
+        cache.remove(key)
+    }
+
+    fun clear() {
+        cache.evictAll()
+    }
+}
