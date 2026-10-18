@@ -624,6 +624,13 @@ fun SettingsScreen(vm: LibraryViewModel) {
     val gesturePrefs = remember(context) { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
     var volumeGestureEnabled by remember { mutableStateOf(gesturePrefs.getBoolean("volume_gesture_enabled", true)) }
     var brightnessGestureEnabled by remember { mutableStateOf(gesturePrefs.getBoolean("brightness_gesture_enabled", true)) }
+    val syncPrefs = remember(context) { context.getSharedPreferences(com.deepak.videolibrary.scan.PeriodicSyncWorker.DIAGNOSTICS, android.content.Context.MODE_PRIVATE) }
+    var syncRefresh by remember { mutableIntStateOf(0) }
+    val syncAttempt = remember(syncRefresh) { syncPrefs.getLong("last_attempt", 0L) }
+    val syncSuccess = remember(syncRefresh) { syncPrefs.getLong("last_success", 0L) }
+    val syncStatus = remember(syncRefresh) { syncPrefs.getString("last_status", "Not run yet") ?: "Not run yet" }
+    fun syncDate(time: Long): String = if (time == 0L) "Never" else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(time))
+
 
     fun current() = SmbSettings(
         host = host,
@@ -675,6 +682,20 @@ fun SettingsScreen(vm: LibraryViewModel) {
         GridPresetSetting("Folders grid", vm.folderGridPreset, vm::updateFolderGridPreset)
         GridPresetSetting("Videos grid", vm.videoGridPreset, vm::updateVideoGridPreset)
         HorizontalDivider(Modifier.padding(vertical = 12.dp))
+        Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Automatic library sync", style = MaterialTheme.typography.titleLarge)
+                Text("Best-effort every 12 hours when Android allows it, network is connected, battery is not low and storage is not low. Wi-Fi/LAN SMB access is not guaranteed by the network constraint.",
+                    style = MaterialTheme.typography.bodySmall)
+                Text("Last attempt: ${syncDate(syncAttempt)}")
+                Text("Last success: ${syncDate(syncSuccess)}")
+                Text("Status: $syncStatus", style = MaterialTheme.typography.bodySmall)
+                Text("For immediate changes, use Scan → Refresh. Save SMB credentials for unattended authenticated sync.",
+                    style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = { syncRefresh++ }) { Text("Refresh sync status") }
+            }
+        }
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("SMB connection", style = MaterialTheme.typography.titleLarge)
 
         OutlinedTextField(
@@ -686,15 +707,8 @@ fun SettingsScreen(vm: LibraryViewModel) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             modifier = Modifier.fillMaxWidth(),
         )
-        Text("Find SMB servers on Wi-Fi", style = MaterialTheme.typography.titleMedium)
-        OutlinedButton(onClick = vm::discoverHosts, enabled = !vm.discoveryRunning) {
-            Text(if (vm.discoveryRunning) "Searching your network…" else "Discover network drives")
-        }
-        Text(vm.discoveryMessage, style = MaterialTheme.typography.bodySmall,
-            color = if (vm.discoveredHosts.isEmpty() && !vm.discoveryRunning) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
-        vm.discoveredHosts.forEach { address ->
-            TextButton(onClick = { host = address }) { Text("SMB device: $address  → Use") }
-        }
+        Text("Enter the SMB server IP or hostname and share manually. Automatic discovery was removed because it was unreliable.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(
             value = share,
             onValueChange = { share = it },
