@@ -79,6 +79,18 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var sortDescending by mutableStateOf(layoutPrefs.getBoolean("sort_descending", false))
         private set
 
+    var folderSort by mutableStateOf(layoutPrefs.getString("folder_sort", "NAME") ?: "NAME")
+        private set
+    var folderSortDescending by mutableStateOf(layoutPrefs.getBoolean("folder_sort_descending", false))
+        private set
+
+    fun selectFolderSort(sort: String) {
+        folderSortDescending = if (folderSort == sort) !folderSortDescending else false
+        folderSort = sort
+        layoutPrefs.edit().putString("folder_sort", sort)
+            .putBoolean("folder_sort_descending", folderSortDescending).apply()
+    }
+
     fun toggleVideoLayout() {
         videoListMode = !videoListMode
         layoutPrefs.edit().putBoolean("video_list", videoListMode).apply()
