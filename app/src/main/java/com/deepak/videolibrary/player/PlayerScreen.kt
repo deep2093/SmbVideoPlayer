@@ -25,6 +25,14 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +78,10 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     val lifecycleOwner = LocalLifecycleOwner.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val prefs = remember { context.getSharedPreferences("player_prefs", Context.MODE_PRIVATE) }
+    // Starting playback explicitly makes a previously dismissed item eligible again.
+    LaunchedEffect(video.relativePath) {
+        prefs.edit().putBoolean("hide_continue_${video.relativePath}", false).apply()
+    }
     val volumeGestureEnabled = remember { prefs.getBoolean("volume_gesture_enabled", true) }
     val brightnessGestureEnabled = remember { prefs.getBoolean("brightness_gesture_enabled", true) }
     val profile = remember(settings) { SmbProfile(settings.host, settings.share, settings.rootPath, settings.username, settings.password) }
@@ -324,15 +336,27 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
             // Overlay is transient; controls never permanently consume video height.
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                 Row(Modifier.fillMaxWidth().background(Color(0xA6000000)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onClose) { Text("‹ Back", color = Color.White) }
+                    IconButton(onClick = onClose) { Icon(Icons.Filled.ArrowBack, "Back to library", tint = Color.White) }
                     Text(activeVideo.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)
-                    TextButton(onClick = { showTracks = !showTracks; showSettings = false; revealControls() }) { Text("Audio / CC", color = Color.White) }
-                    TextButton(onClick = { showSettings = !showSettings; showTracks = false; revealControls() }) { Text("⚙", color = Color.White) }
+                    IconButton(onClick = { showTracks = !showTracks; showSettings = false; revealControls() }) {
+                        Icon(Icons.Filled.Subtitles, "Audio and subtitles", tint = Color.White)
+                    }
+                    IconButton(onClick = { showSettings = !showSettings; showTracks = false; revealControls() }) {
+                        Icon(Icons.Filled.MoreVert, "Playback options", tint = Color.White)
+                    }
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)); revealControls() }) { Text("↶ 10", color = Color.White) }
-                    TextButton(onClick = { if (player.isPlaying) player.pause() else player.play(); revealControls() }) { Text(if (isPlaying) "❚❚" else "▶", color = Color.White, style = MaterialTheme.typography.headlineLarge) }
-                    TextButton(onClick = { player.seekTo((player.currentPosition + 10_000).coerceAtMost(duration.coerceAtLeast(0))); revealControls() }) { Text("10 ↷", color = Color.White) }
+                    IconButton(onClick = { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)); revealControls() }, modifier = Modifier.size(64.dp)) {
+                        Icon(Icons.Filled.Replay10, "Rewind 10 seconds", tint = Color.White, modifier = Modifier.size(32.dp))
+                    }
+                    FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play(); revealControls() },
+                        modifier = Modifier.size(72.dp)) {
+                        Icon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            if (isPlaying) "Pause" else "Play", modifier = Modifier.size(40.dp))
+                    }
+                    IconButton(onClick = { player.seekTo((player.currentPosition + 10_000).coerceAtMost(duration.coerceAtLeast(0))); revealControls() }, modifier = Modifier.size(64.dp)) {
+                        Icon(Icons.Filled.Forward10, "Forward 10 seconds", tint = Color.White, modifier = Modifier.size(32.dp))
+                    }
                 }
                 Column(Modifier.fillMaxWidth().background(Color(0xB8000000)).padding(horizontal = 12.dp, vertical = 5.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -390,7 +414,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                                 trackRefresh++
                                 revealControls()
                             }) {
-                                Text(label, color = if (group.isTrackSelected(index)) Color(0xFF8AB4F8) else Color.White,
+                                Text(label, color = if (group.isTrackSelected(index)) MaterialTheme.colorScheme.primary else Color.White,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }

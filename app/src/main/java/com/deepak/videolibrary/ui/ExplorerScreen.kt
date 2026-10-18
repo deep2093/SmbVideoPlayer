@@ -6,6 +6,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,7 +31,9 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
     LaunchedEffect(Unit) { vm.browse("") }
     BackHandler(enabled = vm.explorerPath.isNotEmpty()) { vm.browse(vm.explorerPath.substringBeforeLast('/', "")) }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Network file explorer", style = MaterialTheme.typography.headlineMedium)
+        Text("Browse", style = MaterialTheme.typography.titleLarge)
+        Text("Local network · ${vm.settings.host.ifBlank { "SMB server" }}", style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary)
         Text("Changes here affect the ORIGINAL files on your SMB drive.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -63,7 +70,8 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
                 val fullPath = listOf(vm.explorerPath, entry.name).filter { it.isNotBlank() }.joinToString("/")
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     val playable = !entry.isDirectory && entry.name.substringAfterLast('.', "").lowercase() in playableExtensions
-                    Text(if (entry.isDirectory) "📁" else if (playable) "▶" else "📄", modifier = Modifier.padding(8.dp))
+                    Icon(if (entry.isDirectory) Icons.Filled.Folder else if (playable) Icons.Filled.Movie else Icons.Filled.InsertDriveFile,
+                        contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(12.dp).size(28.dp))
                     Text(entry.name, modifier = Modifier.weight(1f).clickable(enabled = entry.isDirectory || playable) {
                         if (entry.isDirectory) vm.browse(fullPath) else if (playable) onPlay(VideoEntity(
                             relativePath = fullPath, name = entry.name, parentDir = vm.explorerPath,
@@ -73,7 +81,9 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
                     },
                         maxLines = 2, style = MaterialTheme.typography.bodyMedium)
                     Box {
-                        TextButton(onClick = { selected = entry; menu = true }) { Text("⋮", style = MaterialTheme.typography.titleMedium) }
+                        IconButton(onClick = { selected = entry; menu = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "Options for ${entry.name}")
+                        }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             if (playable) DropdownMenuItem(text = { Text("▶ Play video") }, onClick = {
                                 menu = false

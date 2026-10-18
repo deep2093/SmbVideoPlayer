@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
@@ -57,6 +58,11 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.ViewList
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -97,19 +103,8 @@ import com.deepak.videolibrary.thumbs.ThumbStore
 import java.io.File
 import java.util.Locale
 
-/** Presets represent columns × target visible rows in the scrollable library viewport. */
-private val GRID_PRESETS = listOf("2×2", "2×3", "3×3", "3×4", "4×3", "4×4", "5×4", "5×5")
-private fun gridDimensions(choice: String): Pair<Int, Int> = when (choice) {
-    "2×2" -> 2 to 2
-    "2×3" -> 2 to 3
-    "3×3" -> 3 to 3
-    "3×4" -> 3 to 4
-    "4×3" -> 4 to 3
-    "4×4" -> 4 to 4
-    "5×4" -> 5 to 4
-    "5×5" -> 5 to 5
-    else -> 3 to 3
-}
+private val GRID_PRESETS = LibraryLayout.presets
+private fun gridDimensions(choice: String) = LibraryLayout.dimensions(choice)
 
 private val TAB_LABELS = listOf("Folders", "Videos", "Browse", "Scan", "Settings")
 private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Sync, Icons.Filled.Settings)
@@ -136,14 +131,14 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         val tabletLayout = maxWidth >= 700.dp
         Scaffold(
             bottomBar = {
-                if (!tabletLayout) NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceVariant) {
+                if (!tabletLayout) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                     TAB_LABELS.forEachIndexed { index, label ->
                         NavigationBarItem(
                             selected = tab == index,
                             colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
-                                selectedIconColor = androidx.compose.ui.graphics.Color.White,
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
                                 selectedTextColor = MaterialTheme.colorScheme.primary,
-                                indicatorColor = MaterialTheme.colorScheme.primary,
+                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                                 unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant),
                             onClick = {
                                 tab = index
@@ -163,9 +158,9 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                             androidx.compose.material3.NavigationRailItem(
                                 selected = tab == index,
                                 colors = androidx.compose.material3.NavigationRailItemDefaults.colors(
-                                    selectedIconColor = androidx.compose.ui.graphics.Color.White,
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
                                     selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant),
                                 onClick = {
                                     tab = index
@@ -213,14 +208,22 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
     val continueWatching = remember(videos, continueRefresh) {
         videos.filter { video ->
             val pos = resumePrefs.getLong("resume_path_${video.relativePath}", resumePrefs.getLong("resume_${video.id}", 0L))
-            !resumePrefs.getBoolean("hide_continue_${video.relativePath}", false) && pos > 15_000L
+            canContinue(pos, resumePrefs.getLong("duration_path_${video.relativePath}", 0L),
+                resumePrefs.getBoolean("hide_continue_${video.relativePath}", false))
         }.take(16)
     }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+    val displayedVideos = remember(videos, vm.videoSort, vm.sortDescending) {
+        vm.videoSort.arrange(videos, vm.sortDescending)
+    }
+    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text(if (selectedGroup == null) "Videos" else "Videos in folder", style = MaterialTheme.typography.headlineMedium)
-            Spacer(Modifier.weight(1f))
+            if (selectedGroup != null) IconButton(onClick = {
+                if (onBackToFolders != null) onBackToFolders() else vm.groupFilter.value = null
+            }) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back to folders") }
+            Text(selectedGroup ?: "Videos", style = MaterialTheme.typography.titleLarge,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            LibraryDisplayMenu(vm)
             IconButton(onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) vm.query.value = "" }) {
                 Icon(if (searchExpanded) Icons.Filled.Close else Icons.Filled.Search,
                     contentDescription = if (searchExpanded) "Close search" else "Search videos")
@@ -232,57 +235,61 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
         }
         if (selectedGroup != null) {
-            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                TextButton(onClick = { if (onBackToFolders != null) onBackToFolders() else vm.groupFilter.value = null }) {
-                    Text("‹  $selectedGroup")
-                }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = { if (videos.isNotEmpty()) onPlay(videos.first(), videos.toList()) }, enabled = videos.isNotEmpty()) {
-                    Text("▶ Play all (${videos.size})")
-                }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Virtual folder", style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                 TextButton(onClick = { videoSearch = ""; vm.findVideosToAdd(selectedGroup, ""); addDialog = true }) { Text("+ Add") }
             }
         }
-        if (group == null && query.isEmpty() && continueWatching.isNotEmpty()) {
-            Text("Continue watching", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 12.dp))
-            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(continueWatching, key = { it.id }) { video ->
-                    androidx.compose.foundation.layout.Box(Modifier.width(210.dp)) {
-                        VideoCard(video, onClick = { onPlay(video, listOf(video)) }, vm = vm,
-                            onRemoveFromContinue = {
-                                resumePrefs.edit().putBoolean("hide_continue_${video.relativePath}", true).apply()
-                                continueRefresh++
-                            })
-                    }
-                }
-            }
-        }
-        Text(
-            "${videos.size} shown of $total indexed",
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(vertical = 8.dp),
-        )
-        if (total == 0) {
-            Text(
-                "No videos yet. Add your server in Settings, then run a scan.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-        val (columns, _) = gridDimensions(vm.videoGridPreset)
-        Box(Modifier.fillMaxSize()) {
+        val (columns, rows) = gridDimensions(vm.videoGridPreset)
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val thumbHeight = ((maxHeight - 12.dp) / rows - 68.dp).coerceIn(64.dp, 240.dp)
             LazyVerticalGrid(
-                columns = GridCells.Fixed(columns),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-                contentPadding = PaddingValues(bottom = 16.dp),
+                columns = GridCells.Fixed(if (vm.videoListMode) 1 else columns),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = 24.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                gridItems(videos, key = { it.id }) { video ->
-                    VideoCard(video, onClick = { onPlay(video, if (group != null) videos.toList() else listOf(video)) }, vm = vm)
+                if (group == null && query.isEmpty() && continueWatching.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
+                        Column {
+                            Text("Continue watching", style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(vertical = 12.dp))
+                            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(continueWatching, key = { it.id }) { video ->
+                                    VideoCard(video, onClick = { onPlay(video, listOf(video)) }, vm = vm,
+                                        modifier = Modifier.width(210.dp), onRemoveFromContinue = {
+                                            resumePrefs.edit().putBoolean("hide_continue_${video.relativePath}", true).apply()
+                                            continueRefresh++
+                                        })
+                                }
+                            }
+                        }
+                    }
+                }
+                item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text("${videos.size} videos · ${vm.videoSort.label}", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { displayedVideos.firstOrNull()?.let { onPlay(it, displayedVideos) } },
+                            enabled = displayedVideos.isNotEmpty()) { Text("Play all") }
+                    }
+                }
+                if (videos.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(if (total == 0) "No videos yet. Add your server in Settings, then run a scan."
+                        else "No videos match your search.", modifier = Modifier.padding(vertical = 24.dp))
+                }
+                gridItems(displayedVideos, key = { it.id }) { video ->
+                    VideoCard(video, onClick = {
+                        onPlay(video, if (group != null) displayedVideos else listOf(video))
+                    }, vm = vm, listMode = vm.videoListMode,
+                        thumbnailHeight = if (vm.videoListMode) null else thumbHeight)
                 }
             }
         }
     }
+
     if (addDialog && selectedGroup != null) {
         AlertDialog(onDismissRequest = { addDialog = false }, title = { Text("Add videos to $group") },
             text = { Column {
@@ -303,7 +310,8 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewModel, modifier: Modifier = Modifier,
-    onRemoveFromContinue: (() -> Unit)? = null) {
+    onRemoveFromContinue: (() -> Unit)? = null, listMode: Boolean = false,
+    thumbnailHeight: androidx.compose.ui.unit.Dp? = null) {
     var menuOpen by remember(video.id) { mutableStateOf(false) }
     var renameOpen by remember(video.id) { mutableStateOf(false) }
     var deleteOpen by remember(video.id) { mutableStateOf(false) }
@@ -312,36 +320,51 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewMo
     val context = LocalContext.current
     val thumb: File? = if (video.thumbStatus == "DONE") ThumbStore.thumbFile(context, video.id) else null
 
-    Box(modifier) {
-        Card(
-            modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menuOpen = true }),
-            shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Column(Modifier.padding(6.dp)) {
-                FileImage(thumb, Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)))
-                val prefs = remember(context) { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
-                val watchedMs = prefs.getLong("resume_path_${video.relativePath}", prefs.getLong("resume_${video.id}", 0L))
-                val totalMs = prefs.getLong("duration_path_${video.relativePath}", 0L)
-                if (totalMs > 0L && watchedMs > 0L) {
-                    // A continuous left-to-right watched indicator, without Material3's
-                    // separate end-of-track stop dot.
-                    val watchedFraction = (watchedMs.toFloat() / totalMs).coerceIn(0f, 1f)
-                    Box(Modifier.fillMaxWidth().height(3.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
-                        Box(
-                            Modifier.fillMaxWidth(watchedFraction).fillMaxHeight()
-                                .background(androidx.compose.ui.graphics.Color(0xFFE53935))
-                        )
-                    }
-                }
-                Text(video.name, style = MaterialTheme.typography.bodySmall, maxLines = 2,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+    val prefs = remember(context) { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
+    val watchedMs = prefs.getLong("resume_path_${video.relativePath}", prefs.getLong("resume_${video.id}", 0L))
+    val totalMs = prefs.getLong("duration_path_${video.relativePath}", 0L)
+    val artwork: @Composable () -> Unit = {
+        Box(if (listMode) Modifier.width(120.dp).height(76.dp)
+            else Modifier.fillMaxWidth().then(if (thumbnailHeight != null) Modifier.height(thumbnailHeight) else Modifier.aspectRatio(16f / 9f))) {
+            FileImage(thumb, Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)))
+            if (totalMs > 0L) Text(DateUtils.formatElapsedTime(totalMs / 1_000),
+                color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(4.dp)
+                    .background(androidx.compose.ui.graphics.Color(0xBB000000), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
+            if (totalMs > 0L && watchedMs > 0L) Box(Modifier.align(androidx.compose.ui.Alignment.BottomStart)
+                .fillMaxWidth((watchedMs.toFloat() / totalMs).coerceIn(0f, 1f)).height(3.dp)
+                .background(MaterialTheme.colorScheme.primary))
+        }
+    }
+    val caption: @Composable () -> Unit = {
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(start = if (listMode) 12.dp else 2.dp)) {
+                Text(video.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis)
                 Text(Formatter.formatShortFileSize(context, video.size),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            IconButton(onClick = { menuOpen = true }) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "Options for ${video.name}")
+            }
+        }
+    }
+    Box(modifier) {
+        Column(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })) {
+            if (listMode) Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                artwork()
+                Box(Modifier.weight(1f)) { caption() }
+            } else {
+                artwork()
+                caption()
             }
         }
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(text = { Text("Play") }, onClick = { menuOpen = false; onClick() })
+            DropdownMenuItem(text = { Text("Play from start") }, onClick = {
+                prefs.edit().putLong("resume_path_${video.relativePath}", 0L).putLong("resume_${video.id}", 0L).apply()
+                menuOpen = false; onClick()
+            })
             if (onRemoveFromContinue != null) {
                 DropdownMenuItem(text = { Text("Remove from Continue Watching") }, onClick = {
                     menuOpen = false
@@ -408,8 +431,7 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
         dashboardVideos.mapNotNull { video ->
             val pos = playbackPrefs.getLong("resume_path_${video.relativePath}", playbackPrefs.getLong("resume_${video.id}", 0L))
             val duration = playbackPrefs.getLong("duration_path_${video.relativePath}", 0L)
-            if (!playbackPrefs.getBoolean("hide_continue_${video.relativePath}", false) &&
-                pos > 15_000L && (duration <= 0L || pos < duration - 10_000L)) video else null
+            if (canContinue(pos, duration, playbackPrefs.getBoolean("hide_continue_${video.relativePath}", false))) video else null
         }.take(18)
     }
     var folderQuery by rememberSaveable { mutableStateOf("") }
@@ -425,24 +447,24 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Column {
-                Text("SMB Video Library", style = MaterialTheme.typography.titleLarge, maxLines = 1)
-                Text("Your network media, beautifully organized", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = { editFolders = !editFolders }) {
-                Icon(Icons.Filled.Edit, contentDescription = if (editFolders) "Finish organizing folders" else "Organize folders")
-            }
+            Text("Folders", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             IconButton(onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) folderQuery = "" }) {
                 Icon(if (searchExpanded) Icons.Filled.Close else Icons.Filled.Search,
                     contentDescription = if (searchExpanded) "Close folder search" else "Search folders")
             }
-            IconButton(onClick = { vm.startScan(ScanMode.REFRESH) }) {
-                Icon(Icons.Filled.Refresh, contentDescription = "Refresh SMB library")
+            IconButton(onClick = vm::toggleFolderLayout) {
+                Icon(if (vm.folderListMode) Icons.Filled.GridView else Icons.Filled.ViewList,
+                    contentDescription = if (vm.folderListMode) "Show folder grid" else "Show folder list")
             }
-            IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Filled.Settings, contentDescription = "Settings")
+            Box {
+                var folderMenu by remember { mutableStateOf(false) }
+                IconButton(onClick = { folderMenu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Folder options") }
+                DropdownMenu(expanded = folderMenu, onDismissRequest = { folderMenu = false }) {
+                    DropdownMenuItem(text = { Text(if (editFolders) "Finish organizing" else "Organize folders") },
+                        onClick = { editFolders = !editFolders; folderMenu = false })
+                    DropdownMenuItem(text = { Text("Refresh library") }, onClick = { vm.startScan(ScanMode.REFRESH); folderMenu = false })
+                    DropdownMenuItem(text = { Text("Settings") }, onClick = { folderMenu = false; onOpenSettings() })
+                }
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -452,6 +474,18 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
                 label = { Text("Search folders by name") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
         }
+        val (columns, rows) = gridDimensions(vm.folderGridPreset)
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val thumbHeight = ((maxHeight - 12.dp) / rows - 64.dp).coerceIn(64.dp, 240.dp)
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(if (vm.folderListMode) 1 else columns),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = 24.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
+                    Column {
         if (recentlyWatched.isNotEmpty() && folderQuery.isBlank()) {
             Text("Continue Watching", style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(top = 8.dp, bottom = 10.dp))
@@ -468,22 +502,20 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
             }
             Spacer(Modifier.height(14.dp))
         }
-        Text("Your Folders", style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(vertical = 6.dp))
-        Text("${shownGroups.size} folders · ${groups.size} total", style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(bottom = 8.dp))
-        val (columns, _) = gridDimensions(vm.folderGridPreset)
-        Box(Modifier.fillMaxSize()) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(columns),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-                contentPadding = PaddingValues(bottom = 16.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
+                    }
+                }
+                item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
+                    Text("${shownGroups.size} folders", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
+                }
+                if (shownGroups.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(if (folderQuery.isNotBlank()) "No matching folders." else "Your virtual folders appear after a scan.",
+                        modifier = Modifier.padding(vertical = 24.dp))
+                }
                 gridItems(shownGroups, key = { it.groupKey }) { row ->
                     Column {
-                        FolderCard(vm, row) {
+                        FolderCard(vm, row, listMode = vm.folderListMode,
+                            thumbnailHeight = if (vm.folderListMode) null else thumbHeight) {
                             vm.groupFilter.value = row.groupKey
                             onOpenGroup()
                         }
@@ -520,42 +552,56 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit, onPlay: (VideoE
 }
 
 @Composable
-private fun FolderCard(vm: LibraryViewModel, row: GroupRow, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    // Rebuilt whenever more thumbnails of this folder become ready.
+private fun FolderCard(vm: LibraryViewModel, row: GroupRow, modifier: Modifier = Modifier,
+    listMode: Boolean = false, thumbnailHeight: androidx.compose.ui.unit.Dp? = null, onClick: () -> Unit) {
     val cover by produceState<File?>(initialValue = null, row.groupKey, row.thumbsDone) {
         value = vm.coverFor(row.groupKey)
     }
-
-    Card(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-      Column(Modifier.fillMaxWidth().padding(6.dp)) {
-        if (cover == null) {
-            Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp)),
-                contentAlignment = androidx.compose.ui.Alignment.Center) {
-                Icon(Icons.Filled.Folder, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.height(46.dp).width(46.dp))
-            }
-        } else FileImage(
-            cover,
-            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)),
-        )
-        Text(
-            row.groupKey.replaceFirstChar { it.titlecase(Locale.ROOT) },
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp),
-        )
-        Text(
-            "${row.count} video" + if (row.count == 1) "" else "s",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
+    val artwork: @Composable () -> Unit = {
+        Box((if (listMode) Modifier.width(104.dp).height(68.dp) else Modifier.fillMaxWidth()
+            .then(if (thumbnailHeight != null) Modifier.height(thumbnailHeight) else Modifier.aspectRatio(16f / 9f)))
+            .clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = androidx.compose.ui.Alignment.Center) {
+            if (cover == null) Icon(Icons.Filled.Folder, contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.height(36.dp).width(36.dp))
+            else FileImage(cover, Modifier.fillMaxSize())
+        }
+    }
+    val caption: @Composable () -> Unit = {
+        Column(Modifier.padding(vertical = 6.dp, horizontal = if (listMode) 12.dp else 2.dp)) {
+            Text(row.groupKey.replaceFirstChar { it.titlecase(Locale.ROOT) },
+                style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("${row.count} video" + if (row.count == 1) "" else "s",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    Column(modifier.fillMaxWidth().clickable(onClick = onClick)) {
+        if (listMode) Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            artwork(); Box(Modifier.weight(1f)) { caption() }
+        } else { artwork(); caption() }
     }
 }
 
-/** Selection lives only in Settings. Rows are an on-screen target; the list scrolls for more. */
+@Composable
+private fun LibraryDisplayMenu(vm: LibraryViewModel) {
+    IconButton(onClick = vm::toggleVideoLayout) {
+        Icon(if (vm.videoListMode) Icons.Filled.GridView else Icons.Filled.ViewList,
+            contentDescription = if (vm.videoListMode) "Show video grid" else "Show video list")
+    }
+    Box {
+        var expanded by remember { mutableStateOf(false) }
+        IconButton(onClick = { expanded = true }) { Icon(Icons.Filled.Sort, contentDescription = "Sort videos") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            VideoSort.entries.forEach { sort ->
+                DropdownMenuItem(text = { Text(sort.label + if (vm.videoSort == sort) {
+                    if (vm.sortDescending) " ↓" else " ↑"
+                } else "") }, onClick = { vm.selectVideoSort(sort); expanded = false })
+            }
+        }
+    }
+}
+
+/** Density presets stay in the expandable Settings section; toolbar toggles grid/list. */
 @Composable
 private fun GridPresetSetting(label: String, selected: String, onSelect: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -768,11 +814,11 @@ fun SettingsScreen(vm: LibraryViewModel) {
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         var gesturesExpanded by rememberSaveable { mutableStateOf(false) }
         var layoutExpanded by rememberSaveable { mutableStateOf(false) }
-        Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth().clickable { gesturesExpanded = !gesturesExpanded },
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Text("Player gestures", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    Text("Player gestures", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Text(if (gesturesExpanded) "▲" else "▼", color = MaterialTheme.colorScheme.primary)
                 }
                 if (gesturesExpanded) {
@@ -792,22 +838,26 @@ fun SettingsScreen(vm: LibraryViewModel) {
             }
         }
         Spacer(Modifier.height(8.dp))
-        Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth().clickable { layoutExpanded = !layoutExpanded },
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Text("Library layout", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                    Text("Library layout", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                     Text(if (layoutExpanded) "▲" else "▼", color = MaterialTheme.colorScheme.primary)
                 }
                 if (layoutExpanded) {
                     Text("Choose columns × target visible rows. Videos and Folders have independent layouts, saved on this device.", style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text("Show videos as a list", modifier = Modifier.weight(1f))
+                        androidx.compose.material3.Switch(checked = vm.videoListMode, onCheckedChange = { vm.toggleVideoLayout() })
+                    }
                     GridPresetSetting("Folders grid", vm.folderGridPreset, vm::updateFolderGridPreset)
                     GridPresetSetting("Videos grid", vm.videoGridPreset, vm::updateVideoGridPreset)
                 }
             }
         }
         HorizontalDivider(Modifier.padding(vertical = 12.dp))
-        Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Automatic library sync", style = MaterialTheme.typography.titleLarge)
                 Text("Best-effort every 12 hours when Android allows it, network is connected, battery is not low and storage is not low. Wi-Fi/LAN SMB access is not guaranteed by the network constraint.",

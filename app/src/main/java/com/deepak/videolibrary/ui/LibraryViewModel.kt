@@ -59,14 +59,41 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     // Grid preset preferences are independent for each library tab.
     private val layoutPrefs = app.getSharedPreferences("library_layout", Application.MODE_PRIVATE)
     private val isTablet = app.resources.configuration.smallestScreenWidthDp >= 600
-    private val allowedGridPresets = setOf("3×3", "3×4", "4×3", "4×4", "5×4", "5×5")
+    private val allowedGridPresets = LibraryLayout.presets.toSet()
     private fun restoredGrid(key: String, default: String): String =
         layoutPrefs.getString(key, default)?.takeIf { it in allowedGridPresets } ?: default
 
-    var videoGridPreset by mutableStateOf(restoredGrid("video_grid_preset", if (isTablet) "4×3" else "3×4"))
+    var videoGridPreset by mutableStateOf(restoredGrid("video_grid_preset", if (isTablet) "4×3" else "2×3"))
         private set
-    var folderGridPreset by mutableStateOf(restoredGrid("folder_grid_preset", if (isTablet) "3×3" else "3×4"))
+    var folderGridPreset by mutableStateOf(restoredGrid("folder_grid_preset", if (isTablet) "3×3" else "2×3"))
         private set
+
+    var videoListMode by mutableStateOf(layoutPrefs.getBoolean("video_list", false))
+        private set
+    var folderListMode by mutableStateOf(layoutPrefs.getBoolean("folder_list", false))
+        private set
+    var videoSort by mutableStateOf(VideoSort.entries.firstOrNull {
+        it.name == layoutPrefs.getString("video_sort", "NAME")
+    } ?: VideoSort.NAME)
+        private set
+    var sortDescending by mutableStateOf(layoutPrefs.getBoolean("sort_descending", false))
+        private set
+
+    fun toggleVideoLayout() {
+        videoListMode = !videoListMode
+        layoutPrefs.edit().putBoolean("video_list", videoListMode).apply()
+    }
+
+    fun toggleFolderLayout() {
+        folderListMode = !folderListMode
+        layoutPrefs.edit().putBoolean("folder_list", folderListMode).apply()
+    }
+
+    fun selectVideoSort(sort: VideoSort) {
+        sortDescending = if (sort == videoSort) !sortDescending else sort != VideoSort.NAME
+        videoSort = sort
+        layoutPrefs.edit().putString("video_sort", sort.name).putBoolean("sort_descending", sortDescending).apply()
+    }
 
     fun updateVideoGridPreset(preset: String) {
         if (preset !in allowedGridPresets) return
