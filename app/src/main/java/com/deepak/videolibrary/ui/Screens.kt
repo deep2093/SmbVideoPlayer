@@ -154,7 +154,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                     folderDetails = false
                                     vm.groupFilter.value = null
                                 },
-                                icon = { Text(TAB_GLYPHS[index]) },
+                                icon = { Icon(TAB_ICONS[index], contentDescription = label) },
                                 label = { Text(label) },
                                 alwaysShowLabel = true,
                             )
