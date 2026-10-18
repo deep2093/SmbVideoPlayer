@@ -26,7 +26,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
     LaunchedEffect(Unit) { vm.browse("") }
     BackHandler(enabled = vm.explorerPath.isNotEmpty()) { vm.browse(vm.explorerPath.substringBeforeLast('/', "")) }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Network file explorer", style = MaterialTheme.typography.titleLarge)
+        Text("Network file explorer", style = MaterialTheme.typography.headlineMedium)
         Text("Changes here affect the ORIGINAL files on your SMB drive.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -44,7 +44,19 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
             }
         }
         if (vm.explorerBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        vm.explorerMessage?.let { Text(it, color = MaterialTheme.colorScheme.secondary) }
+        vm.explorerMessage?.let { message ->
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
+                    TextButton(onClick = { vm.browse() }, enabled = !vm.explorerBusy) { Text("Try again") }
+                }
+            }
+        }
+        if (!vm.explorerBusy && vm.explorerEntries.isEmpty() && vm.explorerMessage == null) {
+            Text("No files in this folder. Pull a new listing with Refresh, or check your SMB connection.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
             items(vm.explorerEntries, key = { it.name }) { entry ->
                 var menu by remember(entry.name) { mutableStateOf(false) }
