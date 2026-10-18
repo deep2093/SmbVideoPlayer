@@ -12,14 +12,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import com.deepak.videolibrary.smb.SmbEntry
+import com.deepak.videolibrary.data.VideoEntity
 
 /** Real SMB filesystem browser. Unlike virtual folders, these actions change remote files. */
 @Composable
-fun ExplorerScreen(vm: LibraryViewModel) {
+fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity) -> Unit) {
     var selected by remember { mutableStateOf<SmbEntry?>(null) }
     var renameDialog by remember { mutableStateOf(false) }
     var deleteDialog by remember { mutableStateOf(false) }
     var renameValue by remember { mutableStateOf("") }
+    val playableExtensions = remember { setOf("mp4", "mkv", "avi", "mov", "m4v", "webm", "ts", "m2ts", "wmv", "flv", "mpg", "mpeg", "3gp") }
     LaunchedEffect(Unit) { vm.browse("") }
     BackHandler(enabled = vm.explorerPath.isNotEmpty()) { vm.browse(vm.explorerPath.substringBeforeLast('/', "")) }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -47,12 +49,25 @@ fun ExplorerScreen(vm: LibraryViewModel) {
                 var menu by remember(entry.name) { mutableStateOf(false) }
                 val fullPath = listOf(vm.explorerPath, entry.name).filter { it.isNotBlank() }.joinToString("/")
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (entry.isDirectory) "📁" else "📄", modifier = Modifier.padding(8.dp))
-                    Text(entry.name, modifier = Modifier.weight(1f).clickable(enabled = entry.isDirectory) { vm.browse(fullPath) },
+                    val playable = !entry.isDirectory && entry.name.substringAfterLast('.', "").lowercase() in playableExtensions
+                    Text(if (entry.isDirectory) "📁" else if (playable) "▶" else "📄", modifier = Modifier.padding(8.dp))
+                    Text(entry.name, modifier = Modifier.weight(1f).clickable(enabled = entry.isDirectory || playable) {
+                        if (entry.isDirectory) vm.browse(fullPath) else if (playable) onPlay(VideoEntity(
+                            relativePath = fullPath, name = entry.name, parentDir = vm.explorerPath,
+                            size = entry.size, modified = entry.modified, groupKey = "",
+                            lastSeenSession = 0L, addedAt = System.currentTimeMillis()
+                        ))
+                    },
                         maxLines = 2, style = MaterialTheme.typography.bodyMedium)
                     Box {
                         TextButton(onClick = { selected = entry; menu = true }) { Text("⋮") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            if (playable) DropdownMenuItem(text = { Text("▶ Play video") }, onClick = {
+                                menu = false
+                                onPlay(VideoEntity(relativePath = fullPath, name = entry.name, parentDir = vm.explorerPath,
+                                    size = entry.size, modified = entry.modified, groupKey = "",
+                                    lastSeenSession = 0L, addedAt = System.currentTimeMillis()))
+                            })
                             DropdownMenuItem(text = { Text("Rename original") }, onClick = {
                                 menu = false; selected = entry; renameValue = entry.name; renameDialog = true
                             })
