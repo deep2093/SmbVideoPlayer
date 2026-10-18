@@ -15,6 +15,12 @@ object ThumbStore {
 
     fun thumbFile(context: Context, videoId: Long) = File(thumbDir(context), "$videoId.jpg")
 
+    /** Private disk cache is persistent; it is not a video-stream buffer. */
+    fun artworkBytes(context: Context): Long =
+        listOf(thumbDir(context), coverDir(context)).sumOf { dir ->
+            dir.listFiles()?.asSequence()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
+        }
+
     /** Deletes cached artwork only. Nothing on the SMB drive is touched. */
     fun clearAll(context: Context) {
         thumbDir(context).deleteRecursively()
