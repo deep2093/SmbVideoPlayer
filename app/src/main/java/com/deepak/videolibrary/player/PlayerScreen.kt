@@ -30,6 +30,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.awaitPointerEvent
+import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
@@ -122,6 +126,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     var retryPending by remember { mutableStateOf(false) }
     var boost by remember { mutableStateOf(false) }
     var gestureMessage by remember { mutableStateOf("") }
+    var lastTapTime by remember { mutableLongStateOf(0L) }
+    var lastTapSide by remember { mutableIntStateOf(-1) }
     var seekingGesture by remember { mutableStateOf(false) }
     var seekingTarget by remember { mutableLongStateOf(0L) }
 
@@ -198,88 +204,100 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
             view.resizeMode = aspect
             view.videoSurfaceView?.apply { scaleX = zoom; scaleY = zoom }
         }, modifier = Modifier.fillMaxSize())
-        // Gesture regions. Tap reveals/hides overlay; double tap skips by side.
+        // A single pointer handler arbitrates taps, drags and long-press.
+        // Separate stacked detectors previously competed and swallowed gestures.
         Row(Modifier.fillMaxSize()) {
             repeat(2) { side ->
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                    Box(Modifier.fillMaxSize().pointerInput(player, side, holdSpeed) {
-                        detectTapGestures(onTap = {
-                            if (controlsVisible) controlsVisible = false else revealControls()
-                        }, onDoubleTap = {
-                            val delta = if (side == 0) -5_000L else 10_000L
-                            player.seekTo((player.currentPosition + delta).coerceIn(0L, player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE))
-                            gestureMessage = if (side == 0) "−5 sec" else "+10 sec"
-                        }, onPress = {
-                            val earlyRelease = withTimeoutOrNull(450L) { tryAwaitRelease() }
-                            if (earlyRelease == null) {
-                                val previous = player.playbackParameters.speed
-                                boost = true
+                Box(Modifier.weight(1f).fillMaxHeight().pointerInput(player, side, holdSpeed, activity) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val start = down.position
+                        var previous = start
+                        var last = start
+                        var moved = false
+                        var mode = 0 // 0=tap/hold, 1=seek, 2=volume/brightness
+                        var startPosition = player.currentPosition.coerceAtLeast(0L)
+                        val startVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+                        val maxVolume = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                        val startBrightness = activity?.window?.attributes?.screenBrightness?.takeIf { it >= 0f } ?: 0.5f
+                        val startTime = System.currentTimeMillis()
+                        var previousSpeed = player.playbackParameters.speed
+                        var holding = false
+                        var released = false
+                        while (!released) {
+                            val event = awaitPointerEvent()
+                            val pointer = event.changes.firstOrNull { it.id == down.id }
+                            if (pointer == null || !pointer.pressed) {
+                                released = true
+                                break
+                            }
+                            val current = pointer.position
+                            last = current
+                            val dx = current.x - start.x
+                            val dy = current.y - start.y
+                            if (!moved && (abs(dx) > 18f || abs(dy) > 18f)) {
+                                moved = true
+                                mode = if (abs(dx) > abs(dy) * 1.2f) 1 else 2
+                                if (holding) {
+                                    player.setPlaybackSpeed(previousSpeed)
+                                    holding = false
+                                    boost = false
+                                }
+                            }
+                            if (!moved && !holding && System.currentTimeMillis() - startTime >= 450L) {
+                                previousSpeed = player.playbackParameters.speed
                                 player.setPlaybackSpeed(holdSpeed)
-                                try { tryAwaitRelease() } finally { player.setPlaybackSpeed(previous); boost = false }
+                                holding = true
+                                boost = true
                             }
-                        })
-                    }.pointerInput(side, activity, duration) {
-                        var accumulated = Offset.Zero
-                        var mode = 0
-                        var baseSeek = 0L
-                        var startBrightness = 0.5f
-                        var startVolume = 0
-                        var maxVolume = 1
-                        detectDragGestures(
-                            onDragStart = {
-                                accumulated = Offset.Zero
-                                mode = 0
-                                baseSeek = player.currentPosition.coerceAtLeast(0L)
-                                startBrightness = activity?.window?.attributes?.screenBrightness?.takeIf { it >= 0f } ?: 0.5f
-                                startVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
-                                maxVolume = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-                            },
-                            onDragEnd = {
-                                if (mode == 1 && seekingGesture) player.seekTo(seekingTarget)
-                                seekingGesture = false
-                                mode = 0
-                            },
-                            onDragCancel = { seekingGesture = false; mode = 0 }
-                        ) { change, drag ->
-                            accumulated += drag
-                            if (mode == 0 && (abs(accumulated.x) > 18f || abs(accumulated.y) > 18f)) {
-                                mode = if (abs(accumulated.x) > abs(accumulated.y) * 1.25f) 1 else 2
-                            }
-                            if (mode != 0) change.consume()
-                            when (mode) {
-                                1 -> {
-                                    val span = player.duration.takeIf { it > 0 } ?: duration
-                                    val offsetMs = (accumulated.x / size.width.coerceAtLeast(1) * 90_000f).toLong()
-                                    seekingTarget = (baseSeek + offsetMs).coerceIn(0L, span.takeIf { it > 0 } ?: Long.MAX_VALUE)
+                            if (moved) {
+                                pointer.consume()
+                                if (mode == 1) {
+                                    val total = player.duration.takeIf { it > 0L } ?: duration
+                                    seekingTarget = (startPosition + (dx / size.width.coerceAtLeast(1) * 90_000f).toLong())
+                                        .coerceIn(0L, total.takeIf { it > 0L } ?: Long.MAX_VALUE)
                                     seekingGesture = true
                                     gestureMessage = "Seek ${formatPlaybackTime(seekingTarget)}"
-                                }
-                                2 -> {
-                                    val delta = -accumulated.y / size.height.coerceAtLeast(1).toFloat()
+                                } else {
+                                    val fraction = -dy / size.height.coerceAtLeast(1).toFloat()
                                     if (side == 0) {
-                                        val target = (startVolume + delta * maxVolume).roundToInt().coerceIn(0, maxVolume)
+                                        val target = (startVolume + fraction * maxVolume).roundToInt().coerceIn(0, maxVolume)
                                         audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
                                         gestureMessage = "Volume ${(100f * target / maxVolume).roundToInt()}%"
                                     } else {
                                         activity?.window?.let { window ->
-                                            val lp = window.attributes
-                                            lp.screenBrightness = (startBrightness + delta).coerceIn(0.02f, 1f)
-                                            window.attributes = lp
-                                            gestureMessage = "Brightness ${(lp.screenBrightness * 100).roundToInt()}%"
+                                            val attrs = window.attributes
+                                            attrs.screenBrightness = (startBrightness + fraction).coerceIn(0.02f, 1f)
+                                            window.attributes = attrs
+                                            gestureMessage = "Brightness ${(attrs.screenBrightness * 100).roundToInt()}%"
                                         }
                                     }
                                 }
                             }
+                            previous = current
                         }
-                    }.pointerInput(Unit) {
-                        detectTransformGestures { _, _, zoomChange, _ ->
-                            if (zoomChange != 1f) {
-                                zoom = (zoom * zoomChange).coerceIn(1f, 3f)
-                                gestureMessage = "Zoom ${(zoom * 100).roundToInt()}%"
+                        if (holding) {
+                            player.setPlaybackSpeed(previousSpeed)
+                            boost = false
+                        }
+                        if (mode == 1 && seekingGesture) player.seekTo(seekingTarget)
+                        seekingGesture = false
+                        if (!moved && !holding) {
+                            val now = System.currentTimeMillis()
+                            if (now - lastTapTime < 350L && lastTapSide == side) {
+                                val delta = if (side == 0) -5_000L else 10_000L
+                                player.seekTo((player.currentPosition + delta).coerceIn(0L,
+                                    player.duration.takeIf { it > 0L } ?: Long.MAX_VALUE))
+                                gestureMessage = if (side == 0) "−5 sec" else "+10 sec"
+                                lastTapTime = 0L
+                            } else {
+                                lastTapTime = now
+                                lastTapSide = side
+                                if (controlsVisible) controlsVisible = false else revealControls()
                             }
                         }
-                    })
-                }
+                    }
+                })
             }
         }
         if (seekingGesture) Text("Release to seek: ${formatPlaybackTime(seekingTarget)}", color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color(0xCC101010), RoundedCornerShape(12.dp)).padding(12.dp))
