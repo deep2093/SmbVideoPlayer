@@ -134,7 +134,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                 1 -> VideosScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
                     folderDetails = false; vm.groupFilter.value = null; tab = 0
                 }) else null)
-                2 -> ExplorerScreen(vm)
+                2 -> ExplorerScreen(vm, onPlay = { video -> playing = video; playQueue = listOf(video) })
                 3 -> ScanScreen(vm)
                 else -> SettingsScreen(vm)
             }
@@ -331,8 +331,6 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
     val groups by vm.groups.collectAsStateWithLifecycle()
     var folderQuery by rememberSaveable { mutableStateOf("") }
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
-    var createDialog by remember { mutableStateOf(false) }
-    var newName by remember { mutableStateOf("") }
     var sourceFolder by remember { mutableStateOf<String?>(null) }
     var operation by remember { mutableStateOf("") }
     var targetName by remember { mutableStateOf("") }
@@ -358,7 +356,6 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
             modifier = Modifier.padding(bottom = 12.dp),
         )
         Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Button(onClick = { newName = ""; createDialog = true }) { Text("+ New virtual folder") }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { editFolders = !editFolders }) { Text(if (editFolders) "Done" else "✎ Organize") }
         }
@@ -401,13 +398,6 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
                 }
             }
         }
-    }
-    if (createDialog) {
-        AlertDialog(onDismissRequest = { createDialog = false },
-            title = { Text("Create virtual folder") },
-            text = { OutlinedTextField(value = newName, onValueChange = { newName = it }, label = { Text("Folder name") }) },
-            confirmButton = { TextButton(onClick = { vm.createFolder(newName); createDialog = false }) { Text("Create") } },
-            dismissButton = { TextButton(onClick = { createDialog = false }) { Text("Cancel") } })
     }
     if (sourceFolder != null) {
         AlertDialog(onDismissRequest = { sourceFolder = null }, title = { Text("$operation ${sourceFolder}") },
