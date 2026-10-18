@@ -52,6 +52,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -92,7 +93,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     }
     val initialIndex = remember(video.id, queue) { queue.indexOfFirst { it.id == video.id }.coerceAtLeast(0) }
     val player = remember(queue, profile) {
-        ExoPlayer.Builder(context).build().apply {
+        val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        ExoPlayer.Builder(context, renderers).build().apply {
             val factory = ProgressiveMediaSource.Factory(SmbPlaybackDataSource.Factory(profile))
             setMediaSources(queue.map { item ->
                 val uri = Uri.Builder().scheme("smbvideo").authority("library")
