@@ -160,12 +160,12 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
     val context = LocalContext.current
     val resumePrefs = remember { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
     val continueWatching = remember(videos) {
-        videos.filter { resumePrefs.getLong("resume_${it.id}", 0) > 15_000 }.take(16)
+        videos.filter { resumePrefs.getLong("resume_path_${it.relativePath}", resumePrefs.getLong("resume_${it.id}", 0L)) > 15_000L }.take(16)
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text(if (selectedGroup == null) "Videos" else "Videos in folder", style = MaterialTheme.typography.titleLarge)
+            Text(if (selectedGroup == null) "Videos" else "Videos in folder", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.weight(1f))
             IconButton(onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) vm.query.value = "" }) {
                 Icon(if (searchExpanded) Icons.Filled.Close else Icons.Filled.Search,
@@ -190,7 +190,7 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
             }
         }
         if (group == null && query.isEmpty() && continueWatching.isNotEmpty()) {
-            Text("Continue watching", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 8.dp))
+            Text("Continue watching", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 12.dp))
             androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(continueWatching, key = { it.id }) { video ->
                     androidx.compose.foundation.layout.Box(Modifier.width(210.dp)) {
@@ -214,8 +214,8 @@ fun VideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) 
         Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(columns),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
                 contentPadding = PaddingValues(bottom = 16.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
@@ -256,7 +256,7 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewMo
     Box(modifier) {
         Card(
             modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menuOpen = true }),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(Modifier.padding(8.dp)) {
@@ -348,7 +348,7 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text("Folders", style = MaterialTheme.typography.titleLarge)
+            Text("Folders", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.weight(1f))
             IconButton(onClick = { editFolders = !editFolders }) {
                 Icon(Icons.Filled.Edit, contentDescription = if (editFolders) "Finish organizing folders" else "Organize folders")
@@ -370,7 +370,7 @@ fun FoldersScreen(vm: LibraryViewModel, onOpenGroup: () -> Unit) {
                 label = { Text("Search folders by name") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
         }
-        Text("${shownGroups.size} of ${groups.size} virtual folders", style = MaterialTheme.typography.labelMedium,
+        Text("${shownGroups.size} folders · ${groups.size} total", style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(bottom = 8.dp))
         val (columns, _) = gridDimensions(vm.folderGridPreset)
         Box(Modifier.fillMaxSize()) {
@@ -426,7 +426,7 @@ private fun FolderCard(vm: LibraryViewModel, row: GroupRow, modifier: Modifier =
         value = vm.coverFor(row.groupKey)
     }
 
-    Card(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    Card(onClick = onClick, modifier = modifier, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
       Column(Modifier.fillMaxWidth().padding(6.dp)) {
         FileImage(
             cover,
