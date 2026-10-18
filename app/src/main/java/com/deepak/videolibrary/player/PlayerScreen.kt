@@ -68,6 +68,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     val lifecycleOwner = LocalLifecycleOwner.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val prefs = remember { context.getSharedPreferences("player_prefs", Context.MODE_PRIVATE) }
+    val volumeGestureEnabled = remember { prefs.getBoolean("volume_gesture_enabled", true) }
+    val brightnessGestureEnabled = remember { prefs.getBoolean("brightness_gesture_enabled", true) }
     val profile = remember(settings) { SmbProfile(settings.host, settings.share, settings.rootPath, settings.username, settings.password) }
     // A virtual folder is a real ExoPlayer playlist: video N advances to N+1 automatically.
     val queue = remember(video.id, playlist) {
@@ -206,7 +208,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
         // Separate stacked detectors previously competed and swallowed gestures.
         Row(Modifier.fillMaxSize()) {
             repeat(2) { side ->
-                Box(Modifier.weight(1f).fillMaxHeight().pointerInput(player, side, holdSpeed, activity) {
+                Box(Modifier.weight(1f).fillMaxHeight().pointerInput(player, side, holdSpeed, activity, volumeGestureEnabled, brightnessGestureEnabled) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val start = down.position
@@ -268,11 +270,11 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                                     gestureMessage = "Seek ${formatPlaybackTime(seekingTarget)}"
                                 } else {
                                     val fraction = -dy / size.height.coerceAtLeast(1).toFloat()
-                                    if (side == 0) {
+                                    if (side == 1 && volumeGestureEnabled) {
                                         val target = (startVolume + fraction * maxVolume).roundToInt().coerceIn(0, maxVolume)
                                         audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
                                         gestureMessage = "Volume ${(100f * target / maxVolume).roundToInt()}%"
-                                    } else {
+                                    } else if (side == 0 && brightnessGestureEnabled) {
                                         activity?.window?.let { window ->
                                             val attrs = window.attributes
                                             attrs.screenBrightness = (startBrightness + fraction).coerceIn(0.02f, 1f)
