@@ -8,6 +8,8 @@ import android.media.AudioManager
 import android.util.Rational
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -146,7 +148,7 @@ internal fun VlcPlayerScreen(video:VideoEntity,settings:SmbSettings,vm:LibraryVi
             Text("WMV compatibility playback · VLC",style=MaterialTheme.typography.labelSmall,color=Color.White)
             if(duration>0)Slider(value=(position.toFloat()/duration).coerceIn(0f,1f),onValueChange={position=(it*duration).toLong()},onValueChangeFinished={player.setTime(position);save()})
             Text("${android.text.format.DateUtils.formatElapsedTime(position/1000)} / ${android.text.format.DateUtils.formatElapsedTime(duration/1000)}",color=Color.White)
-            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+            Row(modifier=Modifier.horizontalScroll(rememberScrollState()),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                 TextButton(enabled=index>0,onClick={save();index--}){Text("Previous")}
                 TextButton(onClick={player.setTime((player.time-10000).coerceAtLeast(0));save()}){Text("−10")}
                 Button(enabled=ready,onClick={if(player.isPlaying)pause()else play()}){Text(if(playing)"Pause"else"Play")}
