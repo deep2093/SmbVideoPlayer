@@ -48,7 +48,7 @@ try:
     find('Virtual folders');find('Original folders')
     click('Original folders');find('Movies');screenshot('originals')
     click('Videos');click(NAME,long=True)
-    find('Cut');find('Copy');find('Select all');find('Merge into…',timeout=1) if False else None
+    find('Cut');find('Copy');find('Select all')
     click('Select all');find('1 selected');screenshot('selection')
     click('Copy')
     click('Folders');click('Original folders');click('Paste…')

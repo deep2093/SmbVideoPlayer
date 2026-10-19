@@ -38,6 +38,7 @@ object LibraryQueries {
         val(w,a)=where(LibraryScope(key)); return SimpleSQLiteQuery("SELECT v.* FROM videos v JOIN playback_state p ON p.path=v.relativePath AND p.connectionKey=? WHERE $w AND p.hidden=0 AND p.positionMs>15000 AND (p.durationMs<=0 OR p.positionMs<p.durationMs-10000) ORDER BY p.updatedAt DESC LIMIT 18",(listOf(key)+a).toTypedArray())
     }
     fun coverIds(s: LibraryScope): SimpleSQLiteQuery {val(w,a)=where(s);return SimpleSQLiteQuery("SELECT v.id FROM videos v WHERE $w AND v.thumbStatus='DONE' ORDER BY v.name COLLATE NOCASE",a.toTypedArray())}
+    fun thumbnailFailures(key:String):SimpleSQLiteQuery {val(w,a)=where(LibraryScope(key));return SimpleSQLiteQuery("SELECT v.* FROM videos v WHERE $w AND v.thumbStatus='FAILED' ORDER BY v.name COLLATE NOCASE",a.toTypedArray())}
     fun directories(s: LibraryScope): SimpleSQLiteQuery {
         val dir=s.directory ?: ""; val(w,a)=where(s.copy(subtree=true,pathMatches=true))
         val start=dir.length + if(dir.isEmpty()) 1 else 2

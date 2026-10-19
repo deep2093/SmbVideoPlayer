@@ -10,12 +10,14 @@ abstract class LibraryStateDao {
     @RawQuery(observedEntities = [VideoEntity::class, HiddenItem::class])
     abstract fun pages(query: SupportSQLiteQuery): PagingSource<Int, VideoEntity>
     @RawQuery abstract suspend fun videoList(query: SupportSQLiteQuery): List<VideoEntity>
-    @RawQuery(observedEntities = [VideoEntity::class, HiddenItem::class])
+    @RawQuery(observedEntities = [VideoEntity::class, HiddenItem::class, CustomFolderEntity::class])
     abstract fun folders(query: SupportSQLiteQuery): Flow<List<FolderSummary>>
     @RawQuery(observedEntities = [VideoEntity::class, HiddenItem::class])
     abstract fun directories(query: SupportSQLiteQuery): Flow<List<DirectorySummary>>
     @RawQuery(observedEntities = [VideoEntity::class, HiddenItem::class, PlaybackStateEntity::class])
     abstract fun continuing(query: SupportSQLiteQuery): Flow<List<VideoEntity>>
+    @RawQuery(observedEntities = [VideoEntity::class, HiddenItem::class])
+    abstract fun thumbnailFailures(query: SupportSQLiteQuery): Flow<List<VideoEntity>>
     @RawQuery(observedEntities = [VideoEntity::class, HiddenItem::class])
     abstract fun count(query: SupportSQLiteQuery): Flow<Int>
     @RawQuery abstract suspend fun ids(query: SupportSQLiteQuery): List<Long>

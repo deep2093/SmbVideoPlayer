@@ -46,10 +46,14 @@ for _ in range(30):
     time.sleep(1)
 else:
     raise AssertionError('Legacy app did not create its library')
+# File creation precedes Room's first schema transaction on a cold emulator.
+# Wait for that transaction, rather than stopping as soon as an empty file exists.
+time.sleep(5)
 stop()
 with tempfile.TemporaryDirectory() as folder:
     db=database(folder)
-    assert db.execute('PRAGMA user_version').fetchone()[0]==2
+    version=db.execute('PRAGMA user_version').fetchone()[0]
+    assert version==2, f'Expected legacy schema 2, got {version}'
     db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
     db.execute('PRAGMA journal_mode=DELETE')
     db.execute('INSERT INTO custom_folders(name) VALUES (?)',('Favourites',))

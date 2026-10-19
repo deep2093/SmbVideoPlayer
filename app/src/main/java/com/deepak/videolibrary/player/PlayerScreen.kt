@@ -171,6 +171,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
         player.prepare()
         if(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))player.play()
         var saves=0
+        var lastSavedPosition=-1L
+        var lastSavedDuration=-1L
         while(true) {
             position=player.currentPosition.coerceAtLeast(0)
             duration=player.duration.coerceAtLeast(0)
@@ -178,7 +180,10 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
             currentIndex=player.currentMediaItemIndex.coerceAtLeast(0)
             if(++saves>=5) {
                 saves=0
-                if(player.playbackState!=Player.STATE_IDLE) vm.saveProgress(queue.getOrElse(currentIndex){video}.relativePath,position,duration)
+                if(player.playbackState!=Player.STATE_IDLE && (position!=lastSavedPosition || duration!=lastSavedDuration)) {
+                    vm.saveProgress(queue.getOrElse(currentIndex){video}.relativePath,position,duration)
+                    lastSavedPosition=position;lastSavedDuration=duration
+                }
             }
             delay(1_000)
         }

@@ -230,7 +230,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         private set
     fun openFailureFolder(path:String) { explorerNavigationRequest=path.substringBeforeLast('/',"") }
     fun consumeExplorerNavigation() { explorerNavigationRequest=null }
-    val failedThumbnails=dao.observeFailedThumbs().state(emptyList())
+    val failedThumbnails=namespace.flatMapLatest {stateDao.thumbnailFailures(LibraryQueries.thumbnailFailures(it))}.state(emptyList())
     fun retryThumbnail(id:Long) {viewModelScope.launch {dao.setThumbStatus(id,"PENDING");startThumbnails()}}
     var selectedPaths by mutableStateOf<Set<String>>(emptySet())
         private set
@@ -618,6 +618,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     fun saveSettings(s: SmbSettings) {
+        if(connectionKey(s)!=namespace.value) {clearClipboard();clearSelection()}
         settingsStore.save(s)
         settings = settingsStore.load().let { saved ->
             // Keep what was typed in the form even if the password is not persisted.
