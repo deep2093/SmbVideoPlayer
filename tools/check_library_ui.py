@@ -120,7 +120,15 @@ try:
     click('Original folders');find('Movies');screenshot('originals')
     click('Videos');click(NAME,long=True)
     find('Cut');find('Copy');find('Select all')
-    click('Select all');find('1 selected');screenshot('selection')
+    click('Select all')
+    # The Videos view can include the same SMB fixture in multiple library
+    # sections. Select all operates on the visible library selection, so do not
+    # assume that exactly one item is indexed at this point.
+    selection = next((n.get('text', '') for n in tree().iter('node')
+                      if re.fullmatch(r'[1-9]\\d* selected', n.get('text', ''))), None)
+    if selection is None:
+        find('2 selected')  # Retry while Compose settles; reports a useful failure.
+    screenshot('selection')
     click('Copy')
     click('Folders');click('Original folders');click('Paste…')
     click('Destination');click('Paste here')
