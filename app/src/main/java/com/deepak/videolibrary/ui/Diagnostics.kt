@@ -90,7 +90,6 @@ fun DiagnosticsSettings() {
                 onClickLabel = if (expanded) "Hide diagnostics" else "Show diagnostics") { expanded = !expanded }
                 .padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Diagnostics", style = MaterialTheme.typography.titleMedium)
-                Text(if (expanded) "Hide" else "Show", color = MaterialTheme.colorScheme.primary)
             }
             if (expanded) {
                 Text("Off by default. Records limited playback and navigation status in memory, without video names, paths or SMB credentials.")
