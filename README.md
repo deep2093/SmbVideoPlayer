@@ -18,6 +18,8 @@ Download **VideoLibrary-preview-apk** from a successful Android APK workflow run
 
 ## Automatic collections and file navigation
 
+Automatic filename-based Virtual folders are **off by default**, including after upgrading. In **Folders → Virtual folders**, choose source folders and enable the switch. The picker browses the live SMB share, accepts multiple sources and includes every descendant of a selected parent. Leave a parent unchecked and open it to choose specific subfolders. Saved choices are separate for each server/share. Turning the switch off or changing sources only filters automatic grouping; indexed videos, thumbnail files, history and manual folder assignments remain. Custom filename collections and Original folders are independent of this switch.
+
 Custom folders match their name anywhere in indexed video filenames, ignoring case. A Peter collection matches both `Peter - Movie.mp4` and `Movie with Peter.mp4`; newly indexed matches appear automatically. Collections overlap without rewriting existing virtual assignments. They support thumbnails, search, Play all, selection, shared cut/copy/paste, rename, hide, details and removal. Merge assigns current matches into a virtual folder while keeping the automatic collection. Deleting a collection keeps originals; videos inside retain their individual permanent-delete actions.
 
 Original folders and File Explorer show search from a top-right icon. Failed-thumbnail shortcuts open the containing folder, scroll to the actual file and highlight it in the live listing. File Explorer omits the previous network-address and original-file warning banners.
@@ -32,6 +34,6 @@ WMV/ASF queues use a bundled VLC compatibility player through a seekable, read-o
 
 ## Build and validation
 
-Use JDK 17, Gradle 8.11.1, Android platform 36 and build tools 35.0.0. GitHub Actions runs unit tests, lint, the search benchmark, signed builds, a real previous-preview upgrade and an Android 10 emulator. Instrumentation covers hiding, sorting, paging, progress, rename identity and thumbnail failures. A disposable Samba share covers copy integrity, cancellation/staging cleanup, no overwrite, directory operations and tablet UI copy/paste/hide/restore. Tests never access the user's NAS.
+Use JDK 17, Gradle 8.11.1, Android platform 36 and build tools 35.0.0. GitHub Actions runs unit tests, lint, the search benchmark, signed builds, a real previous-preview upgrade and Android 10 / Android 15 emulators. Instrumentation covers hiding, sorting, paging, progress, rename identity and thumbnail failures. A disposable Samba share covers copy integrity, cancellation/staging cleanup, no overwrite, directory operations and tablet UI copy/paste/hide/restore. Tests never access the user's NAS.
 
 Hardware decoding, 4K throughput, actual user WMV files, PiP, headphone behavior and smooth scrolling still need target-device testing. See `PLAYBACK-TESTING.md`. WorkManager depends on Android background restrictions; unattended authenticated operations require an available saved profile/password.

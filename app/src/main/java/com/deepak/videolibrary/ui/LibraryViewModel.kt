@@ -351,25 +351,24 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         dao.createFolder(CustomFolderEntity(clean))
     }
 
+    private suspend fun moveVisibleGroupAssignments(from:String,target:String) {
+        val paths=stateDao.videoList(LibraryQueries.videos(virtualScope(LibraryScope(namespace.value,group=from)))).map {it.relativePath}
+        services.db.withTransaction {
+            dao.createFolder(CustomFolderEntity(target))
+            paths.chunked(500).forEach {dao.assignPaths(it,target)}
+            dao.deleteFolderRow(from)
+        }
+        coverRevision++
+    }
     fun renameFolder(from: String, to: String) = organize {
         val clean = cleanFolderName(to) ?: return@organize
         if (from.equals(clean, ignoreCase = true)) return@organize
-        // Renaming an automatic group creates a user-maintained destination,
-        // leaving filename-derived keys intact and preserving changes across rescans.
-        dao.createFolder(CustomFolderEntity(clean))
-        dao.renameAssignments(from, clean)
-        dao.deleteFolderRow(from)
-        // Move any still-auto-grouped videos too.
-        dao.assignAutoGroup(from, clean)
+        moveVisibleGroupAssignments(from,clean)
     }
-
     fun mergeFolders(from: String, into: String) = organize {
         if (from == into) return@organize
         val target = cleanFolderName(into) ?: return@organize
-        dao.createFolder(CustomFolderEntity(target))
-        dao.renameAssignments(from, target)
-        dao.assignAutoGroup(from, target)
-        dao.deleteFolderRow(from)
+        moveVisibleGroupAssignments(from,target)
     }
 
     fun assignVideo(id: Long, folder: String) = organize {
