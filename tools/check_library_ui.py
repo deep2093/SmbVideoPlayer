@@ -108,6 +108,7 @@ try:
     screenshot('dark-grey-theme')
     adb('shell','am','force-stop',APP)
     adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
+    find('Virtual folders')  # Wait for the fresh home frame after restart.
     click('Settings');find('Theme: Dark grey')
     print('PASS: five theme choices apply live and persist across restart')
     click('Folders')
@@ -164,9 +165,7 @@ try:
         # Back first dismisses that tutorial, so wait for the actual browser.
         for _ in range(4):
             nodes=list(tree().iter('node'))
-            if any(n.get('text')=='Got it' for n in nodes):
-                click('Got it')
-            elif any(n.get('text')=='Refresh' for n in nodes):
+            if any(n.get('text')=='Refresh' for n in nodes):
                 break
             else:
                 adb('shell','input','keyevent','4')
