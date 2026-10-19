@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -118,7 +121,7 @@ fun FoldersScreen(
     ScrollToTopOnChange(folderQuery, gridState)
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text("Folders", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.ui_folders_19adc47), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             IconButton(onClick = {
                 searchExpanded = !searchExpanded
                 if (!searchExpanded) folderQuery = ""
@@ -175,11 +178,11 @@ fun FoldersScreen(
                             folderMenu = false
                         },
                     )
-                    DropdownMenuItem(text = { Text("Refresh library") }, onClick = {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.ui_refresh_library_564fe5e)) }, onClick = {
                         vm.startScan(ScanMode.REFRESH)
                         folderMenu = false
                     })
-                    DropdownMenuItem(text = { Text("Settings") }, onClick = {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.ui_settings_c7f73bb)) }, onClick = {
                         folderMenu = false
                         onOpenSettings()
                     })
@@ -192,7 +195,7 @@ fun FoldersScreen(
             OutlinedTextField(
                 value = folderQuery,
                 onValueChange = { folderQuery = it },
-                label = { Text("Search folder and video names") },
+                label = { Text(stringResource(R.string.ui_search_folder_and_video_names_b2eeabc)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )
@@ -210,8 +213,7 @@ fun FoldersScreen(
                 item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
                     Column {
                         if (recentlyWatched.isNotEmpty() && folderQuery.isBlank()) {
-                            Text(
-                                "Continue Watching",
+                            Text(stringResource(R.string.ui_continue_watching_b60506f),
                                 style = MaterialTheme.typography.titleLarge,
                                 modifier = Modifier.padding(top = 8.dp, bottom = 10.dp),
                             )
@@ -253,7 +255,7 @@ fun FoldersScreen(
                             TextButton(
                                 enabled = matchingCount > 0,
                                 onClick = { vm.playLibrary("folders", onPlay = onPlay) },
-                            ) { Text("Play all results") }
+                            ) { Text(stringResource(R.string.ui_play_all_results_dee8bdc)) }
                         }
                     }
                 }
@@ -289,15 +291,15 @@ fun FoldersScreen(
                         var menuExpanded by remember(row.groupKey) { mutableStateOf(false) }
                         if (editFolders) {
                             Box {
-                                TextButton(onClick = { menuExpanded = true }) { Text("⋮ Options") }
+                                TextButton(onClick = { menuExpanded = true }) { Text(stringResource(R.string.ui_options_87ab915)) }
                                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                                    DropdownMenuItem(text = { Text("Rename folder") }, onClick = {
+                                    DropdownMenuItem(text = { Text(stringResource(R.string.ui_rename_folder_ebe08b9)) }, onClick = {
                                         menuExpanded = false
                                         sourceFolder = row.groupKey
                                         operation = "Rename"
                                         targetName = row.groupKey
                                     })
-                                    DropdownMenuItem(text = { Text("Merge into…") }, onClick = {
+                                    DropdownMenuItem(text = { Text(stringResource(R.string.ui_merge_into_56f0e1a)) }, onClick = {
                                         menuExpanded = false
                                         sourceFolder = row.groupKey
                                         operation = "Merge"
@@ -346,7 +348,7 @@ fun FoldersScreen(
                     sourceFolder = null
                 }) { Text(operation) }
             },
-            dismissButton = { TextButton(onClick = { sourceFolder = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { sourceFolder = null }) { Text(stringResource(R.string.ui_cancel_77dfd21)) } },
         )
     }
 }

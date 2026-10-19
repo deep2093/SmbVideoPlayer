@@ -32,4 +32,10 @@ class SmbErrorsTest {
         assertFalse(SmbErrors.describe(IllegalArgumentException(secret)).contains(secret))
         assertFalse(SmbErrors.describe(IOException(secret)).contains("secret-password"))
     }
+    @org.junit.Test fun missingFileIsPermanentAndDoesNotExposeItsPath() {
+        val error=java.io.FileNotFoundException("secret/path/movie.mp4")
+        org.junit.Assert.assertFalse(com.deepak.videolibrary.smb.SmbErrors.isTransient(error))
+        org.junit.Assert.assertFalse(com.deepak.videolibrary.smb.SmbErrors.describe(error).contains("secret"))
+    }
+
 }

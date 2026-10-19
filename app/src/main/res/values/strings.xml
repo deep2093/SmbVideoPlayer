@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_10_00741a0" formatted="false">+10</string>
+    <string name="ui_10_5092ac9" formatted="false">−10</string>
+    <string name="ui_add_109b936" formatted="false">+ Add</string>
+    <string name="ui_add_61cc55a" formatted="false">Add</string>
+    <string name="ui_add_folders_from_your_drive_or_create_a_co_60f3aaf" formatted="false">Add folders from your drive or create a collection by filename.</string>
+    <string name="ui_advanced_connection_options_0ea75a8" formatted="false">Advanced connection options</string>
+    <string name="ui_all_settings_10701c0" formatted="false">← All settings</string>
+    <string name="ui_appearance_41def7a" formatted="false">Appearance</string>
+    <string name="ui_assign_selected_videos_to_an_existing_or_n_b820db7" formatted="false">Assign selected videos to an existing or new virtual folder. Original files keep their locations.</string>
+    <string name="ui_audio_and_subtitles_57d12f7" formatted="false">Audio and subtitles</string>
+    <string name="ui_audio_subtitles_e06b742" formatted="false">Audio &amp; subtitles</string>
+    <string name="ui_automatic_virtual_folder_grouping_2cca974" formatted="false">Automatic virtual-folder grouping</string>
+    <string name="ui_brightness_and_volume_swipe_54fb5b9" formatted="false">Brightness and volume swipe</string>
+    <string name="ui_brightness_e1a2b65" formatted="false">Brightness</string>
+    <string name="ui_cancel_77dfd21" formatted="false">Cancel</string>
+    <string name="ui_changing_this_refreshes_automatic_groups_m_fdbe674" formatted="false">Changing this refreshes automatic groups. Manual assignments stay in place.</string>
+    <string name="ui_choose_an_original_destination_folder_4667196" formatted="false">Choose an original destination folder</string>
+    <string name="ui_choose_drive_folders_f890e96" formatted="false">Choose drive folders</string>
+    <string name="ui_choose_the_number_of_columns_thumbnails_ke_5c42c7f" formatted="false">Choose the number of columns. Thumbnails keep their 16:9 shape in every layout.</string>
+    <string name="ui_clear_719ea39" formatted="false">Clear</string>
+    <string name="ui_close_bbfa773" formatted="false">Close</string>
+    <string name="ui_continue_watching_8fca30f" formatted="false">Continue watching</string>
+    <string name="ui_continue_watching_b60506f" formatted="false">Continue Watching</string>
+    <string name="ui_copy_af74f7c" formatted="false">Copy</string>
+    <string name="ui_could_not_load_this_folder_567d2b5" formatted="false">Could not load this folder.</string>
+    <string name="ui_could_not_open_library_retry_66ed55c" formatted="false">Could not open library. Retry</string>
+    <string name="ui_create_6e157c5" formatted="false">Create</string>
+    <string name="ui_create_automatic_custom_folder_1b8d339" formatted="false">Create automatic custom folder</string>
+    <string name="ui_create_filename_collection_fa7e2fd" formatted="false">Create filename collection</string>
+    <string name="ui_custom_folders_097a811" formatted="false">Custom folders</string>
+    <string name="ui_cut_38d13bd" formatted="false">Cut</string>
+    <string name="ui_delete_2695739" formatted="false">Delete…</string>
+    <string name="ui_delete_custom_folder_e50ebb4" formatted="false">Delete custom folder…</string>
+    <string name="ui_delete_originals_from_smb_fa4c321" formatted="false">Delete originals from SMB?</string>
+    <string name="ui_delete_permanently_e63b515" formatted="false">Delete permanently</string>
+    <string name="ui_destination_virtual_folder_fda9d5d" formatted="false">Destination virtual folder</string>
+    <string name="ui_details_dc3decb" formatted="false">Details</string>
+    <string name="ui_diagnostics_3af2279" formatted="false">Diagnostics</string>
+    <string name="ui_dismiss_70afe9e" formatted="false">Dismiss</string>
+    <string name="ui_domain_optional_a897f4b" formatted="false">Domain (optional)</string>
+    <string name="ui_done_e9b450d" formatted="false">Done</string>
+    <string name="ui_e_g_192_168_71_250_9c9a185" formatted="false">e.g. 192.168.71.250</string>
+    <string name="ui_enable_diagnostics_bc3f246" formatted="false">Enable diagnostics</string>
+    <string name="ui_enter_your_server_address_and_share_name_ebe83d7" formatted="false">Enter your server address and share name.</string>
+    <string name="ui_export_f3e4fad" formatted="false">Export</string>
+    <string name="ui_export_report_0ddb744" formatted="false">Export report</string>
+    <string name="ui_file_explorer_700869d" formatted="false">File Explorer</string>
+    <string name="ui_floating_bottom_bar_b162779" formatted="false">Floating bottom bar</string>
+    <string name="ui_folder_name_filename_match_e8e1149" formatted="false">Folder name / filename match</string>
+    <string name="ui_folders_19adc47" formatted="false">Folders</string>
+    <string name="ui_folders_stay_on_your_drive_new_videos_appe_e1da521" formatted="false">Folders stay on your drive. New videos appear after a scan.</string>
+    <string name="ui_generate_fc45f9b" formatted="false">Generate</string>
+    <string name="ui_hidden_files_and_folders_28d2aec" formatted="false">Hidden files and folders</string>
+    <string name="ui_hidden_items_stay_on_your_smb_drive_and_re_26d930b" formatted="false">Hidden items stay on your SMB drive and remain visible in File Explorer.</string>
+    <string name="ui_hold_to_fast_forward_5f7f116" formatted="false">Hold to fast-forward</string>
+    <string name="ui_include_videos_in_subfolders_4711da7" formatted="false">Include videos in subfolders</string>
+    <string name="ui_label_60ecbc7" formatted="false">›</string>
+    <string name="ui_label_867c2bf" formatted="false">▶</string>
+    <string name="ui_left_brightness_right_volume_927c237" formatted="false">Left: brightness · Right: volume</string>
+    <string name="ui_library_backup_51ed40f" formatted="false">Library backup</string>
+    <string name="ui_library_layout_ffd5af3" formatted="false">Library layout</string>
+    <string name="ui_merge_ea8f0d0" formatted="false">Merge</string>
+    <string name="ui_merge_into_56f0e1a" formatted="false">Merge into…</string>
+    <string name="ui_merge_selected_videos_e03e58e" formatted="false">Merge selected videos</string>
+    <string name="ui_merge_virtual_folder_9d8da68" formatted="false">Merge virtual folder</string>
+    <string name="ui_more_actions_a1e34f9" formatted="false">More actions</string>
+    <string name="ui_move_this_folder_s_video_assignments_into__61204ac" formatted="false">Move this folder\'s video assignments into another virtual folder.</string>
+    <string name="ui_navigation_position_9c04a08" formatted="false">Navigation position</string>
+    <string name="ui_new_name_9e627c7" formatted="false">New name</string>
+    <string name="ui_next_51802ba" formatted="false">Next ›</string>
+    <string name="ui_next_bc98198" formatted="false">Next</string>
+    <string name="ui_no_available_tracks_d613c90" formatted="false">No available tracks</string>
+    <string name="ui_no_hidden_items_b5145e2" formatted="false">No hidden items.</string>
+    <string name="ui_no_scan_has_run_yet_save_your_server_in_se_1e216fb" formatted="false">No scan has run yet. Save your server in Settings, then run a full scan.</string>
+    <string name="ui_no_subfolders_here_b69ecd3" formatted="false">No subfolders here.</string>
+    <string name="ui_off_by_default_records_limited_playback_an_685dd71" formatted="false">Off by default. Records limited playback and navigation status in memory, without video names, paths or SMB credentials.</string>
+    <string name="ui_off_e3de5ab" formatted="false">Off</string>
+    <string name="ui_ok_9ce3bd4" formatted="false">OK</string>
+    <string name="ui_open_folder_in_file_explorer_4aa3f2c" formatted="false">Open folder in File Explorer</string>
+    <string name="ui_options_6bf5da9" formatted="false">Options</string>
+    <string name="ui_options_87ab915" formatted="false">⋮ Options</string>
+    <string name="ui_original_folders_38a7a75" formatted="false">Original folders</string>
+    <string name="ui_password_8be3c94" formatted="false">Password</string>
+    <string name="ui_paste_9db2f69" formatted="false">Paste…</string>
+    <string name="ui_paste_here_731b577" formatted="false">Paste here</string>
+    <string name="ui_picture_in_picture_7a61e37" formatted="false">Picture in Picture</string>
+    <string name="ui_picture_in_picture_89f875f" formatted="false">Picture in picture</string>
+    <string name="ui_play_5d12bd5" formatted="false">Play</string>
+    <string name="ui_play_all_ebb2ffd" formatted="false">Play all</string>
+    <string name="ui_play_all_results_dee8bdc" formatted="false">Play all results</string>
+    <string name="ui_play_from_start_c052f7a" formatted="false">Play from start</string>
+    <string name="ui_playback_options_75eab23" formatted="false">Playback options</string>
+    <string name="ui_player_gestures_1c6f88a" formatted="false">Player gestures</string>
+    <string name="ui_previous_50f9428" formatted="false">Previous</string>
+    <string name="ui_refresh_56e3bad" formatted="false">Refresh</string>
+    <string name="ui_refresh_index_2b7da4d" formatted="false">Refresh index</string>
+    <string name="ui_refresh_library_564fe5e" formatted="false">Refresh library</string>
+    <string name="ui_remove_from_continue_watching_b589f73" formatted="false">Remove from Continue Watching</string>
+    <string name="ui_remove_hide_3c3e1da" formatted="false">Remove / Hide</string>
+    <string name="ui_rename_d3f4cb8" formatted="false">Rename</string>
+    <string name="ui_rename_folder_ebe08b9" formatted="false">Rename folder</string>
+    <string name="ui_require_smb_encryption_02c67d4" formatted="false">Require SMB encryption</string>
+    <string name="ui_require_smb_signing_5168a83" formatted="false">Require SMB signing</string>
+    <string name="ui_required_security_must_be_supported_by_you_01f1aae" formatted="false">Required security must be supported by your server. Encryption requires SMB3 and can affect throughput.</string>
+    <string name="ui_reset_zoom_e573797" formatted="false">Reset zoom</string>
+    <string name="ui_restore_3cbe6d6" formatted="false">Restore</string>
+    <string name="ui_retry_9f5cd8a" formatted="false">Retry</string>
+    <string name="ui_retry_failed_7b6ca4d" formatted="false">Retry failed</string>
+    <string name="ui_retry_this_file_a7c5877" formatted="false">Retry this file</string>
+    <string name="ui_runs_about_every_12_hours_when_your_server_8ce90d9" formatted="false">Runs about every 12 hours when your server is reachable.</string>
+    <string name="ui_save_collections_assignments_hidden_items__48ef66a" formatted="false">Save collections, assignments, hidden items and playback history. Passwords and videos are excluded. Scan your videos before restoring.</string>
+    <string name="ui_save_efc007a" formatted="false">Save</string>
+    <string name="ui_save_password_encrypted_with_the_android_k_b38c859" formatted="false">Save password (encrypted with the Android Keystore)</string>
+    <string name="ui_scan_sync_33eca10" formatted="false">Scan &amp; Sync</string>
+    <string name="ui_search_custom_folders_89257e5" formatted="false">Search custom folders</string>
+    <string name="ui_search_filenames_50f3cf4" formatted="false">Search filenames</string>
+    <string name="ui_search_folder_and_video_names_b2eeabc" formatted="false">Search folder and video names</string>
+    <string name="ui_search_names_anywhere_in_this_folder_and_s_7fe98c1" formatted="false">Search names anywhere in this folder and subfolders</string>
+    <string name="ui_search_videos_by_filename_1c7bc42" formatted="false">Search videos by filename</string>
+    <string name="ui_select_8598222" formatted="false">Select</string>
+    <string name="ui_select_all_913afff" formatted="false">Select all</string>
+    <string name="ui_select_all_here_216b714" formatted="false">Select all here</string>
+    <string name="ui_select_this_folder_d20c3ba" formatted="false">Select this folder</string>
+    <string name="ui_server_address_b067928" formatted="false">Server address</string>
+    <string name="ui_settings_861b68c" formatted="false">← Settings</string>
+    <string name="ui_settings_c7f73bb" formatted="false">Settings</string>
+    <string name="ui_share_name_b12a8c1" formatted="false">Share name</string>
+    <string name="ui_show_videos_as_a_list_a89e29d" formatted="false">Show videos as a list</string>
+    <string name="ui_sidebar_f5171c9" formatted="false">Sidebar</string>
+    <string name="ui_starting_folder_optional_9d0e002" formatted="false">Starting folder (optional)</string>
+    <string name="ui_stop_9e25347" formatted="false">Stop</string>
+    <string name="ui_tap_a_filename_for_the_reason_these_stay_l_cb2e815" formatted="false">Tap a filename for the reason. These stay listed until successfully retried or deleted.</string>
+    <string name="ui_test_connection_ccf66f0" formatted="false">Test connection</string>
+    <string name="ui_the_folder_name_is_matched_anywhere_in_vid_a4aa69a" formatted="false">The folder name is matched anywhere in video filenames, ignoring case. Original files keep their locations.</string>
+    <string name="ui_thumbnail_failures_737d640" formatted="false">← Thumbnail failures</string>
+    <string name="ui_tracks_3dd1a4d" formatted="false">Tracks</string>
+    <string name="ui_try_again_042c862" formatted="false">Try again</string>
+    <string name="ui_unhide_37f0297" formatted="false">Unhide</string>
+    <string name="ui_unhide_files_and_folders_64749bf" formatted="false">Unhide files and folders</string>
+    <string name="ui_up_2038bde" formatted="false">Up</string>
+    <string name="ui_up_2c97c0b" formatted="false">← Up</string>
+    <string name="ui_username_blank_for_guest_7bb1617" formatted="false">Username (blank for guest)</string>
+    <string name="ui_virtual_folder_2723d68" formatted="false">Virtual folder</string>
+    <string name="ui_volume_3b18e8e" formatted="false">Volume</string>
+    <string name="ui_volume_is_controlled_from_the_right_side_b_3c74369" formatted="false">Volume is controlled from the right side; brightness from the left.</string>
+    <string name="ui_without_a_saved_password_background_scans__92f74da" formatted="false">Without a saved password, background scans only work while the app has been opened since it last started.</string>
+    <string name="ui_wmv_compatibility_playback_vlc_6547634" formatted="false">WMV compatibility playback · VLC</string>
+    <string name="ui_select_drive_folder">Select %1$s</string>
+</resources>

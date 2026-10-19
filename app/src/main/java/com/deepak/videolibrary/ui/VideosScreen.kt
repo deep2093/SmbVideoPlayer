@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -113,15 +116,14 @@ fun VideosScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = { vm.query.value = it },
-                label = { Text("Search videos by filename") },
+                label = { Text(stringResource(R.string.ui_search_videos_by_filename_1c7bc42)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )
         }
         if (selectedGroup != null && matchFolder == null) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text(
-                    "Virtual folder",
+                Text(stringResource(R.string.ui_virtual_folder_2723d68),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
@@ -130,7 +132,7 @@ fun VideosScreen(
                     videoSearch = ""
                     vm.findVideosToAdd(selectedGroup, "")
                     addDialog = true
-                }) { Text("+ Add") }
+                }) { Text(stringResource(R.string.ui_add_109b936)) }
             }
         }
         val columns = LibraryLayout.columns(vm.videoGridPreset)
@@ -146,8 +148,7 @@ fun VideosScreen(
                 if (group == null && matchFolder == null && query.isEmpty() && continueWatching.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
                         Column {
-                            Text(
-                                "Continue watching",
+                            Text(stringResource(R.string.ui_continue_watching_8fca30f),
                                 style = MaterialTheme.typography.titleMedium,
                                 modifier = Modifier.padding(vertical = 12.dp),
                             )
@@ -175,7 +176,7 @@ fun VideosScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = { vm.playLibrary("videos", onPlay = onPlay) }, enabled = count > 0) { Text("Play all") }
+                        TextButton(onClick = { vm.playLibrary("videos", onPlay = onPlay) }, enabled = count > 0) { Text(stringResource(R.string.ui_play_all_ebb2ffd)) }
                     }
                 }
                 if (count == 0) {
@@ -217,7 +218,7 @@ fun VideosScreen(
                     OutlinedTextField(value = videoSearch, onValueChange = {
                         videoSearch = it
                         vm.findVideosToAdd(selectedGroup, it)
-                    }, label = { Text("Search filenames") })
+                    }, label = { Text(stringResource(R.string.ui_search_filenames_50f3cf4)) })
                     LazyColumn(Modifier.heightIn(max = 350.dp)) {
                         items(vm.assignCandidates, key = { it.id }) { video ->
                             TextButton(onClick = {
@@ -230,7 +231,7 @@ fun VideosScreen(
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { addDialog = false }) { Text("Done") } },
+            confirmButton = { TextButton(onClick = { addDialog = false }) { Text(stringResource(R.string.ui_done_e9b450d)) } },
         )
     }
 }

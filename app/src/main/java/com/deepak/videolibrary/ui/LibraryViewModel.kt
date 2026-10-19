@@ -630,7 +630,8 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             ThumbnailWorker.cancel(getApplication())
             artwork.clear()
             notice = "Artwork cache cleared. Generate thumbnails when ready."
-            } finally { artworkMaintenance = false }
+            } catch(e: CancellationException) { throw e } catch(_: Exception) { notice = "Could not clear artwork. Check free space and try again." }
+            finally { artworkMaintenance = false }
         }
     }
 

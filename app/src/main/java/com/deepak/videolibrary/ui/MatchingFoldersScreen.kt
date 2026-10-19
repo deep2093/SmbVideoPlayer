@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -32,16 +35,16 @@ internal fun MatchingFoldersScreen(
     ScrollToTopOnChange(query, gridState)
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Custom folders", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.ui_custom_folders_097a811), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             IconButton(onClick = {
                 search = !search
                 if (!search)vm.matchFolderQuery.value = ""
             }) { Icon(Icons.Default.Search, "Search custom folders") }
             Box {
-                FilledTonalButton(onClick = { addMenu = true }) { Icon(Icons.Default.Add, null); Text("Add") }
+                FilledTonalButton(onClick = { addMenu = true }) { Icon(Icons.Default.Add, null); Text(stringResource(R.string.ui_add_61cc55a)) }
                 DropdownMenu(addMenu, { addMenu = false }) {
-                    DropdownMenuItem(text = { Text("Choose drive folders") }, onClick = { addMenu = false; picking = true })
-                    DropdownMenuItem(text = { Text("Create filename collection") }, onClick = { addMenu = false; name = ""; creating = true })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.ui_choose_drive_folders_f890e96)) }, onClick = { addMenu = false; picking = true })
+                    DropdownMenuItem(text = { Text(stringResource(R.string.ui_create_filename_collection_fa7e2fd)) }, onClick = { addMenu = false; name = ""; creating = true })
                 }
             }
         }
@@ -49,7 +52,7 @@ internal fun MatchingFoldersScreen(
         if (search) {
             OutlinedTextField(query, {
                 vm.matchFolderQuery.value = it
-            }, label = { Text("Search custom folders") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            }, label = { Text(stringResource(R.string.ui_search_custom_folders_89257e5)) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
         }
         LazyVerticalGrid(
             state = gridState,
@@ -62,7 +65,7 @@ internal fun MatchingFoldersScreen(
             if (folders.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(Modifier.padding(vertical = 32.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(if (query.isBlank()) "Keep your favourite folders together" else "No custom folders found", style = MaterialTheme.typography.titleMedium)
-                    Text("Add folders from your drive or create a collection by filename.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.ui_add_folders_from_your_drive_or_create_a_co_60f3aaf), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             items(folders, key = { it.folder.id }) { row -> MatchingFolderCard(vm, row, onOpen, onPlay) }
@@ -72,27 +75,27 @@ internal fun MatchingFoldersScreen(
     if (creating) {
         AlertDialog(
             onDismissRequest = { creating = false },
-            title = { Text("Create automatic custom folder") },
+            title = { Text(stringResource(R.string.ui_create_automatic_custom_folder_1b8d339)) },
             text = {
                 Column {
-                    Text("The folder name is matched anywhere in video filenames, ignoring case. Original files keep their locations.")
+                    Text(stringResource(R.string.ui_the_folder_name_is_matched_anywhere_in_vid_a4aa69a))
                     OutlinedTextField(name, {
                         name =
                             it
-                    }, label = { Text("Folder name / filename match") }, singleLine = true)
+                    }, label = { Text(stringResource(R.string.ui_folder_name_filename_match_e8e1149)) }, singleLine = true)
                 }
             },
             confirmButton = {
                 TextButton(enabled = name.isNotBlank(), onClick = {
                     vm.createMatchingFolder(name)
                     creating = false
-                }) { Text("Create") }
+                }) { Text(stringResource(R.string.ui_create_6e157c5)) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     creating =
                         false
-                }) { Text("Cancel") }
+                }) { Text(stringResource(R.string.ui_cancel_77dfd21)) }
             },
         )
     }
@@ -144,7 +147,7 @@ private fun MatchingFolderCard(
             }
         }
         DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem(text = { Text("Play all") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_play_all_ebb2ffd)) }, onClick = {
                 menu = false
                 vm.matchFolderFilter.value = folder
                 vm.groupFilter.value = null
@@ -152,43 +155,43 @@ private fun MatchingFolderCard(
                     ""
                 vm.playLibrary("videos", onPlay = onPlay)
             })
-            DropdownMenuItem(text = { Text("Select all") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_select_all_913afff)) }, onClick = {
                 menu = false
                 open()
                 vm.selectAll("videos")
             })
-            DropdownMenuItem(text = { Text("Cut") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_cut_38d13bd)) }, onClick = {
                 menu = false
                 vm.stageMatchingFolder(folder, true)
             })
-            DropdownMenuItem(text = { Text("Copy") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_copy_af74f7c)) }, onClick = {
                 menu = false
                 vm.stageMatchingFolder(folder, false)
             })
-            DropdownMenuItem(text = { Text("Paste…") }, enabled = vm.explorerClipboard != null, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_paste_9db2f69)) }, enabled = vm.explorerClipboard != null, onClick = {
                 menu = false
                 vm.pasteDestination =
                     vm.settings.rootPath
             })
-            DropdownMenuItem(text = { Text("Rename") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_rename_d3f4cb8)) }, onClick = {
                 menu = false
                 name = folder.name
                 dialog = "Rename"
             })
-            DropdownMenuItem(text = { Text("Merge into…") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_merge_into_56f0e1a)) }, onClick = {
                 menu = false
                 name = ""
                 dialog = "Merge"
             })
-            DropdownMenuItem(text = { Text("Details") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_details_dc3decb)) }, onClick = {
                 menu = false
                 dialog = "Details"
             })
-            DropdownMenuItem(text = { Text("Remove / Hide") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_remove_hide_3c3e1da)) }, onClick = {
                 menu = false
                 vm.hideMatchingFolder(folder)
             })
-            DropdownMenuItem(text = { Text("Delete custom folder…") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_delete_custom_folder_e50ebb4)) }, onClick = {
                 menu = false
                 dialog = "Delete"
             })
@@ -246,7 +249,7 @@ private fun MatchingFolderCard(
                     )
                 }
             },
-            dismissButton = { if (dialog != "Details")TextButton(onClick = { dialog = "" }) { Text("Cancel") } },
+            dismissButton = { if (dialog != "Details")TextButton(onClick = { dialog = "" }) { Text(stringResource(R.string.ui_cancel_77dfd21)) } },
         )
     }
 }

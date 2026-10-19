@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ["codex/**"]
+    paths-ignore: ["app/schemas/**", "app/src/main/baseline-prof.txt", "**/*.md"]
 concurrency:
   group: benchmarks-${{ github.ref }}
   cancel-in-progress: true
@@ -18,6 +19,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
@@ -31,6 +34,9 @@ jobs:
         with:
           api-level: 35
           arch: x86_64
+          profile: pixel_2
+          disk-size: 4096M
+          emulator-boot-timeout: 300
           disable-animations: true
           script: |
             adb install app/build/outputs/apk/optimized/app-optimized.apk

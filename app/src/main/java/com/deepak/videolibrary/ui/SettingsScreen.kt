@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -144,7 +147,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
             .padding(bottom = if (floatingPadding(vm))100.dp else 0.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (section != null) TextButton(onClick = { section = null }) { Text("← All settings") }
+        if (section != null) TextButton(onClick = { section = null }) { Text(stringResource(R.string.ui_all_settings_10701c0)) }
         Text(section ?: "Settings", style = MaterialTheme.typography.headlineMedium)
         if (section == null) {
             listOf(
@@ -164,7 +167,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        Text("›", style = MaterialTheme.typography.headlineSmall)
+                        Text(stringResource(R.string.ui_label_60ecbc7), style = MaterialTheme.typography.headlineSmall)
                     }
                 }
             }
@@ -172,9 +175,9 @@ fun SettingsScreen(vm: LibraryViewModel) {
         if (section == "Library") {
             LibraryBackupActions(vm)
             var showGrouping by rememberSaveable { mutableStateOf(false) }
-            TextButton(onClick = { showGrouping = !showGrouping }) { Text("Automatic virtual-folder grouping") }
+            TextButton(onClick = { showGrouping = !showGrouping }) { Text(stringResource(R.string.ui_automatic_virtual_folder_grouping_2cca974)) }
             if (showGrouping) {
-                Text("Changing this refreshes automatic groups. Manual assignments stay in place.", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.ui_changing_this_refreshes_automatic_groups_m_fdbe674), style = MaterialTheme.typography.bodySmall)
                 com.deepak.videolibrary.scan.GroupingRule.entries.forEach { rule ->
                     val label = when(rule) {
                         com.deepak.videolibrary.scan.GroupingRule.COMMA_OR_HYPHEN -> "Before comma or hyphen"
@@ -186,16 +189,16 @@ fun SettingsScreen(vm: LibraryViewModel) {
                     }
                 }
             }
-            OutlinedButton(onClick = { hiddenPage = true }, modifier = Modifier.fillMaxWidth()) { Text("Unhide files and folders") }
+            OutlinedButton(onClick = { hiddenPage = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
         }
         if (section == "Appearance") {
             ThemeSettings()
-            Text("Navigation position", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.ui_navigation_position_9c04a08), style = MaterialTheme.typography.titleMedium)
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 RadioButton(selected = vm.navigationPosition == "SIDEBAR", onClick = { vm.updateNavigationPosition("SIDEBAR") })
-                TextButton(onClick = { vm.updateNavigationPosition("SIDEBAR") }) { Text("Sidebar") }
+                TextButton(onClick = { vm.updateNavigationPosition("SIDEBAR") }) { Text(stringResource(R.string.ui_sidebar_f5171c9)) }
                 RadioButton(selected = vm.navigationPosition == "FLOATING", onClick = { vm.updateNavigationPosition("FLOATING") })
-                TextButton(onClick = { vm.updateNavigationPosition("FLOATING") }) { Text("Floating bottom bar") }
+                TextButton(onClick = { vm.updateNavigationPosition("FLOATING") }) { Text(stringResource(R.string.ui_floating_bottom_bar_b162779)) }
             }
         }
         if (section == "Diagnostics") DiagnosticsSettings()
@@ -211,18 +214,17 @@ fun SettingsScreen(vm: LibraryViewModel) {
                         Modifier.fillMaxWidth().clickable { gesturesExpanded = !gesturesExpanded },
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                     ) {
-                        Text("Player gestures", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        Text(stringResource(R.string.ui_player_gestures_1c6f88a), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                         Text(if (gesturesExpanded) "▲" else "▼", color = MaterialTheme.colorScheme.primary)
                     }
                     if (gesturesExpanded) {
-                        Text(
-                            "Volume is controlled from the right side; brightness from the left.",
+                        Text(stringResource(R.string.ui_volume_is_controlled_from_the_right_side_b_3c74369),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text("Brightness and volume swipe")
-                                Text("Left: brightness · Right: volume", style = MaterialTheme.typography.labelSmall)
+                                Text(stringResource(R.string.ui_brightness_and_volume_swipe_54fb5b9))
+                                Text(stringResource(R.string.ui_left_brightness_right_volume_927c237), style = MaterialTheme.typography.labelSmall)
                             }
                             androidx.compose.material3.Switch(checked = swipeGesturesEnabled, onCheckedChange = {
                                 swipeGesturesEnabled = it
@@ -247,16 +249,15 @@ fun SettingsScreen(vm: LibraryViewModel) {
                         Modifier.fillMaxWidth().clickable { layoutExpanded = !layoutExpanded },
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                     ) {
-                        Text("Library layout", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                        Text(stringResource(R.string.ui_library_layout_ffd5af3), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                         Text(if (layoutExpanded) "▲" else "▼", color = MaterialTheme.colorScheme.primary)
                     }
                     if (layoutExpanded) {
-                        Text(
-                            "Choose the number of columns. Thumbnails keep their 16:9 shape in every layout.",
+                        Text(stringResource(R.string.ui_choose_the_number_of_columns_thumbnails_ke_5c42c7f),
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Text("Show videos as a list", modifier = Modifier.weight(1f))
+                            Text(stringResource(R.string.ui_show_videos_as_a_list_a89e29d), modifier = Modifier.weight(1f))
                             androidx.compose.material3.Switch(checked = vm.videoListMode, onCheckedChange = { vm.toggleVideoLayout() })
                         }
                         GridPresetSetting("Folders grid", vm.folderGridPreset, vm::updateFolderGridPreset)
@@ -269,42 +270,41 @@ fun SettingsScreen(vm: LibraryViewModel) {
             OutlinedTextField(
                 value = host,
                 onValueChange = { host = it },
-                label = { Text("Server address") },
-                placeholder = { Text("e.g. 192.168.71.250") },
+                label = { Text(stringResource(R.string.ui_server_address_b067928)) },
+                placeholder = { Text(stringResource(R.string.ui_e_g_192_168_71_250_9c9a185)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Text(
-                "Enter your server address and share name.",
+            Text(stringResource(R.string.ui_enter_your_server_address_and_share_name_ebe83d7),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedTextField(
                 value = share,
                 onValueChange = { share = it },
-                label = { Text("Share name") },
+                label = { Text(stringResource(R.string.ui_share_name_b12a8c1)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
                 value = root,
                 onValueChange = { root = it },
-                label = { Text("Starting folder (optional)") },
+                label = { Text(stringResource(R.string.ui_starting_folder_optional_9d0e002)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
                 value = user,
                 onValueChange = { user = it },
-                label = { Text("Username (blank for guest)") },
+                label = { Text(stringResource(R.string.ui_username_blank_for_guest_7bb1617)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Password") },
+                label = { Text(stringResource(R.string.ui_password_8be3c94)) },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -325,40 +325,37 @@ fun SettingsScreen(vm: LibraryViewModel) {
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Checkbox(checked = savePassword, onCheckedChange = { savePassword = it })
-                Text(
-                    "Save password (encrypted with the Android Keystore)",
+                Text(stringResource(R.string.ui_save_password_encrypted_with_the_android_k_b38c859),
                     modifier = Modifier.padding(top = 12.dp),
                 )
             }
             if (!savePassword) {
-                Text(
-                    "Without a saved password, background scans only work while the app has been opened since it last started.",
+                Text(stringResource(R.string.ui_without_a_saved_password_background_scans__92f74da),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
-            TextButton(onClick = { advancedConnection = !advancedConnection }) { Text("Advanced connection options") }
+            TextButton(onClick = { advancedConnection = !advancedConnection }) { Text(stringResource(R.string.ui_advanced_connection_options_0ea75a8)) }
             if (advancedConnection) {
                 OutlinedTextField(value = domain, onValueChange = {
                     domain = it
-                }, label = { Text("Domain (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                }, label = { Text(stringResource(R.string.ui_domain_optional_a897f4b)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Text("Require SMB signing", Modifier.weight(1f))
+                    Text(stringResource(R.string.ui_require_smb_signing_5168a83), Modifier.weight(1f))
                     androidx.compose.material3.Switch(checked = requireSigning, onCheckedChange = { requireSigning = it })
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    Text("Require SMB encryption", Modifier.weight(1f))
+                    Text(stringResource(R.string.ui_require_smb_encryption_02c67d4), Modifier.weight(1f))
                     androidx.compose.material3.Switch(checked = requireEncryption, onCheckedChange = { requireEncryption = it })
                 }
-                Text(
-                    "Required security must be supported by your server. Encryption requires SMB3 and can affect throughput.",
+                Text(stringResource(R.string.ui_required_security_must_be_supported_by_you_01f1aae),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { vm.saveSettings(current()) }) { Text("Save") }
-                OutlinedButton(onClick = { vm.testConnection(current()) }) { Text("Test connection") }
+                Button(onClick = { vm.saveSettings(current()) }) { Text(stringResource(R.string.ui_save_efc007a)) }
+                OutlinedButton(onClick = { vm.testConnection(current()) }) { Text(stringResource(R.string.ui_test_connection_ccf66f0)) }
             }
 
             when (val t = vm.testState) {

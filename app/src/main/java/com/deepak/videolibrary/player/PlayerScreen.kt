@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Context
@@ -788,7 +791,7 @@ fun PlayerScreen(
                             TextButton(onClick = {
                                 if (player.hasNextMediaItem()) player.seekToNextMediaItem() else onQueueEnded()
                                 revealControls()
-                            }) { Text("Next ›") }
+                            }) { Text(stringResource(R.string.ui_next_51802ba)) }
                         }
                     }
                 }
@@ -805,7 +808,7 @@ fun PlayerScreen(
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                Text("Audio & subtitles", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.ui_audio_subtitles_e06b742), color = Color.White, style = MaterialTheme.typography.titleMedium)
                 listOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_TEXT).forEach { trackType ->
                     Text(
                         if (trackType == C.TRACK_TYPE_AUDIO) "Audio tracks" else "Subtitles",
@@ -820,10 +823,10 @@ fun PlayerScreen(
                                 .build()
                             trackRefresh++
                             revealControls()
-                        }) { Text("Off", color = Color.White) }
+                        }) { Text(stringResource(R.string.ui_off_e3de5ab), color = Color.White) }
                     }
                     val groups = trackGroups.filter { it.type == trackType }
-                    if (groups.isEmpty()) Text("No available tracks", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                    if (groups.isEmpty()) Text(stringResource(R.string.ui_no_available_tracks_d613c90), color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                     groups.forEach { group ->
                         for (index in 0 until group.length) {
                             val supported = group.isTrackSupported(index)
@@ -854,7 +857,7 @@ fun PlayerScreen(
                         }
                     }
                 }
-                TextButton(onClick = { showTracks = false }) { Text("Close") }
+                TextButton(onClick = { showTracks = false }) { Text(stringResource(R.string.ui_close_bbfa773)) }
             }
         }
         if (showSettings && controlsVisible) {
@@ -866,7 +869,7 @@ fun PlayerScreen(
                     .background(Color(0xEE202020), RoundedCornerShape(12.dp))
                     .padding(12.dp),
             ) {
-                Text("Hold to fast-forward", color = Color.White)
+                Text(stringResource(R.string.ui_hold_to_fast_forward_5f7f116), color = Color.White)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(1.5f, 1.75f, 2f).forEach { speed ->
                         FilterChip(selected = holdSpeed == speed, onClick = {
@@ -877,7 +880,7 @@ fun PlayerScreen(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Picture in Picture", color = Color.White)
+                    Text(stringResource(R.string.ui_picture_in_picture_7a61e37), color = Color.White)
                     Switch(checked = pipEnabled, onCheckedChange = {
                         pipEnabled = it
                         prefs.edit().putBoolean("pip_enabled", it).apply()
@@ -888,7 +891,7 @@ fun PlayerScreen(
                     zoom = 1f
                     aspectIndex = 0
                     revealControls()
-                }) { Text("Reset zoom", color = Color.White) }
+                }) { Text(stringResource(R.string.ui_reset_zoom_e573797), color = Color.White) }
             }
         }
         message?.let { warning ->
@@ -900,7 +903,7 @@ fun PlayerScreen(
                 TextButton(onClick = {
                     retry = 0
                     retryPending = true
-                }) { Text("Retry") }
+                }) { Text(stringResource(R.string.ui_retry_9f5cd8a)) }
             }
         }
     }

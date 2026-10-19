@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -79,7 +82,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
     }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("File Explorer", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.ui_file_explorer_700869d), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             IconButton(onClick = {
                 searchExpanded = !searchExpanded
                 if (!searchExpanded)vm.explorerQuery = ""
@@ -94,7 +97,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
             TextButton(
                 onClick = { vm.browse(vm.explorerPath.substringBeforeLast('/', "")) },
                 enabled = vm.explorerPath.isNotEmpty() && !vm.explorerBusy,
-            ) { Text("← Up") }
+            ) { Text(stringResource(R.string.ui_up_2c97c0b)) }
             Text(
                 vm.explorerPath.ifEmpty { "/ (share root)" },
                 modifier = Modifier.weight(1f),
@@ -104,16 +107,16 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
             TextButton(onClick = {
                 vm.browse()
                 vm.searchExplorer(vm.explorerQuery, vm.explorerPath)
-            }, enabled = !vm.explorerBusy) { Text("Refresh") }
+            }, enabled = !vm.explorerBusy) { Text(stringResource(R.string.ui_refresh_56e3bad)) }
         }
         if (searchExpanded || searching) {
             OutlinedTextField(
                 value = vm.explorerQuery,
                 onValueChange = { vm.explorerQuery = it },
-                label = { Text("Search names anywhere in this folder and subfolders") },
+                label = { Text(stringResource(R.string.ui_search_names_anywhere_in_this_folder_and_s_7fe98c1)) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                trailingIcon = { if (searching) TextButton(onClick = { vm.explorerQuery = "" }) { Text("Clear") } },
+                trailingIcon = { if (searching) TextButton(onClick = { vm.explorerQuery = "" }) { Text(stringResource(R.string.ui_clear_719ea39)) } },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -130,7 +133,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
-                    TextButton(onClick = { vm.browse() }, enabled = !vm.explorerBusy) { Text("Try again") }
+                    TextButton(onClick = { vm.browse() }, enabled = !vm.explorerBusy) { Text(stringResource(R.string.ui_try_again_042c862)) }
                 }
             }
         }

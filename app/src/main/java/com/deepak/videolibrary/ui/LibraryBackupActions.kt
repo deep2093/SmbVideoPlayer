@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -14,11 +17,11 @@ internal fun LibraryBackupActions(vm: LibraryViewModel) {
     val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let(vm::importLibrary) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Library backup", style = MaterialTheme.typography.titleMedium)
-            Text("Save collections, assignments, hidden items and playback history. Passwords and videos are excluded. Scan your videos before restoring.", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.ui_library_backup_51ed40f), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.ui_save_collections_assignments_hidden_items__48ef66a), style = MaterialTheme.typography.bodySmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { export.launch("video-library-backup.json") }) { Text("Export") }
-                TextButton(onClick = { restore.launch(arrayOf("application/json","text/plain")) }) { Text("Restore") }
+                OutlinedButton(onClick = { export.launch("video-library-backup.json") }) { Text(stringResource(R.string.ui_export_f3e4fad)) }
+                TextButton(onClick = { restore.launch(arrayOf("application/json","text/plain")) }) { Text(stringResource(R.string.ui_restore_3cbe6d6)) }
             }
         }
     }

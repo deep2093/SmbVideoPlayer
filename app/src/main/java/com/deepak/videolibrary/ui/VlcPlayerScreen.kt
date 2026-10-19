@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import android.app.PictureInPictureParams
 import android.content.*
 import android.media.AudioAttributes
@@ -466,9 +469,9 @@ internal fun VlcPlayerScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(current.name, Modifier.weight(1f), maxLines = 2, color = Color.White)
-                    TextButton(onClick = onClose) { Text("Close") }
+                    TextButton(onClick = onClose) { Text(stringResource(R.string.ui_close_bbfa773)) }
                 }
-                Text("WMV compatibility playback · VLC", style = MaterialTheme.typography.labelSmall, color = Color.White)
+                Text(stringResource(R.string.ui_wmv_compatibility_playback_vlc_6547634), style = MaterialTheme.typography.labelSmall, color = Color.White)
                 if (duration >
                     0
                 ) {
@@ -495,32 +498,32 @@ internal fun VlcPlayerScreen(
                     TextButton(enabled = index > 0, onClick = {
                         save()
                         index--
-                    }) { Text("Previous") }
+                    }) { Text(stringResource(R.string.ui_previous_50f9428)) }
                     TextButton(onClick = {
                         player.setTime((player.time - 10000).coerceAtLeast(0))
                         save()
-                    }) { Text("−10") }
+                    }) { Text(stringResource(R.string.ui_10_5092ac9)) }
                     Button(enabled = ready, onClick = { if (player.isPlaying)pause()else play() }) { Text(if (playing)"Pause"else "Play") }
                     TextButton(onClick = {
                         player.setTime(player.time + 10000)
                         save()
-                    }) { Text("+10") }
+                    }) { Text(stringResource(R.string.ui_10_00741a0)) }
                     TextButton(enabled = index < queue.lastIndex || vm.playbackHasMore, onClick = {
                         save()
                         if (index < queue.lastIndex) index++ else onQueueEnded()
-                    }) { Text("Next") }
-                    TextButton(onClick = { tracks = true }) { Text("Tracks") }
-                    TextButton(onClick = { options = true }) { Text("Options") }
+                    }) { Text(stringResource(R.string.ui_next_bc98198)) }
+                    TextButton(onClick = { tracks = true }) { Text(stringResource(R.string.ui_tracks_3dd1a4d)) }
+                    TextButton(onClick = { options = true }) { Text(stringResource(R.string.ui_options_6bf5da9)) }
                 }
                 error?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = { attempt++ }) { Text("Retry") }
+                    TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.ui_retry_9f5cd8a)) }
                 }
             }
         }
     }
     if (tracks) {
-        AlertDialog(onDismissRequest = { tracks = false }, title = { Text("Audio and subtitles") }, text = {
+        AlertDialog(onDismissRequest = { tracks = false }, title = { Text(stringResource(R.string.ui_audio_and_subtitles_57d12f7)) }, text = {
             Column {
                 player.audioTracks?.forEach { track ->
                     TextButton(onClick = {
@@ -535,21 +538,21 @@ internal fun VlcPlayerScreen(
                     }) { Text("Subtitle: ${track.name}") }
                 }
             }
-        }, confirmButton = { TextButton(onClick = { tracks = false }) { Text("Close") } })
+        }, confirmButton = { TextButton(onClick = { tracks = false }) { Text(stringResource(R.string.ui_close_bbfa773)) } })
     }
     if (options) {
-        AlertDialog(onDismissRequest = { options = false }, title = { Text("Playback options") }, text = {
+        AlertDialog(onDismissRequest = { options = false }, title = { Text(stringResource(R.string.ui_playback_options_75eab23)) }, text = {
             Column {
-                TextButton(onClick = { zoom = 1f }) { Text("Reset zoom") }
+                TextButton(onClick = { zoom = 1f }) { Text(stringResource(R.string.ui_reset_zoom_e573797)) }
                 Row { listOf(0.75f, 1f, 1.5f, 2f).forEach { speed -> TextButton(onClick = { player.rate = speed }) { Text("$speed×") } } }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Picture in picture")
+                    Text(stringResource(R.string.ui_picture_in_picture_89f875f))
                     Switch(pip, {
                         pip = it
                         prefs.edit().putBoolean("pip_enabled", it).apply()
                     })
                 }
-                Text("Volume")
+                Text(stringResource(R.string.ui_volume_3b18e8e))
                 var volume by remember { mutableFloatStateOf(audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat()) }
                 val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat()
                 Slider(volume, {
@@ -557,7 +560,7 @@ internal fun VlcPlayerScreen(
                         it
                     audio.setStreamVolume(AudioManager.STREAM_MUSIC, it.toInt(), 0)
                 }, valueRange = 0f..max)
-                Text("Brightness")
+                Text(stringResource(R.string.ui_brightness_e1a2b65))
                 var light by remember {
                     mutableFloatStateOf(
                         activity
@@ -577,6 +580,6 @@ internal fun VlcPlayerScreen(
                     }
                 }, valueRange = 0.02f..1f)
             }
-        }, confirmButton = { TextButton(onClick = { options = false }) { Text("Close") } })
+        }, confirmButton = { TextButton(onClick = { options = false }) { Text(stringResource(R.string.ui_close_bbfa773)) } })
     }
 }

@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -44,42 +47,42 @@ internal fun FileActionsMenu(
     var name by remember(path) { mutableStateOf(if (virtual) path else path.substringAfterLast('/')) }
     DropdownMenu(expanded = expanded, onDismissRequest = dismiss, shape = RoundedCornerShape(16.dp)) {
         if (onPlay != null) {
-            DropdownMenuItem(text = { Text("Play") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_play_5d12bd5)) }, onClick = {
                 dismiss()
                 onPlay()
             })
         }
         if (onPlayFromStart != null) {
-            DropdownMenuItem(text = { Text("Play from start") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_play_from_start_c052f7a)) }, onClick = {
                 dismiss()
                 onPlayFromStart()
             })
         }
         if (!directory && !virtual) {
-            DropdownMenuItem(text = { Text("Select") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_select_8598222)) }, onClick = {
                 dismiss()
                 vm.toggleSelected(path, selectionScope)
             })
-            DropdownMenuItem(text = { Text("Select all") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_select_all_913afff)) }, onClick = {
                 dismiss()
                 vm.selectAll(selectionScope)
             })
         }
         if (virtual) {
-            DropdownMenuItem(text = { Text("Merge into…") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_merge_into_56f0e1a)) }, onClick = {
                 dismiss()
                 merge = true
             })
         }
-        DropdownMenuItem(text = { Text("Cut") }, onClick = {
+        DropdownMenuItem(text = { Text(stringResource(R.string.ui_cut_38d13bd)) }, onClick = {
             dismiss()
             if (virtual) vm.stageGroup(path, true) else vm.stageExplorer(path, directory, true)
         })
-        DropdownMenuItem(text = { Text("Copy") }, onClick = {
+        DropdownMenuItem(text = { Text(stringResource(R.string.ui_copy_af74f7c)) }, onClick = {
             dismiss()
             if (virtual) vm.stageGroup(path, false) else vm.stageExplorer(path, directory, false)
         })
-        DropdownMenuItem(text = { Text("Paste…") }, enabled = vm.explorerClipboard != null, onClick = {
+        DropdownMenuItem(text = { Text(stringResource(R.string.ui_paste_9db2f69)) }, enabled = vm.explorerClipboard != null, onClick = {
             dismiss()
             vm.pasteDestination =
                 if (virtual) {
@@ -90,24 +93,24 @@ internal fun FileActionsMenu(
                     path.substringBeforeLast('/', "")
                 }
         })
-        DropdownMenuItem(text = { Text("Rename") }, onClick = {
+        DropdownMenuItem(text = { Text(stringResource(R.string.ui_rename_d3f4cb8)) }, onClick = {
             dismiss()
             rename = true
         })
-        DropdownMenuItem(text = { Text("Delete…") }, onClick = {
+        DropdownMenuItem(text = { Text(stringResource(R.string.ui_delete_2695739)) }, onClick = {
             dismiss()
             delete = true
         })
-        DropdownMenuItem(text = { Text("Details") }, onClick = {
+        DropdownMenuItem(text = { Text(stringResource(R.string.ui_details_dc3decb)) }, onClick = {
             dismiss()
             info = true
         })
-        DropdownMenuItem(text = { Text("Remove / Hide") }, onClick = {
+        DropdownMenuItem(text = { Text(stringResource(R.string.ui_remove_hide_3c3e1da)) }, onClick = {
             dismiss()
             if (virtual) vm.hideGroup(path) else vm.hidePath(path, directory)
         })
         if (onRemoveContinue != null) {
-            DropdownMenuItem(text = { Text("Remove from Continue Watching") }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_remove_from_continue_watching_b589f73)) }, onClick = {
                 dismiss()
                 onRemoveContinue()
             })
@@ -116,24 +119,24 @@ internal fun FileActionsMenu(
     if (merge) {
         AlertDialog(
             onDismissRequest = { merge = false },
-            title = { Text("Merge virtual folder") },
+            title = { Text(stringResource(R.string.ui_merge_virtual_folder_9d8da68)) },
             text = {
                 Column {
-                    Text("Move this folder's video assignments into another virtual folder.")
-                    OutlinedTextField(mergeName, { mergeName = it }, label = { Text("Destination virtual folder") })
+                    Text(stringResource(R.string.ui_move_this_folder_s_video_assignments_into__61204ac))
+                    OutlinedTextField(mergeName, { mergeName = it }, label = { Text(stringResource(R.string.ui_destination_virtual_folder_fda9d5d)) })
                 }
             },
             confirmButton = {
                 TextButton(enabled = mergeName.isNotBlank(), onClick = {
                     vm.mergeFolders(path, mergeName)
                     merge = false
-                }) { Text("Merge") }
+                }) { Text(stringResource(R.string.ui_merge_ea8f0d0)) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     merge =
                         false
-                }) { Text("Cancel") }
+                }) { Text(stringResource(R.string.ui_cancel_77dfd21)) }
             },
         )
     }
@@ -147,22 +150,22 @@ internal fun FileActionsMenu(
                     OutlinedTextField(name, {
                         name =
                             it
-                    }, label = { Text("New name") })
+                    }, label = { Text(stringResource(R.string.ui_new_name_9e627c7)) })
                 }
             },
             confirmButton = {
                 TextButton(enabled = name.isNotBlank() && '/' !in name && '\\' !in name, onClick = {
                     if (virtual) vm.renameFolder(path, name) else vm.renameOriginal(path, name, directory)
                     rename = false
-                }) { Text("Rename") }
+                }) { Text(stringResource(R.string.ui_rename_d3f4cb8)) }
             },
-            dismissButton = { TextButton(onClick = { rename = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { rename = false }) { Text(stringResource(R.string.ui_cancel_77dfd21)) } },
         )
     }
     if (delete) {
         AlertDialog(
             onDismissRequest = { delete = false },
-            title = { Text("Delete originals from SMB?") },
+            title = { Text(stringResource(R.string.ui_delete_originals_from_smb_fa4c321)) },
             text = {
                 Text(
                     if (virtual) {
@@ -178,17 +181,17 @@ internal fun FileActionsMenu(
                 TextButton(onClick = {
                     if (virtual) vm.deleteGroupFiles(path) else vm.deleteOriginal(path, directory)
                     delete = false
-                }) { Text("Delete permanently") }
+                }) { Text(stringResource(R.string.ui_delete_permanently_e63b515)) }
             },
-            dismissButton = { TextButton(onClick = { delete = false }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { delete = false }) { Text(stringResource(R.string.ui_cancel_77dfd21)) } },
         )
     }
     if (info) {
-        AlertDialog(onDismissRequest = { info = false }, title = { Text("Details") }, text = { Text(details) }, confirmButton = {
+        AlertDialog(onDismissRequest = { info = false }, title = { Text(stringResource(R.string.ui_details_dc3decb)) }, text = { Text(details) }, confirmButton = {
             TextButton(onClick = {
                 info =
                     false
-            }) { Text("Close") }
+            }) { Text(stringResource(R.string.ui_close_bbfa773)) }
         })
     }
 }
@@ -214,15 +217,15 @@ internal fun FileClipboardBar(vm: LibraryViewModel) {
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
             )
-            TextButton(onClick = { vm.pasteDestination = vm.settings.rootPath }) { Text("Paste…") }
-            TextButton(onClick = vm::clearClipboard) { Text("Clear") }
+            TextButton(onClick = { vm.pasteDestination = vm.settings.rootPath }) { Text(stringResource(R.string.ui_paste_9db2f69)) }
+            TextButton(onClick = vm::clearClipboard) { Text(stringResource(R.string.ui_clear_719ea39)) }
         }
     }
     if (active != null) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             val bytes = active.progress.getLong("bytes", 0)
             Text(if (bytes > 0) "Copying: ${bytes / 1048576} MB" else "File operation queued / running", modifier = Modifier.weight(1f))
-            TextButton(onClick = { vm.cancelTransfer(active.id) }) { Text("Cancel") }
+            TextButton(onClick = { vm.cancelTransfer(active.id) }) { Text(stringResource(R.string.ui_cancel_77dfd21)) }
         }
         LinearProgressIndicator(Modifier.fillMaxWidth())
     }
@@ -276,11 +279,11 @@ private fun PasteDestinationDialog(vm: LibraryViewModel) {
     }
     AlertDialog(
         onDismissRequest = { vm.pasteDestination = null },
-        title = { Text("Choose an original destination folder") },
+        title = { Text(stringResource(R.string.ui_choose_an_original_destination_folder_4667196)) },
         text = {
             Column {
                 Text(path.ifEmpty { "/ (share root)" })
-                TextButton(enabled = path.isNotEmpty(), onClick = { path = path.substringBeforeLast('/', "") }) { Text("← Up") }
+                TextButton(enabled = path.isNotEmpty(), onClick = { path = path.substringBeforeLast('/', "") }) { Text(stringResource(R.string.ui_up_2c97c0b)) }
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 LazyColumn(Modifier.heightIn(max = 320.dp)) {
@@ -302,9 +305,9 @@ private fun PasteDestinationDialog(vm: LibraryViewModel) {
             TextButton(enabled = !busy && error == null, onClick = {
                 vm.pasteInto(path)
                 vm.pasteDestination = null
-            }) { Text("Paste here") }
+            }) { Text(stringResource(R.string.ui_paste_here_731b577)) }
         },
-        dismissButton = { TextButton(onClick = { vm.pasteDestination = null }) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = { vm.pasteDestination = null }) { Text(stringResource(R.string.ui_cancel_77dfd21)) } },
     )
 }
 
@@ -317,40 +320,40 @@ private fun SelectionBar(vm: LibraryViewModel) {
     Column(Modifier.fillMaxWidth().padding(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${vm.selectedPaths.size} selected", Modifier.weight(1f))
-            TextButton(onClick = { vm.selectAll(vm.selectionScope) }) { Text("Select all") }
-            TextButton(onClick = vm::clearSelection) { Text("Done") }
+            TextButton(onClick = { vm.selectAll(vm.selectionScope) }) { Text(stringResource(R.string.ui_select_all_913afff)) }
+            TextButton(onClick = vm::clearSelection) { Text(stringResource(R.string.ui_done_e9b450d)) }
         }
         Row {
-            TextButton(onClick = { vm.stageSelected(true) }) { Text("Cut") }
-            TextButton(onClick = { vm.stageSelected(false) }) { Text("Copy") }
-            TextButton(enabled = vm.explorerClipboard != null, onClick = { vm.pasteDestination = vm.settings.rootPath }) { Text("Paste…") }
-            TextButton(onClick = { merge = true }) { Text("Merge into…") }
+            TextButton(onClick = { vm.stageSelected(true) }) { Text(stringResource(R.string.ui_cut_38d13bd)) }
+            TextButton(onClick = { vm.stageSelected(false) }) { Text(stringResource(R.string.ui_copy_af74f7c)) }
+            TextButton(enabled = vm.explorerClipboard != null, onClick = { vm.pasteDestination = vm.settings.rootPath }) { Text(stringResource(R.string.ui_paste_9db2f69)) }
+            TextButton(onClick = { merge = true }) { Text(stringResource(R.string.ui_merge_into_56f0e1a)) }
         }
     }
     if (merge) {
         AlertDialog(
             onDismissRequest = { merge = false },
-            title = { Text("Merge selected videos") },
+            title = { Text(stringResource(R.string.ui_merge_selected_videos_e03e58e)) },
             text = {
                 Column {
-                    Text("Assign selected videos to an existing or new virtual folder. Original files keep their locations.")
+                    Text(stringResource(R.string.ui_assign_selected_videos_to_an_existing_or_n_b820db7))
                     OutlinedTextField(name, {
                         name =
                             it
-                    }, label = { Text("Destination virtual folder") })
+                    }, label = { Text(stringResource(R.string.ui_destination_virtual_folder_fda9d5d)) })
                 }
             },
             confirmButton = {
                 TextButton(enabled = name.isNotBlank(), onClick = {
                     vm.mergeSelected(name)
                     merge = false
-                }) { Text("Merge") }
+                }) { Text(stringResource(R.string.ui_merge_ea8f0d0)) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     merge =
                         false
-                }) { Text("Cancel") }
+                }) { Text(stringResource(R.string.ui_cancel_77dfd21)) }
             },
         )
     }
@@ -362,12 +365,12 @@ internal fun HiddenItemsScreen(vm: LibraryViewModel, back: () -> Unit) {
     BackHandler(onBack = back)
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = back) { Text("← Settings") }
-            Text("Hidden files and folders", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            TextButton(onClick = back) { Text(stringResource(R.string.ui_settings_861b68c)) }
+            Text(stringResource(R.string.ui_hidden_files_and_folders_28d2aec), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
         }
-        Text("Hidden items stay on your SMB drive and remain visible in File Explorer.")
+        Text(stringResource(R.string.ui_hidden_items_stay_on_your_smb_drive_and_re_26d930b))
         TextButton(enabled = hidden.isNotEmpty(), onClick = vm::unhideAll) { Text("Unhide all (${hidden.size})") }
-        if (hidden.isEmpty()) Text("No hidden items.")
+        if (hidden.isEmpty()) Text(stringResource(R.string.ui_no_hidden_items_b5145e2))
         LazyColumn {
             items(hidden, key = { "${it.kind}:${it.target}" }) { item ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -386,7 +389,7 @@ internal fun HiddenItemsScreen(vm: LibraryViewModel, back: () -> Unit) {
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
-                    TextButton(onClick = { vm.unhide(item) }) { Text("Unhide") }
+                    TextButton(onClick = { vm.unhide(item) }) { Text(stringResource(R.string.ui_unhide_37f0297)) }
                 }
             }
         }
@@ -399,8 +402,7 @@ internal fun ThumbnailFailures(vm: LibraryViewModel) {
     var selected by remember { mutableStateOf<VideoEntity?>(null) }
     if (failures.isNotEmpty()) {
         Text("Failed thumbnails (${failures.size})", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Tap a filename for the reason. These stay listed until successfully retried or deleted.",
+        Text(stringResource(R.string.ui_tap_a_filename_for_the_reason_these_stay_l_cb2e815),
             style = MaterialTheme.typography.bodySmall,
         )
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
@@ -430,18 +432,18 @@ internal fun ThumbnailFailures(vm: LibraryViewModel) {
                 TextButton(onClick = {
                     vm.openFailureFolder(video.relativePath)
                     selected = null
-                }) { Text("Open folder in File Explorer") }
+                }) { Text(stringResource(R.string.ui_open_folder_in_file_explorer_4aa3f2c)) }
             },
             dismissButton = {
                 Row {
                     TextButton(onClick = {
                         vm.retryThumbnail(video.id)
                         selected = null
-                    }) { Text("Retry this file") }
+                    }) { Text(stringResource(R.string.ui_retry_this_file_a7c5877)) }
                     TextButton(onClick = {
                         selected =
                             null
-                    }) { Text("Close") }
+                    }) { Text(stringResource(R.string.ui_close_bbfa773)) }
                 }
             },
         )

@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import android.text.format.DateUtils
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -63,7 +66,7 @@ fun ScanScreen(vm: LibraryViewModel) {
             contentPadding = PaddingValues(top = 16.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            item { Text("Scan & Sync", style = MaterialTheme.typography.titleLarge) }
+            item { Text(stringResource(R.string.ui_scan_sync_33eca10), style = MaterialTheme.typography.titleLarge) }
 
             vm.notice?.let { message ->
                 item {
@@ -76,7 +79,7 @@ fun ScanScreen(vm: LibraryViewModel) {
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         ) {
                             Text(message, Modifier.weight(1f).padding(vertical = 12.dp))
-                            TextButton(onClick = vm::dismissNotice) { Text("OK") }
+                            TextButton(onClick = vm::dismissNotice) { Text(stringResource(R.string.ui_ok_9ce3bd4)) }
                         }
                     }
                 }
@@ -87,8 +90,7 @@ fun ScanScreen(vm: LibraryViewModel) {
                 ScanSection("Library scan") {
                     val s = session
                     if (s == null) {
-                        Text(
-                            "No scan has run yet. Save your server in Settings, then run a full scan.",
+                        Text(stringResource(R.string.ui_no_scan_has_run_yet_save_your_server_in_se_1e216fb),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -141,9 +143,9 @@ fun ScanScreen(vm: LibraryViewModel) {
                         Button(onClick = { vm.startScan(if (session == null) ScanMode.INITIAL else ScanMode.REFRESH) }, enabled = !busy) {
                             Text(if (session == null) "Scan library" else "Refresh library")
                         }
-                        if (active || thumbsActive) OutlinedButton(onClick = vm::stopScan) { Text("Stop") }
+                        if (active || thumbsActive) OutlinedButton(onClick = vm::stopScan) { Text(stringResource(R.string.ui_stop_9e25347)) }
                         Box {
-                            TextButton(onClick = { scanMenu = true }, enabled = !busy) { Text("More actions") }
+                            TextButton(onClick = { scanMenu = true }, enabled = !busy) { Text(stringResource(R.string.ui_more_actions_a1e34f9)) }
                             androidx.compose.material3.DropdownMenu(scanMenu, { scanMenu = false }) {
                                 listOf("Full scan" to ScanMode.INITIAL, "Resume interrupted scan" to ScanMode.RESUME, "Retry scan errors" to ScanMode.RETRY).forEach { (label, mode) ->
                                     androidx.compose.material3.DropdownMenuItem(text = { Text(label) }, onClick = { scanMenu = false; vm.startScan(mode) })
@@ -171,8 +173,8 @@ fun ScanScreen(vm: LibraryViewModel) {
                     }
                     HorizontalDivider()
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = vm::startThumbnails, enabled = !busy && thumbsPending > 0) { Text("Generate") }
-                        OutlinedButton(onClick = vm::retryFailedThumbnails, enabled = !busy && thumbsFailed > 0) { Text("Retry failed") }
+                        Button(onClick = vm::startThumbnails, enabled = !busy && thumbsPending > 0) { Text(stringResource(R.string.ui_generate_fc45f9b)) }
+                        OutlinedButton(onClick = vm::retryFailedThumbnails, enabled = !busy && thumbsFailed > 0) { Text(stringResource(R.string.ui_retry_failed_7b6ca4d)) }
                         TextButton(onClick = vm::clearThumbnailCache, enabled = !busy) { Text(if(vm.artworkMaintenance) "Clearing…" else "Clear cache") }
                     }
                     if (thumbsFailed > 0) {
@@ -280,8 +282,7 @@ private fun AutomaticSyncSummary() {
         }
     }
     ScanSection("Automatic sync") {
-        Text(
-            "Runs about every 12 hours when your server is reachable.",
+        Text(stringResource(R.string.ui_runs_about_every_12_hours_when_your_server_8ce90d9),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

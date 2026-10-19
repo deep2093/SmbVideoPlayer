@@ -143,11 +143,38 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
         }
     }
 
-    fun renamePath(source: String, destination: String, directory: Boolean = false) {
+    private fun regularEntry(path: String): SmbEntry {
+        val normalized=path.replace('\\','/').trim('/')
+        safePath(normalized)
+        val parent=normalized.substringBeforeLast('/',"")
+        val leaf=normalized.substringAfterLast('/')
+        val entries=list(parent)
+        val entry=entries.firstOrNull { it.name==leaf } ?: entries.singleOrNull { it.name.equals(leaf,ignoreCase=true) } ?: throw java.io.FileNotFoundException("Source not found")
+        require(!entry.isReparsePoint) { "Linked files and folders cannot be changed" }
+        return entry
+    }
+
+    private fun validateDeleteTree(path: String, cancelled: () -> Boolean) {
+        val pending=ArrayDeque<Pair<String,Int>>()
+        pending.add(path to 0)
+        while(pending.isNotEmpty()) {
+            if(cancelled()) throw java.io.InterruptedIOException("Delete cancelled")
+            val(parent,depth)=pending.removeFirst()
+            require(depth <= 128) { "Maximum folder depth exceeded" }
+            for(entry in list(parent)) {
+                require(!entry.isReparsePoint) { "Linked files and folders cannot be changed" }
+                if(entry.isDirectory)pending.add("$parent/${entry.name}" to depth+1)
+            }
+        }
+    }
+
+    fun renamePath(source: String, destination: String, directory: Boolean = false, cancelled: () -> Boolean = {false}) {
         val disk = share ?: throw IOException("Not connected")
         val src = safePath(source)
         val dst = safePath(destination)
         require(src != dst) { "Source and destination are the same" }
+        regularEntry(source)
+        if(cancelled())throw java.io.InterruptedIOException("Move cancelled")
         require(!disk.fileExists(dst) && !disk.folderExists(dst)) { "Destination already exists" }
         if (directory) {
             disk
@@ -158,7 +185,10 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
                     SMB2ShareAccess.ALL,
                     SMB2CreateDisposition.FILE_OPEN,
                     null,
-                ).use { it.rename(dst, false) }
+                ).use {
+                    if(cancelled())throw java.io.InterruptedIOException("Move cancelled")
+                    it.rename(dst,false)
+                }
         } else {
             disk
                 .openFile(
@@ -168,14 +198,35 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
                     SMB2ShareAccess.ALL,
                     SMB2CreateDisposition.FILE_OPEN,
                     null,
-                ).use { it.rename(dst, false) }
+                ).use {
+                    if(cancelled())throw java.io.InterruptedIOException("Move cancelled")
+                    it.rename(dst,false)
+                }
         }
     }
 
-    fun deletePath(path: String, isDirectory: Boolean) {
-        val disk = share ?: throw IOException("Not connected")
-        val safe = safePath(path)
-        if (isDirectory) disk.rmdir(safe, true) else disk.rm(safe)
+    fun deletePath(path: String, isDirectory: Boolean, cancelled: () -> Boolean = {false}) {
+        val disk=share ?: throw IOException("Not connected")
+        val safe=safePath(path)
+        regularEntry(path)
+        if(isDirectory)validateDeleteTree(path,cancelled)
+        fun removeTree(folder: String,depth: Int) {
+            if(cancelled())throw java.io.InterruptedIOException("Delete cancelled")
+            require(depth<=128) { "Maximum folder depth exceeded" }
+            for(entry in list(folder)) {
+                require(!entry.isReparsePoint) { "Linked files and folders cannot be changed" }
+                val child="$folder/${entry.name}"
+                if(entry.isDirectory)removeTree(child,depth+1)
+                else {
+                    if(cancelled())throw java.io.InterruptedIOException("Delete cancelled")
+                    disk.rm(safePath(child))
+                }
+            }
+            if(cancelled())throw java.io.InterruptedIOException("Delete cancelled")
+            disk.rmdir(safePath(folder),false)
+        }
+        if(cancelled())throw java.io.InterruptedIOException("Delete cancelled")
+        if(isDirectory)removeTree(path,0) else disk.rm(safe)
     }
 
     /** Stage a whole copy under a private temporary name, then publish it atomically.
@@ -194,6 +245,7 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
         val disk = share ?: throw IOException("Not connected")
         val src = safePath(source)
         val dst = safePath(destination)
+        regularEntry(source)
         require(src != dst && !dst.startsWith("$src\\", ignoreCase=true)) { "Cannot copy a folder into itself" }
         require(!disk.fileExists(dst) && !disk.folderExists(dst)) { "Destination already exists" }
         val parent = destination.substringBeforeLast('/', "")
@@ -257,7 +309,8 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
             copyTree(source, temporary, isDirectory)
             if (cancelled()) throw java.io.InterruptedIOException("Copy cancelled")
             onReady(identity(temporary))
-            renamePath(temporary, destination, isDirectory)
+            if(cancelled())throw java.io.InterruptedIOException("Copy cancelled")
+            renamePath(temporary, destination, isDirectory, cancelled)
             published = true
         } finally {
             // Only the unique staging path created by this operation may be removed.
@@ -286,6 +339,7 @@ object SmbErrors {
                 is SmbSecurityException -> return "This server did not negotiate the required SMB encryption. Check its SMB3 security settings."
                 is IllegalArgumentException -> safeValidationMessage(cause.message)?.let { return it }
                 is SMBApiException -> return describeStatus(cause)
+                is java.io.FileNotFoundException -> return "File or folder no longer exists. Refresh the library."
                 is UnknownHostException -> return "Server address not found. Check the address and that you are on the home Wi-Fi."
                 is SocketTimeoutException -> return "The connection timed out. The router may be busy or the address may be wrong."
             }
@@ -323,7 +377,7 @@ object SmbErrors {
         var cause: Throwable? = e
         val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable, Boolean>())
         while (cause != null && seen.add(cause)) {
-            if (cause is SMBApiException || cause is SmbSecurityException || cause is IllegalArgumentException) return false
+            if (cause is SMBApiException || cause is SmbSecurityException || cause is IllegalArgumentException || cause is java.io.FileNotFoundException) return false
             if (cause is InterruptedException || cause is java.io.InterruptedIOException && cause !is SocketTimeoutException) return false
             cause = cause.cause
         }

@@ -90,14 +90,14 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
                                 "MOVE" -> {
                                     if (conn.exists(source)) {
                                         require(conn.identity(source) == entry.remoteIdentity) { "Source changed since operation started" }
-                                        conn.renamePath(source, destination, directory)
+                                        conn.renamePath(source, destination, directory, cancelled = { isStopped || !context.isActive })
                                     } else {
                                         require(conn.exists(destination) && conn.identity(destination) == entry.remoteIdentity) { "Could not reconcile moved file" }
                                     }
                                 }
                                 "DELETE" -> if (conn.exists(source)) {
                                     require(conn.identity(source) == entry.remoteIdentity) { "Source changed since operation started" }
-                                    conn.deletePath(source, directory)
+                                    conn.deletePath(source, directory, cancelled = { isStopped || !context.isActive })
                                 }
                                 else -> error("Unknown file operation")
                             }
@@ -172,6 +172,7 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
                     "Source changed since operation started" -> "The source changed during this operation. Refresh before starting it again."
                     "Could not reconcile moved file" -> "Could not reconcile the interrupted move. Refresh the source and destination folders."
                     "Server does not provide stable file identities" -> "This server does not provide the file identities needed for safe transfers."
+                    "Linked files and folders cannot be changed" -> "Linked files and folders cannot be changed safely. Choose a regular folder."
                     "Linked folders cannot be copied" -> "Linked folders cannot be copied. Choose a regular folder."
                     "Maximum folder depth exceeded" -> "This folder tree is too deep to copy safely."
                     else -> "Invalid source or destination."

@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
@@ -125,14 +128,13 @@ fun DiagnosticsSettings() {
                     .padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text("Diagnostics", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.ui_diagnostics_3af2279), style = MaterialTheme.typography.titleMedium)
             }
             if (expanded) {
-                Text(
-                    "Off by default. Records limited playback and navigation status in memory, without video names, paths or SMB credentials.",
+                Text(stringResource(R.string.ui_off_by_default_records_limited_playback_an_685dd71),
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Enable diagnostics")
+                    Text(stringResource(R.string.ui_enable_diagnostics_bc3f246))
                     Switch(checked = enabled, onCheckedChange = {
                         enabled = it
                         AppDiagnostics.setEnabled(context, it)
@@ -147,7 +149,7 @@ fun DiagnosticsSettings() {
                     OutlinedButton(onClick = {
                         AppDiagnostics.clear()
                         refresh++
-                    }) { Text("Clear") }
+                    }) { Text(stringResource(R.string.ui_clear_719ea39)) }
                     Button(onClick = {
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
@@ -155,7 +157,7 @@ fun DiagnosticsSettings() {
                             putExtra(Intent.EXTRA_TEXT, report)
                         }
                         context.startActivity(Intent.createChooser(send, "Share diagnostics"))
-                    }) { Text("Export report") }
+                    }) { Text(stringResource(R.string.ui_export_report_0ddb744)) }
                 }
             }
         }

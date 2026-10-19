@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -54,7 +57,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
     BackHandler(enabled = query.isNotEmpty() || path != root) { if (query.isNotEmpty())vm.originalQuery = "" else up() }
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Original folders", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.ui_original_folders_38a7a75), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             IconButton(onClick = {
                 searchExpanded =
                     !searchExpanded
@@ -65,10 +68,10 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                     if (searchExpanded)"Close original folder search" else "Search original folders",
                 )
             }
-            TextButton(onClick = { vm.startScan(ScanMode.REFRESH) }) { Text("Refresh index") }
+            TextButton(onClick = { vm.startScan(ScanMode.REFRESH) }) { Text(stringResource(R.string.ui_refresh_index_2b7da4d)) }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(enabled = path != root, onClick = ::up) { Text("← Up") }
+            TextButton(enabled = path != root, onClick = ::up) { Text(stringResource(R.string.ui_up_2c97c0b)) }
             Text(path.ifEmpty { "/ (share root)" }, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         if (searchExpanded ||
@@ -77,15 +80,14 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             OutlinedTextField(query, {
                 vm.originalQuery = it
             }, singleLine = true, label = {
-                Text(
-                    "Search folder and video names",
+                Text(stringResource(R.string.ui_search_folder_and_video_names_b2eeabc),
                 )
             }, modifier = Modifier.fillMaxWidth(), trailingIcon = {
                 if (query.isNotEmpty()) {
                     TextButton(onClick = {
                         vm.originalQuery =
                             ""
-                    }) { Text("Clear") }
+                    }) { Text(stringResource(R.string.ui_clear_719ea39)) }
                 }
             })
         }
@@ -95,12 +97,12 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                 enabled =
                     count > 0,
                 onClick = { vm.playLibrary("originals", onPlay = onPlay) },
-            ) { Text("Play all") }
+            ) { Text(stringResource(R.string.ui_play_all_ebb2ffd)) }
         }
         if(videos.loadState.refresh is androidx.paging.LoadState.Error) {
             Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.Center) {
-                Text("Could not load this folder.")
-                TextButton(onClick = { videos.retry() }) { Text("Retry") }
+                Text(stringResource(R.string.ui_could_not_load_this_folder_567d2b5))
+                TextButton(onClick = { videos.retry() }) { Text(stringResource(R.string.ui_retry_9f5cd8a)) }
             }
         } else if(!ready || videos.itemCount != listing.videoCount || videos.loadState.refresh is androidx.paging.LoadState.Loading) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment=Alignment.Center) { CircularProgressIndicator() }

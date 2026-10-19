@@ -57,6 +57,12 @@ class SmbFileOperationsTest {
                 _: IllegalArgumentException,
             ) {
             }
+            try {
+                conn.renamePath(copy,renamed,cancelled={true})
+                fail("Cancelled move must keep the source")
+            } catch(_:InterruptedIOException) { }
+            assertEquals(stagedIdentity,conn.identity(copy))
+            assertFalse(conn.exists(renamed))
             conn.renamePath(copy, renamed)
             assertEquals(stagedIdentity, conn.identity(renamed))
             assertArrayEquals(original, digest(renamed))
@@ -73,6 +79,11 @@ class SmbFileOperationsTest {
             assertTrue("No final or staging file after cancellation", conn.list("Destination").isEmpty())
             conn.copyPath("Movies", "Destination/Folder", true)
             assertArrayEquals(original, digest("Destination/Folder/Tom Cruise - Fixture.mp4"))
+            try {
+                conn.deletePath("Destination/Folder",true,cancelled={true})
+                fail("Cancelled delete must keep the source")
+            } catch(_:InterruptedIOException) { }
+            assertArrayEquals(original,digest("Destination/Folder/Tom Cruise - Fixture.mp4"))
             conn.renamePath("Destination/Folder", "Destination/MovedFolder", true)
             conn.deletePath("Destination/MovedFolder", true)
             assertTrue(conn.list("Destination").isEmpty())

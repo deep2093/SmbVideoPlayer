@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
@@ -186,13 +189,13 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                             TextButton(onClick = {
                                 tab = 3
                                 returnToThumbnails = false
-                            }) { Text("← Thumbnail failures") }
+                            }) { Text(stringResource(R.string.ui_thumbnail_failures_737d640)) }
                         }
                         FileClipboardBar(vm)
                         vm.notice?.takeIf { tab != 3 }?.let { message ->
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                 Text(message, Modifier.weight(1f).padding(8.dp), color = MaterialTheme.colorScheme.onSurface)
-                                TextButton(onClick = vm::dismissNotice) { Text("Dismiss") }
+                                TextButton(onClick = vm::dismissNotice) { Text(stringResource(R.string.ui_dismiss_70afe9e)) }
                             }
                         }
                         Crossfade(

@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -56,7 +59,7 @@ fun FileImage(file: File?, modifier: Modifier = Modifier) {
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            Text("▶", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+            Text(stringResource(R.string.ui_label_867c2bf), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
         }
     }
 }

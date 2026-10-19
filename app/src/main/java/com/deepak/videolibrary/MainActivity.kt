@@ -1,5 +1,8 @@
 package com.deepak.videolibrary
 
+import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.R
+
 import android.Manifest
 import android.os.Build
 import android.os.Bundle
@@ -82,7 +85,7 @@ class MainActivity : ComponentActivity() {
                 } else {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         if (failed) {
-                            Button(onClick = { attempt++ }) { Text("Could not open library. Retry") }
+                            Button(onClick = { attempt++ }) { Text(stringResource(R.string.ui_could_not_open_library_retry_66ed55c)) }
                         } else {
                             CircularProgressIndicator()
                         }
