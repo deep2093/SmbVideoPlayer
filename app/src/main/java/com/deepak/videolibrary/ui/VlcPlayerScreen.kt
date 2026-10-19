@@ -73,6 +73,7 @@ internal fun VlcPlayerScreen(video:VideoEntity,settings:SmbSettings,vm:LibraryVi
     var pip by remember {mutableStateOf(prefs.getBoolean("pip_enabled",false))}
     val audio=remember {context.getSystemService(AudioManager::class.java)}
     var resumeFocus by remember {mutableStateOf(false)}
+    fun debugStatus(message:String){if((context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0)android.util.Log.i("SmbWmv",message)}
     fun save(){if(ready)vm.saveProgress(current.relativePath,player.time.coerceAtLeast(0),player.length.coerceAtLeast(0))}
     val latestSave by rememberUpdatedState(::save)
     val latestIndex by rememberUpdatedState(index)
@@ -106,21 +107,21 @@ internal fun VlcPlayerScreen(video:VideoEntity,settings:SmbSettings,vm:LibraryVi
             catch(e:Exception){opened?.close();error=SmbErrors.describe(e);AppDiagnostics.record(context,"wmv","open_failed_${e.javaClass.simpleName}")}
         }
     }
-    LaunchedEffect(player) {var tick=0;var last=-1L;while(true){if(ready){position=player.time.coerceAtLeast(0);duration=player.length.coerceAtLeast(0);playing=player.isPlaying;if(++tick>=5){tick=0;if(position!=last){latestSave();last=position}}};delay(1000)}}
+    LaunchedEffect(player) {var tick=0;var last=-1L;while(true){if(ready){position=player.time.coerceAtLeast(0);duration=player.length.coerceAtLeast(0);playing=player.isPlaying;if(++tick>=5){tick=0;debugStatus("position_ms=$position playing=$playing video_output=$videoOutput");if(position!=last){latestSave();last=position}}};delay(1000)}}
     LaunchedEffect(playing,videoOutput,position>1000) {
         if(playing && videoOutput && position>1000) {
             AppDiagnostics.record(context,"wmv","video_output_active")
-            if((context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0)android.util.Log.i("SmbWmv","video_output_active")
+            debugStatus("video_output_active")
         }
     }
     LaunchedEffect(playing,controls,tracks,options){if(playing && controls && !tracks && !options){delay(3000);controls=false}}
     DisposableEffect(player) {
         player.setEventListener {event->when(event.type){
-            MediaPlayer.Event.Playing->{playing=true;AppDiagnostics.record(context,"wmv","playing")}
+            MediaPlayer.Event.Playing->{playing=true;debugStatus("playing");AppDiagnostics.record(context,"wmv","playing")}
             MediaPlayer.Event.Paused->{playing=false;latestSave()}
-            MediaPlayer.Event.Vout->{videoOutput=event.voutCount>0}
+            MediaPlayer.Event.Vout->{videoOutput=event.voutCount>0;debugStatus("vout_count=${event.voutCount}")}
             MediaPlayer.Event.EndReached->{latestSave();if(latestIndex<queue.lastIndex)index=latestIndex+1 else {playing=false;wantsPlay=false;controls=true}}
-            MediaPlayer.Event.EncounteredError->{error=source[0]?.failure ?: "VLC could not decode this file. The file may be damaged or protected.";playing=false;wantsPlay=false;controls=true}
+            MediaPlayer.Event.EncounteredError->{debugStatus("decoder_error");error=source[0]?.failure ?: "VLC could not decode this file. The file may be damaged or protected.";playing=false;wantsPlay=false;controls=true}
         }}
         onDispose {
             latestSave();player.setEventListener(null);player.detachViews();audio.abandonAudioFocusRequest(focus)
