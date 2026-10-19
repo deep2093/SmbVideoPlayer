@@ -77,7 +77,8 @@ class MainActivity : ComponentActivity() {
                         override val viewModelStore = androidx.lifecycle.ViewModelStore()
                     } }
                     DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
-                    key(id) { AppRoot(vm = androidx.lifecycle.viewmodel.compose.viewModel(viewModelStoreOwner = owner)) }
+                    val factory = remember(id) { androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory(application) }
+                    key(id) { AppRoot(vm = androidx.lifecycle.viewmodel.compose.viewModel(viewModelStoreOwner = owner, factory = factory)) }
                 } else {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         if (failed) {
