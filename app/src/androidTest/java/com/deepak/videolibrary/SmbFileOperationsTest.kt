@@ -4,6 +4,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.deepak.videolibrary.smb.SmbConnection
 import com.deepak.videolibrary.smb.SmbProfile
+import com.deepak.videolibrary.settings.SettingsStore
+import com.deepak.videolibrary.settings.SmbSettings
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -16,7 +18,11 @@ import java.security.MessageDigest
 class SmbFileOperationsTest {
     @Test fun copyRenameDeleteAndCancelOnDisposableShare() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("smbFixture")=="true")
-        SmbConnection(SmbProfile("10.0.2.2","fixtures","","","")).use { conn ->
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
+        // Persist only the disposable fixture credentials, so the subsequent UI worker
+        // also exercises normal Keystore-backed authentication after a process restart.
+        SettingsStore(context).save(SmbSettings(host="10.0.2.2",share="fixtures",username="vlfixture",password="ci-fixture-only",savePassword=true))
+        SmbConnection(SmbProfile("10.0.2.2","fixtures","","vlfixture","ci-fixture-only")).use { conn ->
             conn.open()
             val source="Movies/Tom Cruise - Fixture.mp4"
             val copy="Destination/Copied.mp4"

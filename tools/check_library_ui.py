@@ -66,5 +66,8 @@ try:
     print('PASS: hidden video stays browsable in File Explorer and can be restored in Settings')
 except Exception:
     screenshot('failure')
-    Path('preview/device-logcat.txt').write_bytes(adb('logcat','-d','-t','500'))
+    print('Visible labels:',[(n.get('text'),n.get('content-desc')) for n in tree().iter('node') if n.get('text') or n.get('content-desc')])
+    log=adb('logcat','-d','-t','500')
+    Path('preview/device-logcat.txt').write_bytes(log)
+    print('\n'.join(line for line in log.decode(errors='replace').splitlines() if 'AndroidRuntime' in line or 'WorkManager' in line))
     raise

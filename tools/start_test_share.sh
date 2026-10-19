@@ -3,6 +3,8 @@ set -euo pipefail
 sudo apt-get update -qq
 sudo apt-get install -y samba
 sudo systemctl stop smbd nmbd || true
+sudo useradd --no-create-home --shell /usr/sbin/nologin vlfixture
+printf 'ci-fixture-only\nci-fixture-only\n' | sudo smbpasswd -s -a vlfixture
 mkdir -p /tmp/videolibrary-fixtures/Movies /tmp/videolibrary-fixtures/Destination
 python3 - <<'PY'
 from pathlib import Path
@@ -21,7 +23,8 @@ pid directory = /tmp
 lock directory = /tmp/videolibrary-smb-lock
 [fixtures]
 path = /tmp/videolibrary-fixtures
-guest ok = yes
+guest ok = no
+valid users = vlfixture
 read only = no
 force user = $(id -un)
 EOF
