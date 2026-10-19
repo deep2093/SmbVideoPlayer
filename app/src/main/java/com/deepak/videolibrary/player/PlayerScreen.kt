@@ -14,20 +14,13 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import android.os.SystemClock
-import android.view.ViewGroup
 import android.view.View
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.text.style.TextOverflow
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.ui.geometry.Offset
 import kotlin.math.abs
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -155,7 +148,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     var pipEnabled by remember { mutableStateOf(prefs.getBoolean("pip_enabled", false)) }
     var trackRefresh by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
-    var isPlaying by remember { mutableStateOf(player.isPlaying) }
+    var isPlaying by remember { mutableStateOf(player.playWhenReady) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var retry by remember { mutableIntStateOf(0) }
@@ -171,7 +164,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
         while (true) {
             position = player.currentPosition.coerceAtLeast(0)
             duration = player.duration.coerceAtLeast(0)
-            isPlaying = player.isPlaying
+            isPlaying = player.playWhenReady
             currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
             if (position > 2_000) {
                 val item = queue.getOrElse(currentIndex) { video }
@@ -189,7 +182,6 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                 val last = player.currentPosition.coerceAtLeast(0)
                 player.prepare()
                 player.seekTo(last)
-                player.play()
                 retryPending = false
             } else {
                 message = "Connection unavailable. Check Wi-Fi or SMB server, then tap Retry."
@@ -213,9 +205,9 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
             }
         }
         val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
-            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { updateKeepAwake() }
-            override fun onPlaybackSuppressionReasonChanged(reason: Int) { updateKeepAwake() }
+            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = player.playWhenReady }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { isPlaying = player.playWhenReady; updateKeepAwake() }
+            override fun onPlaybackSuppressionReasonChanged(reason: Int) { isPlaying = player.playWhenReady; updateKeepAwake() }
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                 AppDiagnostics.record(context, "video", "width=" + videoSize.width + " height=" + videoSize.height)
             }
@@ -284,8 +276,6 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                         val start = down.position
                         val side = if (start.x < size.width / 2f) 0 else 1
                         var pinching = false
-                        var previous = start
-                        var last = start
                         var moved = false
                         var mode = 0 // 0=tap/hold, 1=seek, 2=volume/brightness
                         var startPosition = player.currentPosition.coerceAtLeast(0L)
@@ -296,6 +286,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                         var previousSpeed = player.playbackParameters.speed
                         var holding = false
                         var released = false
+                        try {
                         while (!released) {
                             val remainingHold = if (!moved && !holding) (450L - (System.currentTimeMillis() - startTime)).coerceAtLeast(1L) else 10_000L
                             val event = withTimeoutOrNull(remainingHold) { awaitPointerEvent() }
@@ -330,7 +321,6 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                                 break
                             }
                             val current = pointer.position
-                            last = current
                             val dx = current.x - start.x
                             val dy = current.y - start.y
                             if (!moved && (abs(dx) > 18f || abs(dy) > 18f)) {
@@ -372,10 +362,9 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                                     }
                                 }
                             }
-                            previous = current
                         }
-                        if (holding) {
-                            player.setPlaybackSpeed(previousSpeed)
+                        } finally {
+                            if (holding) player.setPlaybackSpeed(previousSpeed)
                             boost = false
                         }
                         if (mode == 1 && seekingGesture) player.seekTo(seekingTarget)
@@ -415,21 +404,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                         Icon(Icons.Filled.MoreVert, "Playback options", tint = Color.White)
                     }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)); revealControls() }, modifier = Modifier.size(64.dp)) {
-                        Icon(Icons.Filled.Replay10, "Rewind 10 seconds", tint = Color.White, modifier = Modifier.size(32.dp))
-                    }
-                    FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play(); revealControls() },
-                        modifier = Modifier.size(72.dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFD32F2F), contentColor = Color.White)) {
-                        Icon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            if (isPlaying) "Pause" else "Play", modifier = Modifier.size(40.dp))
-                    }
-                    IconButton(onClick = { player.seekTo((player.currentPosition + 10_000).coerceAtMost(duration.coerceAtLeast(0))); revealControls() }, modifier = Modifier.size(64.dp)) {
-                        Icon(Icons.Filled.Forward10, "Forward 10 seconds", tint = Color.White, modifier = Modifier.size(32.dp))
-                    }
-                }
-                Column(Modifier.fillMaxWidth().background(Color(0xB8000000)).padding(horizontal = 12.dp, vertical = 5.dp)) {
+                Column(Modifier.fillMaxWidth().background(Color(0xEB000000)).padding(horizontal = 12.dp, vertical = 5.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(formatPlaybackTime(position), color = Color.White, style = MaterialTheme.typography.labelMedium)
                         Spacer(Modifier.weight(1f))
@@ -442,6 +417,20 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                         onValueChangeFinished = { player.seekTo(seekPosition.toLong()); scrubbing = false; revealControls() },
                         colors = SliderDefaults.colors(thumbColor = Color(0xFFEF5350), activeTrackColor = Color(0xFFD32F2F), inactiveTrackColor = Color.DarkGray),
                         valueRange = 0f..duration.coerceAtLeast(1L).toFloat(), modifier = Modifier.fillMaxWidth().height(22.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)); revealControls() }, modifier = Modifier.size(64.dp)) {
+                        Icon(Icons.Filled.Replay10, "Rewind 10 seconds", tint = Color.White, modifier = Modifier.size(32.dp))
+                    }
+                    FilledIconButton(onClick = { if (player.playWhenReady) player.pause() else player.play(); revealControls() },
+                        modifier = Modifier.size(72.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFD32F2F), contentColor = Color.White)) {
+                        Icon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            if (isPlaying) "Pause" else "Play", modifier = Modifier.size(40.dp))
+                    }
+                    IconButton(onClick = { player.seekTo((player.currentPosition + 10_000).coerceAtMost(duration.coerceAtLeast(0))); revealControls() }, modifier = Modifier.size(64.dp)) {
+                        Icon(Icons.Filled.Forward10, "Forward 10 seconds", tint = Color.White, modifier = Modifier.size(32.dp))
+                    }
+                }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("${currentIndex + 1}/${queue.size}", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
                         TextButton(onClick = { aspectIndex = (aspectIndex + 1) % aspectModes.size; zoom = 1f; revealControls() }) { Text("Aspect: ${aspectLabels[aspectIndex]} ↻", color = Color.White) }
