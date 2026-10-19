@@ -58,13 +58,25 @@ def enter_text(value):
     x1,y1,x2,y2=map(int,re.findall(r'\d+',field.attrib['bounds']))
     adb('shell','input','tap',(x1+x2)//2,(y1+y2)//2)
     adb('shell','input','text',value)
-    adb('shell','input','keyevent','111')
 
 try:
     adb('shell','wm','size','2560x1600')
     adb('shell','wm','density','240')
     adb('shell','am','force-stop',APP)
     adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
+    # Android 13+ can show the app's normal notification-permission prompt.
+    # Handle the system dialog before looking for app tabs.
+    for _ in range(10):
+        nodes=list(tree().iter('node'))
+        allow=next((n for n in nodes if n.get('resource-id','').endswith(':id/permission_allow_button')),None)
+        if allow is not None:
+            x1,y1,x2,y2=map(int,re.findall(r'\d+',allow.attrib['bounds']))
+            adb('shell','input','tap',(x1+x2)//2,(y1+y2)//2)
+            time.sleep(1)
+        elif any('Virtual folders' in n.get('text','').splitlines() for n in nodes):
+            break
+        else:
+            time.sleep(1)
     find('Virtual folders');find('Original folders')
     click('Virtual folders')
     assert find('Enable automatic virtual folders').get('checked')=='false'
