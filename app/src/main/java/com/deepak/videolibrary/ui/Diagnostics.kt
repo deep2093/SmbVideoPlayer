@@ -53,7 +53,8 @@ object AppDiagnostics {
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         manager.getMemoryInfo(memory)
         val heap = Runtime.getRuntime()
-        val display = context.display?.refreshRate ?: 0f
+        val display = if (Build.VERSION.SDK_INT >= 30) context.display?.refreshRate ?: 0f
+            else (context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay.refreshRate
         val entries = synchronized(lock) { events.toList() }
         return buildString {
             appendLine("SMB Video Library diagnostics")

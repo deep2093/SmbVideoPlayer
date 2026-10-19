@@ -50,7 +50,19 @@ jobs:
       - name: Unit tests
         run: gradle testDebugUnitTest --stacktrace
       - name: Android lint
-        run: gradle lintDebug --stacktrace
+        run: |
+          gradle lintDebug --stacktrace || {
+            cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+            exit 1
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Android-test-and-lint-reports
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
