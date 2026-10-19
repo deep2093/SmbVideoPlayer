@@ -5,7 +5,7 @@ sudo apt-get install -y samba ffmpeg
 sudo systemctl stop smbd nmbd || true
 sudo useradd --no-create-home --shell /usr/sbin/nologin vlfixture
 printf 'ci-fixture-only\nci-fixture-only\n' | sudo smbpasswd -s -a vlfixture
-mkdir -p /tmp/videolibrary-fixtures/Movies /tmp/videolibrary-fixtures/Destination
+mkdir -p /tmp/videolibrary-fixtures/Movies/Nested/Deep /tmp/videolibrary-fixtures/Destination
 python3 - <<'PY'
 from pathlib import Path
 p=Path('/tmp/videolibrary-fixtures/Movies/Tom Cruise - Fixture.mp4')

@@ -123,7 +123,7 @@ abstract class LibraryStateDao {
     abstract suspend fun moveProgress(key: String, source: String, destination: String)
 
     @Query(
-        "UPDATE hidden_items SET target=:destination||substr(target,length(:source)+1) WHERE connectionKey=:key AND kind!='GROUP' AND (target=:source OR substr(target,1,length(:source)+1)=:source||'/')",
+        "UPDATE hidden_items SET target=:destination||substr(target,length(:source)+1) WHERE connectionKey=:key AND kind IN ('FILE','DIRECTORY') AND (target=:source OR substr(target,1,length(:source)+1)=:source||'/')",
     )
     abstract suspend fun moveHidden(key: String, source: String, destination: String)
 
@@ -137,7 +137,7 @@ abstract class LibraryStateDao {
     abstract suspend fun deleteProgress(key: String, path: String)
 
     @Query(
-        "DELETE FROM hidden_items WHERE connectionKey=:key AND kind!='GROUP' AND (target=:path OR substr(target,1,length(:path)+1)=:path||'/')",
+        "DELETE FROM hidden_items WHERE connectionKey=:key AND kind IN ('FILE','DIRECTORY') AND (target=:path OR substr(target,1,length(:path)+1)=:path||'/')",
     )
     abstract suspend fun deleteHidden(key: String, path: String)
 }

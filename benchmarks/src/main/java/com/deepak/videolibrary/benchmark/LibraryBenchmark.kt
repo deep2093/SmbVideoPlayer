@@ -17,13 +17,14 @@ class StartupBenchmark {
         compilationMode = CompilationMode.Partial(),
         startupMode = StartupMode.COLD,
         iterations = 5,
-        setupBlock = { pressHome() },
+        setupBlock = { device.executeShellCommand("pm grant $APP android.permission.POST_NOTIFICATIONS"); pressHome() },
     ) { startActivityAndWait() }
 }
 
 class GenerateBaselineProfile {
     @get:Rule val baseline = BaselineProfileRule()
     @Test fun libraryJourneys() = baseline.collect(packageName = APP, includeInStartupProfile = true) {
+        device.executeShellCommand("pm grant $APP android.permission.POST_NOTIFICATIONS")
         pressHome(); startActivityAndWait()
         for (label in listOf("Virtual folders", "Custom folders", "Original folders", "Videos", "Scan", "Settings")) {
             (device.findObject(By.desc(label)) ?: device.findObject(By.text(label)))?.click()

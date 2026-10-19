@@ -15,16 +15,19 @@ import androidx.compose.ui.unit.dp
 import com.deepak.videolibrary.smb.SmbEntry
 import com.deepak.videolibrary.smb.SmbErrors
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /** Live drive browser: selection remains independent of the folder being browsed. */
 @Composable
 internal fun SourceFolderPicker(vm: LibraryViewModel, onClose: () -> Unit) {
-    val root = vm.settings.rootPath.trim('/')
-    var path by rememberSaveable { mutableStateOf(root) }
+    val root = ""
+    var path by rememberSaveable { mutableStateOf(vm.settings.rootPath.trim('/')) }
     var selected by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var recursive by rememberSaveable { mutableStateOf(true) }
     var entries by remember { mutableStateOf<List<SmbEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var selectingTree by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
@@ -44,27 +47,36 @@ internal fun SourceFolderPicker(vm: LibraryViewModel, onClose: () -> Unit) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${selected.size} selected", style = MaterialTheme.typography.labelLarge)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(enabled = path != root && !saving, onClick = { path = path.substringBeforeLast('/', "").takeIf { isWithinFolder(it, root) } ?: root }) { Text("Up") }
+                    TextButton(enabled = path != root && !saving && !selectingTree, onClick = { path = path.substringBeforeLast('/', "").takeIf { isWithinFolder(it, root) } ?: root }) { Text("Up") }
                     Text(path.ifBlank { vm.settings.share }, modifier = Modifier.weight(1f), maxLines = 2)
                 }
-                Row(Modifier.fillMaxWidth().clickable(enabled = !saving) { toggle(path) }, verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(path in selected, onCheckedChange = { toggle(path) }, enabled = !saving)
+                Row(Modifier.fillMaxWidth().clickable(enabled = !saving && !selectingTree) { toggle(path) }, verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(path in selected, onCheckedChange = { toggle(path) }, enabled = !saving && !selectingTree)
                     Text("Select this folder")
                 }
                 Row {
-                    TextButton(enabled = !loading && !saving, onClick = {
+                    TextButton(enabled = !loading && !saving && !selectingTree, onClick = {
                         selected = ArrayList((selected + entries.map { listOf(path, it.name).filter(String::isNotBlank).joinToString("/") }).distinct())
                     }) { Text("Select all here") }
-                    TextButton(enabled = !saving, onClick = { selected = arrayListOf() }) { Text("Clear") }
+                    TextButton(enabled = !saving && !selectingTree, onClick = { selected = arrayListOf() }) { Text("Clear") }
                 }
-                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                TextButton(enabled = !loading && !saving && !selectingTree, onClick = {
+                    scope.launch {
+                        selectingTree = true; error = null
+                        try { selected = ArrayList((selected + vm.descendantFolders(path)).distinct()) }
+                        catch(e: CancellationException) { throw e }
+                        catch(_: Exception) { error = "Could not select the tree. Try a smaller folder or check your connection." }
+                        finally { selectingTree = false }
+                    }
+                }) { Text(if(selectingTree) "Selecting subfolders…" else "Select all subfolders") }
+                if (loading || selectingTree) LinearProgressIndicator(Modifier.fillMaxWidth())
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error); TextButton(onClick = { attempt++ }) { Text("Retry") } }
-                LazyColumn(Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 320.dp)) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 260.dp)) {
                     items(entries, key = { it.name }) { entry ->
                         val child = listOf(path, entry.name).filter(String::isNotBlank).joinToString("/")
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(child in selected, onCheckedChange = { toggle(child) }, enabled = !saving)
-                            TextButton(enabled = !saving, onClick = { path = child }, modifier = Modifier.weight(1f)) {
+                            Checkbox(child in selected, onCheckedChange = { toggle(child) }, enabled = !saving && !selectingTree)
+                            TextButton(enabled = !saving && !selectingTree, onClick = { path = child }, modifier = Modifier.weight(1f)) {
                                 Text(entry.name, modifier = Modifier.weight(1f)); Icon(Icons.Default.ChevronRight, "Browse ${entry.name}")
                             }
                         }
@@ -72,14 +84,14 @@ internal fun SourceFolderPicker(vm: LibraryViewModel, onClose: () -> Unit) {
                     if (!loading && error == null && entries.isEmpty()) item { Text("No subfolders here.") }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(recursive, { recursive = it }, enabled = !saving)
+                    Checkbox(recursive, { recursive = it }, enabled = !saving && !selectingTree)
                     Text("Include videos in subfolders")
                 }
                 Text("Folders stay on your drive. New videos appear after a scan.", style = MaterialTheme.typography.bodySmall)
                 vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
-        confirmButton = { TextButton(enabled = selected.isNotEmpty() && !saving, onClick = {
+        confirmButton = { TextButton(enabled = selected.isNotEmpty() && !saving && !selectingTree, onClick = {
             saving = true
             vm.addSourceFolders(selected.toSet(), recursive, onSaved = onClose)
         }) { Text(if (saving) "Adding…" else "Add folders") } },

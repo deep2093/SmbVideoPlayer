@@ -29,7 +29,7 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val directory = inputData.getBoolean("directory", false)
         val key = inputData.getString("namespace") ?: return Result.failure()
         val services = ServiceLocator.get(applicationContext)
-        if (inputData.getString("libraryId")?.let { it != services.libraryId } == true) return Result.failure()
+        if (inputData.getString("libraryId") != services.libraryId) return Result.failure()
         val saved = services.settings.load()
         if (com.deepak.videolibrary.settings.LibraryIdentity.of(saved) != services.libraryId) return Result.retry()
         if (saved.host.isBlank() || saved.share.isBlank()) return Result.failure(workDataOf("message" to "Save a usable SMB profile before starting a transfer."))
@@ -129,7 +129,7 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
                                         }
                                     }
                                     state.journalPhase(operationId, "DONE")
-                                    ThumbnailWorker.enqueue(applicationContext)
+                                    ThumbnailWorker.enqueue(applicationContext, services.libraryId)
                                 }
                                 "MOVE" -> services.db.withTransaction {
                                     for (video in state.under(source)) {
@@ -169,6 +169,11 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 is IllegalArgumentException -> when (e.message) {
                     "Destination already exists" -> "Destination already exists; choose another folder or name."
                     "Cannot copy a folder into itself" -> "Cannot copy a folder into itself."
+                    "Source changed since operation started" -> "The source changed during this operation. Refresh before starting it again."
+                    "Could not reconcile moved file" -> "Could not reconcile the interrupted move. Refresh the source and destination folders."
+                    "Server does not provide stable file identities" -> "This server does not provide the file identities needed for safe transfers."
+                    "Linked folders cannot be copied" -> "Linked folders cannot be copied. Choose a regular folder."
+                    "Maximum folder depth exceeded" -> "This folder tree is too deep to copy safely."
                     else -> "Invalid source or destination."
                 }
                 else -> SmbErrors.describe(e)
@@ -178,12 +183,13 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
     }
     companion object {
         const val UNIQUE_NAME = "file_transfers"
-        fun enqueue(context: Context, operation: String, source: String, destination: String, directory: Boolean, key: String) {
+        fun name(id: String) = "$UNIQUE_NAME:$id"
+        fun enqueue(context: Context, operation: String, source: String, destination: String, directory: Boolean, key: String, libraryId: String = ServiceLocator.get(context).libraryId) {
             val request = OneTimeWorkRequestBuilder<TransferWorker>()
                 .setInputData(
                     workDataOf(
                         "operation" to operation,
-                        "libraryId" to ServiceLocator.get(context).libraryId,
+                        "libraryId" to libraryId,
                         "source" to source,
                         "destination" to destination,
                         "directory" to directory,
@@ -191,7 +197,7 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
                     ),
                 ).setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(name(libraryId), ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }
     }
 }

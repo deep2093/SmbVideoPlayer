@@ -3,6 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: ["codex/**"]
+concurrency:
+  group: benchmarks-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -35,6 +38,7 @@ jobs:
             adb shell am instrument -w -e additionalTestOutputDir /sdcard/Download/library-benchmarks -e androidx.benchmark.suppressErrors EMULATOR com.deepak.videolibrary.benchmark/androidx.test.runner.AndroidJUnitRunner | tee benchmark-results.txt
             grep -Eq '^OK \([0-9]+ tests?\)' benchmark-results.txt
             adb pull /sdcard/Download/library-benchmarks benchmark-output
+      - run: python3 tools/log_baseline_profile.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

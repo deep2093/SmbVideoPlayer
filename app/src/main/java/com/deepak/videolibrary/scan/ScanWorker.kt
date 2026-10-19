@@ -38,43 +38,36 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             // Not allowed to run as a foreground service right now; carry on as a normal worker.
         }
 
-        // If Android stopped this worker and is retrying it, continue the saved scan instead of
-        // starting over.
-        val mode = if (runAttemptCount > 0 && (requested == ScanMode.INITIAL || requested == ScanMode.REFRESH)) {
-            ScanMode.RESUME
-        } else {
-            requested
-        }
-
+        // The repository binds retry ownership to the exact persisted scan session.
         val completed = coroutineScope {
-            val scan = async { services.scanRepository.run(mode, profile) }
+            val scan = async { services.scanRepository.run(requested, profile, id.toString()) }
             // Thumbnails are made while the scan is still running, so artwork appears progressively.
             val thumbs = async { services.thumbnails.run(profile) { scan.isCompleted } }
             val ok = scan.await()
-            if (!thumbs.await()) com.deepak.videolibrary.thumbs.ThumbnailWorker.enqueue(applicationContext)
+            if (!thumbs.await()) com.deepak.videolibrary.thumbs.ThumbnailWorker.enqueue(applicationContext, services.libraryId)
             ok
         }
-        return if (completed) Result.success() else Result.retry()
+        return if (completed || services.db.dao().pendingCountNow() == 0) Result.success() else Result.retry()
     }
 
     companion object {
         const val UNIQUE_NAME = "library_scan"
+        fun name(id: String) = "$UNIQUE_NAME:$id"
         private const val KEY_MODE = "mode"
 
-        fun enqueue(context: Context, mode: ScanMode) {
+        fun enqueue(context: Context, mode: ScanMode, afterCurrent: Boolean = false, libraryId: String = ServiceLocator.get(context).libraryId) {
             val request = OneTimeWorkRequestBuilder<ScanWorker>()
-                .setInputData(workDataOf(KEY_MODE to mode.name))
-                .setInputData(androidx.work.workDataOf("libraryId" to ServiceLocator.get(context).libraryId, "mode" to mode.name))
+                .setInputData(androidx.work.workDataOf("libraryId" to libraryId, "mode" to mode.name))
                 .setConstraints(
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
                 ).build()
             WorkManager
                 .getInstance(context)
-                .enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.KEEP, request)
+                .enqueueUniqueWork(name(libraryId), if(afterCurrent) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.KEEP, request)
         }
 
         fun cancel(context: Context) {
-            WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_NAME)
+            WorkManager.getInstance(context).cancelUniqueWork(name(ServiceLocator.get(context).libraryId))
         }
     }
 }

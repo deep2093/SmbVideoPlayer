@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -28,12 +29,14 @@ import com.deepak.videolibrary.scan.ScanMode
 
 @Composable
 fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
-    val children by vm.originalDirectories.collectAsStateWithLifecycle()
-    val videos = vm.originalPages.collectAsLazyPagingItems()
-    val count by vm.originalResultsCount.collectAsStateWithLifecycle()
+    val listing by vm.originalListing.collectAsStateWithLifecycle()
     val root = vm.settings.rootPath.trim('/')
     val path = vm.originalPath.takeIf { isWithinFolder(it, root) } ?: root
     val query = vm.originalQuery
+    val videos = remember(path,query,vm.videoSort,vm.sortDescending) { vm.originalPagesFor(path,query) }.collectAsLazyPagingItems()
+    val ready = listing.ready && listing.path == path && listing.query == query
+    val children = if(ready) listing.rows else emptyList()
+    val count = if(ready) listing.totalCount else 0
     var searchExpanded by remember { mutableStateOf(query.isNotBlank()) }
     // One scroll position per folder level: going up restores where you were, entering starts at the top.
     val gridState = remember(path) { LazyGridState(vm.originalScroll[path]?.first ?: 0, vm.originalScroll[path]?.second ?: 0) }
@@ -94,13 +97,20 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                 onClick = { vm.playLibrary("originals", onPlay = onPlay) },
             ) { Text("Play all") }
         }
-        LazyVerticalGrid(
+        if(videos.loadState.refresh is androidx.paging.LoadState.Error) {
+            Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.Center) {
+                Text("Could not load this folder.")
+                TextButton(onClick = { videos.retry() }) { Text("Retry") }
+            }
+        } else if(!ready || videos.itemCount != listing.videoCount || videos.loadState.refresh is androidx.paging.LoadState.Loading) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment=Alignment.Center) { CircularProgressIndicator() }
+        } else LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Fixed(if (vm.folderListMode)1 else LibraryLayout.columns(vm.folderGridPreset)),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.weight(1f).testTag("original-folder-grid"),
         ) {
             if (count == 0 &&
                 children.isEmpty()
@@ -122,10 +132,14 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                 }
             }
             items(count = videos.itemCount, key = videos.itemKey { "video:${it.relativePath}" }) { index ->
-                videos[index]?.let { video ->
+                val video = videos[index]
+                if(video != null) {
                     VideoCard(video, onClick = {
                         vm.playLibrary("originals", video, onPlay)
                     }, vm = vm, listMode = vm.folderListMode, selectionScope = "originals")
+                } else {
+                    if(vm.folderListMode) Box(Modifier.fillMaxWidth().height(68.dp))
+                    else Column { Box(Modifier.fillMaxWidth().aspectRatio(16f/9f)); Text("", minLines=2, maxLines=2, style=MaterialTheme.typography.bodyMedium); Text("",style=MaterialTheme.typography.labelSmall) }
                 }
             }
         }

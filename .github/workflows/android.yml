@@ -23,6 +23,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+          cache-read-only: false
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-35 platforms;android-36 build-tools;35.0.0'
@@ -61,6 +62,8 @@ jobs:
           python3 tools/prepare_schemas.py
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
+      - name: Retain generated Room schema history
+        run: python3 tools/log_schema_manifest.py
       - name: Android lint
         run: |
           ./gradlew lintDebug --stacktrace || {
@@ -204,6 +207,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+          cache-read-only: false
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'

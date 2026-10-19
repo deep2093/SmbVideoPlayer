@@ -213,10 +213,8 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }.cachedIn(viewModelScope)
     val videoPages = pages(videoScope)
     val folderPages = pages(folderScope)
-    val originalPages = pages(originalScope)
     val videoResultsCount = videoScope.flatMapLatest { stateDao.count(LibraryQueries.count(it)) }.state(0)
     val folderResultsCount = folderScope.flatMapLatest { stateDao.count(LibraryQueries.count(it)) }.state(0)
-    val originalResultsCount = originalScope.flatMapLatest { stateDao.count(LibraryQueries.count(it.copy(subtree = true))) }.state(0)
     val groups = combine(folderScope, folderSortChoice) { scope, sort -> LibraryQueries.groups(scope, sort.first, sort.second) }
         .flatMapLatest { stateDao.folders(it) }
         .state(emptyList())
@@ -228,39 +226,19 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             stateDao.matchingFolders(it)
         }.state(emptyList())
 
-    suspend fun folderChoices(path: String): List<com.deepak.videolibrary.smb.SmbEntry> = withContext(Dispatchers.IO) {
-        require(isWithinFolder(path, settings.rootPath.trim('/'))) { "Folder outside starting folder" }
-        SmbConnection(settingsStore.toProfile(settings)).use { conn ->
-            conn.open()
-            conn.list(path).filter { it.isDirectory && !it.isReparsePoint && !it.name.startsWith('.') }
-                .sortedBy { it.name.lowercase(java.util.Locale.ROOT) }
-        }
-    }
+    private val folderCollections = FolderCollectionRepository(services.db) { settingsStore.toProfile(settings) }
+    suspend fun folderChoices(path: String) = folderCollections.children(path)
+    suspend fun descendantFolders(path: String) = folderCollections.descendants(path)
     fun addSourceFolders(paths: Set<String>, recursive: Boolean, onSaved: () -> Unit) {
-        val key = namespace.value
+        organizerError = null
         viewModelScope.launch {
             try {
-                require(paths.isNotEmpty())
-                require(paths.all { isWithinFolder(it, settings.rootPath.trim('/')) })
-                services.db.withTransaction {
-                    paths.sorted().forEach { path ->
-                        if (stateDao.sourceFolder(key, path, recursive) == null) {
-                            val leaf = path.substringAfterLast('/').ifBlank { settings.share }
-                            var name = leaf
-                            var suffix = 2
-                            while (stateDao.matchNameExists(key, name)) name = "$leaf (${suffix++})"
-                            stateDao.createMatch(MatchFolderEntity(connectionKey = key, name = name, term = "", sourcePath = path, includeSubfolders = recursive))
-                        }
-                    }
-                }
-                organizerError = null
-                onSaved()
-                startScan(ScanMode.REFRESH)
-            } catch (e: CancellationException) { throw e }
-            catch (_: Exception) { organizerError = "Could not add folders. Check the connection and try again." }
+                folderCollections.add(paths,recursive,namespace.value)
+                onSaved(); ScanWorker.enqueue(getApplication(), ScanMode.REFRESH, afterCurrent = true, libraryId = services.libraryId)
+            } catch(e: CancellationException) { throw e }
+            catch(_: Exception) { organizerError = "Could not add folders. Check the connection and try again." }
         }
     }
-
     fun createMatchingFolder(name: String) = organize {
         val clean =
             cleanFolderName(name) ?: return@organize
@@ -299,22 +277,17 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
     suspend fun matchingCover(folder: MatchFolderEntity, key: String): File? = artwork.cover("match:${folder.id}",key,
         LibraryScope(namespace.value,match=folder.takeIf { it.sourcePath == null }?.term,sourcePath=folder.sourcePath,includeSubfolders=folder.includeSubfolders))
-    val originalDirectories = originalScope
-        .flatMapLatest {
-            stateDao.directories(
-                if (it.directory ==
-                    settings.rootPath.trim('/')
-                ) {
-                    LibraryQueries.allDirectories(it)
-                } else {
-                    LibraryQueries.directories(it)
-                },
-            )
-        }.map { rows ->
-            rows.sortedWith(
-                compareBy<DirectorySummary> { originalFolderLabel(it.path).lowercase(java.util.Locale.ROOT) }.thenBy { it.path },
-            )
-        }.state(emptyList())
+    val originalListing = originalScope.flatMapLatest { scope ->
+        val directories = if(scope.directory == settings.rootPath.trim('/')) LibraryQueries.allDirectories(scope) else LibraryQueries.directories(scope)
+        combine(stateDao.directories(directories), stateDao.count(LibraryQueries.count(scope)), stateDao.count(LibraryQueries.count(scope.copy(subtree=true)))) { rows, direct, total ->
+            OriginalListing(scope.directory.orEmpty(),scope.query,
+                rows.sortedWith(compareBy<DirectorySummary> { originalFolderLabel(it.path).lowercase(java.util.Locale.ROOT) }.thenBy { it.path }),direct,total,true)
+        }
+    }.state(OriginalListing())
+    fun originalPagesFor(path: String, text: String): Flow<androidx.paging.PagingData<VideoEntity>> {
+        val scope=LibraryScope(namespace.value,text,directory=path,subtree=text.isNotBlank(),pathMatches=true,sort=videoSort.name,descending=sortDescending)
+        return Pager(PagingConfig(pageSize=60,initialLoadSize=90,enablePlaceholders=true,jumpThreshold=180),pagingSourceFactory={stateDao.pages(LibraryQueries.videos(scope))}).flow
+    }
     val continuing = namespace.flatMapLatest { stateDao.continuing(LibraryQueries.continuing(it)) }.state(emptyList())
     val hiddenItems = namespace.flatMapLatest { stateDao.hiddenItems(it) }.state(emptyList())
     val videoCount = dao.observeVideoCount().state(0)
@@ -519,7 +492,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     fun deleteGroupFiles(group: String) {
         viewModelScope.launch(Dispatchers.IO) {
             stateDao.videoList(LibraryQueries.videos(LibraryScope(namespace.value, group = group))).forEach {
-                TransferWorker.enqueue(getApplication(), "DELETE", it.relativePath, "", false, namespace.value)
+                TransferWorker.enqueue(getApplication(), "DELETE", it.relativePath, "", false, namespace.value, services.libraryId)
             }
         }
     }
@@ -527,7 +500,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         explorerClipboard = null
         clipboardBatch = emptyList()
     }
-    val transfers = WorkManager.getInstance(app).getWorkInfosForUniqueWorkFlow(TransferWorker.UNIQUE_NAME).state(emptyList())
+    val transfers = WorkManager.getInstance(app).getWorkInfosForUniqueWorkFlow(TransferWorker.name(services.libraryId)).state(emptyList())
     fun pasteInto(directory: String) {
         val entries = clipboardBatch.ifEmpty { listOfNotNull(explorerClipboard) }
         if (entries.isEmpty()) return
@@ -542,7 +515,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
         entries.forEach { clip ->
             val dest = listOf(directory, clip.first.substringAfterLast('/')).filter(String::isNotBlank).joinToString("/")
-            TransferWorker.enqueue(getApplication(), if (clip.third) "MOVE" else "COPY", clip.first, dest, clip.second, namespace.value)
+            TransferWorker.enqueue(getApplication(), if (clip.third) "MOVE" else "COPY", clip.first, dest, clip.second, namespace.value, services.libraryId)
         }
         notice = "${entries.size} file operation(s) queued. You can keep using the app."
         clearClipboard()
@@ -617,7 +590,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     val thumbsActive: StateFlow<Boolean> =
         WorkManager
             .getInstance(app)
-            .getWorkInfosForUniqueWorkFlow(ThumbnailWorker.UNIQUE_NAME)
+            .getWorkInfosForUniqueWorkFlow(ThumbnailWorker.name(services.libraryId))
             .map { infos ->
                 infos.any { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
             }.state(false)
@@ -636,7 +609,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             notice = "Enter the server address and share name in Settings first."
             return
         }
-        ThumbnailWorker.enqueue(getApplication())
+        ThumbnailWorker.enqueue(getApplication(), services.libraryId)
     }
 
     fun retryFailedThumbnails() {
@@ -647,11 +620,17 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
 
     /** Deletes cached thumbnails and covers only. Nothing on the SMB drive is touched. */
+    var artworkMaintenance by mutableStateOf(false)
+        private set
     fun clearThumbnailCache() {
+        if(artworkMaintenance) return
+        artworkMaintenance = true
         viewModelScope.launch {
+            try {
             ThumbnailWorker.cancel(getApplication())
             artwork.clear()
             notice = "Artwork cache cleared. Generate thumbnails when ready."
+            } finally { artworkMaintenance = false }
         }
     }
 
@@ -703,7 +682,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         // Pick up any thumbnails still waiting from an earlier session.
         viewModelScope.launch {
             if (settingsStore.loadProfile() != null && dao.countThumbs("PENDING") > 0) {
-                ThumbnailWorker.enqueue(getApplication())
+                ThumbnailWorker.enqueue(getApplication(), services.libraryId)
             }
         }
     }
@@ -721,7 +700,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     val scanActive: StateFlow<Boolean> =
         WorkManager
             .getInstance(app)
-            .getWorkInfosForUniqueWorkFlow(ScanWorker.UNIQUE_NAME)
+            .getWorkInfosForUniqueWorkFlow(ScanWorker.name(services.libraryId))
             .map { infos ->
                 infos.any { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
             }.state(false)
@@ -748,7 +727,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
                 }
             }
             notice = reason
-            if (reason == null) ScanWorker.enqueue(getApplication(), mode)
+            if (reason == null) ScanWorker.enqueue(getApplication(), mode, libraryId = services.libraryId)
         }
     }
 
@@ -867,11 +846,11 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             return
         }
         val dest = listOf(path.substringBeforeLast('/', ""), clean).filter(String::isNotBlank).joinToString("/")
-        TransferWorker.enqueue(getApplication(), "MOVE", path, dest, directory, namespace.value)
+        TransferWorker.enqueue(getApplication(), "MOVE", path, dest, directory, namespace.value, services.libraryId)
         notice = "Rename queued. Existing artwork and playback history will follow the file."
     }
     fun deleteOriginal(path: String, directory: Boolean) {
-        TransferWorker.enqueue(getApplication(), "DELETE", path, "", directory, namespace.value)
+        TransferWorker.enqueue(getApplication(), "DELETE", path, "", directory, namespace.value, services.libraryId)
         notice = "Delete queued."
     }
 

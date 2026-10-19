@@ -57,4 +57,37 @@ class FolderNavigationTest {
             services.db.close()
         }
     }
+    @Test fun originalFolderBackWaitsForTheCorrectRowsBeforeRestoring() = runBlocking {
+        val app=InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Application
+        val services=ServiceLocator(app,"original-navigation-${UUID.randomUUID()}",SettingsStore(app))
+        val owner=object:ViewModelStoreOwner { override val viewModelStore=ViewModelStore() }
+        val vm=ViewModelProvider(owner,object:ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST") override fun<T:ViewModel> create(modelClass:Class<T>):T=LibraryViewModel(app,services) as T
+        })[LibraryViewModel::class.java]
+        val visible=mutableStateOf(true)
+        val root=vm.settings.rootPath.trim('/')
+        try {
+            repeat(80) { i ->
+                val parent=listOf(root,"Folder%03d".format(i)).filter(String::isNotBlank).joinToString("/")
+                services.db.dao().insertVideo(VideoEntity(relativePath="$parent/A.mp4",name="A.mp4",parentDir=parent,size=1,modified=1,groupKey="A",lastSeenSession=1,addedAt=1))
+            }
+            vm.foldersTab=2
+            rule.setContent { if(visible.value) MaterialTheme { AppRoot(vm) } }
+            rule.waitUntil(15000) { rule.onAllNodesWithTag("original-folder-grid").fetchSemanticsNodes().isNotEmpty() && vm.originalListing.value.rows.size==80 }
+            rule.onNodeWithTag("original-folder-grid").performScrollToIndex(40)
+            rule.waitForIdle()
+            val before=rule.onNodeWithText("Folder040",useUnmergedTree=true).fetchSemanticsNode().boundsInRoot.top
+            rule.onNodeWithText("Folder040").performClick()
+            rule.waitUntil(15000) { vm.originalListing.value.path.endsWith("Folder040") && rule.onAllNodesWithText("A.mp4").fetchSemanticsNodes().isNotEmpty() }
+            rule.onNodeWithText("← Up").performClick()
+            rule.waitUntil(15000) { vm.originalListing.value.path==root && rule.onAllNodesWithText("Folder040").fetchSemanticsNodes().isNotEmpty() }
+            rule.waitForIdle()
+            rule.onNodeWithText("Folder040").assertIsDisplayed()
+            assertEquals(before,rule.onNodeWithText("Folder040",useUnmergedTree=true).fetchSemanticsNode().boundsInRoot.top,1f)
+        } finally {
+            rule.runOnIdle { visible.value=false }
+            rule.waitForIdle(); owner.viewModelStore.clear(); services.db.close()
+        }
+    }
+
 }

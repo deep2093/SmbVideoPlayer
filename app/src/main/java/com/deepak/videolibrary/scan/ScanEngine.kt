@@ -65,7 +65,7 @@ private fun isSkipped(name: String): Boolean =
  * Prepares scan sessions and runs them. The directory queue lives in the database, so a scan that
  * is killed at any moment can continue from where it stopped.
  */
-class ScanRepository(private val db: LibraryDatabase) {
+class ScanRepository(private val db: LibraryDatabase, private val owners: android.content.SharedPreferences? = null) {
     val scanMutex = kotlinx.coroutines.sync.Mutex()
 
     private val dao = db.dao()
@@ -74,10 +74,19 @@ class ScanRepository(private val db: LibraryDatabase) {
      * Runs one scan. Returns true if the scan walked the whole queue, false if it could not start
      * or had to stop early (it can be resumed). Cancellation marks the session INTERRUPTED and rethrows.
      */
-    suspend fun run(mode: ScanMode, profile: SmbProfile): Boolean = scanMutex.withLock {
+    suspend fun run(mode: ScanMode, profile: SmbProfile, owner: String? = null): Boolean = scanMutex.withLock {
         dao.markRunningInterrupted()
-        val session = prepare(mode, profile) ?: return@withLock false
-        ScanEngine(db, profile, session).run()
+        val latest=dao.latestSession()
+        val sameRequest=owner!=null && owners?.getLong(owner,-1L)==latest?.id
+        if(sameRequest && latest?.status in setOf(ScanStatus.COMPLETED,ScanStatus.COMPLETED_WITH_ERRORS)) return@withLock true
+        val effective=if(sameRequest && mode in setOf(ScanMode.INITIAL,ScanMode.REFRESH) && dao.pendingCountNow()>0) ScanMode.RESUME else mode
+        val session=prepare(effective,profile) ?: return@withLock false
+        if(owner!=null && owners!=null) withContext(Dispatchers.IO) {
+            val editor=owners.edit().putLong(owner,session.id)
+            owners.all.entries.sortedBy { (it.value as? Long) ?: 0L }.dropLast(63).forEach { if(it.key!=owner)editor.remove(it.key) }
+            check(editor.commit()) { "Could not persist scan request" }
+        }
+        ScanEngine(db,profile,session).run()
     }
 
     suspend fun runPeriodic(profile: SmbProfile): Boolean = scanMutex.withLock {
@@ -95,7 +104,10 @@ class ScanRepository(private val db: LibraryDatabase) {
                 val id = dao.insertSession(
                     ScanSessionEntity(mode = mode.name, status = ScanStatus.RUNNING, startedAt = now),
                 )
-                dao.insertPending(listOf(PendingDirEntity(profile.rootPath)))
+                val key = profile.host.trim().lowercase(java.util.Locale.ROOT) + "/" + profile.share.trim().lowercase(java.util.Locale.ROOT)
+                val roots = (listOf(profile.rootPath) + db.libraryState().savedCollections(key).mapNotNull { it.sourcePath }).distinct()
+                val minimalRoots = roots.filter { candidate -> roots.none { other -> other != candidate && (other.isEmpty() || candidate.startsWith("$other/")) } }
+                dao.insertPending(minimalRoots.map { PendingDirEntity(it) })
                 dao.getSession(id)
             }
 

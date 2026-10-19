@@ -27,7 +27,7 @@ Read-ahead uses one 1 MiB block and accepts smaller server responses. It is clea
 on open/seek. Decoder reads are served from that block rather than issuing a network
 request per small read. Reconnect retries start at the next undelivered byte.
 Media3 targets 15–30 seconds of buffering, starts at 2.5 seconds, and requires
-5 seconds after rebuffering, with a 96 MiB sample-buffer target. At about 28 Mbps,
+5 seconds after rebuffering, with a 32/64/96 MiB sample-buffer target selected from the device memory class. At about 28 Mbps,
 the byte target may stop loading before 30 seconds. These settings do not guarantee
 sustained throughput on every server or Wi-Fi network.
 
@@ -39,3 +39,15 @@ CI runs the existing search benchmark, all JVM unit tests, Android lint, and a d
 APK build on pull requests. Download the APK and validation reports from Actions.
 A successful build does not verify device gestures, hardware decoding or real SMB throughput.
 Do not merge the draft PR until the user has tested the APK.
+
+
+## v0.11 checks
+
+- In Custom folders, select nested folders, all siblings, and a complete subfolder tree. Include a location outside the starting folder and verify scan membership. Toggle inclusion of descendants. Rename/remove the collection and confirm drive folders are unchanged.
+- Scroll Virtual folders well down the list, open a folder, and return. Check the same visible card and pixel offset. Repeat with Custom and Original folders, search, and playback.
+- Switch account/root/share, then switch back. Check independent artwork, assignments, queue jobs and resume state. Export organization, restore it into the same library, and reject a backup from another library.
+- Exercise copy/move/delete with process interruption on a disposable share. Verify the recorded server identity, one final publication, and preserved assignments/history.
+- Try Play all with more than 200 items and confirm advance across queue batch boundaries in Media3 and VLC.
+- Test the fixed tablet sidebar and Scan/Settings at large font sizes and in split-screen.
+
+Run `./gradlew :app:assembleOptimized :benchmarks:assembleOptimized`, install both APKs, then run the benchmark instrumentation on a physical device. Keep startup/frame reports alongside device model, Android version, refresh rate and library size. Emulator timing is not a performance guarantee.

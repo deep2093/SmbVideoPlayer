@@ -36,4 +36,22 @@ class ScanResumeTest {
             db.close()
         }
     }
+    @Test fun retryAfterCompletedScanDoesNotRestartOrLoopForever() = runBlocking {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("smbFixture") == "true")
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
+        val db=Room.inMemoryDatabaseBuilder(context,LibraryDatabase::class.java).build()
+        val prefs=context.getSharedPreferences("scan-owner-test",android.content.Context.MODE_PRIVATE)
+        prefs.edit().clear().commit()
+        try {
+            val repository=ScanRepository(db,prefs)
+            val profile=SmbProfile("10.0.2.2","fixtures","Movies","vlfixture","ci-fixture-only")
+            assertTrue(repository.run(ScanMode.REFRESH,profile,"request-one"))
+            val first=db.dao().latestSession()!!.id
+            assertTrue(repository.run(ScanMode.REFRESH,profile,"request-one"))
+            assertEquals(first,db.dao().latestSession()!!.id)
+            assertTrue(repository.run(ScanMode.REFRESH,profile,"request-two"))
+            assertTrue(db.dao().latestSession()!!.id > first)
+        } finally { db.close(); prefs.edit().clear().commit() }
+    }
+
 }

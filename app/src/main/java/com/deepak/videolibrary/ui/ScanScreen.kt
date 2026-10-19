@@ -51,7 +51,7 @@ fun ScanScreen(vm: LibraryViewModel) {
     val thumbsDone by vm.thumbsDone.collectAsStateWithLifecycle()
     val thumbsPending by vm.thumbsPending.collectAsStateWithLifecycle()
     val thumbsFailed by vm.thumbsFailed.collectAsStateWithLifecycle()
-    val busy = active || thumbsActive
+    val busy = active || thumbsActive || vm.artworkMaintenance
     var scanMenu by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var showFailures by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var showErrors by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
@@ -141,7 +141,7 @@ fun ScanScreen(vm: LibraryViewModel) {
                         Button(onClick = { vm.startScan(if (session == null) ScanMode.INITIAL else ScanMode.REFRESH) }, enabled = !busy) {
                             Text(if (session == null) "Scan library" else "Refresh library")
                         }
-                        if (busy) OutlinedButton(onClick = vm::stopScan) { Text("Stop") }
+                        if (active || thumbsActive) OutlinedButton(onClick = vm::stopScan) { Text("Stop") }
                         Box {
                             TextButton(onClick = { scanMenu = true }, enabled = !busy) { Text("More actions") }
                             androidx.compose.material3.DropdownMenu(scanMenu, { scanMenu = false }) {
@@ -173,7 +173,7 @@ fun ScanScreen(vm: LibraryViewModel) {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = vm::startThumbnails, enabled = !busy && thumbsPending > 0) { Text("Generate") }
                         OutlinedButton(onClick = vm::retryFailedThumbnails, enabled = !busy && thumbsFailed > 0) { Text("Retry failed") }
-                        TextButton(onClick = vm::clearThumbnailCache, enabled = !busy) { Text("Clear cache") }
+                        TextButton(onClick = vm::clearThumbnailCache, enabled = !busy) { Text(if(vm.artworkMaintenance) "Clearing…" else "Clear cache") }
                     }
                     if (thumbsFailed > 0) {
                         TextButton(onClick = { showFailures = !showFailures }) { Text(if (showFailures) "Hide failed thumbnails" else "View failed thumbnails") }
@@ -271,6 +271,7 @@ private fun AutomaticSyncSummary() {
     val status = when (val raw = snapshot.first.orEmpty()) {
         "RUNNING" -> "Syncing…"
         "COMPLETED" -> "Up to date"
+        "COMPLETED_WITH_ERRORS" -> "Finished with scan errors"
         "INTERRUPTED" -> "Interrupted · will try again"
         else -> when {
             raw.startsWith("SKIPPED:") -> raw.removePrefix("SKIPPED:").trim()

@@ -30,6 +30,21 @@ class FolderCollectionsTest {
         } finally { db.close() }
     }
 
+    @Test fun liveSelectionCanIncludeFoldersOutsideTheStartingFolder() = runBlocking {
+        org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("smbFixture") == "true")
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val db = Room.inMemoryDatabaseBuilder(context,LibraryDatabase::class.java).build()
+        try {
+            val profile = com.deepak.videolibrary.smb.SmbProfile("10.0.2.2","fixtures","Destination","vlfixture","ci-fixture-only")
+            val collections = FolderCollectionRepository(db) { profile }
+            assertTrue(collections.children("").any { it.name == "Movies" })
+            assertTrue(collections.descendants("Movies").containsAll(setOf("Movies/Nested","Movies/Nested/Deep")))
+            collections.add(setOf("Movies"),true,"10.0.2.2/fixtures")
+            assertTrue(com.deepak.videolibrary.scan.ScanRepository(db).run(com.deepak.videolibrary.scan.ScanMode.REFRESH,profile))
+            assertNotNull(db.dao().findVideo("Movies/Tom Cruise - Fixture.mp4"))
+        } finally { db.close() }
+    }
+
     @Test fun playbackBatchesTraverseLargeSortedLibraryWithoutDuplicates() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val db = Room.inMemoryDatabaseBuilder(context,LibraryDatabase::class.java).build()

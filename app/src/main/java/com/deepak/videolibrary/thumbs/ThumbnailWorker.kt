@@ -36,20 +36,21 @@ class ThumbnailWorker(context: Context, params: WorkerParameters) : CoroutineWor
 
     companion object {
         const val UNIQUE_NAME = "library_thumbnails"
+        fun name(id: String) = "$UNIQUE_NAME:$id"
 
-        fun enqueue(context: Context) {
+        fun enqueue(context: Context, libraryId: String = ServiceLocator.get(context).libraryId) {
             val request = OneTimeWorkRequestBuilder<ThumbnailWorker>()
-                .setInputData(androidx.work.workDataOf("libraryId" to ServiceLocator.get(context).libraryId))
+                .setInputData(androidx.work.workDataOf("libraryId" to libraryId))
                 .setConstraints(
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
                 ).build()
             WorkManager
                 .getInstance(context)
-                .enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.KEEP, request)
+                .enqueueUniqueWork(name(libraryId), ExistingWorkPolicy.KEEP, request)
         }
 
         fun cancel(context: Context) {
-            WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_NAME)
+            WorkManager.getInstance(context).cancelUniqueWork(name(ServiceLocator.get(context).libraryId))
         }
     }
 }
