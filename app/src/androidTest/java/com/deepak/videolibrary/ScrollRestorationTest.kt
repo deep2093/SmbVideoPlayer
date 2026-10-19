@@ -47,9 +47,10 @@ class ScrollRestorationTest {
                 }
             }
         }
-        rule.runOnIdle { scope.launch { state.scrollToItem(40) } }
+        rule.runOnIdle { scope.launch { state.scrollToItem(40, 17) } }
         rule.waitForIdle()
         assertEquals(40, state.firstVisibleItemIndex)
+        assertEquals(17, state.firstVisibleItemScrollOffset)
 
         // Leave and come back (folder opened and closed, player, tab switch): position is kept.
         rule.runOnIdle { visible = false }
@@ -57,6 +58,7 @@ class ScrollRestorationTest {
         rule.runOnIdle { visible = true }
         rule.waitForIdle()
         assertEquals(40, state.firstVisibleItemIndex)
+        assertEquals(17, state.firstVisibleItemScrollOffset)
 
         // A real filter change while visible still returns to the top.
         rule.runOnIdle { key = "b" }

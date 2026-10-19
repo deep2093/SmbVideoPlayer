@@ -23,8 +23,10 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             ?: return Result.failure()
 
         val services = ServiceLocator.get(applicationContext)
-        val profile = services.settings.loadProfile() ?: return Result.failure()
-        if (com.deepak.videolibrary.settings.LibraryIdentity.of(services.settings.load()) != services.libraryId) return Result.retry()
+        val saved = services.settings.load()
+        if (saved.host.isBlank() || saved.share.isBlank()) return Result.failure()
+        if (com.deepak.videolibrary.settings.LibraryIdentity.of(saved) != services.libraryId) return Result.retry()
+        val profile = services.settings.toProfile(saved)
         val expected = inputData.getString("libraryId")
         if (expected != null && expected != services.libraryId) return Result.failure()
 

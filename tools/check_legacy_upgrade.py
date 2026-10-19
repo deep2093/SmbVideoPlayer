@@ -69,7 +69,7 @@ def chunk(kind, data):
     return struct.pack('!I',len(data))+kind+data+struct.pack('!I',zlib.crc32(kind+data)&0xffffffff)
 png=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('!2I5B',1,1,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(b'\x00\xff\x00\x00'))+chunk(b'IEND',b'')
 write('files/thumbs/9001.jpg',png)
-write('shared_prefs/smb_settings.xml',b'<?xml version="1.0" encoding="utf-8"?><map><string name="host">10.0.2.2</string><string name="share">fixtures</string><string name="root"></string><string name="user"></string><boolean name="save_password" value="false" /></map>')
+write('shared_prefs/smb_settings.xml',b'<?xml version="1.0" encoding="utf-8"?><map><string name="host">10.0.2.2</string><string name="share">fixtures</string><string name="root"></string><string name="user">vlfixture</string><boolean name="save_password" value="false" /></map>')
 write('shared_prefs/player_prefs.xml',b'<?xml version="1.0" encoding="utf-8"?><map><boolean name="database_history_imported_v3" value="true" /><float name="hold_speed" value="1.75" /></map>')
 adb('install','-r','preview/base.apk')
 launch()

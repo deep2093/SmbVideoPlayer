@@ -21,6 +21,8 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.VideoLibrary">
 
+        <profileable android:shell="true" />
+
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"

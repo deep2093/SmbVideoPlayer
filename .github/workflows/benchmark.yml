@@ -1,0 +1,44 @@
+name: Device profile and startup measurements
+on:
+  workflow_dispatch:
+  push:
+    branches: ["codex/**"]
+permissions:
+  contents: read
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
+      - run: ./gradlew :app:assembleOptimized :benchmarks:assembleOptimized
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          disable-animations: true
+          script: |
+            adb install app/build/outputs/apk/optimized/app-optimized.apk
+            adb install benchmarks/build/outputs/apk/optimized/benchmarks-optimized.apk
+            adb shell am instrument -w -e additionalTestOutputDir /sdcard/Download/library-benchmarks -e androidx.benchmark.suppressErrors EMULATOR com.deepak.videolibrary.benchmark/androidx.test.runner.AndroidJUnitRunner | tee benchmark-results.txt
+            grep -Eq '^OK \([0-9]+ tests?\)' benchmark-results.txt
+            adb pull /sdcard/Download/library-benchmarks benchmark-output
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Device-profiles-and-benchmarks
+          path: |
+            benchmark-results.txt
+            benchmark-output/

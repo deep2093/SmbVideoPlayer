@@ -30,9 +30,10 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
         val key = inputData.getString("namespace") ?: return Result.failure()
         val services = ServiceLocator.get(applicationContext)
         if (inputData.getString("libraryId")?.let { it != services.libraryId } == true) return Result.failure()
-        val profile =
-            services.settings.loadProfile()
-                ?: return Result.failure(workDataOf("message" to "Save a usable SMB profile before starting a background transfer."))
+        val saved = services.settings.load()
+        if (com.deepak.videolibrary.settings.LibraryIdentity.of(saved) != services.libraryId) return Result.retry()
+        if (saved.host.isBlank() || saved.share.isBlank()) return Result.failure(workDataOf("message" to "Save a usable SMB profile before starting a transfer."))
+        val profile = services.settings.toProfile(saved)
         val currentKey = profile.host.trim().lowercase(java.util.Locale.ROOT) + "/" + profile.share.trim().lowercase(java.util.Locale.ROOT)
         if (key !=
             currentKey
@@ -123,7 +124,7 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
                                             }
                                             if (!isPlayable(entryFile) || services.db.dao().findVideo(path) != null) continue
                                             services.db.dao().insertVideo(VideoEntity(relativePath = path, name = entryFile.name, parentDir = parent,
-                                                size = entryFile.size, modified = entryFile.modified, groupKey = GroupKey.fromFileName(entryFile.name),
+                                                size = entryFile.size, modified = entryFile.modified, groupKey = GroupKey.fromFileName(entryFile.name, profile.groupingRule),
                                                 lastSeenSession = 0, addedAt = System.currentTimeMillis()))
                                         }
                                     }
@@ -134,7 +135,7 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
                                     for (video in state.under(source)) {
                                         val path = destination + video.relativePath.removePrefix(source)
                                         val name = path.substringAfterLast('/')
-                                        state.moveVideo(video.id, path, path.substringBeforeLast('/', ""), name, GroupKey.fromFileName(name))
+                                        state.moveVideo(video.id, path, path.substringBeforeLast('/', ""), name, GroupKey.fromFileName(name, profile.groupingRule))
                                     }
                                     state.moveProgress(key, source, destination)
                                     state.moveHidden(key, source, destination)

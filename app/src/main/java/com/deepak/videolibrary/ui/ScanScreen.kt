@@ -256,7 +256,7 @@ private fun AutomaticSyncSummary() {
     val context = LocalContext.current
     val prefs = remember(context) {
         context.getSharedPreferences(
-            com.deepak.videolibrary.scan.PeriodicSyncWorker.DIAGNOSTICS,
+            com.deepak.videolibrary.scan.PeriodicSyncWorker.DIAGNOSTICS + "-" + com.deepak.videolibrary.ServiceLocator.get(context).libraryId,
             android.content.Context.MODE_PRIVATE,
         )
     }

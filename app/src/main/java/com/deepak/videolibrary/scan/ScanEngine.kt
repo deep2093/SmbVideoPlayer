@@ -233,16 +233,16 @@ class ScanEngine(
                     parentDir = parentDir,
                     size = entry.size,
                     modified = entry.modified,
-                    groupKey = GroupKey.fromFileName(entry.name),
+                    groupKey = GroupKey.fromFileName(entry.name, profile.groupingRule),
                     lastSeenSession = sid,
                     addedAt = System.currentTimeMillis(),
                 ),
             )
 
             existing.size != entry.size || existing.modified != entry.modified ->
-                dao.updateMetadata(existing.id, entry.size, entry.modified, GroupKey.fromFileName(entry.name), sid)
-            existing.groupKey != GroupKey.fromFileName(entry.name) ->
-                dao.updateGroupKey(existing.id, GroupKey.fromFileName(entry.name), sid)
+                dao.updateMetadata(existing.id, entry.size, entry.modified, GroupKey.fromFileName(entry.name, profile.groupingRule), sid)
+            existing.groupKey != GroupKey.fromFileName(entry.name, profile.groupingRule) ->
+                dao.updateGroupKey(existing.id, GroupKey.fromFileName(entry.name, profile.groupingRule), sid)
             existing.lastSeenSession != sid -> dao.touchVideo(existing.id, sid)
         }
     }

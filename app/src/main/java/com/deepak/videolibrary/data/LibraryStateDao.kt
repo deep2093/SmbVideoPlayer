@@ -55,6 +55,9 @@ abstract class LibraryStateDao {
     @Query("SELECT * FROM hidden_items WHERE connectionKey=:key ORDER BY label COLLATE NOCASE")
     abstract fun hiddenItems(key: String): Flow<List<HiddenItem>>
 
+    @Query("SELECT * FROM hidden_items WHERE connectionKey=:key ORDER BY label COLLATE NOCASE")
+    abstract suspend fun savedHidden(key: String): List<HiddenItem>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun hide(item: HiddenItem)
 
@@ -98,6 +101,15 @@ abstract class LibraryStateDao {
 
     @Query("SELECT * FROM videos WHERE relativePath=:path OR substr(relativePath,1,length(:path)+1)=:path||'/'")
     abstract suspend fun under(path: String): List<VideoEntity>
+
+    @Query("SELECT * FROM custom_folders")
+    abstract suspend fun manualFolders(): List<CustomFolderEntity>
+    @Query("SELECT * FROM match_folders WHERE connectionKey=:key")
+    abstract suspend fun savedCollections(key: String): List<MatchFolderEntity>
+    @Query("SELECT * FROM playback_state WHERE connectionKey=:key")
+    abstract suspend fun savedProgress(key: String): List<PlaybackStateEntity>
+    @Query("UPDATE videos SET customGroup=:groupName WHERE relativePath=:path")
+    abstract suspend fun restoreAssignment(path: String, groupName: String): Int
 
     @Query("SELECT * FROM videos")
     abstract suspend fun legacyVideos(): List<VideoEntity>

@@ -4,6 +4,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GroupKeyTest {
+    @Test fun configurableDelimitersPreserveDefaultAndAllowHyphens() {
+        assertEquals("tom cruise",GroupKey.fromFileName("Tom Cruise - Interview, HD.mp4"))
+        assertEquals("tom cruise - interview",GroupKey.fromFileName("Tom Cruise - Interview, HD.mp4",GroupingRule.COMMA_ONLY))
+        assertEquals("tom cruise - interview, hd",GroupKey.fromFileName("Tom Cruise - Interview, HD.mp4",GroupingRule.FULL_NAME))
+    }
     @Test fun commaUsesFullLeadingPhrase() {
         assertEquals("roger marting", GroupKey.fromFileName("Roger Marting, alex.mkv"))
     }

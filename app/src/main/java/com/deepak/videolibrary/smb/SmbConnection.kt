@@ -31,6 +31,7 @@ data class SmbProfile(
     val domain: String = "",
     val requireSigning: Boolean = false,
     val requireEncryption: Boolean = false,
+    val groupingRule: com.deepak.videolibrary.scan.GroupingRule = com.deepak.videolibrary.scan.GroupingRule.COMMA_OR_HYPHEN,
 )
 
 data class SmbEntry(
@@ -137,7 +138,9 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
     /** Server file identity survives rename; use it to reconcile an interrupted operation. */
     fun identity(path: String): Long {
         val disk = share ?: throw IOException("Not connected")
-        return disk.getFileInformation(safePath(path)).internalInformation.indexNumber
+        return disk.getFileInformation(safePath(path)).internalInformation.indexNumber.also {
+            require(it != 0L) { "Server does not provide stable file identities" }
+        }
     }
 
     fun renamePath(source: String, destination: String, directory: Boolean = false) {

@@ -45,7 +45,9 @@ class SmbFileOperationsTest {
             }
             val original = digest(source)
             var copiedBytes = 0L
-            conn.copyPath(source, copy, false, progress = { copiedBytes += it })
+            var stagedIdentity = 0L
+            conn.copyPath(source, copy, false, progress = { copiedBytes += it }, onReady = { stagedIdentity = it })
+            assertEquals(stagedIdentity, conn.identity(copy))
             assertEquals(2097152L, copiedBytes)
             assertArrayEquals(original, digest(copy))
             try {
@@ -56,6 +58,7 @@ class SmbFileOperationsTest {
             ) {
             }
             conn.renamePath(copy, renamed)
+            assertEquals(stagedIdentity, conn.identity(renamed))
             assertArrayEquals(original, digest(renamed))
             conn.deletePath(renamed, false)
             assertTrue(conn.list("Destination").isEmpty())

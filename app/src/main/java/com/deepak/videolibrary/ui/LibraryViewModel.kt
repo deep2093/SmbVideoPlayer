@@ -58,8 +58,7 @@ sealed interface TestState {
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class LibraryViewModel(app: Application) : AndroidViewModel(app) {
-    private val services = ServiceLocator.get(app)
+class LibraryViewModel @JvmOverloads constructor(app: Application, private val services: ServiceLocator = ServiceLocator.get(app)) : AndroidViewModel(app) {
     val artworkContext get() = services.artworkContext
     private val dao = services.db.dao()
     private val settingsStore = services.settings
@@ -298,11 +297,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             rows.map { it.relativePath }.chunked(500).forEach { dao.assignPaths(it, target) }
         }
     }
-    suspend fun matchingCover(folder: MatchFolderEntity, key: String): File? {
-        cachedCover(key)?.let { return it }
-        val ids = withContext(Dispatchers.IO) { stateDao.ids(LibraryQueries.coverIds(LibraryScope(namespace.value, match = folder.takeIf { it.sourcePath == null }?.term, sourcePath = folder.sourcePath, includeSubfolders = folder.includeSubfolders))) }
-        return services.covers.buildOriginal("${namespace.value}:match:${folder.id}", ids)?.also { coverFiles.put(key, it) }
-    }
+    suspend fun matchingCover(folder: MatchFolderEntity, key: String): File? = artwork.cover("match:${folder.id}",key,
+        LibraryScope(namespace.value,match=folder.takeIf { it.sourcePath == null }?.term,sourcePath=folder.sourcePath,includeSubfolders=folder.includeSubfolders))
     val originalDirectories = originalScope
         .flatMapLatest {
             stateDao.directories(
@@ -626,24 +622,14 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 infos.any { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
             }.state(false)
 
-    private val coverFiles = android.util.LruCache<String, File>(100)
-    var coverRevision by mutableIntStateOf(0)
-        private set
-    fun coverKey(name: String, count: Int, done: Int, modified: Long = 0) = "${namespace.value}:$name:$count:$done:$modified:$coverRevision"
-    fun cachedCover(key: String): File? = coverFiles.get(key)?.takeIf { it.isFile }
-    suspend fun coverFor(group: String, key: String): File? {
-        cachedCover(key)?.let { return it }
-        val ids = withContext(Dispatchers.IO) { stateDao.ids(LibraryQueries.coverIds(LibraryScope(namespace.value, group = group))) }
-        return services.covers.buildOriginal("${namespace.value}:virtual:$group", ids)?.also { coverFiles.put(key, it) }
-    }
-    suspend fun originalCover(path: String, key: String): File? {
-        cachedCover(key)?.let { return it }
-        val ids =
-            withContext(
-                Dispatchers.IO,
-            ) { stateDao.ids(LibraryQueries.coverIds(LibraryScope(namespace.value, directory = path, subtree = true))) }
-        return services.covers.buildOriginal("${namespace.value}:original:$path", ids)?.also { coverFiles.put(key, it) }
-    }
+    private val artwork = com.deepak.videolibrary.thumbs.ArtworkController(services)
+    var coverRevision: Int
+        get() = artwork.revision
+        private set(value) { artwork.revision = value }
+    fun coverKey(name: String, count: Int, done: Int, modified: Long = 0) = artwork.key(name,count,done,modified)
+    fun cachedCover(key: String): File? = artwork.cached(key)
+    suspend fun coverFor(group: String, key: String): File? = artwork.cover("virtual:$group",key,LibraryScope(namespace.value,group=group))
+    suspend fun originalCover(path: String, key: String): File? = artwork.cover("original:$path",key,LibraryScope(namespace.value,directory=path,subtree=true))
 
     fun startThumbnails() {
         if (settingsStore.loadProfile() == null) {
@@ -664,14 +650,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun clearThumbnailCache() {
         viewModelScope.launch {
             ThumbnailWorker.cancel(getApplication())
-            services.thumbnails.exclusive {
-                services.covers.exclusive {
-                    withContext(Dispatchers.IO) { ThumbStore.clearAll(artworkContext) }
-                    dao.resetAllThumbs()
-                    coverFiles.evictAll()
-                    coverRevision++
-                }
-            }
+            artwork.clear()
             notice = "Artwork cache cleared. Generate thumbnails when ready."
         }
     }
@@ -778,6 +757,41 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         ThumbnailWorker.cancel(getApplication())
     }
 
+    var groupingRule by mutableStateOf(settingsStore.groupingRule(settings))
+        private set
+    fun updateGrouping(rule: com.deepak.videolibrary.scan.GroupingRule) {
+        settingsStore.saveGrouping(settings, rule)
+        groupingRule = rule
+        startScan(ScanMode.REFRESH)
+    }
+    fun exportLibrary(uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val text = LibraryBackup(services.db, services.libraryId, namespace.value).export()
+                    getApplication<Application>().contentResolver.openOutputStream(uri, "wt")!!.bufferedWriter().use { it.write(text) }
+                }
+                notice = "Library organization and history exported. Passwords are excluded."
+            } catch(e: CancellationException) { throw e } catch (_: Exception) { notice = "Could not export the library." }
+        }
+    }
+    fun importLibrary(uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                val skipped = withContext(Dispatchers.IO) {
+                    val bytes = getApplication<Application>().contentResolver.openInputStream(uri)!!.use { input ->
+                        val output = java.io.ByteArrayOutputStream()
+                        val buffer = ByteArray(8192)
+                        while(true) { val n=input.read(buffer); if(n<0)break; require(output.size()+n <= 10*1024*1024); output.write(buffer,0,n) }
+                        output.toByteArray()
+                    }
+                    LibraryBackup(services.db, services.libraryId, namespace.value).restore(bytes.toString(Charsets.UTF_8))
+                }
+                artwork.invalidate()
+                notice = if(skipped==0) "Library restored." else "Library restored. $skipped assignments need their videos scanned before restoring again."
+            } catch(e: CancellationException) { throw e } catch (_: Exception) { notice = "Could not restore. Use a valid backup for this server, account and starting folder." }
+        }
+    }
     fun dismissNotice() {
         notice = null
     }
@@ -809,123 +823,25 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---- Read/write SMB explorer (paths are relative to share root) ----
-    var explorerPath by mutableStateOf("")
-        private set
-    var explorerEntries by mutableStateOf<List<SmbEntry>>(emptyList())
-        private set
-    var explorerBusy by mutableStateOf(false)
-        private set
-    var explorerMessage by mutableStateOf<String?>(null)
-        private set
+    private val explorer = ExplorerController(viewModelScope) { settingsStore.toProfile(settings) }
+    val explorerPath get() = explorer.explorerPath
+    val explorerEntries get() = explorer.explorerEntries
+    val explorerBusy get() = explorer.explorerBusy
+    var explorerMessage: String?
+        get() = explorer.explorerMessage
+        private set(value) { explorer.explorerMessage = value }
     var explorerClipboard by mutableStateOf<Triple<String, Boolean, Boolean>?>(null)
-        private set // path, isDirectory, cut
-
-    var explorerQuery by mutableStateOf("")
-    var explorerHits by mutableStateOf<List<ExplorerHit>>(emptyList())
         private set
-    var explorerSearching by mutableStateOf(false)
-        private set
-    var explorerSearchMessage by mutableStateOf<String?>(null)
-        private set
-    private var explorerSearchJob: Job? = null
-    private var explorerSearchGeneration = 0
-    fun stopExplorerSearch() {
-        explorerSearchGeneration++
-        explorerSearchJob?.cancel()
-        explorerSearching = false
-    }
-
-    fun searchExplorer(query: String, path: String) {
-        val generation = ++explorerSearchGeneration
-        explorerSearchJob?.cancel()
-        explorerHits = emptyList()
-        explorerSearchMessage = null
-        explorerSearching = query.isNotBlank()
-        if (query.isBlank()) return
-        explorerSearchJob = viewModelScope.launch {
-            try {
-                kotlinx.coroutines.delay(400) // Do not traverse the SMB tree for every keystroke.
-                val profile = settingsStore.loadProfile() ?: error("Configure SMB in Settings first")
-                withContext(Dispatchers.IO) {
-                    SmbConnection(profile).use { conn ->
-                        conn.open()
-                        val pending = ArrayDeque<String>()
-                        val visited = HashSet<String>()
-                        val found = ArrayList<ExplorerHit>()
-                        var failedFolders = 0
-                        pending.add(path)
-                        while (pending.isNotEmpty()) {
-                            currentCoroutineContext().ensureActive()
-                            val dir = pending.removeFirst()
-                            if (!visited.add(dir)) continue
-                            val entries = try {
-                                conn.list(dir)
-                            } catch (e: Exception) {
-                                currentCoroutineContext().ensureActive()
-                                if (dir == path) throw e
-                                failedFolders++
-                                continue
-                            }
-                            for (entry in entries) {
-                                val full = listOf(dir, entry.name).filter { it.isNotBlank() }.joinToString("/")
-                                if (matchesFilename(entry.name, query)) found.add(ExplorerHit(full, entry))
-                                if (entry.isDirectory) pending.add(full)
-                            }
-                            // Publish on the UI thread, with cancellation preventing stale results.
-                            val snapshot = found.sortedWith(
-                                compareByDescending<ExplorerHit> { it.entry.isDirectory }
-                                    .thenBy { it.path.lowercase(java.util.Locale.ROOT) },
-                            )
-                            withContext(Dispatchers.Main) { explorerHits = snapshot }
-                        }
-                        withContext(Dispatchers.Main) {
-                            if (failedFolders >
-                                0
-                            ) {
-                                explorerSearchMessage = "$failedFolders folders could not be read. Results may be incomplete."
-                            }
-                        }
-                    }
-                }
-            } catch (
-                e: CancellationException,
-            ) {
-                throw e
-            } catch (
-                e: Exception,
-            ) {
-                explorerSearchMessage = SmbErrors.describe(e)
-            } finally {
-                if (generation == explorerSearchGeneration) explorerSearching = false
-            }
-        }
-    }
-
-    var explorerFocusPath by mutableStateOf<String?>(null)
-        private set
-    fun browse(path: String = explorerPath, focus: String? = null) {
-        explorerFocusPath = focus
-        val normalized = path.trim('/')
-        explorerBusy = true
-        explorerMessage = null
-        viewModelScope.launch {
-            try {
-                val profile = settingsStore.loadProfile() ?: error("Configure SMB in Settings first")
-                val result = withContext(Dispatchers.IO) {
-                    SmbConnection(profile).use { conn ->
-                        conn.open()
-                        conn.list(normalized)
-                    }
-                }
-                explorerPath = normalized
-                explorerEntries = result.sortedWith(compareByDescending<SmbEntry> { it.isDirectory }.thenBy { it.name.lowercase() })
-            } catch (e: Exception) {
-                explorerMessage = SmbErrors.describe(e)
-            } finally {
-                explorerBusy = false
-            }
-        }
-    }
+    var explorerQuery: String
+        get() = explorer.explorerQuery
+        set(value) { explorer.explorerQuery = value }
+    val explorerHits get() = explorer.explorerHits
+    val explorerSearching get() = explorer.explorerSearching
+    val explorerSearchMessage get() = explorer.explorerSearchMessage
+    val explorerFocusPath get() = explorer.explorerFocusPath
+    fun stopExplorerSearch() = explorer.stopExplorerSearch()
+    fun searchExplorer(query: String, path: String) = explorer.searchExplorer(query,path)
+    fun browse(path: String = explorerPath, focus: String? = null) = explorer.browse(path,focus)
 
     /** Read-only display string. No credentials are included. */
     fun originalVideoLocation(relativePath: String): String {

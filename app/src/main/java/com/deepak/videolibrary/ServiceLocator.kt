@@ -10,7 +10,7 @@ import com.deepak.videolibrary.thumbs.*
 import java.io.File
 
 /** Each saved server/account/root has its own persistent index and artwork. */
-class ServiceLocator private constructor(context: Context, val libraryId: String, val settings: SettingsStore) {
+class ServiceLocator internal constructor(context: Context, val libraryId: String, val settings: SettingsStore) {
     private val registry = context.getSharedPreferences("library_registry", Context.MODE_PRIVATE)
     private val legacy = registry.getString("legacy_library", null) == libraryId
     val artworkContext: Context = object : ContextWrapper(context) {

@@ -183,6 +183,10 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            if (e is ArtworkStorageException) {
+                dao.setThumbStatus(video.id, STATUS_FAILED, "Could not save artwork to app storage. Check free space, then retry.")
+                return Outcome.FAILED
+            }
             if (timedOut.get() || SmbErrors.isTransient(e)) return Outcome.TRANSIENT
             dao.setThumbStatus(
                 video.id,

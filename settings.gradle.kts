@@ -7,3 +7,4 @@ rootProject.name = "VideoLibrary"
 include(":app")
 
 include(":schema-history")
+include(":benchmarks")

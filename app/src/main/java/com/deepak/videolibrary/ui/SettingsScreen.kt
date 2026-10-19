@@ -170,6 +170,22 @@ fun SettingsScreen(vm: LibraryViewModel) {
             }
         }
         if (section == "Library") {
+            LibraryBackupActions(vm)
+            var showGrouping by rememberSaveable { mutableStateOf(false) }
+            TextButton(onClick = { showGrouping = !showGrouping }) { Text("Automatic virtual-folder grouping") }
+            if (showGrouping) {
+                Text("Changing this refreshes automatic groups. Manual assignments stay in place.", style = MaterialTheme.typography.bodySmall)
+                com.deepak.videolibrary.scan.GroupingRule.entries.forEach { rule ->
+                    val label = when(rule) {
+                        com.deepak.videolibrary.scan.GroupingRule.COMMA_OR_HYPHEN -> "Before comma or hyphen"
+                        com.deepak.videolibrary.scan.GroupingRule.COMMA_ONLY -> "Before comma"
+                        com.deepak.videolibrary.scan.GroupingRule.FULL_NAME -> "Full cleaned filename"
+                    }
+                    Row(Modifier.fillMaxWidth().selectable(selected = vm.groupingRule == rule, role = Role.RadioButton, onClick = { vm.updateGrouping(rule) }), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        RadioButton(vm.groupingRule == rule, onClick = null); Text(label)
+                    }
+                }
+            }
             OutlinedButton(onClick = { hiddenPage = true }, modifier = Modifier.fillMaxWidth()) { Text("Unhide files and folders") }
         }
         if (section == "Appearance") {

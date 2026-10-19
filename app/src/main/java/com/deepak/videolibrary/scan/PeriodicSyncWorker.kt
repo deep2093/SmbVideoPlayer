@@ -19,16 +19,17 @@ import java.util.concurrent.TimeUnit
  */
 class PeriodicSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        val prefs = applicationContext.getSharedPreferences(DIAGNOSTICS, Context.MODE_PRIVATE)
+        val services = ServiceLocator.get(applicationContext)
+        val prefs = applicationContext.getSharedPreferences("$DIAGNOSTICS-${services.libraryId}", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         prefs
             .edit()
             .putLong("last_attempt", now)
             .putString("last_status", "RUNNING")
             .apply()
-        val services = ServiceLocator.get(applicationContext)
         val saved = services.settings.load()
-        val profile = services.settings.loadProfile()
+        if (com.deepak.videolibrary.settings.LibraryIdentity.of(saved) != services.libraryId) return Result.retry()
+        val profile = saved.takeIf { it.host.isNotBlank() && it.share.isNotBlank() }?.let(services.settings::toProfile)
         if (profile == null) {
             prefs.edit().putString("last_status", "SKIPPED: Configure SMB server and share").apply()
             return Result.success()

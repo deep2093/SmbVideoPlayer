@@ -12,7 +12,8 @@ import org.junit.Test
 class FolderCollectionsTest {
     @Test fun folderMembershipIsPathBoundedAndIncludesFutureScans() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        Room.inMemoryDatabaseBuilder(context, LibraryDatabase::class.java).build().use { db ->
+        val db = Room.inMemoryDatabaseBuilder(context, LibraryDatabase::class.java).build()
+        try {
             suspend fun add(path: String) = db.dao().insertVideo(VideoEntity(relativePath=path,name=path.substringAfterLast('/'),parentDir=path.substringBeforeLast('/'),size=1,modified=1,groupKey="A",lastSeenSession=1,addedAt=1))
             add("Movies/A.mp4"); add("Movies/Sub/B.mp4"); add("MoviesExtra/C.mp4")
             val dao = db.libraryState()
@@ -26,12 +27,13 @@ class FolderCollectionsTest {
             dao.renameMatch(dao.sourceFolder("nas/share","Movies",true)!!.id,"Films")
             assertEquals("Movies",dao.sourceFolder("nas/share","Movies",true)!!.sourcePath)
             assertTrue(dao.matchingFolders(LibraryQueries.matchingFolders("other/share","")).first().isEmpty())
-        }
+        } finally { db.close() }
     }
 
     @Test fun playbackBatchesTraverseLargeSortedLibraryWithoutDuplicates() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        Room.inMemoryDatabaseBuilder(context,LibraryDatabase::class.java).build().use { db ->
+        val db = Room.inMemoryDatabaseBuilder(context,LibraryDatabase::class.java).build()
+        try {
             repeat(253) { i -> db.dao().insertVideo(VideoEntity(relativePath="M/$i.mp4",name="Same name",parentDir="M",size=(i%5).toLong(),modified=1,groupKey="A",lastSeenSession=1,addedAt=1)) }
             for (sort in listOf("NAME","SIZE","NEWEST","MODIFIED")) for (descending in listOf(false,true)) {
                 val scope = LibraryScope("nas/share",sort=sort,descending=descending)
@@ -43,6 +45,6 @@ class FolderCollectionsTest {
                 val chosen = actual[151]
                 assertEquals(expected.drop(151).take(100),queue.begin(scope,chosen).map { it.id })
             }
-        }
+        } finally { db.close() }
     }
 }

@@ -28,6 +28,7 @@ data class SmbSettings(
  * and then only as AES-GCM ciphertext under a key that lives in the Android Keystore.
  */
 class SettingsStore(context: Context) {
+    private val app = context.applicationContext
 
     private val prefs = context.getSharedPreferences("smb_settings", Context.MODE_PRIVATE)
 
@@ -36,6 +37,8 @@ class SettingsStore(context: Context) {
     private var sessionPassword: String = ""
 
     @Volatile private var cached: SmbSettings? = null
+    private val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> cached = null }
+    init { prefs.registerOnSharedPreferenceChangeListener(preferenceListener) }
 
     @Synchronized
     fun load(): SmbSettings {
@@ -104,6 +107,7 @@ class SettingsStore(context: Context) {
             domain = s.domain,
             requireSigning = s.requireSigning,
             requireEncryption = s.requireEncryption,
+            groupingRule = groupingRule(s),
         )
     }
 
@@ -116,7 +120,15 @@ class SettingsStore(context: Context) {
         domain = s.domain,
         requireSigning = s.requireSigning,
         requireEncryption = s.requireEncryption,
+            groupingRule = groupingRule(s),
     )
+
+    fun groupingRule(s: SmbSettings): com.deepak.videolibrary.scan.GroupingRule =
+        runCatching { com.deepak.videolibrary.scan.GroupingRule.valueOf(app.getSharedPreferences("library-options-${LibraryIdentity.of(s)}", Context.MODE_PRIVATE).getString("grouping", "COMMA_OR_HYPHEN")!!) }
+            .getOrDefault(com.deepak.videolibrary.scan.GroupingRule.COMMA_OR_HYPHEN)
+    fun saveGrouping(s: SmbSettings, rule: com.deepak.videolibrary.scan.GroupingRule) {
+        app.getSharedPreferences("library-options-${LibraryIdentity.of(s)}", Context.MODE_PRIVATE).edit().putString("grouping", rule.name).apply()
+    }
 
     // ---- Keystore-backed encryption ----
 
@@ -171,7 +183,10 @@ class SettingsStore(context: Context) {
         private const val KEY_SAVE = "save_password"
         private const val KEY_PASSWORD = "password_enc"
 
-        fun normalizeRoot(raw: String): String =
-            raw.trim().replace('\\', '/').trim('/')
+        fun normalizeRoot(raw: String): String {
+            val result = raw.trim().replace('\\', '/').trim('/')
+            require(result.isEmpty() || result.split('/').none { it.isBlank() || it == "." || it == ".." }) { "Invalid starting folder" }
+            return result
+        }
     }
 }

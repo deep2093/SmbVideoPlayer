@@ -73,7 +73,11 @@ class MainActivity : ComponentActivity() {
                 }
                 if (ready) {
                     val id = com.deepak.videolibrary.settings.LibraryIdentity.of(ServiceLocator.get(applicationContext).settings.load())
-                    key(id) { AppRoot(vm = androidx.lifecycle.viewmodel.compose.viewModel(key = "library:$id")) }
+                    val owner = remember(id) { object : androidx.lifecycle.ViewModelStoreOwner {
+                        override val viewModelStore = androidx.lifecycle.ViewModelStore()
+                    } }
+                    DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
+                    key(id) { AppRoot(vm = androidx.lifecycle.viewmodel.compose.viewModel(viewModelStoreOwner = owner)) }
                 } else {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         if (failed) {

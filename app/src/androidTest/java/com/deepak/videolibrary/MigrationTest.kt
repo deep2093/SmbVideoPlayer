@@ -40,8 +40,8 @@ class MigrationTest {
                     assertTrue(c.moveToFirst()); assertEquals("Actor",c.getString(0)); assertTrue(c.isNull(1)); assertEquals(1,c.getInt(2))
                 }
             }
-            Room.databaseBuilder(instrumentation.targetContext, LibraryDatabase::class.java, name)
-                .addMigrations(*migrations).build().use { assertEquals(5,it.openHelper.writableDatabase.version) }
+            val production = Room.databaseBuilder(instrumentation.targetContext, LibraryDatabase::class.java, name).addMigrations(*migrations).build()
+            try { assertEquals(5,production.openHelper.writableDatabase.version) } finally { production.close() }
         }
     }
 
@@ -58,8 +58,7 @@ class MigrationTest {
     @Test fun freshProductionDatabaseOpens() {
         val name = "fresh-v5"
         instrumentation.targetContext.deleteDatabase(name)
-        Room.databaseBuilder(instrumentation.targetContext,LibraryDatabase::class.java,name).build().use {
-            assertEquals(5,it.openHelper.writableDatabase.version)
-        }
+        val production = Room.databaseBuilder(instrumentation.targetContext,LibraryDatabase::class.java,name).build()
+        try { assertEquals(5,production.openHelper.writableDatabase.version) } finally { production.close() }
     }
 }
