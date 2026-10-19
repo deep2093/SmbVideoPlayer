@@ -152,4 +152,5 @@ jobs:
             preview/storage-tests.txt
             preview/device-*.xml
             preview/device-logcat.txt
+            preview/device-wmv-log.txt
           if-no-files-found: ignore

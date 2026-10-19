@@ -19,6 +19,16 @@ def tree():
         text=adb('exec-out','cat','/sdcard/library-ui.xml').decode()
         try:
             root=ET.fromstring(text)
+            # Screen resizing can hang the stock emulator launcher. Recover only
+            # Quickstep, never an ANR from the app under test.
+            if any("Quickstep isn't responding" in n.get('text','') for n in root.iter('node')):
+                close=next(n for n in root.iter('node') if n.get('text')=='Close app')
+                x1,y1,x2,y2=map(int,re.findall(r'\d+',close.attrib['bounds']))
+                adb('shell','input','tap',(x1+x2)//2,(y1+y2)//2)
+                adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
+                print('Recovered stock emulator launcher after screen resize')
+                time.sleep(1)
+                continue
             Path('preview/device-ui.xml').write_text(text)
             return root
         except ET.ParseError:
@@ -118,8 +128,19 @@ try:
     assert 'A000.txt' not in labels, 'Shortcut must scroll beyond the first page'
     print('PASS: failed-thumbnail shortcut scrolls to the exact file and highlights it')
     click('Settings');click('Floating bottom bar');click('Folders');find('Custom folders');screenshot('floating-navigation')
-    click('File Explorer');click('← Up');click('Movies');click('Sample.wmv')
-    find('WMV playback active',timeout=40);screenshot('wmv-playing')
+    click('File Explorer');click('← Up');click('Movies')
+    adb('logcat','-c')
+    click('Sample.wmv')
+    # Native video rendering may never give UiAutomator an idle hierarchy.
+    # Verify real vout + playing + advancing time, without polling accessibility.
+    for _ in range(40):
+        output=adb('logcat','-d','-s','SmbWmv:I','*:S').decode(errors='replace')
+        if 'video_output_active' in output:break
+        time.sleep(1)
+    else:
+        raise AssertionError('WMV did not produce advancing video output')
+    Path('preview/device-wmv-log.txt').write_text(output)
+    screenshot('wmv-playing')
     adb('shell','input','keyevent','4')
     print('PASS: WMV/ASF with WMA audio plays from SMB through the VLC compatibility player')
 except Exception:

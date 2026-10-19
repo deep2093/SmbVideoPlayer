@@ -107,6 +107,12 @@ internal fun VlcPlayerScreen(video:VideoEntity,settings:SmbSettings,vm:LibraryVi
         }
     }
     LaunchedEffect(player) {var tick=0;var last=-1L;while(true){if(ready){position=player.time.coerceAtLeast(0);duration=player.length.coerceAtLeast(0);playing=player.isPlaying;if(++tick>=5){tick=0;if(position!=last){latestSave();last=position}}};delay(1000)}}
+    LaunchedEffect(playing,videoOutput,position>1000) {
+        if(playing && videoOutput && position>1000) {
+            AppDiagnostics.record(context,"wmv","video_output_active")
+            if((context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0)android.util.Log.i("SmbWmv","video_output_active")
+        }
+    }
     LaunchedEffect(playing,controls,tracks,options){if(playing && controls && !tracks && !options){delay(3000);controls=false}}
     DisposableEffect(player) {
         player.setEventListener {event->when(event.type){
@@ -141,7 +147,7 @@ internal fun VlcPlayerScreen(video:VideoEntity,settings:SmbSettings,vm:LibraryVi
     LaunchedEffect(wantsPlay,error){if(wantsPlay && error==null)activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)}
     BackHandler {if(tracks)tracks=false else if(options)options=false else onClose()}
     Box(Modifier.fillMaxSize().background(Color.Black).clipToBounds()) {
-        AndroidView(factory={VLCVideoLayout(it).also {layout->player.attachViews(layout,null,true,true)}},modifier=Modifier.fillMaxSize().semantics {contentDescription=if(playing && position>1000 && videoOutput)"WMV playback active" else "WMV loading"}.graphicsLayer {scaleX=zoom;scaleY=zoom})
+        AndroidView(factory={VLCVideoLayout(it).also {layout->player.attachViews(layout,null,true,true);layout.importantForAccessibility=android.view.View.IMPORTANT_FOR_ACCESSIBILITY_YES}},update={layout->layout.contentDescription=if(playing && position>1000 && videoOutput)"WMV playback active" else "WMV loading"},modifier=Modifier.fillMaxSize().semantics {contentDescription=if(playing && position>1000 && videoOutput)"WMV playback active" else "WMV loading"}.graphicsLayer {scaleX=zoom;scaleY=zoom})
         Box(Modifier.fillMaxSize().pointerInput(player){detectTransformGestures {_,_,factor,_->zoom=(zoom*factor).coerceIn(1f,4f)}}.pointerInput(player){detectTapGestures(onTap={controls=!controls},onDoubleTap={where->player.setTime((player.time+if(where.x<size.width/2)-10000 else 10000).coerceAtLeast(0));controls=true})})
         if(controls || !playing)Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha=0.88f)).windowInsetsPadding(WindowInsets.safeDrawing).padding(12.dp)) {
             Row(verticalAlignment=Alignment.CenterVertically){Text(current.name,Modifier.weight(1f),maxLines=2,color=Color.White);TextButton(onClick=onClose){Text("Close")}}
