@@ -11,6 +11,8 @@ import androidx.room.PrimaryKey
         Index(value = ["relativePath"], unique = true),
         Index(value = ["groupKey"]),
         Index(value = ["parentDir"]),
+        Index(value = ["thumbStatus", "id"]),
+        Index(value = ["lastSeenSession"]),
     ],
 )
 data class VideoEntity(
@@ -66,3 +68,13 @@ data class GroupRow(
 /** Explicit virtual folders exist even when temporarily empty. */
 @Entity(tableName = "custom_folders")
 data class CustomFolderEntity(@PrimaryKey val name: String)
+
+@Entity(tableName = "hidden_items", primaryKeys = ["connectionKey", "kind", "target"])
+data class HiddenItem(val connectionKey: String, val kind: String, val target: String, val label: String)
+
+@Entity(tableName = "playback_state", primaryKeys = ["connectionKey", "path"], indices = [Index(value = ["connectionKey", "updatedAt"])])
+data class PlaybackStateEntity(val connectionKey: String, val path: String,
+    val positionMs: Long = 0, val durationMs: Long = 0, val hidden: Boolean = false, val updatedAt: Long = 0)
+
+data class FolderSummary(val groupKey: String, val count: Int, val thumbsDone: Int, val totalSize: Long, val lastModified: Long)
+data class DirectorySummary(val path: String, val count: Int, val thumbsDone: Int)

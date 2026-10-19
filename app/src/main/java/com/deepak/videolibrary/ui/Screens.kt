@@ -1,5 +1,16 @@
 package com.deepak.videolibrary.ui
 
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.filled.Menu
+import com.deepak.videolibrary.data.FolderSummary
 import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
@@ -109,8 +120,8 @@ import java.util.Locale
 
 private val GRID_PRESETS = LibraryLayout.presets
 
-private val TAB_LABELS = listOf("Folders", "Videos", "Browse", "Scan", "Settings", "Originals")
-private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Sync, Icons.Filled.Settings, Icons.Filled.Folder)
+private val TAB_LABELS = listOf("Folders", "Videos", "File Explorer", "Scan", "Settings")
+private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Sync, Icons.Filled.Settings)
 
 
 @Composable
@@ -130,9 +141,16 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         }
     }
     if (playing != null) {
-        PlayerScreen(video = playing!!, settings = vm.settings, playlist = playQueue, onClose = { playing = null; playQueue = emptyList() })
+        PlayerScreen(video = playing!!, settings = vm.settings, vm = vm, playlist = playQueue, onClose = { playing = null; playQueue = emptyList() })
         return
     }
+    var railExpanded by remember { mutableStateOf(true) }
+    val collapseOnScroll = remember { object: NestedScrollConnection {
+        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+            if(kotlin.math.abs(available.y)>2f) railExpanded=false
+            return Offset.Zero
+        }
+    } }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val tabletLayout = maxWidth >= 700.dp
         Scaffold(
@@ -159,40 +177,65 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         ) { padding ->
             Row(Modifier.padding(padding).fillMaxSize()) {
                 if (tabletLayout) {
-                    androidx.compose.material3.NavigationRail(containerColor = MaterialTheme.colorScheme.surface) {
+                    androidx.compose.material3.NavigationRail(modifier=Modifier.width(if(railExpanded) 148.dp else 72.dp),containerColor = MaterialTheme.colorScheme.primary) {
+                        IconButton(onClick={railExpanded=!railExpanded}){Icon(Icons.Filled.Menu,contentDescription="Expand or collapse sidebar",tint=Color.White)}
                         TAB_LABELS.forEachIndexed { index, label ->
                             androidx.compose.material3.NavigationRailItem(
                                 selected = tab == index,
                                 colors = androidx.compose.material3.NavigationRailItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant),
+                                    selectedIconColor = Color.White,
+                                    selectedTextColor = Color.White,
+                                    indicatorColor = Color.Black,
+                                    unselectedIconColor = Color.White, unselectedTextColor = Color.White),
                                 onClick = {
+                                    railExpanded = true
                                     tab = index
                                     folderDetails = false
                                     vm.groupFilter.value = null
                                 },
                                 icon = { Icon(TAB_ICONS[index], contentDescription = label) },
-                                label = { Text(label) },
+                                label = if(railExpanded) ({ Text(label,color=Color.White) }) else null,
                                 alwaysShowLabel = true,
                             )
                         }
                     }
                 }
-                Column(Modifier.weight(1f).fillMaxHeight()) {
-                    when (tab) {
-                        0 -> FoldersScreen(vm, gridState = foldersScrollState, onOpenGroup = { folderDetails = true; tab = 1 }, onPlay = { video, queue -> playing = video; playQueue = queue }, onOpenSettings = { tab = 4 })
+                Column(Modifier.weight(1f).fillMaxHeight().nestedScroll(collapseOnScroll)) {
+                    FileClipboardBar(vm)
+                    vm.notice?.let { message -> Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+                        Text(message,Modifier.weight(1f).padding(8.dp),color=Color.White)
+                        TextButton(onClick=vm::dismissNotice){Text("Dismiss")}
+                    } }
+                    Box(Modifier.weight(1f)) { when (tab) {
+                        0 -> FoldersHub(vm, gridState = foldersScrollState, onOpenGroup = { folderDetails = true; tab = 1 }, onPlay = { video, queue -> playing = video; playQueue = queue }, onOpenSettings = { tab = 4 })
                         1 -> VideosScreen(vm, gridState = if (folderDetails) folderVideosScrollState else videosScrollState, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
                             folderDetails = false; vm.groupFilter.value = null; tab = 0
                         }) else null)
                         2 -> ExplorerScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue })
                         3 -> ScanScreen(vm)
-                        5 -> OriginalFoldersScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue })
                         else -> SettingsScreen(vm)
-                    }
+                    } }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun FoldersHub(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup:()->Unit,
+    onPlay:(VideoEntity,List<VideoEntity>)->Unit, onOpenSettings:()->Unit) {
+    val pager=rememberPagerState(initialPage=vm.foldersTab,pageCount={2})
+    val scope=rememberCoroutineScope()
+    LaunchedEffect(pager.settledPage){vm.foldersTab=pager.settledPage}
+    Column(Modifier.fillMaxSize()) {
+        androidx.compose.material3.TabRow(selectedTabIndex=pager.currentPage,containerColor=Color.Black,contentColor=Color.White) {
+            listOf("Virtual folders","Original folders").forEachIndexed { index,title ->
+                androidx.compose.material3.Tab(selected=pager.currentPage==index,onClick={scope.launch{pager.animateScrollToPage(index)}},text={Text(title)})
+            }
+        }
+        HorizontalPager(state=pager,modifier=Modifier.weight(1f)) { page ->
+            if(page==0) FoldersScreen(vm,gridState,onOpenGroup,onPlay,onOpenSettings)
+            else OriginalFoldersScreen(vm,onPlay)
         }
     }
 }
@@ -201,28 +244,17 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
 
 @Composable
 fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, onBackToFolders: (() -> Unit)? = null) {
-    val videos by vm.videos.collectAsStateWithLifecycle()
+    val videos=vm.videoPages.collectAsLazyPagingItems()
     val query by vm.query.collectAsStateWithLifecycle()
     val group by vm.groupFilter.collectAsStateWithLifecycle()
-    val selectedGroup = group
+    val selectedGroup=group
     var searchExpanded by rememberSaveable { mutableStateOf(query.isNotBlank()) }
     val total by vm.videoCount.collectAsStateWithLifecycle()
+    val count by vm.videoResultsCount.collectAsStateWithLifecycle()
+    val continueWatching by vm.continuing.collectAsStateWithLifecycle()
     var addDialog by remember { mutableStateOf(false) }
     var videoSearch by remember { mutableStateOf("") }
-    val context = LocalContext.current
-    val resumePrefs = remember { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
-    var continueRefresh by remember { mutableIntStateOf(0) }
-    val continueWatching = remember(videos, continueRefresh) {
-        videos.filter { video ->
-            val pos = resumePrefs.getLong("resume_path_${video.relativePath}", resumePrefs.getLong("resume_${video.id}", 0L))
-            canContinue(pos, resumePrefs.getLong("duration_path_${video.relativePath}", 0L),
-                resumePrefs.getBoolean("hide_continue_${video.relativePath}", false))
-        }.take(16)
-    }
-
-    val displayedVideos = remember(videos, vm.videoSort, vm.sortDescending) {
-        vm.videoSort.arrange(videos, vm.sortDescending)
-    }
+    LaunchedEffect(query,group){gridState.scrollToItem(0)}
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             if (selectedGroup != null) IconButton(onClick = {
@@ -267,8 +299,7 @@ fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoE
                                 items(continueWatching, key = { it.id }) { video ->
                                     VideoCard(video, onClick = { onPlay(video, listOf(video)) }, vm = vm,
                                         modifier = Modifier.width(210.dp), onRemoveFromContinue = {
-                                            resumePrefs.edit().putBoolean("hide_continue_${video.relativePath}", true).apply()
-                                            continueRefresh++
+                                            vm.hideContinue(video.relativePath)
                                         })
                                 }
                             }
@@ -277,20 +308,19 @@ fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoE
                 }
                 item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Text("${videos.size} videos · ${vm.videoSort.label}", style = MaterialTheme.typography.labelMedium,
+                        Text("$count videos · ${vm.videoSort.label}", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { displayedVideos.firstOrNull()?.let { onPlay(it, displayedVideos) } },
-                            enabled = displayedVideos.isNotEmpty()) { Text("Play all") }
+                        TextButton(onClick = { vm.playLibrary("videos",onPlay=onPlay) }, enabled = count>0) { Text("Play all") }
                     }
                 }
-                if (videos.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                if (count==0) item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(if (total == 0) "No videos yet. Add your server in Settings, then run a scan."
                         else "No videos match your search.", modifier = Modifier.padding(vertical = 24.dp))
                 }
-                gridItems(displayedVideos, key = { it.id }, contentType = { "video" }) { video ->
-                    VideoCard(video, onClick = {
-                        onPlay(video, if (group != null || query.isNotBlank()) displayedVideos else listOf(video))
-                    }, vm = vm, listMode = vm.videoListMode)
+                items(count=videos.itemCount,key=videos.itemKey { it.relativePath },contentType={"video"}) { index ->
+                    videos[index]?.let { video -> VideoCard(video,onClick={
+                        if(group!=null || query.isNotBlank()) vm.playLibrary("videos",video,onPlay) else onPlay(video,listOf(video))
+                    },vm=vm,listMode=vm.videoListMode) }
                 }
             }
         }
@@ -317,17 +347,13 @@ fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoE
 @Composable
 internal fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewModel, modifier: Modifier = Modifier,
     onRemoveFromContinue: (() -> Unit)? = null, listMode: Boolean = false) {
-    var menuOpen by remember(video.id) { mutableStateOf(false) }
-    var renameOpen by remember(video.id) { mutableStateOf(false) }
-    var deleteOpen by remember(video.id) { mutableStateOf(false) }
-    var detailsOpen by remember(video.id) { mutableStateOf(false) }
-    var newFileName by remember(video.id) { mutableStateOf(video.name) }
-    val context = LocalContext.current
-    val thumb: File? = if (video.thumbStatus == "DONE") ThumbStore.thumbFile(context, video.id) else null
-
-    val prefs = remember(context) { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
-    val watchedMs = prefs.getLong("resume_path_${video.relativePath}", prefs.getLong("resume_${video.id}", 0L))
-    val totalMs = prefs.getLong("duration_path_${video.relativePath}", 0L)
+    var menuOpen by remember(video.relativePath) { mutableStateOf(false) }
+    val context=LocalContext.current
+    val thumb:File?=if(video.thumbStatus=="DONE") ThumbStore.thumbFile(context,video.id) else null
+    val progressFlow=remember(video.relativePath,vm.namespace.value){vm.progressFlow(video.relativePath)}
+    val progress by progressFlow.collectAsStateWithLifecycle(initialValue=null)
+    val watchedMs=progress?.positionMs ?: 0L
+    val totalMs=progress?.durationMs ?: 0L
     val artwork: @Composable () -> Unit = {
         Box(if (listMode) Modifier.width(120.dp).height(76.dp)
             else Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
@@ -364,62 +390,9 @@ internal fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewM
                 caption()
             }
         }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            DropdownMenuItem(text = { Text("Play") }, onClick = { menuOpen = false; onClick() })
-            DropdownMenuItem(text = { Text("Play from start") }, onClick = {
-                prefs.edit().putLong("resume_path_${video.relativePath}", 0L).putLong("resume_${video.id}", 0L).apply()
-                menuOpen = false; onClick()
-            })
-            if (onRemoveFromContinue != null) {
-                DropdownMenuItem(text = { Text("Remove from Continue Watching") }, onClick = {
-                    menuOpen = false
-                    onRemoveFromContinue()
-                })
-            }
-            DropdownMenuItem(text = { Text("Copy") }, onClick = {
-                menuOpen = false
-                vm.stageExplorer(video.relativePath, false, false)
-            })
-            DropdownMenuItem(text = { Text("Rename") }, onClick = {
-                menuOpen = false; newFileName = video.name; renameOpen = true
-            })
-            DropdownMenuItem(text = { Text("Delete") }, onClick = {
-                menuOpen = false; deleteOpen = true
-            })
-            DropdownMenuItem(text = { Text("Details") }, onClick = {
-                menuOpen = false; detailsOpen = true
-            })
-        }
-    }
-    if (renameOpen) {
-        AlertDialog(onDismissRequest = { renameOpen = false }, title = { Text("Rename original SMB video") },
-            text = { Column {
-                Text("This changes the filename on your network drive.")
-                OutlinedTextField(value = newFileName, onValueChange = { newFileName = it },
-                    label = { Text("Full filename including extension") }, singleLine = true)
-            } },
-            confirmButton = { TextButton(onClick = {
-                vm.renameOriginal(video.relativePath, newFileName); renameOpen = false
-            }, enabled = newFileName.isNotBlank() && newFileName != video.name) { Text("Rename") } },
-            dismissButton = { TextButton(onClick = { renameOpen = false }) { Text("Cancel") } })
-    }
-    if (deleteOpen) {
-        AlertDialog(onDismissRequest = { deleteOpen = false }, title = { Text("Delete original video?") },
-            text = { Text("Permanently delete '${video.name}' from your SMB drive? This cannot be undone.") },
-            confirmButton = { TextButton(onClick = {
-                vm.deleteOriginal(video.relativePath, false); deleteOpen = false
-            }) { Text("Delete permanently") } },
-            dismissButton = { TextButton(onClick = { deleteOpen = false }) { Text("Cancel") } })
-    }
-    if (detailsOpen) {
-        AlertDialog(onDismissRequest = { detailsOpen = false }, title = { Text("Video details") },
-            text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Full name: ${video.name}")
-                Text("File size: ${Formatter.formatFileSize(context, video.size)} (${video.size} bytes)")
-                Text("SMB location: ${vm.originalVideoLocation(video.relativePath)}")
-                Text("Relative path: ${video.relativePath}")
-            } },
-            confirmButton = { TextButton(onClick = { detailsOpen = false }) { Text("Close") } })
+        FileActionsMenu(menuOpen,{menuOpen=false},vm,video.relativePath,onPlay=onClick,
+            onPlayFromStart={vm.playFromStart(video.relativePath,onClick)},onRemoveContinue=onRemoveFromContinue,
+            details="${video.name}\n${Formatter.formatFileSize(context,video.size)}\n${vm.originalVideoLocation(video.relativePath)}")
     }
 }
 
@@ -427,41 +400,17 @@ internal fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewM
 
 @Composable
 fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: () -> Unit, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, onOpenSettings: () -> Unit) {
-    val groups by vm.groups.collectAsStateWithLifecycle()
-    val dashboardVideos by vm.allVideos.collectAsStateWithLifecycle()
-    val dashboardContext = LocalContext.current
-    val playbackPrefs = remember(dashboardContext) { dashboardContext.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
-    var continueRefresh by remember { mutableIntStateOf(0) }
-    val recentlyWatched = remember(dashboardVideos, continueRefresh) {
-        dashboardVideos.mapNotNull { video ->
-            val pos = playbackPrefs.getLong("resume_path_${video.relativePath}", playbackPrefs.getLong("resume_${video.id}", 0L))
-            val duration = playbackPrefs.getLong("duration_path_${video.relativePath}", 0L)
-            if (canContinue(pos, duration, playbackPrefs.getBoolean("hide_continue_${video.relativePath}", false))) video else null
-        }.take(18)
-    }
+    val shownGroups by vm.groups.collectAsStateWithLifecycle()
+    val recentlyWatched by vm.continuing.collectAsStateWithLifecycle()
     var folderQuery by vm::folderSearch
     var searchExpanded by rememberSaveable { mutableStateOf(folderQuery.isNotBlank()) }
     var sourceFolder by remember { mutableStateOf<String?>(null) }
     var operation by remember { mutableStateOf("") }
     var targetName by remember { mutableStateOf("") }
     var editFolders by rememberSaveable { mutableStateOf(false) }
-
-    val shownGroups = remember(groups, folderQuery, vm.folderSort, vm.folderSortDescending, dashboardVideos) {
-        val folderVideos = dashboardVideos.groupBy { it.customGroup?.takeIf { name -> name.isNotBlank() } ?: it.groupKey }
-        val matchingGroups = folderSearchVideos(dashboardVideos, folderQuery).map { it.customGroup ?: it.groupKey }.toSet()
-        val filtered = groups.filter { folderQuery.isBlank() || it.groupKey in matchingGroups || matchesFilename(it.groupKey, folderQuery) }
-        val comparator = when (vm.folderSort) {
-            "COUNT" -> compareBy<GroupRow> { it.count }
-            "DATE" -> compareBy<GroupRow> { folderVideos[it.groupKey]?.maxOfOrNull { video -> video.modified } ?: 0L }
-            "SIZE" -> compareBy<GroupRow> { folderVideos[it.groupKey]?.sumOf { video -> video.size } ?: 0L }
-            else -> compareBy<GroupRow> { it.groupKey.lowercase(Locale.ROOT) }
-        }.thenBy { it.groupKey.lowercase(Locale.ROOT) }
-        filtered.sortedWith(if (vm.folderSortDescending) comparator.reversed() else comparator)
-    }
-
-    val matchingVideos = remember(dashboardVideos, folderQuery, vm.videoSort, vm.sortDescending) {
-        vm.videoSort.arrange(folderSearchVideos(dashboardVideos, folderQuery), vm.sortDescending)
-    }
+    val matchingVideos=vm.folderPages.collectAsLazyPagingItems()
+    val matchingCount by vm.folderResultsCount.collectAsStateWithLifecycle()
+    LaunchedEffect(folderQuery){gridState.scrollToItem(0)}
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Text("Folders", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
@@ -528,8 +477,7 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
                     Box(Modifier.width(218.dp)) {
                         VideoCard(video, onClick = { onPlay(video, listOf(video)) }, vm = vm,
                             onRemoveFromContinue = {
-                                playbackPrefs.edit().putBoolean("hide_continue_${video.relativePath}", true).apply()
-                                continueRefresh++
+                                vm.hideContinue(video.relativePath)
                             })
                     }
                 }
@@ -546,14 +494,12 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
                 }
                 if (folderQuery.isNotBlank()) item(span = { GridItemSpan(maxLineSpan) }, key = "play-matches") {
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Text("${matchingVideos.size} matching videos", modifier = Modifier.weight(1f))
-                        TextButton(enabled = matchingVideos.isNotEmpty(), onClick = {
-                            matchingVideos.firstOrNull()?.let { onPlay(it, matchingVideos) }
-                        }) { Text("Play all results") }
+                        Text("$matchingCount matching videos", modifier = Modifier.weight(1f))
+                        TextButton(enabled = matchingCount>0, onClick = { vm.playLibrary("folders",onPlay=onPlay) }) { Text("Play all results") }
                     }
                 }
-                if (folderQuery.isNotBlank()) gridItems(matchingVideos, key = { "result:${it.relativePath}" }) { video ->
-                    VideoCard(video, onClick = { onPlay(video, matchingVideos) }, vm = vm, listMode = vm.folderListMode)
+                if(folderQuery.isNotBlank()) items(count=matchingVideos.itemCount,key=matchingVideos.itemKey {"result:${it.relativePath}"}) { index ->
+                    matchingVideos[index]?.let { video -> VideoCard(video,onClick={vm.playLibrary("folders",video,onPlay)},vm=vm,listMode=vm.folderListMode) }
                 }
                 if (shownGroups.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(if (folderQuery.isNotBlank()) "No matching folders." else "Your virtual folders appear after a scan.",
@@ -598,35 +544,27 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
     }
 }
 
-// Compose lint misses the explicit producer value assignments below.
-@android.annotation.SuppressLint("ProduceStateDoesNotAssignValue")
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun FolderCard(vm: LibraryViewModel, row: GroupRow, modifier: Modifier = Modifier,
-    listMode: Boolean = false, onClick: () -> Unit) {
-    val cover by produceState<File?>(initialValue = null, row.groupKey, row.thumbsDone) {
-        value = vm.coverFor(row.groupKey)
-    }
-    val artwork: @Composable () -> Unit = {
-        Box((if (listMode) Modifier.width(104.dp).height(68.dp) else Modifier.fillMaxWidth().aspectRatio(16f / 9f))
-            .clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = androidx.compose.ui.Alignment.Center) {
-            if (cover == null) Icon(Icons.Filled.Folder, contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.height(36.dp).width(36.dp))
-            else FileImage(cover, Modifier.fillMaxSize())
+private fun FolderCard(vm:LibraryViewModel,row:FolderSummary,modifier:Modifier=Modifier,listMode:Boolean=false,onClick:()->Unit){
+    var actions by remember(row.groupKey){mutableStateOf(false)}
+    val key=vm.coverKey("group:${row.groupKey}",row.count,row.thumbsDone,row.lastModified)
+    var cover by remember(key){mutableStateOf(vm.cachedCover(key))}
+    LaunchedEffect(key){cover=vm.coverFor(row.groupKey,key)}
+    val artwork:@Composable ()->Unit={
+        Box((if(listMode)Modifier.width(104.dp).height(68.dp)else Modifier.fillMaxWidth().aspectRatio(16f/9f)),contentAlignment=androidx.compose.ui.Alignment.Center){
+            if(cover!=null)FileImage(cover,Modifier.fillMaxSize())else Icon(Icons.Filled.Folder,null,modifier=Modifier.height(36.dp).width(36.dp))
         }
     }
-    val caption: @Composable () -> Unit = {
-        Column(Modifier.padding(vertical = 6.dp, horizontal = if (listMode) 12.dp else 2.dp)) {
-            Text(row.groupKey.replaceFirstChar { it.titlecase(Locale.ROOT) },
-                style = MaterialTheme.typography.bodyMedium, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("${row.count} video" + if (row.count == 1) "" else "s",
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val caption:@Composable ()->Unit={Column(Modifier.padding(6.dp)){
+        Text(row.groupKey.replaceFirstChar{it.titlecase(Locale.ROOT)},minLines=2,maxLines=2,overflow=TextOverflow.Ellipsis)
+        Text("${row.count} videos",style=MaterialTheme.typography.labelSmall)
+    }}
+    Box(modifier){
+        Column(Modifier.fillMaxWidth().combinedClickable(onClick=onClick,onLongClick={actions=true})){
+            if(listMode)Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically){artwork();Box(Modifier.weight(1f)){caption()}}else{artwork();caption()}
         }
-    }
-    Column(modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        if (listMode) Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            artwork(); Box(Modifier.weight(1f)) { caption() }
-        } else { artwork(); caption() }
+        FileActionsMenu(actions,{actions=false},vm,row.groupKey,directory=true,virtual=true,details="${row.groupKey}\n${row.count} videos\nVirtual library folder")
     }
 }
 
@@ -670,6 +608,7 @@ private fun GridPresetSetting(label: String, selected: String, onSelect: (String
             }
         }
     }
+
 }
 
 // ---------------------------------------------------------------- Scan & Sync
@@ -861,6 +800,9 @@ private fun AutomaticSyncSummary() {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(vm: LibraryViewModel) {
+    var hiddenPage by rememberSaveable { mutableStateOf(false) }
+    if(hiddenPage) { HiddenItemsScreen(vm){hiddenPage=false};return }
+
     val saved = vm.settings
     var host by remember { mutableStateOf(saved.host) }
     var share by remember { mutableStateOf(saved.share) }
@@ -892,6 +834,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Text("Personalize your library, playback controls and network connection.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedButton(onClick={hiddenPage=true},modifier=Modifier.fillMaxWidth()){Text("Unhide files and folders")}
         DiagnosticsSettings()
         var gesturesExpanded by rememberSaveable { mutableStateOf(false) }
         var layoutExpanded by rememberSaveable { mutableStateOf(false) }
@@ -1013,7 +956,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
         when (val t = vm.testState) {
             TestState.Idle -> Unit
             TestState.Running -> LinearProgressIndicator(Modifier.fillMaxWidth())
-            is TestState.Success -> Text(t.message, color = MaterialTheme.colorScheme.primary)
+            is TestState.Success -> Text(t.message, color = Color.White)
             is TestState.Failure -> Text(t.message, color = MaterialTheme.colorScheme.error)
         }
     }

@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: true
 permissions:
   contents: read
+  actions: read
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -69,7 +70,12 @@ jobs:
             app/build/test-results/
             app/build/reports/lint-results-debug.*
       - name: Build debug APK
-        run: gradle assembleDebug --stacktrace
+        run: gradle assembleDebug assembleDebugAndroidTest --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Preview-storage-tests
+          path: app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: error
       - name: Build update APK and verify stable signing
         run: |
           mkdir -p preview
@@ -106,16 +112,35 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - uses: actions/download-artifact@v4
+        with:
+          name: Preview-storage-tests
+          path: preview/tests
+      - uses: actions/download-artifact@v4
+        with:
+          name: VideoLibrary-preview-apk
+          run-id: 39207592245
+          github-token: ${{ github.token }}
+          path: preview/legacy
+      - name: Start disposable SMB test share
+        run: bash tools/start_test_share.sh
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 29
           arch: x86_64
           profile: pixel_2
           disable-animations: true
-          script: bash tools/check_preview_update.sh
+          script: |
+            python3 tools/check_legacy_upgrade.py
+            bash tools/check_preview_update.sh
+            adb install -r preview/tests/app-debug-androidTest.apk
+            adb shell am instrument -w -e smbFixture true com.deepak.videolibrary.preview.test/androidx.test.runner.AndroidJUnitRunner | tee preview/storage-tests.txt
+            grep -Eq '^OK \([0-9]+ tests?\)' preview/storage-tests.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Preview-device-check
-          path: preview/device-*.png
+          path: |
+            preview/device-*.png
+            preview/storage-tests.txt
           if-no-files-found: ignore

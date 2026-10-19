@@ -44,8 +44,9 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
         }
 
         val dir = ThumbStore.coverDir(context).apply { mkdirs() }
-        val prefix = group.hashCode().toUInt().toString(16)
-        val target = File(dir, "${prefix}_${picks.joinToString("-")}.jpg")
+        val prefix = java.security.MessageDigest.getInstance("SHA-256").digest(group.toByteArray()).joinToString(""){"%02x".format(it)}.take(24)
+        val fingerprint=picks.joinToString("-"){id->val file=ThumbStore.thumbFile(context,id);"$id-${file.lastModified()}-${file.length()}"}
+        val target = File(dir, "${prefix}_${fingerprint}.jpg")
         if (target.exists()) return target
 
         val bitmaps = picks.mapNotNull { id ->

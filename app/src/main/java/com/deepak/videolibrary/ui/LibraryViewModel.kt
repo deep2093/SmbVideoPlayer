@@ -31,6 +31,13 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.cachedIn
+import com.deepak.videolibrary.data.*
+import com.deepak.videolibrary.files.TransferWorker
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -56,6 +63,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val services = ServiceLocator.get(app)
     private val dao = services.db.dao()
     private val settingsStore = services.settings
+    private val stateDao = services.db.libraryState()
+    var settings by mutableStateOf(settingsStore.load())
+        private set
+    val namespace = MutableStateFlow(connectionKey(settings))
+    private val storageReady = MutableStateFlow(false)
+    var foldersTab by mutableIntStateOf(0)
+    private val folderQueryFlow = MutableStateFlow("")
+    private val originalQueryFlow = MutableStateFlow("")
+    private val originalLocation = MutableStateFlow(settings.rootPath.trim('/'))
+    private fun connectionKey(s: SmbSettings) = s.host.trim().lowercase(java.util.Locale.ROOT) + "/" + s.share.trim().lowercase(java.util.Locale.ROOT)
+
 
     private fun <T> Flow<T>.state(initial: T): StateFlow<T> =
         stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), initial)
@@ -88,9 +106,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var folderSortDescending by mutableStateOf(layoutPrefs.getBoolean("folder_sort_descending", false))
         private set
 
+    private val sortChoice = MutableStateFlow(videoSort.name to sortDescending)
+    private val folderSortChoice = MutableStateFlow(folderSort to folderSortDescending)
     fun selectFolderSort(sort: String) {
         folderSortDescending = if (folderSort == sort) !folderSortDescending else false
         folderSort = sort
+        folderSortChoice.value = folderSort to folderSortDescending
         layoutPrefs.edit().putString("folder_sort", sort)
             .putBoolean("folder_sort_descending", folderSortDescending).apply()
     }
@@ -108,6 +129,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun selectVideoSort(sort: VideoSort) {
         sortDescending = if (sort == videoSort) !sortDescending else false
         videoSort = sort
+        sortChoice.value = videoSort.name to sortDescending
         layoutPrefs.edit().putString("video_sort", sort.name).putBoolean("sort_descending", sortDescending).apply()
     }
 
@@ -128,19 +150,114 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val query = MutableStateFlow("")
     val groupFilter = MutableStateFlow<String?>(null)
 
-    val videos: StateFlow<List<VideoEntity>> =
-        combine(query, groupFilter) { q, g -> q.trim() to g }
-            .flatMapLatest { (q, g) -> dao.observeVideos(g, q) }
-            .state(emptyList())
+    private var folderSearchValue by mutableStateOf("")
+    var folderSearch: String
+        get() = folderSearchValue
+        set(value) { folderSearchValue=value; folderQueryFlow.value=value }
+    private var originalPathValue by mutableStateOf(settings.rootPath.trim('/'))
+    var originalPath: String
+        get() = originalPathValue
+        set(value) { originalPathValue=value; originalLocation.value=value }
+    private var originalQueryValue by mutableStateOf("")
+    var originalQuery: String
+        get() = originalQueryValue
+        set(value) { originalQueryValue=value; originalQueryFlow.value=value }
 
-    // Independent of the Videos tab's query/group selection.
-    val allVideos: StateFlow<List<VideoEntity>> = dao.observeVideos(null, "").state(emptyList())
-    var folderSearch by mutableStateOf("")
-    var originalPath by mutableStateOf(settingsStore.load().rootPath.trim('/'))
-    var originalQuery by mutableStateOf("")
+    private val videoScope = combine(query.debounce(200), groupFilter, sortChoice, namespace) { q,g,sort,key ->
+        LibraryScope(key,q,g,sort=sort.first,descending=sort.second)
+    }
+    private val folderScope = combine(folderQueryFlow.debounce(200),sortChoice,namespace) { q,sort,key ->
+        LibraryScope(key,q,groupMatches=true,sort=sort.first,descending=sort.second)
+    }
+    private val originalScope = combine(originalLocation,originalQueryFlow.debounce(200),sortChoice,namespace) { dir,q,sort,key ->
+        LibraryScope(key,q,directory=dir,subtree=q.isNotBlank(),pathMatches=true,sort=sort.first,descending=sort.second)
+    }
+    private fun pages(scopes: Flow<LibraryScope>) = scopes.flatMapLatest { scope ->
+        Pager(PagingConfig(pageSize=60,initialLoadSize=90,enablePlaceholders=false), pagingSourceFactory={stateDao.pages(LibraryQueries.videos(scope))}).flow
+    }.cachedIn(viewModelScope)
+    val videoPages = pages(videoScope)
+    val folderPages = pages(folderScope)
+    val originalPages = pages(originalScope)
+    val videoResultsCount = videoScope.flatMapLatest { stateDao.count(LibraryQueries.count(it)) }.state(0)
+    val folderResultsCount = folderScope.flatMapLatest { stateDao.count(LibraryQueries.count(it)) }.state(0)
+    val originalResultsCount = originalScope.flatMapLatest { stateDao.count(LibraryQueries.count(it.copy(subtree=true))) }.state(0)
+    val groups = combine(folderScope,folderSortChoice) { scope,sort -> LibraryQueries.groups(scope,sort.first,sort.second) }
+        .flatMapLatest { stateDao.folders(it) }.state(emptyList())
+    val originalDirectories = originalScope.flatMapLatest { stateDao.directories(LibraryQueries.directories(it)) }.state(emptyList())
+    val continuing = namespace.flatMapLatest { stateDao.continuing(LibraryQueries.continuing(it)) }.state(emptyList())
+    val hiddenItems = namespace.flatMapLatest { stateDao.hiddenItems(it) }.state(emptyList())
+    val videoCount = dao.observeVideoCount().state(0)
 
-    val groups: StateFlow<List<GroupRow>> = dao.observeGroups().state(emptyList())
-    val videoCount: StateFlow<Int> = dao.observeVideoCount().state(0)
+    fun progressFlow(path: String) = stateDao.observeProgress(namespace.value,path)
+    suspend fun resumeFor(path: String): PlaybackStateEntity? { storageReady.first { it }; return stateDao.progress(namespace.value,path) }
+    fun saveProgress(path: String, position: Long, duration: Long) {
+        val key=namespace.value
+        viewModelScope.launch(Dispatchers.IO) { storageReady.first { it }; stateDao.saveProgress(key,path,position,duration) }
+    }
+    fun hideContinue(path: String, hidden: Boolean=true) {
+        val key=namespace.value
+        viewModelScope.launch(Dispatchers.IO) { storageReady.first { it }; stateDao.hideContinue(key,path,hidden) }
+    }
+    fun playFromStart(path:String,onPlay:()->Unit) { viewModelScope.launch {
+        withContext(Dispatchers.IO) {storageReady.first {it};stateDao.saveProgress(namespace.value,path,0,stateDao.progress(namespace.value,path)?.durationMs ?: 0)}
+        onPlay()
+    } }
+    fun clearResume(path: String) { viewModelScope.launch(Dispatchers.IO) {
+        storageReady.first { it }; stateDao.saveProgress(namespace.value,path,0,stateDao.progress(namespace.value,path)?.durationMs ?: 0)
+    } }
+    fun hidePath(path: String, directory: Boolean) { viewModelScope.launch(Dispatchers.IO) {
+        stateDao.hide(HiddenItem(namespace.value,if(directory) "DIRECTORY" else "FILE",path,path.substringAfterLast('/')));coverRevision++
+    } }
+    fun hideGroup(group: String) { viewModelScope.launch(Dispatchers.IO) { stateDao.hide(HiddenItem(namespace.value,"GROUP",group,group));coverRevision++ } }
+    fun unhide(item: HiddenItem) { viewModelScope.launch(Dispatchers.IO) { stateDao.unhide(item);coverRevision++ } }
+    fun unhideAll() { viewModelScope.launch(Dispatchers.IO) { stateDao.unhideAll(namespace.value);coverRevision++ } }
+    private fun selectedScope(mode: String): LibraryScope = when(mode) {
+        "folders" -> LibraryScope(namespace.value,folderSearch,groupMatches=true,sort=videoSort.name,descending=sortDescending)
+        "originals" -> LibraryScope(namespace.value,originalQuery,directory=originalPath,subtree=true,pathMatches=true,sort=videoSort.name,descending=sortDescending)
+        else -> LibraryScope(namespace.value,query.value,groupFilter.value,sort=videoSort.name,descending=sortDescending)
+    }
+    fun playLibrary(mode: String, start: VideoEntity?=null, onPlay:(VideoEntity,List<VideoEntity>)->Unit) {
+        val scope=selectedScope(mode)
+        viewModelScope.launch {
+            val queue=withContext(Dispatchers.IO) { stateDao.videoList(LibraryQueries.videos(scope)) }
+            val first=start?.let { selected -> queue.firstOrNull { it.relativePath==selected.relativePath } } ?: queue.firstOrNull()
+            if(first!=null) onPlay(first,queue) else notice="No visible videos match this search."
+        }
+    }
+    var pasteDestination by mutableStateOf<String?>(null)
+    var clipboardBatch by mutableStateOf<List<Triple<String,Boolean,Boolean>>>(emptyList())
+        private set
+    fun stageGroup(group: String, cut: Boolean) { viewModelScope.launch {
+        val rows=withContext(Dispatchers.IO) { stateDao.videoList(LibraryQueries.videos(LibraryScope(namespace.value,group=group))) }
+        clipboardBatch=rows.map { Triple(it.relativePath,false,cut) }
+        explorerClipboard=clipboardBatch.firstOrNull()
+        notice="${rows.size} videos ${if(cut) "cut" else "copied"}. Choose Paste to select a destination."
+    } }
+    fun deleteGroupFiles(group: String) { viewModelScope.launch(Dispatchers.IO) {
+        stateDao.videoList(LibraryQueries.videos(LibraryScope(namespace.value,group=group))).forEach {
+            TransferWorker.enqueue(getApplication(),"DELETE",it.relativePath,"",false,namespace.value)
+        }
+    } }
+    fun clearClipboard() { explorerClipboard=null;clipboardBatch=emptyList() }
+    val transfers = WorkManager.getInstance(app).getWorkInfosForUniqueWorkFlow(TransferWorker.UNIQUE_NAME).state(emptyList())
+    fun pasteInto(directory: String) {
+        val entries=clipboardBatch.ifEmpty { listOfNotNull(explorerClipboard) }
+        if(entries.isEmpty()) return
+        val names=entries.map { it.first.substringAfterLast('/') }
+        if(names.map { it.lowercase(java.util.Locale.ROOT) }.distinct().size!=names.size) {
+            notice="Several selected files have the same filename. Paste them individually to avoid overwriting.";return
+        }
+        if(entries.any { listOf(directory,it.first.substringAfterLast('/')).filter(String::isNotBlank).joinToString("/")==it.first }) {
+            notice="Choose another destination folder.";return
+        }
+        entries.forEach { clip ->
+            val dest=listOf(directory,clip.first.substringAfterLast('/')).filter(String::isNotBlank).joinToString("/")
+            TransferWorker.enqueue(getApplication(),if(clip.third) "MOVE" else "COPY",clip.first,dest,clip.second,namespace.value)
+        }
+        notice="${entries.size} file operation(s) queued. You can keep using the app."
+        clearClipboard()
+    }
+    fun cancelTransfer(id: java.util.UUID) { WorkManager.getInstance(getApplication()).cancelWorkById(id) }
 
     var organizerError by mutableStateOf<String?>(null)
         private set
@@ -208,10 +325,21 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             }
             .state(false)
 
-    suspend fun coverFor(group: String): File? = services.covers.build(group)
-
-    suspend fun originalCover(path: String, videos: List<VideoEntity>): File? =
-        services.covers.buildOriginal(path, videos.filter { it.thumbStatus == "DONE" }.map { it.id })
+    private val coverFiles=android.util.LruCache<String,File>(100)
+    var coverRevision by mutableIntStateOf(0)
+        private set
+    fun coverKey(name:String,count:Int,done:Int,modified:Long=0)="${namespace.value}:$name:$count:$done:$modified:$coverRevision"
+    fun cachedCover(key:String):File?=coverFiles.get(key)
+    suspend fun coverFor(group:String,key:String):File? {
+        coverFiles.get(key)?.let{return it}
+        val ids=withContext(Dispatchers.IO){stateDao.ids(LibraryQueries.coverIds(LibraryScope(namespace.value,group=group)))}
+        return services.covers.buildOriginal("${namespace.value}:virtual:$group",ids)?.also{coverFiles.put(key,it)}
+    }
+    suspend fun originalCover(path:String,key:String):File? {
+        coverFiles.get(key)?.let{return it}
+        val ids=withContext(Dispatchers.IO){stateDao.ids(LibraryQueries.coverIds(LibraryScope(namespace.value,directory=path,subtree=true)))}
+        return services.covers.buildOriginal("${namespace.value}:original:$path",ids)?.also{coverFiles.put(key,it)}
+    }
 
     fun startThumbnails() {
         if (settingsStore.loadProfile() == null) {
@@ -238,6 +366,25 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     init {
+        viewModelScope.launch(Dispatchers.IO) {
+            val old=app.getSharedPreferences("player_prefs",Application.MODE_PRIVATE)
+            try {
+                if(!old.getBoolean("database_history_imported_v3",false)) {
+                    val rows=stateDao.legacyVideos().associateBy { it.id }
+                    val paths=old.all.keys.filter { it.startsWith("resume_path_") }.map { it.removePrefix("resume_path_") }.toMutableSet()
+                    paths.addAll(rows.values.filter { old.contains("resume_${it.id}") }.map { it.relativePath })
+                    val byPath=rows.values.associateBy { it.relativePath }
+                    stateDao.importProgress(paths.map { path ->
+                        PlaybackStateEntity(namespace.value,path,old.getLong("resume_path_$path",old.getLong("resume_${byPath[path]?.id ?: 0}",0)),old.getLong("duration_path_$path",0),old.getBoolean("hide_continue_$path",false),0)
+                    })
+                    val editor=old.edit().putBoolean("database_history_imported_v3",true)
+                    old.all.keys.filter {it.startsWith("resume_") || it.startsWith("duration_path_") || it.startsWith("hide_continue_")}.forEach {editor.remove(it)}
+                    editor.apply()
+                }
+            } catch(e:CancellationException){throw e}
+            catch(e:Exception){AppDiagnostics.record(app,"migration","history_import_failed_${e.javaClass.simpleName}");notice="Playback history import failed. Old history was retained; try restarting the app."}
+            finally { storageReady.value=true }
+        }
         // Pick up any thumbnails still waiting from an earlier session.
         viewModelScope.launch {
             if (settingsStore.loadProfile() != null && dao.countThumbs("PENDING") > 0) {
@@ -405,64 +552,33 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     /** Read-only display string. No credentials are included. */
     fun originalVideoLocation(relativePath: String): String {
         val profile = settingsStore.loadProfile() ?: return relativePath
-        val parts = listOf(profile.host, profile.share, profile.rootPath, relativePath)
+        val parts = listOf(profile.host, profile.share, relativePath)
             .filter { it.isNotBlank() }
         return "\\\\" + parts.joinToString("\\") { it.trim('/', '\\').replace('/', '\\') }
     }
 
     fun stageExplorer(path: String, directory: Boolean, cut: Boolean) {
+        clipboardBatch=emptyList()
         explorerClipboard = Triple(path, directory, cut)
+        notice = if(cut) "Cut: ${path.substringAfterLast('/')}" else "Copied: ${path.substringAfterLast('/')}"
         explorerMessage = if (cut) "Ready to move: $path" else "Ready to copy: $path"
     }
 
-    fun pasteExplorer() {
-        val staged = explorerClipboard ?: return
-        val filename = staged.first.substringAfterLast('/')
-        val target = listOf(explorerPath, filename).filter { it.isNotBlank() }.joinToString("/")
-        if (target == staged.first) { explorerMessage = "Choose another destination folder"; return }
-        explorerOperate {
-            if (staged.third) it.renamePath(staged.first, target, staged.second)
-            else it.copyPath(staged.first, target, staged.second)
-        }
-        explorerClipboard = null
+    fun pasteExplorer() = pasteInto(explorerPath)
+
+    fun renameOriginal(path: String, newName: String, directory: Boolean=false) {
+        val clean=newName.trim()
+        if(clean.isBlank() || clean=="." || clean==".." || '/' in clean || '\\' in clean) { notice="Invalid file name"; return }
+        val dest=listOf(path.substringBeforeLast('/',""),clean).filter(String::isNotBlank).joinToString("/")
+        TransferWorker.enqueue(getApplication(),"MOVE",path,dest,directory,namespace.value)
+        notice="Rename queued. Existing artwork and playback history will follow the file."
     }
-
-    fun renameOriginal(path: String, newName: String, directory: Boolean = false) {
-        val clean = newName.trim()
-        if (clean.isEmpty() || clean == "." || clean == ".." || '/' in clean || '\\' in clean) {
-            explorerMessage = "Invalid file name"; return
-        }
-        val parent = path.substringBeforeLast('/', "")
-        val dest = listOf(parent, clean).filter { it.isNotBlank() }.joinToString("/")
-        explorerOperate { it.renamePath(path, dest, directory) }
-    }
-
-    fun deleteOriginal(path: String, directory: Boolean) = explorerOperate { it.deletePath(path, directory) }
-
-    private fun explorerOperate(action: (SmbConnection) -> Unit) {
-        if (explorerBusy) return
-        explorerBusy = true
-        explorerMessage = null
-        viewModelScope.launch {
-            try {
-                val profile = settingsStore.loadProfile() ?: error("Configure SMB in Settings first")
-                withContext(Dispatchers.IO) {
-                    SmbConnection(profile).use { conn -> conn.open(); action(conn) }
-                }
-                explorerMessage = "Done. Refreshing the library index…"
-                ScanWorker.enqueue(getApplication(), ScanMode.REFRESH)
-            } catch (e: Exception) { explorerMessage = SmbErrors.describe(e) }
-            finally {
-                explorerBusy = false; browse(explorerPath)
-                if (explorerQuery.isNotBlank()) searchExplorer(explorerQuery, explorerPath)
-            }
-        }
+    fun deleteOriginal(path: String, directory: Boolean) {
+        TransferWorker.enqueue(getApplication(),"DELETE",path,"",directory,namespace.value)
+        notice="Delete queued."
     }
 
     // ---- settings ----
-
-    var settings by mutableStateOf(settingsStore.load())
-        private set
 
     var testState by mutableStateOf<TestState>(TestState.Idle)
         private set
@@ -473,6 +589,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             // Keep what was typed in the form even if the password is not persisted.
             saved.copy(password = s.password)
         }
+        namespace.value=connectionKey(settings)
+        originalPath=settings.rootPath.trim('/')
     }
 
     fun testConnection(s: SmbSettings) {

@@ -39,7 +39,7 @@ data class SmbEntry(
 
 /**
  * A single SMB connection. All methods block, so call them from Dispatchers.IO.
- * The connection is read-only by usage: this class only lists directories.
+ * Reading, browsing and explicit user-requested file operations share this connection.
  */
 class SmbConnection(private val profile: SmbProfile) : Closeable {
 
@@ -141,40 +141,49 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
         if (isDirectory) disk.rmdir(safe, true) else disk.rm(safe)
     }
 
-    fun copyPath(source: String, destination: String, isDirectory: Boolean) {
-        val disk = share ?: throw IOException("Not connected")
-        val src = safePath(source)
-        val dst = safePath(destination)
-        require(src != dst && !dst.startsWith("$src\\", ignoreCase = true)) { "Cannot copy a folder into itself" }
+    /** Stage a whole copy under a private temporary name, then publish it atomically.
+     * The source is never deleted, and an existing destination is never overwritten. */
+    fun copyPath(source: String, destination: String, isDirectory: Boolean,
+        progress: (Long)->Unit = {}, cancelled: ()->Boolean = { false }, stagingId:String=java.util.UUID.randomUUID().toString()) {
+        val disk=share ?: throw IOException("Not connected")
+        val src=safePath(source); val dst=safePath(destination)
+        require(src!=dst && !dst.startsWith("$src\\",ignoreCase=true)) { "Cannot copy a folder into itself" }
         require(!disk.fileExists(dst) && !disk.folderExists(dst)) { "Destination already exists" }
-        if (isDirectory) {
-            disk.mkdir(dst)
-            try {
-                for (child in list(source)) {
-                    val from = source.trimEnd('/') + "/" + child.name
-                    val to = destination.trimEnd('/') + "/" + child.name
-                    copyPath(from, to, child.isDirectory)
-                }
-            } catch (e: Exception) {
-                // A partially copied directory remains so the user can inspect it; never delete source.
-                throw IOException("Copy interrupted. Destination folder may contain incomplete files: ${e.message}", e)
-            }
-        } else {
-            disk.openFile(src, EnumSet.of(AccessMask.GENERIC_READ), null, SMB2ShareAccess.ALL,
-                SMB2CreateDisposition.FILE_OPEN, null).use { input ->
-                disk.openFile(dst, EnumSet.of(AccessMask.GENERIC_WRITE), null, SMB2ShareAccess.ALL,
-                    SMB2CreateDisposition.FILE_CREATE, null).use { output ->
-                    input.inputStream.use { stream -> output.outputStream.use { sink ->
-                        val buffer = ByteArray(1024 * 1024)
-                        while (true) {
-                            val count = stream.read(buffer)
-                            if (count < 0) break
-                            sink.write(buffer, 0, count)
-                        }
-                        sink.flush()
-                    } }
+        val parent=destination.substringBeforeLast('/',"")
+        val temporary=listOf(parent,".vl-copy-"+java.util.UUID.fromString(stagingId).toString()).filter { it.isNotBlank() }.joinToString("/")
+        var published=false
+        fun copyTree(from: String, to: String, directory: Boolean) {
+            if(cancelled()) throw java.io.InterruptedIOException("Copy cancelled")
+            if(directory) {
+                disk.mkdir(safePath(to))
+                for(child in list(from)) copyTree("$from/${child.name}","$to/${child.name}",child.isDirectory)
+            } else {
+                disk.openFile(safePath(from),EnumSet.of(AccessMask.GENERIC_READ),null,SMB2ShareAccess.ALL,SMB2CreateDisposition.FILE_OPEN,null).use { input ->
+                    disk.openFile(safePath(to),EnumSet.of(AccessMask.GENERIC_WRITE),null,SMB2ShareAccess.ALL,SMB2CreateDisposition.FILE_CREATE,null).use { output ->
+                        input.inputStream.use { stream -> output.outputStream.use { sink ->
+                            val buffer=ByteArray(1024*1024)
+                            while(true) {
+                                if(cancelled()) throw java.io.InterruptedIOException("Copy cancelled")
+                                val count=stream.read(buffer); if(count<0) break
+                                sink.write(buffer,0,count); progress(count.toLong())
+                            }
+                            sink.flush()
+                        } }
+                    }
                 }
             }
+        }
+        try {
+            // This UUID belongs solely to this durable operation, including process retries.
+            if(isDirectory && disk.folderExists(safePath(temporary))) disk.rmdir(safePath(temporary),true)
+            if(!isDirectory && disk.fileExists(safePath(temporary))) disk.rm(safePath(temporary))
+            copyTree(source,temporary,isDirectory)
+            if(cancelled()) throw java.io.InterruptedIOException("Copy cancelled")
+            renamePath(temporary,destination,isDirectory)
+            published=true
+        } finally {
+            // Only the unique staging path created by this operation may be removed.
+            if(!published) runCatching { if(isDirectory) disk.rmdir(safePath(temporary),true) else disk.rm(safePath(temporary)) }
         }
     }
 

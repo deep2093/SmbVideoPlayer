@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Context
@@ -72,7 +75,7 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<VideoEntity> = listOf(video), onClose: () -> Unit) {
+fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel, playlist: List<VideoEntity> = listOf(video), onClose: () -> Unit) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -80,7 +83,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     val prefs = remember { context.getSharedPreferences("player_prefs", Context.MODE_PRIVATE) }
     // Starting playback explicitly makes a previously dismissed item eligible again.
     LaunchedEffect(video.relativePath) {
-        prefs.edit().putBoolean("hide_continue_${video.relativePath}", false).apply()
+        vm.hideContinue(video.relativePath,false)
     }
     val volumeGestureEnabled = remember { prefs.getBoolean("volume_gesture_enabled", true) }
     val brightnessGestureEnabled = remember { prefs.getBoolean("brightness_gesture_enabled", true) }
@@ -113,9 +116,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                     .appendQueryParameter("size", item.size.toString()).build()
                 factory.createMediaSource(MediaItem.fromUri(uri))
             })
-            seekTo(initialIndex, prefs.getLong("resume_path_${video.relativePath}", prefs.getLong("resume_${video.id}", 0L)).coerceAtLeast(0))
-            prepare()
-            playWhenReady = true
+            seekTo(initialIndex,0)
+            playWhenReady = false
         }
     }
     var currentIndex by remember { mutableIntStateOf(initialIndex) }
@@ -125,16 +127,18 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     var showTracks by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     fun revealControls() { controlsVisible = true; controlsInteraction++ }
-    // Hide Android status/navigation bars while the fullscreen player is on screen.
     DisposableEffect(activity) {
-        val window = activity?.window
-        val decor = window?.decorView
-        val before = decor?.systemUiVisibility
-        decor?.systemUiVisibility = (before ?: 0) or View.SYSTEM_UI_FLAG_FULLSCREEN or
-            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
-            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-        onDispose { if (before != null) decor?.systemUiVisibility = before }
+        val window=activity?.window
+        val beforeBrightness=window?.attributes?.screenBrightness
+        val controller=window?.let { WindowCompat.getInsetsController(it,it.decorView) }
+        val behavior=controller?.systemBarsBehavior
+        controller?.systemBarsBehavior=WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller?.hide(WindowInsetsCompat.Type.systemBars())
+        onDispose {
+            controller?.show(WindowInsetsCompat.Type.systemBars())
+            if(behavior!=null)controller?.systemBarsBehavior=behavior
+            if(window!=null && beforeBrightness!=null) {val attrs=window.attributes;attrs.screenBrightness=beforeBrightness;window.attributes=attrs}
+        }
     }
     LaunchedEffect(controlsVisible, controlsInteraction, currentIndex, showTracks, showSettings) {
         if (controlsVisible && !showTracks && !showSettings) { delay(2_000); controlsVisible = false }
@@ -161,14 +165,20 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     var seekingTarget by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(player) {
-        while (true) {
-            position = player.currentPosition.coerceAtLeast(0)
-            duration = player.duration.coerceAtLeast(0)
-            isPlaying = player.playWhenReady
-            currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
-            if (position > 2_000) {
-                val item = queue.getOrElse(currentIndex) { video }
-                prefs.edit().putLong("resume_path_${item.relativePath}", position).putLong("duration_path_${item.relativePath}", duration).apply()
+        val saved=vm.resumeFor(video.relativePath)
+        val resume=if(saved!=null && !(saved.durationMs>0 && saved.positionMs>=saved.durationMs-10_000)) saved.positionMs else 0L
+        player.seekTo(initialIndex,resume.coerceAtLeast(0))
+        player.prepare()
+        if(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))player.play()
+        var saves=0
+        while(true) {
+            position=player.currentPosition.coerceAtLeast(0)
+            duration=player.duration.coerceAtLeast(0)
+            isPlaying=player.playWhenReady
+            currentIndex=player.currentMediaItemIndex.coerceAtLeast(0)
+            if(++saves>=5) {
+                saves=0
+                if(player.playbackState!=Player.STATE_IDLE) vm.saveProgress(queue.getOrElse(currentIndex){video}.relativePath,position,duration)
             }
             delay(1_000)
         }
@@ -206,7 +216,13 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
         }
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = player.playWhenReady }
-            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { isPlaying = player.playWhenReady; updateKeepAwake() }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                isPlaying=playWhenReady;updateKeepAwake()
+                if(!playWhenReady && player.playbackState!=Player.STATE_IDLE) vm.saveProgress(queue.getOrElse(player.currentMediaItemIndex){video}.relativePath,player.currentPosition,player.duration)
+            }
+            override fun onPositionDiscontinuity(oldPosition:Player.PositionInfo,newPosition:Player.PositionInfo,reason:Int) {
+                if(oldPosition.mediaItemIndex!=newPosition.mediaItemIndex) vm.saveProgress(queue.getOrElse(oldPosition.mediaItemIndex){video}.relativePath,oldPosition.positionMs,duration)
+            }
             override fun onPlaybackSuppressionReasonChanged(reason: Int) { isPlaying = player.playWhenReady; updateKeepAwake() }
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                 AppDiagnostics.record(context, "video", "width=" + videoSize.width + " height=" + videoSize.height)
@@ -242,7 +258,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
         player.addAnalyticsListener(analytics)
         updateKeepAwake()
         onDispose {
-            prefs.edit().putLong("resume_path_${queue.getOrElse(player.currentMediaItemIndex.coerceAtLeast(0)) { video }.relativePath}", player.currentPosition.coerceAtLeast(0)).apply()
+            if(player.playbackState!=Player.STATE_IDLE) vm.saveProgress(queue.getOrElse(player.currentMediaItemIndex.coerceAtLeast(0)){video}.relativePath,player.currentPosition,player.duration)
             player.removeListener(listener)
             player.removeAnalyticsListener(analytics)
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -250,16 +266,21 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
             player.release()
         }
     }
-    // Opt-in PiP when user presses Home or switches away; disabled by default.
-    DisposableEffect(lifecycleOwner, activity, pipEnabled) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE && pipEnabled && Build.VERSION.SDK_INT >= 26 && activity != null && !activity.isFinishing && player.isPlaying) {
-                runCatching { activity.enterPictureInPictureMode(
-                    PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()) }
+    DisposableEffect(lifecycleOwner,activity,pipEnabled,player) {
+        val main=activity as? com.deepak.videolibrary.MainActivity
+        val previous=main?.onLeavePlayback
+        if(main!=null) main.onLeavePlayback={
+            if(pipEnabled && Build.VERSION.SDK_INT>=26 && main.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE) && player.isPlaying) {
+                val size=player.videoSize
+                val ratio=if(size.height>0)size.width.toFloat()*size.pixelWidthHeightRatio/size.height else 16f/9f
+                runCatching {main.enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational((ratio.coerceIn(0.42f,2.39f)*1000).roundToInt(),1000)).build())}
             }
         }
+        val observer=LifecycleEventObserver { _,event ->
+            if(event==Lifecycle.Event.ON_STOP && activity?.isInPictureInPictureMode!=true) player.pause()
+        }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {lifecycleOwner.lifecycle.removeObserver(observer);main?.onLeavePlayback=previous}
     }
     BackHandler { if (showTracks) showTracks = false else if (showSettings) showSettings = false else onClose() }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
@@ -393,7 +414,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
         if (gestureMessage.isNotBlank()) Text(gestureMessage, color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color(0xA6000000), RoundedCornerShape(14.dp)).padding(12.dp))
         if (controlsVisible) {
             // Overlay is transient; controls never permanently consume video height.
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), verticalArrangement = Arrangement.SpaceBetween) {
                 Row(Modifier.fillMaxWidth().background(Color(0xA6000000)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onClose) { Icon(Icons.Filled.ArrowBack, "Back to library", tint = Color.White) }
                     Text(activeVideo.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.White)

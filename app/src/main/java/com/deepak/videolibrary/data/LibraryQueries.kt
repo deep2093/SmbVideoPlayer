@@ -1,0 +1,48 @@
+package com.deepak.videolibrary.data
+
+import androidx.sqlite.db.SimpleSQLiteQuery
+
+/** All values are bound parameters; only allowlisted sort expressions are interpolated. */
+data class LibraryScope(val key: String, val query: String = "", val group: String? = null,
+    val directory: String? = null, val subtree: Boolean = false, val groupMatches: Boolean = false,
+    val pathMatches: Boolean = false, val sort: String = "NAME", val descending: Boolean = false)
+
+object LibraryQueries {
+    private fun where(s: LibraryScope): Pair<String, MutableList<Any?>> {
+        val args = mutableListOf<Any?>(s.key)
+        val text = StringBuilder(" NOT EXISTS (SELECT 1 FROM hidden_items h WHERE h.connectionKey=? AND ((h.kind='FILE' AND h.target=v.relativePath) OR (h.kind='DIRECTORY' AND (h.target=v.relativePath OR substr(v.relativePath,1,length(h.target)+1)=h.target||'/')) OR (h.kind='GROUP' AND h.target=COALESCE(v.customGroup,v.groupKey))))")
+        if (s.group != null) { text.append(" AND COALESCE(v.customGroup,v.groupKey)=?"); args.add(s.group) }
+        s.directory?.let { dir ->
+            if (!s.subtree) { text.append(" AND v.parentDir=?"); args.add(dir) }
+            else if (dir.isNotEmpty()) { text.append(" AND (v.parentDir=? OR substr(v.parentDir,1,length(?)+1)=?||'/')"); args.addAll(listOf(dir,dir,dir)) }
+        }
+        if (s.query.isNotBlank()) {
+            text.append(" AND (instr(lower(v.name),lower(?))>0"); args.add(s.query.trim())
+            if (s.groupMatches) { text.append(" OR instr(lower(COALESCE(v.customGroup,v.groupKey)),lower(?))>0"); args.add(s.query.trim()) }
+            if (s.pathMatches) { text.append(" OR instr(lower(v.parentDir),lower(?))>0"); args.add(s.query.trim()) }
+            text.append(")")
+        }
+        return text.toString() to args
+    }
+    fun videos(s: LibraryScope): SimpleSQLiteQuery {
+        val (w,args)=where(s)
+        val order=when(s.sort) { "NEWEST" -> "v.addedAt"; "MODIFIED" -> "v.modified"; "SIZE" -> "v.size"; else -> "v.name COLLATE NOCASE" }
+        return SimpleSQLiteQuery("SELECT v.* FROM videos v WHERE $w ORDER BY $order ${if(s.descending) "DESC" else "ASC"}, v.relativePath", args.toTypedArray())
+    }
+    fun count(s: LibraryScope): SimpleSQLiteQuery { val(w,a)=where(s);return SimpleSQLiteQuery("SELECT COUNT(*) FROM videos v WHERE $w",a.toTypedArray()) }
+    fun groups(s: LibraryScope, sort: String, descending: Boolean): SimpleSQLiteQuery {
+        val(w,a)=where(s.copy(groupMatches=true)); val order=when(sort){"COUNT"->"count";"DATE"->"lastModified";"SIZE"->"totalSize";else->"groupKey COLLATE NOCASE"}
+        return SimpleSQLiteQuery("SELECT COALESCE(v.customGroup,v.groupKey) groupKey, COUNT(*) count, SUM(CASE WHEN v.thumbStatus='DONE' THEN 1 ELSE 0 END) thumbsDone, SUM(v.size) totalSize, MAX(v.modified) lastModified FROM videos v WHERE $w GROUP BY COALESCE(v.customGroup,v.groupKey) UNION ALL SELECT f.name,0,0,0,0 FROM custom_folders f WHERE NOT EXISTS(SELECT 1 FROM videos WHERE COALESCE(customGroup,groupKey)=f.name) AND instr(lower(f.name),lower(?))>0 AND NOT EXISTS(SELECT 1 FROM hidden_items h WHERE h.connectionKey=? AND h.kind='GROUP' AND h.target=f.name) ORDER BY $order ${if(descending) "DESC" else "ASC"}", (a+listOf(s.query.trim(),s.key)).toTypedArray())
+    }
+    fun continuing(key: String): SimpleSQLiteQuery {
+        val(w,a)=where(LibraryScope(key)); return SimpleSQLiteQuery("SELECT v.* FROM videos v JOIN playback_state p ON p.path=v.relativePath AND p.connectionKey=? WHERE $w AND p.hidden=0 AND p.positionMs>15000 AND (p.durationMs<=0 OR p.positionMs<p.durationMs-10000) ORDER BY p.updatedAt DESC LIMIT 18",(listOf(key)+a).toTypedArray())
+    }
+    fun coverIds(s: LibraryScope): SimpleSQLiteQuery {val(w,a)=where(s);return SimpleSQLiteQuery("SELECT v.id FROM videos v WHERE $w AND v.thumbStatus='DONE' ORDER BY v.name COLLATE NOCASE",a.toTypedArray())}
+    fun directories(s: LibraryScope): SimpleSQLiteQuery {
+        val dir=s.directory ?: ""; val(w,a)=where(s.copy(subtree=true,pathMatches=true))
+        val start=dir.length + if(dir.isEmpty()) 1 else 2
+        val child="substr(v.parentDir,$start,instr(substr(v.parentDir,$start)||'/','/')-1)"
+        val path=if(dir.isEmpty()) child else "?||'/'||$child"
+        return SimpleSQLiteQuery("SELECT $path path, COUNT(*) count, SUM(CASE WHEN v.thumbStatus='DONE' THEN 1 ELSE 0 END) thumbsDone FROM videos v WHERE $w AND v.parentDir!=? GROUP BY path ORDER BY path COLLATE NOCASE",((if(dir.isEmpty()) emptyList() else listOf(dir))+a+dir).toTypedArray())
+    }
+}

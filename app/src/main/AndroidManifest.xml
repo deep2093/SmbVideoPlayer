@@ -29,7 +29,8 @@
         <activity
             android:name=".MainActivity"
             android:supportsPictureInPicture="true"
-            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
+            android:launchMode="singleTask"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden|keyboard|uiMode|density|fontScale|locale|layoutDirection"
             android:exported="true"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

@@ -2,6 +2,8 @@ package com.deepak.videolibrary.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,27 +26,22 @@ import com.deepak.videolibrary.smb.SmbEntry
 import com.deepak.videolibrary.data.VideoEntity
 
 /** Real SMB filesystem browser. Unlike virtual folders, these actions change remote files. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
-    var selected by remember { mutableStateOf<SmbEntry?>(null) }
-    var renameDialog by remember { mutableStateOf(false) }
-    var deleteDialog by remember { mutableStateOf(false) }
-    var pasteDialog by remember { mutableStateOf(false) }
-    var renameValue by remember { mutableStateOf("") }
-    var selectedPath by remember { mutableStateOf("") }
-    val allVideos by vm.allVideos.collectAsStateWithLifecycle()
-    val indexed = remember(allVideos) { allVideos.associateBy { it.relativePath } }
+    val transfers by vm.transfers.collectAsStateWithLifecycle()
+    LaunchedEffect(transfers.filter { it.state.isFinished }.map { it.id }) { if(transfers.any {it.state==androidx.work.WorkInfo.State.SUCCEEDED}) {vm.browse();if(vm.explorerQuery.isNotBlank())vm.searchExplorer(vm.explorerQuery,vm.explorerPath)} }
     val searching = vm.explorerQuery.isNotBlank()
     val shown = if (searching) vm.explorerHits else vm.explorerEntries.map {
         ExplorerHit(listOf(vm.explorerPath, it.name).filter { part -> part.isNotBlank() }.joinToString("/"), it)
     }
-    val playQueue = shown.filter { isPlayable(it.entry) }.map { explorerVideo(it, indexed) }.distinctBy { it.relativePath }
+    val playQueue = shown.filter { isPlayable(it.entry) }.map { explorerVideo(it, emptyMap()) }.distinctBy { it.relativePath }
     DisposableEffect(Unit) { onDispose { vm.stopExplorerSearch() } }
     LaunchedEffect(vm.explorerQuery, vm.explorerPath) { vm.searchExplorer(vm.explorerQuery, vm.explorerPath) }
     fun open(hit: ExplorerHit) {
         if (hit.entry.isDirectory) { vm.explorerQuery = ""; vm.browse(hit.path) }
         else if (isPlayable(hit.entry)) {
-            val item = explorerVideo(hit, indexed)
+            val item = explorerVideo(hit, emptyMap())
             onPlay(item, if (searching) playQueue else listOf(item))
         }
     }
@@ -78,13 +75,6 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
         }
         if (vm.explorerSearching) LinearProgressIndicator(Modifier.fillMaxWidth())
         vm.explorerSearchMessage?.takeIf { searching }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        if (vm.explorerClipboard != null) {
-            val clip = vm.explorerClipboard!!
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("${if (clip.third) "Move" else "Copy"}: ${clip.first.substringAfterLast('/')}", modifier = Modifier.weight(1f), maxLines = 1)
-                Button(onClick = { pasteDialog = true }, enabled = !vm.explorerBusy) { Text("Paste here") }
-            }
-        }
         if (vm.explorerBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
         vm.explorerMessage?.let { message ->
             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
@@ -104,78 +94,24 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                 val entry = hit.entry
                 var menu by remember(entry.name) { mutableStateOf(false) }
                 val fullPath = hit.path
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().combinedClickable(onClick={open(hit)},onLongClick={menu=true}), verticalAlignment = Alignment.CenterVertically) {
                     val playable = isPlayable(entry)
                     Icon(if (entry.isDirectory) Icons.Filled.Folder else if (playable) Icons.Filled.Movie else Icons.Filled.InsertDriveFile,
                         contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(12.dp).size(28.dp))
-                    Column(Modifier.weight(1f).clickable(enabled = entry.isDirectory || playable) { open(hit) }.padding(vertical = 10.dp)) {
+                    Column(Modifier.weight(1f).padding(vertical=10.dp)) {
                         Text(entry.name, maxLines = 2, style = MaterialTheme.typography.bodyMedium)
                         if (searching) Text(fullPath.substringBeforeLast('/', "/"), maxLines = 1,
                             overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall)
                     }
                     Box {
-                        IconButton(onClick = { selected = entry; selectedPath = fullPath; menu = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "Options for ${entry.name}")
-                        }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            if (playable) DropdownMenuItem(text = { Text("▶ Play video") }, onClick = {
-                                menu = false
-                                open(hit)
-                            })
-                            DropdownMenuItem(text = { Text("Rename original") }, onClick = {
-                                menu = false; selected = entry; renameValue = entry.name; renameDialog = true
-                            })
-                            DropdownMenuItem(text = { Text("Copy") }, onClick = {
-                                menu = false; vm.stageExplorer(fullPath, entry.isDirectory, false)
-                            })
-                            DropdownMenuItem(text = { Text("Cut / Move") }, onClick = {
-                                menu = false; vm.stageExplorer(fullPath, entry.isDirectory, true)
-                            })
-                            DropdownMenuItem(text = { Text("Delete original…") }, onClick = {
-                                menu = false; selected = entry; deleteDialog = true
-                            })
-                        }
+                        IconButton(onClick={menu=true}){Icon(Icons.Filled.MoreVert,contentDescription="Options for ${entry.name}")}
+                        FileActionsMenu(menu,{menu=false},vm,fullPath,directory=entry.isDirectory,
+                            onPlay=if(playable)({open(hit)})else null,
+                            details="${entry.name}\n$fullPath\n${entry.size} bytes")
                     }
                 }
                 HorizontalDivider()
             }
         }
-    }
-    if (pasteDialog && vm.explorerClipboard != null) {
-        val clip = vm.explorerClipboard!!
-        val target = listOf(vm.explorerPath, clip.first.substringAfterLast('/')).filter { it.isNotBlank() }.joinToString("/")
-        AlertDialog(
-            onDismissRequest = { pasteDialog = false },
-            title = { Text(if (clip.third) "Move original SMB item?" else "Copy original SMB item?") },
-            text = { Text("From: ${clip.first}\nTo: $target\n\nThis changes files on your network drive. An existing destination will not be overwritten.") },
-            confirmButton = {
-                TextButton(onClick = { vm.pasteExplorer(); pasteDialog = false },
-                    enabled = !vm.explorerBusy && target != clip.first) {
-                    Text(if (clip.third) "Move" else "Copy")
-                }
-            },
-            dismissButton = { TextButton(onClick = { pasteDialog = false }) { Text("Cancel") } },
-        )
-    }
-    if (renameDialog && selected != null) {
-        val entry = selected!!
-        AlertDialog(onDismissRequest = { renameDialog = false },
-            title = { Text("Rename original ${if (entry.isDirectory) "folder" else "file"}") },
-            text = { OutlinedTextField(renameValue, onValueChange = { renameValue = it }, label = { Text("New name") }) },
-            confirmButton = { TextButton(onClick = {
-                vm.renameOriginal(selectedPath, renameValue, entry.isDirectory)
-                renameDialog = false
-            }, enabled = renameValue.isNotBlank() && renameValue != entry.name && !renameValue.contains("/") && !renameValue.contains("\\")) { Text("Rename") } },
-            dismissButton = { TextButton(onClick = { renameDialog = false }) { Text("Cancel") } })
-    }
-    if (deleteDialog && selected != null) {
-        val entry = selected!!
-        AlertDialog(onDismissRequest = { deleteDialog = false }, title = { Text("Delete from network drive?") },
-            text = { Text("Permanently delete '${entry.name}'${if (entry.isDirectory) " and everything inside it" else ""}? This cannot be undone.") },
-            confirmButton = { TextButton(onClick = {
-                vm.deleteOriginal(selectedPath, entry.isDirectory)
-                deleteDialog = false
-            }) { Text("Delete permanently") } },
-            dismissButton = { TextButton(onClick = { deleteDialog = false }) { Text("Cancel") } })
     }
 }

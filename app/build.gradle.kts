@@ -14,6 +14,7 @@ android {
     defaultConfig {
         applicationId = "com.deepak.videolibrary"
         minSdk = 29
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 35
         // Every CI run and its update-test build gets a higher installable version.
         versionCode = providers.gradleProperty("previewVersionCode").orNull?.toInt()
@@ -94,6 +95,9 @@ dependencies {
     // Local database (library index, scan state, errors)
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
+    implementation("androidx.room:room-paging:2.6.1")
+    implementation("androidx.paging:paging-runtime-ktx:3.3.6")
+    implementation("androidx.paging:paging-compose:3.3.6")
     ksp("androidx.room:room-compiler:2.6.1")
 
     // Background scanning
@@ -108,4 +112,6 @@ dependencies {
     implementation("org.slf4j:slf4j-android:1.7.36")
 
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
 }

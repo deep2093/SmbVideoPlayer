@@ -12,6 +12,9 @@ import com.deepak.videolibrary.ui.AppRoot
 import com.deepak.videolibrary.ui.VideoLibraryTheme
 
 class MainActivity : ComponentActivity() {
+    var onLeavePlayback:(()->Unit)?=null
+    override fun onUserLeaveHint(){super.onUserLeaveHint();onLeavePlayback?.invoke()}
+
 
     // Only needed so the "scanning" notification is visible; scanning works either way.
     private val notificationPermission =

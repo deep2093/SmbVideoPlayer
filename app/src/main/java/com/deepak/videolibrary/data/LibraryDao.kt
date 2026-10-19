@@ -20,6 +20,10 @@ interface LibraryDao {
 
     @Update
     suspend fun updateVideo(video: VideoEntity)
+    @Query("UPDATE videos SET size=:size, modified=:modified, groupKey=:groupName, thumbStatus='PENDING', lastSeenSession=:session WHERE id=:id")
+    suspend fun updateMetadata(id:Long,size:Long,modified:Long,groupName:String,session:Long)
+    @Query("UPDATE videos SET groupKey=:groupName,lastSeenSession=:session WHERE id=:id")
+    suspend fun updateGroupKey(id:Long,groupName:String,session:Long)
 
     @Query("UPDATE videos SET lastSeenSession = :sessionId WHERE id = :id")
     suspend fun touchVideo(id: Long, sessionId: Long)

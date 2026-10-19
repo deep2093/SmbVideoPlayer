@@ -42,14 +42,14 @@ private fun isVideo(name: String): Boolean {
 }
 
 /** Skips dot-files (including macOS "._" resource forks) and system folders. */
-private fun isSkipped(name: String): Boolean = name.startsWith(".") || name in SKIPPED_NAMES
+private fun isSkipped(name: String): Boolean = name.startsWith(".") || name.isBlank() || '/' in name || '\\' in name || SKIPPED_NAMES.any {it.equals(name,ignoreCase=true)}
 
 /**
  * Prepares scan sessions and runs them. The directory queue lives in the database, so a scan that
  * is killed at any moment can continue from where it stopped.
  */
 class ScanRepository(private val db: LibraryDatabase) {
-    private val scanMutex = kotlinx.coroutines.sync.Mutex()
+    val scanMutex = kotlinx.coroutines.sync.Mutex()
 
     private val dao = db.dao()
 
@@ -212,17 +212,9 @@ class ScanEngine(
             )
 
             existing.size != entry.size || existing.modified != entry.modified ->
-                dao.updateVideo(
-                    existing.copy(
-                        size = entry.size,
-                        modified = entry.modified,
-                        thumbStatus = "PENDING",
-                        lastSeenSession = sid,
-                    ),
-                )
-
+                dao.updateMetadata(existing.id,entry.size,entry.modified,GroupKey.fromFileName(entry.name),sid)
             existing.groupKey != GroupKey.fromFileName(entry.name) ->
-                dao.updateVideo(existing.copy(groupKey = GroupKey.fromFileName(entry.name), lastSeenSession = sid))
+                dao.updateGroupKey(existing.id,GroupKey.fromFileName(entry.name),sid)
             existing.lastSeenSession != sid -> dao.touchVideo(existing.id, sid)
         }
     }

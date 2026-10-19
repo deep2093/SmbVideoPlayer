@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 app=com.deepak.videolibrary.preview
-adb install preview/base.apk
+adb install -r preview/base.apk
 adb shell am start -n "$app/com.deepak.videolibrary.MainActivity"
 # Wait for the real Room library to open; no SMB account is required for this test.
 for attempt in $(seq 1 30); do
@@ -22,7 +22,3 @@ echo "PASS: version $old_version -> $new_version retains database, thumbnail and
 adb shell am start -n "$app/com.deepak.videolibrary.MainActivity"
 sleep 3
 adb exec-out screencap -p > preview/device-home.png
-# Open Originals (rightmost bottom navigation item) on the phone emulator.
-adb shell input tap 1000 1725
-sleep 2
-adb exec-out screencap -p > preview/device-originals.png
