@@ -12,6 +12,7 @@ import java.io.IOException
 import kotlin.math.min
 
 /** Random-access SMB file transport for Media3. Never downloads an entire video. */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class SmbPlaybackDataSource(private val profile: SmbProfile, private val diagnostic: (String) -> Unit = {}) : BaseDataSource(true) {
     private var conn: SmbConnection? = null
     private var handle: com.hierynomus.smbj.share.File? = null
