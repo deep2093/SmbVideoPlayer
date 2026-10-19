@@ -25,6 +25,7 @@ data class VideoEntity(
     val groupKey: String,
     val customGroup: String? = null,
     val thumbStatus: String = "PENDING",
+    val thumbError: String? = null,
     val lastSeenSession: Long,
     val addedAt: Long,
 )

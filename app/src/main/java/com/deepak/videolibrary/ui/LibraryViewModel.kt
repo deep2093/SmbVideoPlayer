@@ -9,6 +9,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.room.withTransaction
 import com.deepak.videolibrary.ServiceLocator
 import com.deepak.videolibrary.data.CustomFolderEntity
 import com.deepak.videolibrary.data.GroupRow
@@ -183,7 +184,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val originalResultsCount = originalScope.flatMapLatest { stateDao.count(LibraryQueries.count(it.copy(subtree=true))) }.state(0)
     val groups = combine(folderScope,folderSortChoice) { scope,sort -> LibraryQueries.groups(scope,sort.first,sort.second) }
         .flatMapLatest { stateDao.folders(it) }.state(emptyList())
-    val originalDirectories = originalScope.flatMapLatest { stateDao.directories(LibraryQueries.directories(it)) }.state(emptyList())
+    val originalDirectories = originalScope.flatMapLatest { stateDao.directories(if(it.directory==settings.rootPath.trim('/')) LibraryQueries.allDirectories(it) else LibraryQueries.directories(it)) }.state(emptyList())
     val continuing = namespace.flatMapLatest { stateDao.continuing(LibraryQueries.continuing(it)) }.state(emptyList())
     val hiddenItems = namespace.flatMapLatest { stateDao.hiddenItems(it) }.state(emptyList())
     val videoCount = dao.observeVideoCount().state(0)
@@ -225,6 +226,39 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     var pasteDestination by mutableStateOf<String?>(null)
+    var explorerNavigationRequest by mutableStateOf<String?>(null)
+        private set
+    fun openFailureFolder(path:String) { explorerNavigationRequest=path.substringBeforeLast('/',"") }
+    fun consumeExplorerNavigation() { explorerNavigationRequest=null }
+    val failedThumbnails=dao.observeFailedThumbs().state(emptyList())
+    fun retryThumbnail(id:Long) {viewModelScope.launch {dao.setThumbStatus(id,"PENDING");startThumbnails()}}
+    var selectedPaths by mutableStateOf<Set<String>>(emptySet())
+        private set
+    var selectionScope by mutableStateOf("videos")
+        private set
+    fun toggleSelected(path:String,mode:String="videos") {selectionScope=mode;selectedPaths=if(path in selectedPaths)selectedPaths-path else selectedPaths+path}
+    fun clearSelection(){selectedPaths=emptySet()}
+    fun selectAll(mode:String) {viewModelScope.launch {
+        selectionScope=mode
+        if(mode=="explorer") {
+            selectedPaths=if(explorerQuery.isNotBlank())explorerHits.filter {isPlayable(it.entry)}.map {it.path}.toSet()
+                else explorerEntries.filter {isPlayable(it)}.map {listOf(explorerPath,it.name).filter(String::isNotBlank).joinToString("/")}.toSet()
+            return@launch
+        }
+        val scope=selectedScope(mode)
+        selectedPaths=withContext(Dispatchers.IO){stateDao.videoList(LibraryQueries.videos(scope)).map {it.relativePath}.toSet()}
+    }}
+    fun stageSelected(cut:Boolean) {
+        clipboardBatch=selectedPaths.map {Triple(it,false,cut)};explorerClipboard=clipboardBatch.firstOrNull();clearSelection()
+    }
+    fun mergeSelected(folder:String) {
+        val target=cleanFolderName(folder) ?: return
+        val paths=selectedPaths.toList()
+        viewModelScope.launch {
+            services.db.withTransaction {dao.createFolder(CustomFolderEntity(target));paths.chunked(500).forEach {dao.assignPaths(it,target)}}
+            clearSelection();notice="${paths.size} videos assigned to virtual folder '$target'."
+        }
+    }
     var clipboardBatch by mutableStateOf<List<Triple<String,Boolean,Boolean>>>(emptyList())
         private set
     fun stageGroup(group: String, cut: Boolean) { viewModelScope.launch {

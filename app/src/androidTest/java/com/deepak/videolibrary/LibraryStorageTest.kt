@@ -44,6 +44,7 @@ class LibraryStorageTest {
         assertEquals("Cruise",groups.first().groupKey)
         assertEquals(50L,groups.first().totalSize)
         assertEquals(3,dao.count(LibraryQueries.count(LibraryScope("nas"))).first())
+        assertEquals(listOf("Movies/Action","Movies/Drama","MoviesExtra"),dao.directories(LibraryQueries.allDirectories(LibraryScope("nas",directory=""))).first().map{it.path})
     }
     @Test fun movePreservesIdsArtworkAssignmentsAndPlaybackState()=runBlocking {
         val id=add("Old/Cruise.mp4",custom="Favourites")
@@ -78,5 +79,17 @@ class LibraryStorageTest {
         assertTrue(result is PagingSource.LoadResult.Page)
         val rows=(result as PagingSource.LoadResult.Page<Int,VideoEntity>).data
         assertEquals(30,rows.size);assertEquals(179L,rows.first().size)
+    }
+    @Test fun failedThumbnailDetailsPersistAndSelectedAssignmentsAreTargeted()=runBlocking {
+        val one=add("Movies/One.mp4");val two=add("Movies/Two.mp4")
+        db.dao().setThumbStatus(one,"FAILED","Unsupported codec")
+        assertEquals("Unsupported codec",db.dao().observeFailedThumbs().first().single().thumbError)
+        db.dao().createFolder(CustomFolderEntity("Merged"))
+        db.dao().assignPaths(listOf("Movies/One.mp4"),"Merged")
+        assertEquals("Merged",db.dao().findVideo("Movies/One.mp4")!!.customGroup)
+        assertNull(db.dao().findVideo("Movies/Two.mp4")!!.customGroup)
+        db.dao().setThumbStatus(one,"DONE")
+        assertTrue(db.dao().observeFailedThumbs().first().isEmpty())
+        assertEquals(two,db.dao().findVideo("Movies/Two.mp4")!!.id)
     }
 }

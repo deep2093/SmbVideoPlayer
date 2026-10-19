@@ -110,7 +110,7 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
             if (bitmap == null) {
                 val networkProblem = source?.lastError?.let { SmbErrors.isTransient(it) } ?: false
                 if (networkProblem) return Outcome.TRANSIENT
-                dao.setThumbStatus(video.id, STATUS_FAILED)
+                dao.setThumbStatus(video.id, STATUS_FAILED, source?.lastError?.let {SmbErrors.describe(it)} ?: "Android could not extract a video frame within 90 seconds. The file may use an unsupported codec, contain no video track, or be damaged; Android did not provide an exact cause.")
                 return Outcome.FAILED
             }
             val target = ThumbStore.thumbFile(context, video.id)
@@ -123,7 +123,7 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
             throw e
         } catch (e: Exception) {
             if (SmbErrors.isTransient(e)) return Outcome.TRANSIENT
-            dao.setThumbStatus(video.id, STATUS_FAILED)
+            dao.setThumbStatus(video.id, STATUS_FAILED, if(e is IllegalArgumentException || e is IllegalStateException) "Android could not read a video frame (${e.javaClass.simpleName}). Check whether the file plays and whether its video codec is supported." else SmbErrors.describe(e))
             return Outcome.FAILED
         } finally {
             source?.close()

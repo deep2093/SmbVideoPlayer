@@ -133,9 +133,14 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     val foldersScrollState = rememberLazyGridState()
     val videosScrollState = rememberLazyGridState()
     val folderVideosScrollState = rememberLazyGridState()
+    var returnToThumbnails by remember {mutableStateOf(false)}
+    LaunchedEffect(vm.explorerNavigationRequest) {vm.explorerNavigationRequest?.let {path->
+        vm.explorerQuery="";vm.browse(path);tab=2;returnToThumbnails=true;vm.consumeExplorerNavigation()
+    }}
     BackHandler(enabled = playing != null || folderDetails || tab != 0) {
         when {
             playing != null -> playing = null
+            tab==2 && returnToThumbnails -> {tab=3;returnToThumbnails=false}
             folderDetails -> { folderDetails = false; vm.groupFilter.value = null; tab = 0 }
             else -> { tab = 0; vm.groupFilter.value = null }
         }
@@ -201,6 +206,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                     }
                 }
                 Column(Modifier.weight(1f).fillMaxHeight().nestedScroll(collapseOnScroll)) {
+                    if(tab==2 && returnToThumbnails)TextButton(onClick={tab=3;returnToThumbnails=false}){Text("← Thumbnail failures")}
                     FileClipboardBar(vm)
                     vm.notice?.let { message -> Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
                         Text(message,Modifier.weight(1f).padding(8.dp),color=Color.White)
@@ -346,11 +352,12 @@ fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoE
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewModel, modifier: Modifier = Modifier,
-    onRemoveFromContinue: (() -> Unit)? = null, listMode: Boolean = false) {
+    onRemoveFromContinue: (() -> Unit)? = null, listMode: Boolean = false, selectionScope:String="videos") {
     var menuOpen by remember(video.relativePath) { mutableStateOf(false) }
     val context=LocalContext.current
     val thumb:File?=if(video.thumbStatus=="DONE") ThumbStore.thumbFile(context,video.id) else null
-    val progressFlow=remember(video.relativePath,vm.namespace.value){vm.progressFlow(video.relativePath)}
+    val namespace by vm.namespace.collectAsStateWithLifecycle()
+    val progressFlow=remember(video.relativePath,namespace){vm.progressFlow(video.relativePath)}
     val progress by progressFlow.collectAsStateWithLifecycle(initialValue=null)
     val watchedMs=progress?.positionMs ?: 0L
     val totalMs=progress?.durationMs ?: 0L
@@ -369,6 +376,7 @@ internal fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewM
     }
     val caption: @Composable () -> Unit = {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            if(vm.selectedPaths.isNotEmpty())Checkbox(checked=video.relativePath in vm.selectedPaths,onCheckedChange={vm.toggleSelected(video.relativePath,selectionScope)})
             Column(Modifier.weight(1f).padding(start = if (listMode) 12.dp else 2.dp)) {
                 Text(video.name, style = MaterialTheme.typography.bodyMedium, minLines = 2, maxLines = 2,
                     overflow = TextOverflow.Ellipsis)
@@ -381,7 +389,7 @@ internal fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewM
         }
     }
     Box(modifier) {
-        Column(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menuOpen = true })) {
+        Column(Modifier.fillMaxWidth().combinedClickable(onClick = {if(vm.selectedPaths.isNotEmpty())vm.toggleSelected(video.relativePath,selectionScope) else onClick()}, onLongClick = { menuOpen = true })) {
             if (listMode) Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 artwork()
                 Box(Modifier.weight(1f)) { caption() }
@@ -391,6 +399,7 @@ internal fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewM
             }
         }
         FileActionsMenu(menuOpen,{menuOpen=false},vm,video.relativePath,onPlay=onClick,
+            selectionScope=selectionScope,
             onPlayFromStart={vm.playFromStart(video.relativePath,onClick)},onRemoveContinue=onRemoveFromContinue,
             details="${video.name}\n${Formatter.formatFileSize(context,video.size)}\n${vm.originalVideoLocation(video.relativePath)}")
     }
@@ -499,7 +508,7 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
                     }
                 }
                 if(folderQuery.isNotBlank()) items(count=matchingVideos.itemCount,key=matchingVideos.itemKey {"result:${it.relativePath}"}) { index ->
-                    matchingVideos[index]?.let { video -> VideoCard(video,onClick={vm.playLibrary("folders",video,onPlay)},vm=vm,listMode=vm.folderListMode) }
+                    matchingVideos[index]?.let { video -> VideoCard(video,onClick={vm.playLibrary("folders",video,onPlay)},vm=vm,listMode=vm.folderListMode,selectionScope="folders") }
                 }
                 if (shownGroups.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(if (folderQuery.isNotBlank()) "No matching folders." else "Your virtual folders appear after a scan.",
@@ -729,6 +738,7 @@ fun ScanScreen(vm: LibraryViewModel) {
                     TextButton(onClick = vm::clearThumbnailCache, enabled = !busy) {
                         Text("Clear thumbnail cache")
                     }
+                    ThumbnailFailures(vm)
                 }
             }
         }

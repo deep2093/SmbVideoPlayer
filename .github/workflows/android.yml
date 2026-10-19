@@ -136,6 +136,7 @@ jobs:
             adb install -r preview/tests/app-debug-androidTest.apk
             adb shell am instrument -w -e smbFixture true com.deepak.videolibrary.preview.test/androidx.test.runner.AndroidJUnitRunner | tee preview/storage-tests.txt
             grep -Eq '^OK \([0-9]+ tests?\)' preview/storage-tests.txt
+            python3 tools/check_library_ui.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -143,4 +144,6 @@ jobs:
           path: |
             preview/device-*.png
             preview/storage-tests.txt
+            preview/device-*.xml
+            preview/device-logcat.txt
           if-no-files-found: ignore

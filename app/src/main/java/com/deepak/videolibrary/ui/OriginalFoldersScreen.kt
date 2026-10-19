@@ -42,7 +42,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel,onPlay:(VideoEntity,List<VideoEnt
         LazyVerticalGrid(columns=GridCells.Fixed(if(vm.folderListMode)1 else LibraryLayout.columns(vm.folderGridPreset)),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=24.dp),modifier=Modifier.weight(1f)){
             if(count==0 && children.isEmpty())item(span={GridItemSpan(maxLineSpan)}){Text(if(query.isBlank())"No visible indexed videos here. Scan your library or check Hidden items in Settings." else "No matching visible folders or videos.")}
             items(children,key={"folder:${it.path}"}){folder->OriginalFolderCard(vm,folder){vm.originalQuery="";vm.originalPath=folder.path}}
-            items(count=videos.itemCount,key=videos.itemKey {"video:${it.relativePath}"}){index->videos[index]?.let {video->VideoCard(video,onClick={vm.playLibrary("originals",video,onPlay)},vm=vm,listMode=vm.folderListMode)}}
+            items(count=videos.itemCount,key=videos.itemKey {"video:${it.relativePath}"}){index->videos[index]?.let {video->VideoCard(video,onClick={vm.playLibrary("originals",video,onPlay)},vm=vm,listMode=vm.folderListMode,selectionScope="originals")}}
         }
     }
 }
@@ -59,7 +59,7 @@ private fun OriginalFolderCard(vm:LibraryViewModel,folder:DirectorySummary,onCli
         Card(Modifier.fillMaxWidth().combinedClickable(onClick=onClick,onLongClick={menu=true})){
             Column {
                 Box(Modifier.fillMaxWidth().aspectRatio(16f/9f),contentAlignment=Alignment.Center){if(cover!=null)FileImage(cover,Modifier.fillMaxSize())else Icon(Icons.Filled.Folder,null,Modifier.size(48.dp))}
-                Column(Modifier.padding(10.dp)){Text(folder.path.substringAfterLast('/'),maxLines=2,overflow=TextOverflow.Ellipsis);Text("${folder.count} videos",style=MaterialTheme.typography.bodySmall)}
+                Column(Modifier.padding(10.dp)){Text(folder.path.substringAfterLast('/'),maxLines=2,overflow=TextOverflow.Ellipsis);Text(folder.path,style=MaterialTheme.typography.labelSmall,maxLines=2,overflow=TextOverflow.Ellipsis);Text("${folder.count} videos",style=MaterialTheme.typography.bodySmall)}
             }
         }
         FileActionsMenu(menu,{menu=false},vm,folder.path,directory=true,details="${folder.path}\n${folder.count} visible indexed videos\nOriginal SMB folder")

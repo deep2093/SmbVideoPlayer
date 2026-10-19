@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.work.WorkInfo
+import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.smb.SmbConnection
 import com.deepak.videolibrary.smb.SmbErrors
 import com.deepak.videolibrary.smb.SmbProfile
@@ -23,14 +24,22 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun FileActionsMenu(expanded: Boolean, dismiss:()->Unit, vm: LibraryViewModel,
     path: String, directory: Boolean=false, virtual: Boolean=false, onPlay:(()->Unit)?=null,
-    onPlayFromStart:(()->Unit)?=null, details: String=path, onRemoveContinue:(()->Unit)?=null) {
+    onPlayFromStart:(()->Unit)?=null, details: String=path, onRemoveContinue:(()->Unit)?=null,
+    selectionScope:String="videos") {
     var rename by remember(path) { mutableStateOf(false) }
     var delete by remember(path) { mutableStateOf(false) }
     var info by remember(path) { mutableStateOf(false) }
+    var merge by remember(path) { mutableStateOf(false) }
+    var mergeName by remember(path) { mutableStateOf("") }
     var name by remember(path) { mutableStateOf(if(virtual) path else path.substringAfterLast('/')) }
     DropdownMenu(expanded=expanded,onDismissRequest=dismiss) {
         if(onPlay!=null) DropdownMenuItem(text={Text("Play")},onClick={dismiss();onPlay()})
         if(onPlayFromStart!=null) DropdownMenuItem(text={Text("Play from start")},onClick={dismiss();onPlayFromStart()})
+        if(!directory && !virtual) {
+            DropdownMenuItem(text={Text("Select")},onClick={dismiss();vm.toggleSelected(path,selectionScope)})
+            DropdownMenuItem(text={Text("Select all")},onClick={dismiss();vm.selectAll(selectionScope)})
+        }
+        if(virtual) DropdownMenuItem(text={Text("Merge into…")},onClick={dismiss();merge=true})
         DropdownMenuItem(text={Text("Cut")},onClick={dismiss();if(virtual) vm.stageGroup(path,true) else vm.stageExplorer(path,directory,true)})
         DropdownMenuItem(text={Text("Copy")},onClick={dismiss();if(virtual) vm.stageGroup(path,false) else vm.stageExplorer(path,directory,false)})
         DropdownMenuItem(text={Text("Paste…")},enabled=vm.explorerClipboard!=null,onClick={dismiss();vm.pasteDestination=if(virtual) vm.settings.rootPath else if(directory) path else path.substringBeforeLast('/',"")})
@@ -40,6 +49,9 @@ internal fun FileActionsMenu(expanded: Boolean, dismiss:()->Unit, vm: LibraryVie
         DropdownMenuItem(text={Text("Remove / Hide")},onClick={dismiss();if(virtual) vm.hideGroup(path) else vm.hidePath(path,directory)})
         if(onRemoveContinue!=null) DropdownMenuItem(text={Text("Remove from Continue Watching")},onClick={dismiss();onRemoveContinue()})
     }
+    if(merge) AlertDialog(onDismissRequest={merge=false},title={Text("Merge virtual folder")},
+        text={Column {Text("Move this folder's video assignments into another virtual folder.");OutlinedTextField(mergeName,{mergeName=it},label={Text("Destination virtual folder")})}},
+        confirmButton={TextButton(enabled=mergeName.isNotBlank(),onClick={vm.mergeFolders(path,mergeName);merge=false}){Text("Merge")}},dismissButton={TextButton(onClick={merge=false}){Text("Cancel")}})
     if(rename) AlertDialog(onDismissRequest={rename=false},title={Text(if(virtual) "Rename virtual folder" else "Rename original SMB item")},
         text={Column {Text(if(virtual) "This changes library organisation only." else "This changes the name on your network drive.");OutlinedTextField(name,{name=it},label={Text("New name")})}},
         confirmButton={TextButton(enabled=name.isNotBlank() && '/' !in name && '\\' !in name,onClick={
@@ -55,6 +67,7 @@ internal fun FileActionsMenu(expanded: Boolean, dismiss:()->Unit, vm: LibraryVie
 
 @Composable
 internal fun FileClipboardBar(vm: LibraryViewModel) {
+    SelectionBar(vm)
     val transfers by vm.transfers.collectAsStateWithLifecycle()
     val active=transfers.firstOrNull { it.state==WorkInfo.State.RUNNING } ?: transfers.firstOrNull { it.state==WorkInfo.State.ENQUEUED }
     vm.explorerClipboard?.let { clip ->
@@ -104,6 +117,30 @@ private fun PasteDestinationDialog(vm: LibraryViewModel) {
 }
 
 @Composable
+private fun SelectionBar(vm:LibraryViewModel) {
+    if(vm.selectedPaths.isEmpty())return
+    var merge by remember {mutableStateOf(false)}
+    var name by remember {mutableStateOf("")}
+    BackHandler {vm.clearSelection()}
+    Column(Modifier.fillMaxWidth().padding(8.dp)) {
+        Row(verticalAlignment=Alignment.CenterVertically) {
+            Text("${vm.selectedPaths.size} selected",Modifier.weight(1f))
+            TextButton(onClick={vm.selectAll(vm.selectionScope)}){Text("Select all")}
+            TextButton(onClick=vm::clearSelection){Text("Done")}
+        }
+        Row {
+            TextButton(onClick={vm.stageSelected(true)}){Text("Cut")}
+            TextButton(onClick={vm.stageSelected(false)}){Text("Copy")}
+            TextButton(enabled=vm.explorerClipboard!=null,onClick={vm.pasteDestination=vm.settings.rootPath}){Text("Paste…")}
+            TextButton(onClick={merge=true}){Text("Merge into…")}
+        }
+    }
+    if(merge) AlertDialog(onDismissRequest={merge=false},title={Text("Merge selected videos")},
+        text={Column {Text("Assign selected videos to an existing or new virtual folder. Original files keep their locations.");OutlinedTextField(name,{name=it},label={Text("Destination virtual folder")})}},
+        confirmButton={TextButton(enabled=name.isNotBlank(),onClick={vm.mergeSelected(name);merge=false}){Text("Merge")}},dismissButton={TextButton(onClick={merge=false}){Text("Cancel")}})
+}
+
+@Composable
 internal fun HiddenItemsScreen(vm: LibraryViewModel, back:()->Unit) {
     val hidden by vm.hiddenItems.collectAsStateWithLifecycle()
     BackHandler(onBack=back)
@@ -121,5 +158,24 @@ internal fun HiddenItemsScreen(vm: LibraryViewModel, back:()->Unit) {
                 TextButton(onClick={vm.unhide(item)}){Text("Unhide")}
             }
         }}
+    }
+}
+
+@Composable
+internal fun ThumbnailFailures(vm:LibraryViewModel) {
+    val failures by vm.failedThumbnails.collectAsStateWithLifecycle()
+    var selected by remember {mutableStateOf<VideoEntity?>(null)}
+    if(failures.isNotEmpty()) {
+        Text("Failed thumbnails (${failures.size})",style=MaterialTheme.typography.titleMedium)
+        Text("Tap a filename for the reason. These stay listed until successfully retried or deleted.",style=MaterialTheme.typography.bodySmall)
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max=320.dp)) {
+            items(failures,key={it.id}){video->TextButton(onClick={selected=video},modifier=Modifier.fillMaxWidth()){Text(video.name,modifier=Modifier.fillMaxWidth())}}
+        }
+    }
+    selected?.let {video->
+        AlertDialog(onDismissRequest={selected=null},title={Text(video.name)},
+            text={Column {Text(video.thumbError ?: "This thumbnail failed in an earlier build. Retry it to record a reason if Android provides one.");Text(video.relativePath,style=MaterialTheme.typography.bodySmall)}},
+            confirmButton={TextButton(onClick={vm.openFailureFolder(video.relativePath);selected=null}){Text("Open folder in File Explorer")}},
+            dismissButton={Row {TextButton(onClick={vm.retryThumbnail(video.id);selected=null}){Text("Retry this file")};TextButton(onClick={selected=null}){Text("Close")}}})
     }
 }

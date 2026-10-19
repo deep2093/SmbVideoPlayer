@@ -87,8 +87,14 @@ interface LibraryDao {
     @Query("SELECT * FROM videos WHERE thumbStatus = 'PENDING' ORDER BY id LIMIT :limit")
     suspend fun nextPendingThumbs(limit: Int): List<VideoEntity>
 
-    @Query("UPDATE videos SET thumbStatus = :status WHERE id = :id")
-    suspend fun setThumbStatus(id: Long, status: String)
+    @Query("UPDATE videos SET thumbStatus = :status, thumbError=:reason WHERE id = :id")
+    suspend fun setThumbStatus(id: Long, status: String, reason: String? = null)
+
+    @Query("SELECT * FROM videos WHERE thumbStatus='FAILED' ORDER BY name COLLATE NOCASE")
+    fun observeFailedThumbs(): Flow<List<VideoEntity>>
+
+    @Query("UPDATE videos SET customGroup=:folder WHERE relativePath IN (:paths)")
+    suspend fun assignPaths(paths:List<String>,folder:String)
 
     @Query("UPDATE videos SET thumbStatus = 'PENDING' WHERE thumbStatus = 'FAILED'")
     suspend fun resetFailedThumbs(): Int

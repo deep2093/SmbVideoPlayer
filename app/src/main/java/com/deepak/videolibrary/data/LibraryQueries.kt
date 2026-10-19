@@ -45,4 +45,8 @@ object LibraryQueries {
         val path=if(dir.isEmpty()) child else "?||'/'||$child"
         return SimpleSQLiteQuery("SELECT $path path, COUNT(*) count, SUM(CASE WHEN v.thumbStatus='DONE' THEN 1 ELSE 0 END) thumbsDone FROM videos v WHERE $w AND v.parentDir!=? GROUP BY path ORDER BY path COLLATE NOCASE",((if(dir.isEmpty()) emptyList() else listOf(dir))+a+dir).toTypedArray())
     }
+    fun allDirectories(s:LibraryScope):SimpleSQLiteQuery {
+        val(w,a)=where(s.copy(subtree=true,pathMatches=true))
+        return SimpleSQLiteQuery("SELECT v.parentDir path,COUNT(*) count,SUM(CASE WHEN v.thumbStatus='DONE' THEN 1 ELSE 0 END) thumbsDone FROM videos v WHERE $w AND v.parentDir!=? GROUP BY v.parentDir ORDER BY v.parentDir COLLATE NOCASE",(a+(s.directory ?: "")).toTypedArray())
+    }
 }

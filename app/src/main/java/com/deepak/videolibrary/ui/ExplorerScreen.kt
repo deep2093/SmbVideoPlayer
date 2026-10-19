@@ -106,6 +106,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                     Box {
                         IconButton(onClick={menu=true}){Icon(Icons.Filled.MoreVert,contentDescription="Options for ${entry.name}")}
                         FileActionsMenu(menu,{menu=false},vm,fullPath,directory=entry.isDirectory,
+                            selectionScope="explorer",
                             onPlay=if(playable)({open(hit)})else null,
                             details="${entry.name}\n$fullPath\n${entry.size} bytes")
                     }
