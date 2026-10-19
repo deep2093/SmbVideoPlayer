@@ -27,11 +27,14 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
     private val gate = Semaphore(2)
 
     suspend fun build(group: String): File? = gate.withPermit {
-        withContext(Dispatchers.IO) { compose(group) }
+        withContext(Dispatchers.IO) { compose("virtual:$group", dao.doneIdsForGroup(group)) }
     }
 
-    private suspend fun compose(group: String): File? {
-        val ids = dao.doneIdsForGroup(group)
+    suspend fun buildOriginal(path: String, ids: List<Long>): File? = gate.withPermit {
+        withContext(Dispatchers.IO) { compose("original:$path", ids) }
+    }
+
+    private fun compose(group: String, ids: List<Long>): File? {
         if (ids.isEmpty()) return null
 
         val picks = when (ids.size) {

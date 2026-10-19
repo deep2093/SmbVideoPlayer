@@ -86,11 +86,11 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     val brightnessGestureEnabled = remember { prefs.getBoolean("brightness_gesture_enabled", true) }
     val profile = remember(settings) { SmbProfile(settings.host, settings.share, settings.rootPath, settings.username, settings.password) }
     // A virtual folder is a real ExoPlayer playlist: video N advances to N+1 automatically.
-    val queue = remember(video.id, playlist) {
+    val queue = remember(video.relativePath, playlist) {
         val entries = playlist.ifEmpty { listOf(video) }
-        entries.distinctBy { it.id }.ifEmpty { listOf(video) }
+        entries.distinctBy { it.relativePath }.ifEmpty { listOf(video) }
     }
-    val initialIndex = remember(video.id, queue) { queue.indexOfFirst { it.id == video.id }.coerceAtLeast(0) }
+    val initialIndex = remember(video.relativePath, queue) { queue.indexOfFirst { it.relativePath == video.relativePath }.coerceAtLeast(0) }
     val player = remember(queue, profile) {
         AppDiagnostics.record(context, "player", "open")
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)

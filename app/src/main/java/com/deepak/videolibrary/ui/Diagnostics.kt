@@ -7,6 +7,8 @@ import android.os.Build
 import android.os.Debug
 import android.os.SystemClock
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -84,9 +86,11 @@ fun DiagnosticsSettings() {
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(Modifier.fillMaxWidth().clickable(role = Role.Button,
+                onClickLabel = if (expanded) "Hide diagnostics" else "Show diagnostics") { expanded = !expanded }
+                .padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Diagnostics", style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Hide" else "Show") }
+                Text(if (expanded) "Hide" else "Show", color = MaterialTheme.colorScheme.primary)
             }
             if (expanded) {
                 Text("Off by default. Records limited playback and navigation status in memory, without video names, paths or SMB credentials.")

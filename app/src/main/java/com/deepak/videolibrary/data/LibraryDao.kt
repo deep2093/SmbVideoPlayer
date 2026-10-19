@@ -32,7 +32,7 @@ interface LibraryDao {
 
     @Query(
         "SELECT * FROM videos " +
-            "WHERE (:group IS NULL OR COALESCE(customGroup, groupKey) = :group) AND name LIKE '%' || :query || '%' " +
+            "WHERE (:group IS NULL OR COALESCE(customGroup, groupKey) = :group) AND instr(lower(name), lower(:query)) > 0 " +
             "ORDER BY name COLLATE NOCASE"
     )
     fun observeVideos(group: String?, query: String): Flow<List<VideoEntity>>
@@ -75,7 +75,7 @@ interface LibraryDao {
     @Query("SELECT * FROM videos WHERE customGroup IS NOT NULL ORDER BY name COLLATE NOCASE")
     suspend fun manuallyGroupedVideos(): List<VideoEntity>
 
-    @Query("SELECT * FROM videos WHERE (customGroup IS NULL OR customGroup != :name) AND name LIKE '%' || :query || '%' ORDER BY name COLLATE NOCASE LIMIT 100")
+    @Query("SELECT * FROM videos WHERE (customGroup IS NULL OR customGroup != :name) AND instr(lower(name), lower(:query)) > 0 ORDER BY name COLLATE NOCASE LIMIT 100")
     suspend fun findAssignableVideos(name: String, query: String): List<VideoEntity>
 
     // ---- thumbnails ----

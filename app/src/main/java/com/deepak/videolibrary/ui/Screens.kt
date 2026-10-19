@@ -109,8 +109,8 @@ import java.util.Locale
 
 private val GRID_PRESETS = LibraryLayout.presets
 
-private val TAB_LABELS = listOf("Folders", "Videos", "Browse", "Scan", "Settings")
-private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Sync, Icons.Filled.Settings)
+private val TAB_LABELS = listOf("Folders", "Videos", "Browse", "Scan", "Settings", "Originals")
+private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Sync, Icons.Filled.Settings, Icons.Filled.Folder)
 
 
 @Composable
@@ -182,12 +182,13 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                 }
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     when (tab) {
-                        0 -> FoldersScreen(vm, gridState = foldersScrollState, onOpenGroup = { folderDetails = true; tab = 1 }, onPlay = { video -> playing = video; playQueue = listOf(video) }, onOpenSettings = { tab = 4 })
+                        0 -> FoldersScreen(vm, gridState = foldersScrollState, onOpenGroup = { folderDetails = true; tab = 1 }, onPlay = { video, queue -> playing = video; playQueue = queue }, onOpenSettings = { tab = 4 })
                         1 -> VideosScreen(vm, gridState = if (folderDetails) folderVideosScrollState else videosScrollState, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
                             folderDetails = false; vm.groupFilter.value = null; tab = 0
                         }) else null)
-                        2 -> ExplorerScreen(vm, onPlay = { video -> playing = video; playQueue = listOf(video) })
+                        2 -> ExplorerScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue })
                         3 -> ScanScreen(vm)
+                        5 -> OriginalFoldersScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue })
                         else -> SettingsScreen(vm)
                     }
                 }
@@ -204,7 +205,7 @@ fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoE
     val query by vm.query.collectAsStateWithLifecycle()
     val group by vm.groupFilter.collectAsStateWithLifecycle()
     val selectedGroup = group
-    var searchExpanded by rememberSaveable { mutableStateOf(false) }
+    var searchExpanded by rememberSaveable { mutableStateOf(query.isNotBlank()) }
     val total by vm.videoCount.collectAsStateWithLifecycle()
     var addDialog by remember { mutableStateOf(false) }
     var videoSearch by remember { mutableStateOf("") }
@@ -288,7 +289,7 @@ fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoE
                 }
                 gridItems(displayedVideos, key = { it.id }, contentType = { "video" }) { video ->
                     VideoCard(video, onClick = {
-                        onPlay(video, if (group != null) displayedVideos else listOf(video))
+                        onPlay(video, if (group != null || query.isNotBlank()) displayedVideos else listOf(video))
                     }, vm = vm, listMode = vm.videoListMode)
                 }
             }
@@ -314,7 +315,7 @@ fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoE
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewModel, modifier: Modifier = Modifier,
+internal fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewModel, modifier: Modifier = Modifier,
     onRemoveFromContinue: (() -> Unit)? = null, listMode: Boolean = false) {
     var menuOpen by remember(video.id) { mutableStateOf(false) }
     var renameOpen by remember(video.id) { mutableStateOf(false) }
@@ -425,9 +426,9 @@ private fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewMo
 // ---------------------------------------------------------------- Virtual folders
 
 @Composable
-fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: () -> Unit, onPlay: (VideoEntity) -> Unit, onOpenSettings: () -> Unit) {
+fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: () -> Unit, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, onOpenSettings: () -> Unit) {
     val groups by vm.groups.collectAsStateWithLifecycle()
-    val dashboardVideos by vm.videos.collectAsStateWithLifecycle()
+    val dashboardVideos by vm.allVideos.collectAsStateWithLifecycle()
     val dashboardContext = LocalContext.current
     val playbackPrefs = remember(dashboardContext) { dashboardContext.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
     var continueRefresh by remember { mutableIntStateOf(0) }
@@ -438,8 +439,8 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
             if (canContinue(pos, duration, playbackPrefs.getBoolean("hide_continue_${video.relativePath}", false))) video else null
         }.take(18)
     }
-    var folderQuery by rememberSaveable { mutableStateOf("") }
-    var searchExpanded by rememberSaveable { mutableStateOf(false) }
+    var folderQuery by vm::folderSearch
+    var searchExpanded by rememberSaveable { mutableStateOf(folderQuery.isNotBlank()) }
     var sourceFolder by remember { mutableStateOf<String?>(null) }
     var operation by remember { mutableStateOf("") }
     var targetName by remember { mutableStateOf("") }
@@ -447,7 +448,8 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
 
     val shownGroups = remember(groups, folderQuery, vm.folderSort, vm.folderSortDescending, dashboardVideos) {
         val folderVideos = dashboardVideos.groupBy { it.customGroup?.takeIf { name -> name.isNotBlank() } ?: it.groupKey }
-        val filtered = groups.filter { it.groupKey.contains(folderQuery.trim(), ignoreCase = true) }
+        val matchingGroups = folderSearchVideos(dashboardVideos, folderQuery).map { it.customGroup ?: it.groupKey }.toSet()
+        val filtered = groups.filter { folderQuery.isBlank() || it.groupKey in matchingGroups || matchesFilename(it.groupKey, folderQuery) }
         val comparator = when (vm.folderSort) {
             "COUNT" -> compareBy<GroupRow> { it.count }
             "DATE" -> compareBy<GroupRow> { folderVideos[it.groupKey]?.maxOfOrNull { video -> video.modified } ?: 0L }
@@ -457,6 +459,9 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
         filtered.sortedWith(if (vm.folderSortDescending) comparator.reversed() else comparator)
     }
 
+    val matchingVideos = remember(dashboardVideos, folderQuery, vm.videoSort, vm.sortDescending) {
+        vm.videoSort.arrange(folderSearchVideos(dashboardVideos, folderQuery), vm.sortDescending)
+    }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Text("Folders", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
@@ -500,7 +505,7 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (searchExpanded) {
             OutlinedTextField(value = folderQuery, onValueChange = { folderQuery = it },
-                label = { Text("Search folders by name") }, singleLine = true,
+                label = { Text("Search folder and video names") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
         }
         val columns = LibraryLayout.columns(vm.folderGridPreset)
@@ -521,7 +526,7 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
             androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(recentlyWatched, key = { it.id }) { video ->
                     Box(Modifier.width(218.dp)) {
-                        VideoCard(video, onClick = { onPlay(video) }, vm = vm,
+                        VideoCard(video, onClick = { onPlay(video, listOf(video)) }, vm = vm,
                             onRemoveFromContinue = {
                                 playbackPrefs.edit().putBoolean("hide_continue_${video.relativePath}", true).apply()
                                 continueRefresh++
@@ -539,6 +544,17 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
                     } + if (vm.folderSortDescending) " ↓" else " ↑", style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp))
                 }
+                if (folderQuery.isNotBlank()) item(span = { GridItemSpan(maxLineSpan) }, key = "play-matches") {
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        Text("${matchingVideos.size} matching videos", modifier = Modifier.weight(1f))
+                        TextButton(enabled = matchingVideos.isNotEmpty(), onClick = {
+                            matchingVideos.firstOrNull()?.let { onPlay(it, matchingVideos) }
+                        }) { Text("Play all results") }
+                    }
+                }
+                if (folderQuery.isNotBlank()) gridItems(matchingVideos, key = { "result:${it.relativePath}" }) { video ->
+                    VideoCard(video, onClick = { onPlay(video, matchingVideos) }, vm = vm, listMode = vm.folderListMode)
+                }
                 if (shownGroups.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(if (folderQuery.isNotBlank()) "No matching folders." else "Your virtual folders appear after a scan.",
                         modifier = Modifier.padding(vertical = 24.dp))
@@ -547,6 +563,7 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
                     Column {
                         FolderCard(vm, row, listMode = vm.folderListMode) {
                             vm.groupFilter.value = row.groupKey
+                            vm.query.value = if (matchesFilename(row.groupKey, folderQuery)) "" else folderQuery
                             onOpenGroup()
                         }
                         var menuExpanded by remember(row.groupKey) { mutableStateOf(false) }

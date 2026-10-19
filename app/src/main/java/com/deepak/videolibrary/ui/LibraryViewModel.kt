@@ -25,6 +25,10 @@ import com.deepak.videolibrary.settings.SmbSettings
 import com.deepak.videolibrary.smb.SmbEntry
 import com.deepak.videolibrary.smb.SmbConnection
 import com.deepak.videolibrary.smb.SmbErrors
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -129,6 +133,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .flatMapLatest { (q, g) -> dao.observeVideos(g, q) }
             .state(emptyList())
 
+    // Independent of the Videos tab's query/group selection.
+    val allVideos: StateFlow<List<VideoEntity>> = dao.observeVideos(null, "").state(emptyList())
+    var folderSearch by mutableStateOf("")
+    var originalPath by mutableStateOf(settingsStore.load().rootPath.trim('/'))
+    var originalQuery by mutableStateOf("")
+
     val groups: StateFlow<List<GroupRow>> = dao.observeGroups().state(emptyList())
     val videoCount: StateFlow<Int> = dao.observeVideoCount().state(0)
 
@@ -199,6 +209,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             .state(false)
 
     suspend fun coverFor(group: String): File? = services.covers.build(group)
+
+    suspend fun originalCover(path: String, videos: List<VideoEntity>): File? =
+        services.covers.buildOriginal(path, videos.filter { it.thumbStatus == "DONE" }.map { it.id })
 
     fun startThumbnails() {
         if (settingsStore.loadProfile() == null) {
@@ -306,6 +319,72 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var explorerClipboard by mutableStateOf<Triple<String, Boolean, Boolean>?>(null)
         private set // path, isDirectory, cut
 
+    var explorerQuery by mutableStateOf("")
+    var explorerHits by mutableStateOf<List<ExplorerHit>>(emptyList())
+        private set
+    var explorerSearching by mutableStateOf(false)
+        private set
+    var explorerSearchMessage by mutableStateOf<String?>(null)
+        private set
+    private var explorerSearchJob: Job? = null
+    private var explorerSearchGeneration = 0
+    fun stopExplorerSearch() {
+        explorerSearchGeneration++
+        explorerSearchJob?.cancel()
+        explorerSearching = false
+    }
+
+    fun searchExplorer(query: String, path: String) {
+        val generation = ++explorerSearchGeneration
+        explorerSearchJob?.cancel()
+        explorerHits = emptyList()
+        explorerSearchMessage = null
+        explorerSearching = query.isNotBlank()
+        if (query.isBlank()) return
+        explorerSearchJob = viewModelScope.launch {
+            try {
+                kotlinx.coroutines.delay(400) // Do not traverse the SMB tree for every keystroke.
+                val profile = settingsStore.loadProfile() ?: error("Configure SMB in Settings first")
+                withContext(Dispatchers.IO) {
+                    SmbConnection(profile).use { conn ->
+                        conn.open()
+                        val pending = ArrayDeque<String>()
+                        val visited = HashSet<String>()
+                        val found = ArrayList<ExplorerHit>()
+                        var failedFolders = 0
+                        pending.add(path)
+                        while (pending.isNotEmpty()) {
+                            currentCoroutineContext().ensureActive()
+                            val dir = pending.removeFirst()
+                            if (!visited.add(dir)) continue
+                            val entries = try { conn.list(dir) }
+                                catch (e: Exception) {
+                                    currentCoroutineContext().ensureActive()
+                                    if (dir == path) throw e
+                                    failedFolders++
+                                    continue
+                                }
+                            for (entry in entries) {
+                                val full = listOf(dir, entry.name).filter { it.isNotBlank() }.joinToString("/")
+                                if (matchesFilename(entry.name, query)) found.add(ExplorerHit(full, entry))
+                                if (entry.isDirectory) pending.add(full)
+                            }
+                            // Publish on the UI thread, with cancellation preventing stale results.
+                            val snapshot = found.sortedWith(compareByDescending<ExplorerHit> { it.entry.isDirectory }
+                                .thenBy { it.path.lowercase(java.util.Locale.ROOT) })
+                            withContext(Dispatchers.Main) { explorerHits = snapshot }
+                        }
+                        withContext(Dispatchers.Main) {
+                            if (failedFolders > 0) explorerSearchMessage = "$failedFolders folders could not be read. Results may be incomplete."
+                        }
+                    }
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { explorerSearchMessage = SmbErrors.describe(e) }
+            finally { if (generation == explorerSearchGeneration) explorerSearching = false }
+        }
+    }
+
     fun browse(path: String = explorerPath) {
         val normalized = path.trim('/')
         explorerBusy = true
@@ -373,7 +452,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 explorerMessage = "Done. Refreshing the library index…"
                 ScanWorker.enqueue(getApplication(), ScanMode.REFRESH)
             } catch (e: Exception) { explorerMessage = SmbErrors.describe(e) }
-            finally { explorerBusy = false; browse(explorerPath) }
+            finally {
+                explorerBusy = false; browse(explorerPath)
+                if (explorerQuery.isNotBlank()) searchExplorer(explorerQuery, explorerPath)
+            }
         }
     }
 

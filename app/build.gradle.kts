@@ -13,11 +13,31 @@ android {
         applicationId = "com.deepak.videolibrary"
         minSdk = 29
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.9.0"
+        // Every CI run and its update-test build gets a higher installable version.
+        versionCode = providers.gradleProperty("previewVersionCode").orNull?.toInt()
+            ?: (1000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0) * 2)
+        versionName = "0.10.0"
+        resValue("string", "app_name", "Video Library")
+    }
+
+    signingConfigs {
+        create("preview") {
+            // Dedicated non-production test identity. Keep this key stable across CI runs.
+            storeFile = rootProject.file(".ci/preview-signing.p12")
+            storeType = "PKCS12"
+            storePassword = "android"
+            keyAlias = "preview"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-preview"
+            resValue("string", "app_name", "Video Library Preview")
+            signingConfig = signingConfigs.getByName("preview")
+        }
         release {
             isMinifyEnabled = false
         }
