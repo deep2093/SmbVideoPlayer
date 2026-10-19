@@ -26,7 +26,10 @@ android {
             storeFile = rootProject.file(".ci/preview-signing.p12")
             storeType = "PKCS12"
             storePassword = "android"
-            keyAlias = "preview"
+            keyAlias = java.security.KeyStore.getInstance("PKCS12").run {
+                rootProject.file(".ci/preview-signing.p12").inputStream().use { load(it, "android".toCharArray()) }
+                aliases().toList().single { isKeyEntry(it) }
+            }
             keyPassword = "android"
         }
     }

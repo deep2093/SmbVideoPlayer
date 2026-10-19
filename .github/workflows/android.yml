@@ -50,6 +50,8 @@ jobs:
           if-no-files-found: error
       - name: Synthetic SQLite search benchmark
         run: python3 tools/benchmark_search.py
+      - name: Verify preview keystore loads
+        run: keytool -list -keystore .ci/preview-signing.p12 -storetype PKCS12 -storepass android
       - name: Unit tests
         run: gradle testDebugUnitTest --stacktrace
       - name: Android lint

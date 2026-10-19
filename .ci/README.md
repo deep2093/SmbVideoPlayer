@@ -1,7 +1,7 @@
 # Preview build identity
 
 `preview-signing.p12` is a dedicated, intentionally shared DEVELOPMENT signing key.
-Alias `preview`, store/key password `android`, type PKCS12. It is not a production
+The single private-key alias is resolved from the store; store/key password `android`, type PKCS12. It is not a production
 credential and must never be used for release builds or Play Store publishing.
 Do not regenerate or replace this file: future preview updates need the same key.
 
