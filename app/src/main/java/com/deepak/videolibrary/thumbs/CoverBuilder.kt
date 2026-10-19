@@ -11,6 +11,8 @@ import com.deepak.videolibrary.data.LibraryDatabase
 import java.io.File
 import java.io.FileOutputStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
@@ -25,13 +27,15 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
 
     private val dao = db.dao()
     private val gate = Semaphore(2)
+    private val groupLocks = Array(32) { Mutex() }
+    private fun lock(key: String) = groupLocks[(key.hashCode() and Int.MAX_VALUE) % groupLocks.size]
 
     suspend fun build(group: String): File? = gate.withPermit {
-        withContext(Dispatchers.IO) { compose("virtual:$group", dao.doneIdsForGroup(group)) }
+        lock("virtual:$group").withLock { withContext(Dispatchers.IO) { compose("virtual:$group", dao.doneIdsForGroup(group)) } }
     }
 
     suspend fun buildOriginal(path: String, ids: List<Long>): File? = gate.withPermit {
-        withContext(Dispatchers.IO) { compose("original:$path", ids) }
+        lock("original:$path").withLock { withContext(Dispatchers.IO) { compose("original:$path", ids) } }
     }
 
     private fun compose(group: String, ids: List<Long>): File? {
@@ -73,14 +77,14 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
                 }
             }
 
-            // Remove older covers of this folder, then write the new one.
-            dir.listFiles { f -> f.name.startsWith("${prefix}_") }?.forEach { it.delete() }
+            // Publish first; retain the previous cover if writing fails.
             val tmp = File(dir, target.name + ".tmp")
             FileOutputStream(tmp).use { out.compress(Bitmap.CompressFormat.JPEG, 85, it) }
             if (!tmp.renameTo(target)) {
                 target.delete()
-                tmp.renameTo(target)
+                check(tmp.renameTo(target)) { "Could not publish folder artwork" }
             }
+            dir.listFiles { f -> f != target && f.name.startsWith("${prefix}_") }?.forEach { it.delete() }
         } finally {
             bitmaps.forEach { it.recycle() }
             out.recycle()

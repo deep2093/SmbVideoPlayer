@@ -101,6 +101,8 @@ try:
     assert not any('Choose source folders' in label for label in labels)
     print('PASS: Virtual folders restored automatically without a source picker')
     click('Settings')
+    find('Connection');find('Playback');find('Library');find('Diagnostics')
+    click('Appearance')
     current='Dark grey'
     for theme in ['AMOLED black','Midnight blue','Forest','Plum','Dark grey']:
         click('Theme: '+current);click(theme);find('Theme: '+theme)
@@ -109,7 +111,7 @@ try:
     adb('shell','am','force-stop',APP)
     adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
     find('Virtual folders')  # Wait for the fresh home frame after restart.
-    click('Settings');find('Theme: Dark grey')
+    click('Settings');click('Appearance');find('Theme: Dark grey')
     print('PASS: five theme choices apply live and persist across restart')
     click('Folders')
     click('Original folders');find('Movies');screenshot('originals')
@@ -127,7 +129,7 @@ try:
     print('PASS: Select all in Videos -> shared Copy -> Paste from Original folders')
     click('Videos');click(NAME,long=True);click('Remove / Hide')
     click('File Explorer');click('Movies');find(NAME);screenshot('hidden-in-explorer')
-    click('Settings');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
+    click('Settings');click('Library');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
     find('No hidden items.');screenshot('unhide')
     print('PASS: hidden video stays browsable in File Explorer and can be restored in Settings')
     click('Folders');click('Custom folders');click('+ Create')
@@ -142,7 +144,7 @@ try:
     labels=[n.get('text','') for n in tree().iter('node')]
     assert 'A000.txt' not in labels, 'Shortcut must scroll beyond the first page'
     print('PASS: failed-thumbnail shortcut scrolls to the exact file and highlights it')
-    click('Settings');click('Floating bottom bar');click('Folders');find('Custom folders');screenshot('floating-navigation')
+    click('Settings');click('Appearance');click('Floating bottom bar');click('Folders');find('Custom folders');screenshot('floating-navigation')
     # Publish codec fixtures only now so background refresh cannot change the
     # earlier one-video selection scenario. Exercise generated WMV8 and real WMV9.
     for source,name in [('/tmp/videolibrary-sample.wmv','Sample.wmv'),('/tmp/videolibrary-wmv9.wmv','WMV9.wmv')]:

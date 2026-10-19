@@ -218,7 +218,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun resumeFor(path: String): PlaybackStateEntity? { storageReady.first { it }; return stateDao.progress(namespace.value,path) }
     fun saveProgress(path: String, position: Long, duration: Long) {
         val key=namespace.value
-        viewModelScope.launch(Dispatchers.IO) { storageReady.first { it }; stateDao.saveProgress(key,path,position,duration) }
+        viewModelScope.launch(Dispatchers.IO) { storageReady.first { it }; stateDao.saveProgress(key,path,com.deepak.videolibrary.player.PlaybackPolicy.resumePosition(position,duration),duration) }
     }
     fun hideContinue(path: String, hidden: Boolean=true) {
         val key=namespace.value
@@ -475,8 +475,17 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             notice = "Enter the server address and share name in Settings first."
             return
         }
-        notice = null
-        ScanWorker.enqueue(getApplication(), mode)
+        viewModelScope.launch {
+            val reason=withContext(Dispatchers.IO) {
+                when {
+                    mode==ScanMode.RESUME && (dao.latestResumableSession()==null || dao.pendingCountNow()==0) -> "There is no interrupted scan to resume. Use Refresh instead."
+                    mode==ScanMode.RETRY && (dao.latestSession()?.let { dao.errorDirPaths(it.id).isNotEmpty() } != true) -> "There are no failed folders to retry."
+                    else -> null
+                }
+            }
+            notice=reason
+            if(reason==null) ScanWorker.enqueue(getApplication(), mode)
+        }
     }
 
     fun stopScan() {
@@ -645,14 +654,19 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     fun saveSettings(s: SmbSettings) {
+        viewModelScope.launch {
+        try { withContext(Dispatchers.IO) { settingsStore.save(s) } }
+        catch(e:CancellationException) { throw e }
+        catch(_:Exception) { notice="Could not save connection securely. Existing settings were kept. Please try again."; return@launch }
         if(connectionKey(s)!=namespace.value) {clearClipboard();clearSelection()}
-        settingsStore.save(s)
         settings = settingsStore.load().let { saved ->
             // Keep what was typed in the form even if the password is not persisted.
             saved.copy(password = s.password)
         }
         namespace.value=connectionKey(settings)
         originalPath=settings.rootPath.trim('/')
+        notice="Connection saved."
+        }
     }
 
     fun testConnection(s: SmbSettings) {

@@ -35,6 +35,7 @@ data class SmbEntry(
     val isDirectory: Boolean,
     val size: Long,
     val modified: Long,
+    val isReparsePoint: Boolean = false,
 )
 
 /**
@@ -92,6 +93,7 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
                     isDirectory = isDir,
                     size = info.endOfFile,
                     modified = info.lastWriteTime.toEpochMillis(),
+                    isReparsePoint = EnumWithValue.EnumUtils.isSet(info.fileAttributes, FileAttributes.FILE_ATTRIBUTE_REPARSE_POINT),
                 ),
             )
         }
@@ -127,10 +129,10 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
         require(src != dst) { "Source and destination are the same" }
         require(!disk.fileExists(dst) && !disk.folderExists(dst)) { "Destination already exists" }
         if (directory) {
-            disk.openDirectory(src, EnumSet.of(AccessMask.DELETE), null, SMB2ShareAccess.ALL,
+            disk.openDirectory(src, EnumSet.of(AccessMask.DELETE, AccessMask.FILE_WRITE_ATTRIBUTES), null, SMB2ShareAccess.ALL,
                 SMB2CreateDisposition.FILE_OPEN, null).use { it.rename(dst, false) }
         } else {
-            disk.openFile(src, EnumSet.of(AccessMask.DELETE), null, SMB2ShareAccess.ALL,
+            disk.openFile(src, EnumSet.of(AccessMask.DELETE, AccessMask.FILE_WRITE_ATTRIBUTES), null, SMB2ShareAccess.ALL,
                 SMB2CreateDisposition.FILE_OPEN, null).use { it.rename(dst, false) }
         }
     }
@@ -204,6 +206,7 @@ object SmbErrors {
         var cause: Throwable? = e
         while (cause != null) {
             when (cause) {
+                is IllegalArgumentException -> safeValidationMessage(cause.message)?.let { return it }
                 is SMBApiException -> return describeStatus(cause)
                 is UnknownHostException -> return "Server address not found. Check the address and that you are on the home Wi-Fi."
                 is SocketTimeoutException -> return "The connection timed out. The router may be busy or the address may be wrong."
@@ -216,6 +219,14 @@ object SmbErrors {
             is TransportException, is IOException -> "Network problem. Check SMB address, Wi-Fi, permissions and connection."
             else -> "SMB operation failed (${e.javaClass.simpleName}). Check connection and access permissions."
         }
+    }
+
+    private fun safeValidationMessage(message: String?): String? = when(message) {
+        "Invalid or root file path" -> "Choose a valid file or folder; the share root cannot be changed."
+        "Source and destination are the same" -> "Choose a different destination."
+        "Destination already exists" -> "The destination already exists. Choose another name or folder."
+        "Cannot copy a folder into itself" -> "Choose a destination outside the source folder."
+        else -> null
     }
 
     private fun describeStatus(e: SMBApiException): String = when (e.status) {

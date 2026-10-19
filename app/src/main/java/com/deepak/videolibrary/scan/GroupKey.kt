@@ -13,6 +13,9 @@ object GroupKey {
     // A leading [tag] or (tag), e.g. "[1080p]" or "[WEB-DL]".
     private val leadingTag = Regex("^\\s*(\\[[^\\]]*\\]|\\([^)]*\\))")
 
+    private val spaces = Regex("\\s+")
+    private val trailingNumber = Regex("\\s+(?:part\\s*)?\\d+$", RegexOption.IGNORE_CASE)
+
     fun fromFileName(fileName: String): String {
         // A comma separates the grouping title from extra names/credits. Keep the whole
         // leading phrase (e.g. "Roger Marting, alex" -> "Roger Marting").
@@ -26,8 +29,8 @@ object GroupKey {
         if (delimiter >= 0) s = s.substring(0, delimiter).trim()
         s = s.trim().trimStart { !it.isLetterOrDigit() }
         // Keep the complete cleaned phrase rather than only the first word.
-        s = s.replace(Regex("\\s+"), " ")
-            .replace(Regex("\\s+(?:part\\s*)?\\d+$", RegexOption.IGNORE_CASE), "")
+        s = s.replace(spaces, " ")
+            .replace(trailingNumber, "")
             .trim(' ', '-', '_', '.', ',', ';', ':')
         return if (s.isBlank()) FALLBACK else s.lowercase(Locale.ROOT)
     }

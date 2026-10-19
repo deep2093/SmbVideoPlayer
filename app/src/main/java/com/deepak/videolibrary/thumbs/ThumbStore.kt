@@ -31,8 +31,26 @@ object ThumbStore {
 
 /** Small in-memory cache of decoded images, capped by size so it cannot grow with the library. */
 object ImageMemoryCache {
-    private val cache = object : LruCache<String, ImageBitmap>(24 * 1024 * 1024) {
+    private val cache = object : LruCache<String, ImageBitmap>((Runtime.getRuntime().maxMemory() / 8).coerceIn(16L * 1024 * 1024, 64L * 1024 * 1024).toInt()) {
         override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
+    }
+
+    @Volatile private var registered = false
+    fun register(context: Context) {
+        if (registered) return
+        synchronized(this) {
+            if (registered) return
+            context.applicationContext.registerComponentCallbacks(object : android.content.ComponentCallbacks2 {
+                override fun onConfigurationChanged(config: android.content.res.Configuration) = Unit
+                override fun onLowMemory() = clear()
+                override fun onTrimMemory(level: Int) {
+                    if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND ||
+                        level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) clear()
+                    else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) cache.trimToSize(cache.maxSize() / 2)
+                }
+            })
+            registered = true
+        }
     }
 
     fun get(key: String): ImageBitmap? = cache.get(key)

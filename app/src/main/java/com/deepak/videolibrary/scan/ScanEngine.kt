@@ -63,6 +63,13 @@ class ScanRepository(private val db: LibraryDatabase) {
         ScanEngine(db, profile, session).run()
     }
 
+    suspend fun runPeriodic(profile: SmbProfile): Boolean = scanMutex.withLock {
+        dao.markRunningInterrupted()
+        val mode=if(dao.latestResumableSession()!=null && dao.pendingCountNow()>0) ScanMode.RESUME else ScanMode.REFRESH
+        val session=prepare(mode,profile) ?: return@withLock false
+        ScanEngine(db,profile,session).run()
+    }
+
     private suspend fun prepare(mode: ScanMode, profile: SmbProfile): ScanSessionEntity? {
         val now = System.currentTimeMillis()
         return when (mode) {
@@ -159,6 +166,10 @@ class ScanEngine(
             val subDirs = ArrayList<PendingDirEntity>()
             for (entry in entries) {
                 if (isSkipped(entry.name)) continue
+                if (entry.isReparsePoint || (entry.isDirectory && dir.count { it == '/' } >= 127)) {
+                    recordError(dir, "Skipped a linked folder or the maximum folder depth.", isDirectory=true)
+                    continue
+                }
                 val rel = if (dir.isEmpty()) entry.name else "$dir/${entry.name}"
                 if (entry.isDirectory) {
                     subDirs.add(PendingDirEntity(rel))

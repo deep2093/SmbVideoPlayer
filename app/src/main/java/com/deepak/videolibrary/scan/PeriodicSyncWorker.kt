@@ -35,11 +35,12 @@ class PeriodicSyncWorker(context: Context, params: WorkerParameters) : Coroutine
             return Result.success()
         }
         return try {
-            val ok = services.scanRepository.run(ScanMode.REFRESH, profile)
+            val ok = services.scanRepository.runPeriodic(profile)
             prefs.edit().putString("last_status", if (ok) "COMPLETED" else "FAILED: SMB unavailable or scan incomplete")
                 .apply()
             if (ok) {
                 prefs.edit().putLong("last_success", System.currentTimeMillis()).apply()
+                com.deepak.videolibrary.thumbs.ThumbnailWorker.enqueue(applicationContext)
                 Result.success()
             } else Result.retry()
         } catch (e: CancellationException) {

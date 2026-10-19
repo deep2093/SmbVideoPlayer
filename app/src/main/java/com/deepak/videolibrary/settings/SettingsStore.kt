@@ -32,7 +32,11 @@ class SettingsStore(context: Context) {
     @Volatile
     private var sessionPassword: String = ""
 
+    @Volatile private var cached: SmbSettings? = null
+
+    @Synchronized
     fun load(): SmbSettings {
+        cached?.let { return it }
         val save = prefs.getBoolean(KEY_SAVE, false)
         val password = if (save) {
             prefs.getString(KEY_PASSWORD, null)?.let { decrypt(it) } ?: ""
@@ -46,10 +50,13 @@ class SettingsStore(context: Context) {
             username = prefs.getString(KEY_USER, "") ?: "",
             password = password,
             savePassword = save,
-        )
+        ).also { cached = it }
     }
 
+    @Synchronized
     fun save(settings: SmbSettings) {
+        // Encrypt before touching preferences or the session password.
+        val encrypted = if (settings.savePassword) encrypt(settings.password) else null
         val editor = prefs.edit()
             .putString(KEY_HOST, settings.host.trim())
             .putString(KEY_SHARE, settings.share.trim())
@@ -57,13 +64,14 @@ class SettingsStore(context: Context) {
             .putString(KEY_USER, settings.username.trim())
             .putBoolean(KEY_SAVE, settings.savePassword)
         if (settings.savePassword) {
-            editor.putString(KEY_PASSWORD, encrypt(settings.password))
+            editor.putString(KEY_PASSWORD, encrypted)
             sessionPassword = ""
         } else {
             editor.remove(KEY_PASSWORD)
             sessionPassword = settings.password
         }
         editor.apply()
+        cached = settings.copy(host=settings.host.trim(),share=settings.share.trim(),rootPath=normalizeRoot(settings.rootPath),username=settings.username.trim())
     }
 
     /** Null when host or share is missing. */

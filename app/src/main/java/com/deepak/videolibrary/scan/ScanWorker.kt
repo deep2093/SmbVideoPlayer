@@ -41,14 +41,15 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             requested
         }
 
-        coroutineScope {
+        val completed = coroutineScope {
             val scan = async { services.scanRepository.run(mode, profile) }
             // Thumbnails are made while the scan is still running, so artwork appears progressively.
             val thumbs = launch { services.thumbnails.run(profile) { scan.isCompleted } }
-            scan.await()
+            val ok=scan.await()
             thumbs.join()
+            ok
         }
-        return Result.success()
+        return if(completed) Result.success() else Result.retry()
     }
 
     companion object {

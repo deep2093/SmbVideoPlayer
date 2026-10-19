@@ -12,6 +12,10 @@ import com.deepak.videolibrary.smb.SmbProfile
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
@@ -98,24 +102,45 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
     }
 
     private suspend fun process(conn: SmbConnection, video: VideoEntity): Outcome {
-        var source: SmbMediaDataSource? = null
+        val source=AtomicReference<SmbMediaDataSource?>()
+        val frame=AtomicReference<Bitmap?>()
+        var timedOut=false
         try {
-            val bitmap = withTimeoutOrNull(PER_VIDEO_TIMEOUT_MS) {
-                runInterruptible(Dispatchers.IO) {
-                    val ds = SmbMediaDataSource(conn, video.relativePath, video.size)
-                    source = ds
-                    extractFrame(ds)
+            val bitmap = coroutineScope {
+                val extraction=async(Dispatchers.IO) {
+                    runInterruptible {
+                        val ds=SmbMediaDataSource(conn,video.relativePath,video.size)
+                        source.set(ds)
+                        try { extractFrame(ds)?.also { frame.set(it) } }
+                        finally { ds.close() }
+                    }
+                }
+                val watchdog=launch(Dispatchers.IO) {
+                    delay(PER_VIDEO_TIMEOUT_MS)
+                    source.get()?.close()
+                }
+                try {
+                    val result=withTimeoutOrNull(PER_VIDEO_TIMEOUT_MS) { extraction.await() to true }
+                    timedOut=result==null
+                    result?.first
+                }
+                finally {
+                    watchdog.cancel()
+                    if(!extraction.isCompleted) {
+                        withContext(NonCancellable+Dispatchers.IO) { source.get()?.close() }
+                        extraction.cancel()
+                    }
                 }
             }
             if (bitmap == null) {
-                val networkProblem = source?.lastError?.let { SmbErrors.isTransient(it) } ?: false
-                if (networkProblem) return Outcome.TRANSIENT
-                dao.setThumbStatus(video.id, STATUS_FAILED, source?.lastError?.let {SmbErrors.describe(it)} ?: "Android could not extract a video frame within 90 seconds. The file may use an unsupported codec, contain no video track, or be damaged; Android did not provide an exact cause.")
+                // A deadline without a decoder result is retryable, not proof of a bad file.
+                if (source.get()?.lastError?.let { SmbErrors.isTransient(it) } == true || timedOut) return Outcome.TRANSIENT
+                dao.setThumbStatus(video.id, STATUS_FAILED, source.get()?.lastError?.let {SmbErrors.describe(it)} ?: "Android could not extract a video frame within 90 seconds. The file may use an unsupported codec, contain no video track, or be damaged; Android did not provide an exact cause.")
                 return Outcome.FAILED
             }
             val target = ThumbStore.thumbFile(context, video.id)
             withContext(Dispatchers.IO) { save(bitmap, target) }
-            bitmap.recycle()
+            frame.getAndSet(null)?.recycle()
             ImageMemoryCache.remove(target.path)
             dao.setThumbStatus(video.id, STATUS_DONE)
             return Outcome.DONE
@@ -126,7 +151,8 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
             dao.setThumbStatus(video.id, STATUS_FAILED, if(e is IllegalArgumentException || e is IllegalStateException) "Android could not read a video frame (${e.javaClass.simpleName}). Check whether the file plays and whether its video codec is supported." else SmbErrors.describe(e))
             return Outcome.FAILED
         } finally {
-            source?.close()
+            withContext(NonCancellable+Dispatchers.IO) { source.get()?.close() }
+            frame.getAndSet(null)?.recycle()
         }
     }
 

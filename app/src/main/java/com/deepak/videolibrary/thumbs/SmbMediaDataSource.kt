@@ -16,6 +16,7 @@ class SmbMediaDataSource(
 ) : MediaDataSource() {
 
     private val file = conn.openFile(path)
+    private val closed = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /** The last network/read error, so the caller can tell "bad file" from "network dropped". */
     @Volatile
@@ -31,6 +32,7 @@ class SmbMediaDataSource(
 
     @Synchronized
     override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+        if (closed.get()) return -1
         if (position < 0 || position >= length) return -1
         if (size == 0) return 0
         return try {
@@ -57,6 +59,7 @@ class SmbMediaDataSource(
         var data = ByteArray(len)
         var read = 0
         while (read < len) {
+            if(closed.get() || Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException("Thumbnail read cancelled")
             val chunk = min(len - read, CHUNK_SIZE)
             val n = file.read(data, start + read, read, chunk)
             if (n <= 0) break
@@ -68,10 +71,10 @@ class SmbMediaDataSource(
         return data
     }
 
-    @Synchronized
     override fun close() {
-        runCatching { file.close() }
-        blocks.clear()
+        // Never wait for readAt's cache monitor: close must be able to abort a read.
+        if(closed.compareAndSet(false,true)) runCatching { file.close() }
+        // The bounded cache is released with this source; do not mutate it concurrently.
     }
 
     private companion object {

@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 
 data class LibraryTheme(val id:String,val label:String,val background:Color,val surface:Color,val card:Color,val accent:Color)
 val libraryThemes=listOf(
-    LibraryTheme("CHARCOAL","Dark grey",Color(0xFF1B1D20),Color(0xFF222529),Color(0xFF2D3136),Color(0xFFBB3333)),
+    LibraryTheme("CHARCOAL","Dark grey",Color(0xFF121416),Color(0xFF191C1F),Color(0xFF24282D),Color(0xFFBB3333)),
     LibraryTheme("AMOLED","AMOLED black",Color.Black,Color.Black,Color(0xFF101010),Color(0xFFB00000)),
     LibraryTheme("SLATE","Midnight blue",Color(0xFF141C29),Color(0xFF1B2738),Color(0xFF26364D),Color(0xFF3569AA)),
     LibraryTheme("FOREST","Forest",Color(0xFF14221D),Color(0xFF1D3028),Color(0xFF2A4036),Color(0xFF26715B)),

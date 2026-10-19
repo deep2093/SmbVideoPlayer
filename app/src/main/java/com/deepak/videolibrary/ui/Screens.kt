@@ -52,350 +52,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Switch
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Icon
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.ViewList
-import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Sort
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.deepak.videolibrary.data.GroupRow
-import com.deepak.videolibrary.data.VideoEntity
-import com.deepak.videolibrary.scan.ScanMode
-import com.deepak.videolibrary.scan.ScanStatus
-import com.deepak.videolibrary.settings.SmbSettings
-import com.deepak.videolibrary.thumbs.ThumbStore
-import java.io.File
-import java.util.Locale
-
-private val GRID_PRESETS = LibraryLayout.presets
-
-private val TAB_LABELS = listOf("Folders", "Videos", "File Explorer", "Scan", "Settings")
-private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Sync, Icons.Filled.Settings)
-
-
-@Composable
-fun AppRoot(vm: LibraryViewModel = viewModel()) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
-    var folderDetails by rememberSaveable { mutableStateOf(false) }
-    var playing by remember { mutableStateOf<VideoEntity?>(null) }
-    var playQueue by remember { mutableStateOf<List<VideoEntity>>(emptyList()) }
-    val foldersScrollState = rememberLazyGridState()
-    val videosScrollState = rememberLazyGridState()
-    val folderVideosScrollState = rememberLazyGridState()
-    var returnToThumbnails by remember {mutableStateOf(false)}
-    LaunchedEffect(vm.explorerNavigationRequest) {vm.explorerNavigationRequest?.let {path->
-        vm.explorerQuery="";vm.browse(path.substringBeforeLast('/',""),focus=path);tab=2;returnToThumbnails=true;vm.consumeExplorerNavigation()
-    }}
-    BackHandler(enabled = playing != null || folderDetails || tab != 0) {
-        when {
-            playing != null -> playing = null
-            tab==2 && returnToThumbnails -> {tab=3;returnToThumbnails=false}
-            folderDetails -> { folderDetails = false; vm.groupFilter.value = null; vm.matchFolderFilter.value=null; tab = 0 }
-            else -> { tab = 0; vm.groupFilter.value = null; vm.matchFolderFilter.value=null }
-        }
-    }
-    if (playing != null) {
-        if(playQueue.any {it.name.endsWith(".wmv",true) || it.name.endsWith(".asf",true)}) VlcPlayerScreen(video=playing!!,settings=vm.settings,vm=vm,playlist=playQueue,onClose={playing=null;playQueue=emptyList()})
-        else PlayerScreen(video = playing!!, settings = vm.settings, vm = vm, playlist = playQueue, onClose = { playing = null; playQueue = emptyList() })
-        return
-    }
-    var railExpanded by remember { mutableStateOf(true) }
-    val railWidth by animateDpAsState(if(railExpanded)148.dp else 72.dp,label="sidebar_width")
-    val hazeState=remember {HazeState()}
-    val floating=vm.navigationPosition=="FLOATING"
-    val collapseOnScroll = remember { object: NestedScrollConnection {
-        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-            if(kotlin.math.abs(available.y)>2f) railExpanded=false
-            return Offset.Zero
-        }
-    } }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val tabletLayout = maxWidth >= 700.dp
-        Scaffold(
-            bottomBar = {
-                if (!tabletLayout && !floating) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    TAB_LABELS.forEachIndexed { index, label ->
-                        NavigationBarItem(
-                            selected = tab == index,
-                            colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant),
-                            onClick = {
-                                tab = index
-                                folderDetails = false
-                                vm.groupFilter.value = null; vm.matchFolderFilter.value=null
-                            },
-                            icon = { Icon(TAB_ICONS[index], contentDescription = label) }, label = { Text(label) },
-                        )
-                    }
-                }
-            },
-        ) { padding ->
-            Box(Modifier.fillMaxSize()) {
-            Row(Modifier.padding(padding).fillMaxSize().then(if(floating)Modifier.haze(hazeState)else Modifier)) {
-                if (tabletLayout && !floating) {
-                    androidx.compose.material3.NavigationRail(modifier=Modifier.width(railWidth),containerColor = MaterialTheme.colorScheme.surface) {
-                        IconButton(onClick={railExpanded=!railExpanded}){Icon(Icons.Filled.Menu,contentDescription="Expand or collapse sidebar",tint=Color.White)}
-                        TAB_LABELS.forEachIndexed { index, label ->
-                            androidx.compose.material3.NavigationRailItem(
-                                selected = tab == index,
-                                colors = androidx.compose.material3.NavigationRailItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = Color.White.copy(alpha=0.12f),
-                                    unselectedIconColor = Color.White, unselectedTextColor = Color.White),
-                                onClick = {
-                                    railExpanded = true
-                                    tab = index
-                                    folderDetails = false
-                                    vm.groupFilter.value = null; vm.matchFolderFilter.value=null
-                                },
-                                icon = { Icon(TAB_ICONS[index], contentDescription = label) },
-                                label = if(railExpanded) ({ Text(label) }) else null,
-                                alwaysShowLabel = true,
-                            )
-                        }
-                    }
-                }
-                Column(Modifier.weight(1f).fillMaxHeight().nestedScroll(collapseOnScroll)) {
-                    if(tab==2 && returnToThumbnails)TextButton(onClick={tab=3;returnToThumbnails=false}){Text("← Thumbnail failures")}
-                    FileClipboardBar(vm)
-                    vm.notice?.let { message -> Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
-                        Text(message,Modifier.weight(1f).padding(8.dp),color=Color.White)
-                        TextButton(onClick=vm::dismissNotice){Text("Dismiss")}
-                    } }
-                    Crossfade(targetState=tab,modifier=Modifier.weight(1f),animationSpec=tween(140),label="section_transition") { currentTab -> when (currentTab) {
-                        0 -> FoldersHub(vm, gridState = foldersScrollState, onOpenGroup = { folderDetails = true; tab = 1 }, onPlay = { video, queue -> playing = video; playQueue = queue }, onOpenSettings = { tab = 4 })
-                        1 -> VideosScreen(vm, gridState = if (folderDetails) folderVideosScrollState else videosScrollState, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
-                            folderDetails = false; vm.groupFilter.value = null; vm.matchFolderFilter.value=null; tab = 0
-                        }) else null)
-                        2 -> ExplorerScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue })
-                        3 -> ScanScreen(vm)
-                        else -> SettingsScreen(vm)
-                    } }
-                }
-            }
-            if(floating)FloatingLibraryNavigation(tab,TAB_LABELS,TAB_ICONS,hazeState,Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding().padding(bottom=12.dp)) {index->tab=index;folderDetails=false;vm.groupFilter.value=null;vm.matchFolderFilter.value=null;railExpanded=true}
-            }
-        }
-    }
-}
-
-@Composable
-private fun FoldersHub(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup:()->Unit,
-    onPlay:(VideoEntity,List<VideoEntity>)->Unit, onOpenSettings:()->Unit) {
-    val pager=rememberPagerState(initialPage=vm.foldersTab,pageCount={3})
-    val scope=rememberCoroutineScope()
-    LaunchedEffect(pager.settledPage){vm.foldersTab=pager.settledPage}
-    Column(Modifier.fillMaxSize()) {
-        androidx.compose.material3.TabRow(selectedTabIndex=pager.currentPage,containerColor=MaterialTheme.colorScheme.surface,contentColor=MaterialTheme.colorScheme.onSurface) {
-            listOf("Custom folders","Virtual folders","Original folders").forEachIndexed { index,title ->
-                androidx.compose.material3.Tab(selected=pager.currentPage==index,onClick={scope.launch{pager.animateScrollToPage(index)}},text={Text(title)})
-            }
-        }
-        HorizontalPager(state=pager,modifier=Modifier.weight(1f)) { page ->
-            when(page){0->MatchingFoldersScreen(vm,onOpenGroup,onPlay);1->FoldersScreen(vm,gridState,onOpenGroup,onPlay,onOpenSettings);else->OriginalFoldersScreen(vm,onPlay)}
-        }
-    }
-}
-
-// ---------------------------------------------------------------- Videos
-
-@Composable
-fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, onBackToFolders: (() -> Unit)? = null) {
-    val videos=vm.videoPages.collectAsLazyPagingItems()
-    val query by vm.query.collectAsStateWithLifecycle()
-    val group by vm.groupFilter.collectAsStateWithLifecycle()
-    val matchFolder by vm.matchFolderFilter.collectAsStateWithLifecycle()
-    val selectedGroup=group ?: matchFolder?.name
-    var searchExpanded by rememberSaveable { mutableStateOf(query.isNotBlank()) }
-    val total by vm.videoCount.collectAsStateWithLifecycle()
-    val count by vm.videoResultsCount.collectAsStateWithLifecycle()
-    val continueWatching by vm.continuing.collectAsStateWithLifecycle()
-    var addDialog by remember { mutableStateOf(false) }
-    var videoSearch by remember { mutableStateOf("") }
-    LaunchedEffect(query,group,matchFolder?.id){gridState.scrollToItem(0)}
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            if (selectedGroup != null) IconButton(onClick = {
-                if (onBackToFolders != null) onBackToFolders() else vm.groupFilter.value = null; vm.matchFolderFilter.value=null
-            }) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back to folders") }
-            Text(selectedGroup ?: "Videos", style = MaterialTheme.typography.titleLarge,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            LibraryDisplayMenu(vm)
-            IconButton(onClick = { searchExpanded = !searchExpanded; if (!searchExpanded) vm.query.value = "" }) {
-                Icon(if (searchExpanded) Icons.Filled.Close else Icons.Filled.Search,
-                    contentDescription = if (searchExpanded) "Close search" else "Search videos")
-            }
-        }
-        if (searchExpanded) {
-            OutlinedTextField(value = query, onValueChange = { vm.query.value = it },
-                label = { Text("Search videos by filename") }, singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
-        }
-        if (selectedGroup != null && matchFolder==null) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("Virtual folder", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                TextButton(onClick = { videoSearch = ""; vm.findVideosToAdd(selectedGroup, ""); addDialog = true }) { Text("+ Add") }
-            }
-        }
-        val columns = LibraryLayout.columns(vm.videoGridPreset)
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            LazyVerticalGrid(
-                state = gridState,
-                columns = GridCells.Fixed(if (vm.videoListMode) 1 else columns),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = if(floatingPadding(vm))112.dp else 24.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                if (group == null && matchFolder==null && query.isEmpty() && continueWatching.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
-                        Column {
-                            Text("Continue watching", style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.padding(vertical = 12.dp))
-                            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                items(continueWatching, key = { it.id }) { video ->
-                                    VideoCard(video, onClick = { onPlay(video, listOf(video)) }, vm = vm,
-                                        modifier = Modifier.width(210.dp), onRemoveFromContinue = {
-                                            vm.hideContinue(video.relativePath)
-                                        })
-                                }
-                            }
-                        }
-                    }
-                }
-                item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
-                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Text("$count videos · ${vm.videoSort.label}", style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { vm.playLibrary("videos",onPlay=onPlay) }, enabled = count>0) { Text("Play all") }
-                    }
-                }
-                if (count==0) item(span = { GridItemSpan(maxLineSpan) }) {
-                    Text(if (total == 0) "No videos yet. Add your server in Settings, then run a scan."
-                        else "No videos match your search.", modifier = Modifier.padding(vertical = 24.dp))
-                }
-                items(count=videos.itemCount,key=videos.itemKey { it.relativePath },contentType={"video"}) { index ->
-                    videos[index]?.let { video -> VideoCard(video,onClick={
-                        if(group!=null || matchFolder!=null || query.isNotBlank()) vm.playLibrary("videos",video,onPlay) else onPlay(video,listOf(video))
-                    },vm=vm,listMode=vm.videoListMode) }
-                }
-            }
-        }
-    }
-
-    if (addDialog && selectedGroup != null) {
-        AlertDialog(onDismissRequest = { addDialog = false }, title = { Text("Add videos to $group") },
-            text = { Column {
-                OutlinedTextField(value = videoSearch, onValueChange = { videoSearch = it; vm.findVideosToAdd(selectedGroup, it) }, label = { Text("Search filenames") })
-                LazyColumn(Modifier.heightIn(max = 350.dp)) {
-                    items(vm.assignCandidates, key = { it.id }) { video ->
-                        TextButton(onClick = { vm.assignVideo(video.id, selectedGroup); vm.findVideosToAdd(selectedGroup, videoSearch) }) {
-                            Text(video.name, maxLines = 2)
-                        }
-                    }
-                }
-            } },
-            confirmButton = { TextButton(onClick = { addDialog = false }) { Text("Done") } })
-    }
-
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-internal fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewModel, modifier: Modifier = Modifier,
-    onRemoveFromContinue: (() -> Unit)? = null, listMode: Boolean = false, selectionScope:String="videos") {
-    var menuOpen by remember(video.relativePath) { mutableStateOf(false) }
-    val context=LocalContext.current
-    val thumb:File?=if(video.thumbStatus=="DONE") ThumbStore.thumbFile(context,video.id) else null
-    val namespace by vm.namespace.collectAsStateWithLifecycle()
-    val progressFlow=remember(video.relativePath,namespace){vm.progressFlow(video.relativePath)}
-    val progress by progressFlow.collectAsStateWithLifecycle(initialValue=null)
-    val watchedMs=progress?.positionMs ?: 0L
-    val totalMs=progress?.durationMs ?: 0L
-    val artwork: @Composable () -> Unit = {
-        Box(if (listMode) Modifier.width(120.dp).height(76.dp)
-            else Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-            FileImage(thumb, Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)))
-            if (totalMs > 0L) Text(DateUtils.formatElapsedTime(totalMs / 1_000),
-                color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(4.dp)
-                    .background(androidx.compose.ui.graphics.Color(0xBB000000), RoundedCornerShape(3.dp)).padding(horizontal = 4.dp))
-            if (totalMs > 0L && watchedMs > 0L) Box(Modifier.align(androidx.compose.ui.Alignment.BottomStart)
-                .fillMaxWidth((watchedMs.toFloat() / totalMs).coerceIn(0f, 1f)).height(3.dp)
-                .background(MaterialTheme.colorScheme.primary))
-        }
-    }
-    val caption: @Composable () -> Unit = {
-        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            if(vm.selectedPaths.isNotEmpty())Checkbox(checked=video.relativePath in vm.selectedPaths,onCheckedChange={vm.toggleSelected(video.relativePath,selectionScope)})
-            Column(Modifier.weight(1f).padding(start = if (listMode) 12.dp else 2.dp)) {
-                Text(video.name, style = MaterialTheme.typography.bodyMedium, minLines = 2, maxLines = 2,
+import androidx.compose.foundation.l…5432 tokens truncated…             Text(video.name, style = MaterialTheme.typography.bodyMedium, minLines = 2, maxLines = 2,
                     overflow = TextOverflow.Ellipsis)
                 Text(Formatter.formatShortFileSize(context, video.size),
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -828,6 +485,7 @@ private fun AutomaticSyncSummary() {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(vm: LibraryViewModel) {
+    var section by rememberSaveable { mutableStateOf<String?>(null) }
     var hiddenPage by rememberSaveable { mutableStateOf(false) }
     if(hiddenPage) { HiddenItemsScreen(vm){hiddenPage=false};return }
 
@@ -855,23 +513,49 @@ fun SettingsScreen(vm: LibraryViewModel) {
         savePassword = savePassword,
     )
 
+    BackHandler(enabled=section!=null) { section=null }
+    val scroll=rememberScrollState()
+    LaunchedEffect(section) { scroll.scrollTo(0) }
     Column(
-        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp).padding(bottom=if(floatingPadding(vm))100.dp else 0.dp),
+        Modifier.fillMaxSize().imePadding().verticalScroll(scroll).padding(16.dp).padding(bottom=if(floatingPadding(vm))100.dp else 0.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Settings", style = MaterialTheme.typography.headlineMedium)
-        Text("Personalize your library, playback controls and network connection.",
-            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if(section!=null) TextButton(onClick={section=null}) { Text("← All settings") }
+        Text(section ?: "Settings", style=MaterialTheme.typography.headlineMedium)
+        if(section==null) {
+            listOf(
+                "Connection" to "Server, account and saved password",
+                "Appearance" to "Theme, navigation and grid layout",
+                "Playback" to "Brightness and volume gestures",
+                "Library" to "Hidden files and folders",
+                "Diagnostics" to "Playback reports and troubleshooting"
+            ).forEach { (title,description) ->
+                Card(Modifier.fillMaxWidth().clickable(role=Role.Button) { section=title }) {
+                    Row(Modifier.fillMaxWidth().padding(16.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(title,style=MaterialTheme.typography.titleMedium)
+                            Text(description,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("›",style=MaterialTheme.typography.headlineSmall)
+                    }
+                }
+            }
+        }
+        if(section=="Library") {
         OutlinedButton(onClick={hiddenPage=true},modifier=Modifier.fillMaxWidth()){Text("Unhide files and folders")}
+        }
+        if(section=="Appearance") {
         ThemeSettings()
         Text("Navigation position",style=MaterialTheme.typography.titleMedium)
         Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
             RadioButton(selected=vm.navigationPosition=="SIDEBAR",onClick={vm.updateNavigationPosition("SIDEBAR")});TextButton(onClick={vm.updateNavigationPosition("SIDEBAR")}){Text("Sidebar")}
             RadioButton(selected=vm.navigationPosition=="FLOATING",onClick={vm.updateNavigationPosition("FLOATING")});TextButton(onClick={vm.updateNavigationPosition("FLOATING")}){Text("Floating bottom bar")}
         }
-        DiagnosticsSettings()
+        }
+        if(section=="Diagnostics") DiagnosticsSettings()
         var gesturesExpanded by rememberSaveable { mutableStateOf(false) }
         var layoutExpanded by rememberSaveable { mutableStateOf(false) }
+        if(section=="Playback") {
         Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth().clickable { gesturesExpanded = !gesturesExpanded },
@@ -895,7 +579,8 @@ fun SettingsScreen(vm: LibraryViewModel) {
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
+        }
+        if(section=="Appearance") {
         Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth().clickable { layoutExpanded = !layoutExpanded },
@@ -914,8 +599,8 @@ fun SettingsScreen(vm: LibraryViewModel) {
                 }
             }
         }
-        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-        Text("SMB connection", style = MaterialTheme.typography.titleLarge)
+        }
+        if(section=="Connection") {
 
         OutlinedTextField(
             value = host,
@@ -926,7 +611,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             modifier = Modifier.fillMaxWidth(),
         )
-        Text("Enter the SMB server IP or hostname and share manually. Automatic discovery was removed because it was unreliable.",
+        Text("Enter your server address and share name.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(
             value = share,
@@ -992,6 +677,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
             TestState.Running -> LinearProgressIndicator(Modifier.fillMaxWidth())
             is TestState.Success -> Text(t.message, color = Color.White)
             is TestState.Failure -> Text(t.message, color = MaterialTheme.colorScheme.error)
+        }
         }
     }
 }

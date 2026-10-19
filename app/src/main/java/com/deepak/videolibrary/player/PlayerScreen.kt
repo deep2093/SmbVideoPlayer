@@ -63,6 +63,9 @@ import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.player.SmbPlaybackDataSource
 import com.deepak.videolibrary.settings.SmbSettings
 import com.deepak.videolibrary.smb.SmbProfile
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
@@ -80,6 +83,10 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
     val activity = remember(context) { context.findActivity() }
     val lifecycleOwner = LocalLifecycleOwner.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
+    val gestureScope=rememberCoroutineScope()
+    var singleTap by remember { mutableStateOf<Job?>(null) }
+    val accessibility=LocalAccessibilityManager.current
+    val controlsTimeout=accessibility?.calculateRecommendedTimeoutMillis(4_000L,containsIcons=true,containsText=true,containsControls=true) ?: 4_000L
     val prefs = remember { context.getSharedPreferences("player_prefs", Context.MODE_PRIVATE) }
     // Starting playback explicitly makes a previously dismissed item eligible again.
     LaunchedEffect(video.relativePath) {
@@ -112,6 +119,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
             val factory = ProgressiveMediaSource.Factory(SmbPlaybackDataSource.Factory(profile) { detail -> AppDiagnostics.record(context, "smb_read", detail) })
             setMediaSources(queue.map { item ->
                 val uri = Uri.Builder().scheme("smbvideo").authority("library")
+                    .appendPath(item.name)
                     .appendQueryParameter("path", item.relativePath)
                     .appendQueryParameter("size", item.size.toString()).build()
                 factory.createMediaSource(MediaItem.fromUri(uri))
@@ -120,6 +128,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
             playWhenReady = false
         }
     }
+    var transitionSerial by remember { mutableIntStateOf(0) }
     var currentIndex by remember { mutableIntStateOf(initialIndex) }
     val activeVideo = queue.getOrElse(currentIndex) { video }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -140,8 +149,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
             if(window!=null && beforeBrightness!=null) {val attrs=window.attributes;attrs.screenBrightness=beforeBrightness;window.attributes=attrs}
         }
     }
-    LaunchedEffect(controlsVisible, controlsInteraction, currentIndex, showTracks, showSettings) {
-        if (controlsVisible && !showTracks && !showSettings) { delay(2_000); controlsVisible = false }
+    LaunchedEffect(controlsVisible, controlsInteraction, currentIndex, showTracks, showSettings, controlsTimeout) {
+        if (controlsVisible && !showTracks && !showSettings) { delay(controlsTimeout); controlsVisible = false }
     }
     val aspectModes = listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT, AspectRatioFrameLayout.RESIZE_MODE_ZOOM, AspectRatioFrameLayout.RESIZE_MODE_FILL, AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH, AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT)
     val aspectLabels = listOf("Fit", "Crop", "Stretch", "Width", "Height")
@@ -186,6 +195,19 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
                 }
             }
             delay(1_000)
+        }
+    }
+    LaunchedEffect(transitionSerial) {
+        if(transitionSerial>0) {
+            val index=player.currentMediaItemIndex
+            val item=queue.getOrNull(index)
+            if(item!=null) {
+                val saved=vm.resumeFor(item.relativePath)
+                if(index==player.currentMediaItemIndex && saved!=null && player.playbackState!=Player.STATE_ENDED) {
+                    val resume=com.deepak.videolibrary.player.PlaybackPolicy.resumePosition(saved.positionMs,saved.durationMs)
+                    if(resume>0) player.seekTo(index,resume)
+                }
+            }
         }
     }
     LaunchedEffect(retryPending) {
@@ -255,6 +277,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
+                player.trackSelectionParameters=player.trackSelectionParameters.buildUpon().clearOverrides().build()
+                if(reason!=Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) transitionSerial++
                 zoom = 1f
                 revealControls()
             }
@@ -268,6 +292,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
             player.removeAnalyticsListener(analytics)
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             AppDiagnostics.record(context, "player", "closed")
+            singleTap?.cancel()
             player.release()
         }
     }
@@ -289,7 +314,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
     }
     BackHandler { if (showTracks) showTracks = false else if (showSettings) showSettings = false else onClose() }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(factory = { android.view.LayoutInflater.from(it).inflate(com.deepak.videolibrary.R.layout.playback_view, null) as PlayerView }, update = { view ->
+        AndroidView(onReset=null,onRelease={it.player=null},factory = { android.view.LayoutInflater.from(it).inflate(com.deepak.videolibrary.R.layout.playback_view, null) as PlayerView }, update = { view ->
             view.player = player
             view.useController = false
             view.resizeMode = aspect
@@ -305,6 +330,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
                         var moved = false
                         var mode = 0 // 0=tap/hold, 1=seek, 2=volume/brightness
                         var startPosition = player.currentPosition.coerceAtLeast(0L)
+                        var appliedVolume=-1
+                        var appliedBrightness=-1
                         val startVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
                         val maxVolume = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
                         val startBrightness = activity?.window?.attributes?.screenBrightness?.takeIf { it >= 0f } ?: 0.5f
@@ -376,13 +403,14 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
                                     val fraction = -dy / size.height.coerceAtLeast(1).toFloat()
                                     if (side == 1 && volumeGestureEnabled) {
                                         val target = (startVolume + fraction * maxVolume).roundToInt().coerceIn(0, maxVolume)
-                                        audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+                                        if(target!=appliedVolume) { audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0);appliedVolume=target }
                                         gestureMessage = "Volume ${(100f * target / maxVolume).roundToInt()}%"
                                     } else if (side == 0 && brightnessGestureEnabled) {
                                         activity?.window?.let { window ->
                                             val attrs = window.attributes
-                                            attrs.screenBrightness = (startBrightness + fraction).coerceIn(0.02f, 1f)
-                                            window.attributes = attrs
+                                            val percent=((startBrightness + fraction).coerceIn(0.02f,1f)*100).roundToInt()
+                                            attrs.screenBrightness=percent/100f
+                                            if(percent!=appliedBrightness) { window.attributes=attrs;appliedBrightness=percent }
                                             gestureMessage = "Brightness ${(attrs.screenBrightness * 100).roundToInt()}%"
                                         }
                                     }
@@ -398,6 +426,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
                         if (!moved && !holding) {
                             val now = System.currentTimeMillis()
                             if (now - lastTapTime < 350L && lastTapSide == side) {
+                                singleTap?.cancel()
                                 val delta = if (side == 0) -10_000L else 10_000L
                                 player.seekTo((player.currentPosition + delta).coerceIn(0L,
                                     player.duration.takeIf { it > 0L } ?: Long.MAX_VALUE))
@@ -406,7 +435,11 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
                             } else {
                                 lastTapTime = now
                                 lastTapSide = side
-                                if (controlsVisible) controlsVisible = false else revealControls()
+                                singleTap?.cancel()
+                                singleTap=gestureScope.launch {
+                                    delay(350)
+                                    if (controlsVisible) controlsVisible=false else revealControls()
+                                }
                             }
                         }
                     }
@@ -438,11 +471,11 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
                     }
                     var scrubbing by remember { mutableStateOf(false) }
                     var seekPosition by remember { mutableFloatStateOf(0f) }
-                    Slider(value = if (scrubbing) seekPosition else position.coerceIn(0L, duration.coerceAtLeast(1L)).toFloat(),
+                    Slider(value = if (scrubbing) seekPosition else (position.toDouble() / duration.coerceAtLeast(1L)).coerceIn(0.0,1.0).toFloat(),
                         onValueChange = { scrubbing = true; seekPosition = it; revealControls() },
-                        onValueChangeFinished = { player.seekTo(seekPosition.toLong()); scrubbing = false; revealControls() },
+                        onValueChangeFinished = { player.seekTo((seekPosition.toDouble()*duration.coerceAtLeast(0L)).toLong()); scrubbing = false; revealControls() },
                         colors = SliderDefaults.colors(thumbColor = Color(0xFFEF5350), activeTrackColor = Color(0xFFD32F2F), inactiveTrackColor = Color.DarkGray),
-                        valueRange = 0f..duration.coerceAtLeast(1L).toFloat(), modifier = Modifier.fillMaxWidth().height(22.dp))
+                        valueRange = 0f..1f, modifier = Modifier.fillMaxWidth().heightIn(min=48.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0)); revealControls() }, modifier = Modifier.size(64.dp)) {
                         Icon(Icons.Filled.Replay10, "Rewind 10 seconds", tint = Color.White, modifier = Modifier.size(32.dp))
@@ -486,14 +519,14 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
                             revealControls()
                         }) { Text("Off", color = Color.White) }
                     }
-                    val groups = trackGroups.filter { it.type == trackType && it.isSupported }
+                    val groups = trackGroups.filter { it.type == trackType }
                     if (groups.isEmpty()) Text("No available tracks", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                     groups.forEach { group ->
                         for (index in 0 until group.length) {
-                            if (!group.isTrackSupported(index)) continue
+                            val supported=group.isTrackSupported(index)
                             val format = group.getTrackFormat(index)
                             val label = format.label ?: format.language ?: "Track ${index + 1}"
-                            TextButton(onClick = {
+                            TextButton(enabled=supported,onClick = {
                                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                                     .setTrackTypeDisabled(trackType, false)
                                     .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, index))
@@ -501,7 +534,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
                                 trackRefresh++
                                 revealControls()
                             }) {
-                                Text(label, color = if (group.isTrackSelected(index)) MaterialTheme.colorScheme.primary else Color.White,
+                                Text(if(supported) label else "$label · unsupported (${format.sampleMimeType ?: "codec"})", color = if(!supported) Color.Gray else if (group.isTrackSelected(index)) MaterialTheme.colorScheme.primary else Color.White,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
