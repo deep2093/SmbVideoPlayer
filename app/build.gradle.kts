@@ -150,7 +150,7 @@ dependencies {
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     // SMB client
-    implementation("com.hierynomus:smbj:0.13.0")
+    implementation("com.hierynomus:smbj:0.14.0")
     implementation("org.slf4j:slf4j-android:1.7.36")
 
     testImplementation("junit:junit:4.13.2")
