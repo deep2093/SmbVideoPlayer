@@ -24,6 +24,8 @@ import kotlinx.coroutines.withContext
  * Shows a cached JPEG, decoded off the main thread and kept in a size-limited memory cache.
  * While there is no image (null file, or not decoded yet) a dark placeholder is shown.
  */
+// Compose lint misses the explicit producer value assignments below.
+@android.annotation.SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 fun FileImage(file: File?, modifier: Modifier = Modifier) {
     val image by produceState<ImageBitmap?>(

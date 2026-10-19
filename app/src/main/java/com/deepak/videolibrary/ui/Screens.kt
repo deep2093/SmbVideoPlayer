@@ -581,6 +581,8 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
     }
 }
 
+// Compose lint misses the explicit producer value assignments below.
+@android.annotation.SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 private fun FolderCard(vm: LibraryViewModel, row: GroupRow, modifier: Modifier = Modifier,
     listMode: Boolean = false, onClick: () -> Unit) {
@@ -797,6 +799,8 @@ fun ScanScreen(vm: LibraryViewModel) {
     }
 }
 
+// Compose lint misses the explicit producer value assignments below.
+@android.annotation.SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 private fun AutomaticSyncSummary() {
     val context = LocalContext.current
