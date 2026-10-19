@@ -1,5 +1,11 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.layout.navigationBarsPadding
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.compose.itemKey
 import androidx.compose.foundation.pager.HorizontalPager
@@ -135,21 +141,25 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     val folderVideosScrollState = rememberLazyGridState()
     var returnToThumbnails by remember {mutableStateOf(false)}
     LaunchedEffect(vm.explorerNavigationRequest) {vm.explorerNavigationRequest?.let {path->
-        vm.explorerQuery="";vm.browse(path);tab=2;returnToThumbnails=true;vm.consumeExplorerNavigation()
+        vm.explorerQuery="";vm.browse(path.substringBeforeLast('/',""),focus=path);tab=2;returnToThumbnails=true;vm.consumeExplorerNavigation()
     }}
     BackHandler(enabled = playing != null || folderDetails || tab != 0) {
         when {
             playing != null -> playing = null
             tab==2 && returnToThumbnails -> {tab=3;returnToThumbnails=false}
-            folderDetails -> { folderDetails = false; vm.groupFilter.value = null; tab = 0 }
-            else -> { tab = 0; vm.groupFilter.value = null }
+            folderDetails -> { folderDetails = false; vm.groupFilter.value = null; vm.matchFolderFilter.value=null; tab = 0 }
+            else -> { tab = 0; vm.groupFilter.value = null; vm.matchFolderFilter.value=null }
         }
     }
     if (playing != null) {
-        PlayerScreen(video = playing!!, settings = vm.settings, vm = vm, playlist = playQueue, onClose = { playing = null; playQueue = emptyList() })
+        if(playQueue.any {it.name.endsWith(".wmv",true) || it.name.endsWith(".asf",true)}) VlcPlayerScreen(video=playing!!,settings=vm.settings,vm=vm,playlist=playQueue,onClose={playing=null;playQueue=emptyList()})
+        else PlayerScreen(video = playing!!, settings = vm.settings, vm = vm, playlist = playQueue, onClose = { playing = null; playQueue = emptyList() })
         return
     }
     var railExpanded by remember { mutableStateOf(true) }
+    val railWidth by animateDpAsState(if(railExpanded)148.dp else 72.dp,label="sidebar_width")
+    val hazeState=remember {HazeState()}
+    val floating=vm.navigationPosition=="FLOATING"
     val collapseOnScroll = remember { object: NestedScrollConnection {
         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
             if(kotlin.math.abs(available.y)>2f) railExpanded=false
@@ -160,7 +170,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         val tabletLayout = maxWidth >= 700.dp
         Scaffold(
             bottomBar = {
-                if (!tabletLayout) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                if (!tabletLayout && !floating) NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                     TAB_LABELS.forEachIndexed { index, label ->
                         NavigationBarItem(
                             selected = tab == index,
@@ -172,7 +182,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                             onClick = {
                                 tab = index
                                 folderDetails = false
-                                vm.groupFilter.value = null
+                                vm.groupFilter.value = null; vm.matchFolderFilter.value=null
                             },
                             icon = { Icon(TAB_ICONS[index], contentDescription = label) }, label = { Text(label) },
                         )
@@ -180,26 +190,27 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                 }
             },
         ) { padding ->
-            Row(Modifier.padding(padding).fillMaxSize()) {
-                if (tabletLayout) {
-                    androidx.compose.material3.NavigationRail(modifier=Modifier.width(if(railExpanded) 148.dp else 72.dp),containerColor = MaterialTheme.colorScheme.primary) {
+            Box(Modifier.fillMaxSize()) {
+            Row(Modifier.padding(padding).fillMaxSize().then(if(floating)Modifier.haze(hazeState)else Modifier)) {
+                if (tabletLayout && !floating) {
+                    androidx.compose.material3.NavigationRail(modifier=Modifier.width(railWidth),containerColor = Color.Black) {
                         IconButton(onClick={railExpanded=!railExpanded}){Icon(Icons.Filled.Menu,contentDescription="Expand or collapse sidebar",tint=Color.White)}
                         TAB_LABELS.forEachIndexed { index, label ->
                             androidx.compose.material3.NavigationRailItem(
                                 selected = tab == index,
                                 colors = androidx.compose.material3.NavigationRailItemDefaults.colors(
-                                    selectedIconColor = Color.White,
-                                    selectedTextColor = Color.White,
-                                    indicatorColor = Color.Black,
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = Color.White.copy(alpha=0.12f),
                                     unselectedIconColor = Color.White, unselectedTextColor = Color.White),
                                 onClick = {
                                     railExpanded = true
                                     tab = index
                                     folderDetails = false
-                                    vm.groupFilter.value = null
+                                    vm.groupFilter.value = null; vm.matchFolderFilter.value=null
                                 },
                                 icon = { Icon(TAB_ICONS[index], contentDescription = label) },
-                                label = if(railExpanded) ({ Text(label,color=Color.White) }) else null,
+                                label = if(railExpanded) ({ Text(label) }) else null,
                                 alwaysShowLabel = true,
                             )
                         }
@@ -212,16 +223,18 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         Text(message,Modifier.weight(1f).padding(8.dp),color=Color.White)
                         TextButton(onClick=vm::dismissNotice){Text("Dismiss")}
                     } }
-                    Box(Modifier.weight(1f)) { when (tab) {
+                    Crossfade(targetState=tab,modifier=Modifier.weight(1f),animationSpec=tween(140),label="section_transition") { currentTab -> when (currentTab) {
                         0 -> FoldersHub(vm, gridState = foldersScrollState, onOpenGroup = { folderDetails = true; tab = 1 }, onPlay = { video, queue -> playing = video; playQueue = queue }, onOpenSettings = { tab = 4 })
                         1 -> VideosScreen(vm, gridState = if (folderDetails) folderVideosScrollState else videosScrollState, onPlay = { video, queue -> playing = video; playQueue = queue }, onBackToFolders = if (folderDetails) ({
-                            folderDetails = false; vm.groupFilter.value = null; tab = 0
+                            folderDetails = false; vm.groupFilter.value = null; vm.matchFolderFilter.value=null; tab = 0
                         }) else null)
                         2 -> ExplorerScreen(vm, onPlay = { video, queue -> playing = video; playQueue = queue })
                         3 -> ScanScreen(vm)
                         else -> SettingsScreen(vm)
                     } }
                 }
+            }
+            if(floating)FloatingLibraryNavigation(tab,TAB_LABELS,TAB_ICONS,hazeState,Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding().padding(bottom=12.dp)) {index->tab=index;folderDetails=false;vm.groupFilter.value=null;vm.matchFolderFilter.value=null;railExpanded=true}
             }
         }
     }
@@ -230,18 +243,17 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
 @Composable
 private fun FoldersHub(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup:()->Unit,
     onPlay:(VideoEntity,List<VideoEntity>)->Unit, onOpenSettings:()->Unit) {
-    val pager=rememberPagerState(initialPage=vm.foldersTab,pageCount={2})
+    val pager=rememberPagerState(initialPage=vm.foldersTab,pageCount={3})
     val scope=rememberCoroutineScope()
     LaunchedEffect(pager.settledPage){vm.foldersTab=pager.settledPage}
     Column(Modifier.fillMaxSize()) {
         androidx.compose.material3.TabRow(selectedTabIndex=pager.currentPage,containerColor=Color.Black,contentColor=Color.White) {
-            listOf("Virtual folders","Original folders").forEachIndexed { index,title ->
+            listOf("Custom folders","Virtual folders","Original folders").forEachIndexed { index,title ->
                 androidx.compose.material3.Tab(selected=pager.currentPage==index,onClick={scope.launch{pager.animateScrollToPage(index)}},text={Text(title)})
             }
         }
         HorizontalPager(state=pager,modifier=Modifier.weight(1f)) { page ->
-            if(page==0) FoldersScreen(vm,gridState,onOpenGroup,onPlay,onOpenSettings)
-            else OriginalFoldersScreen(vm,onPlay)
+            when(page){0->MatchingFoldersScreen(vm,onOpenGroup,onPlay);1->FoldersScreen(vm,gridState,onOpenGroup,onPlay,onOpenSettings);else->OriginalFoldersScreen(vm,onPlay)}
         }
     }
 }
@@ -253,18 +265,19 @@ fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoE
     val videos=vm.videoPages.collectAsLazyPagingItems()
     val query by vm.query.collectAsStateWithLifecycle()
     val group by vm.groupFilter.collectAsStateWithLifecycle()
-    val selectedGroup=group
+    val matchFolder by vm.matchFolderFilter.collectAsStateWithLifecycle()
+    val selectedGroup=group ?: matchFolder?.name
     var searchExpanded by rememberSaveable { mutableStateOf(query.isNotBlank()) }
     val total by vm.videoCount.collectAsStateWithLifecycle()
     val count by vm.videoResultsCount.collectAsStateWithLifecycle()
     val continueWatching by vm.continuing.collectAsStateWithLifecycle()
     var addDialog by remember { mutableStateOf(false) }
     var videoSearch by remember { mutableStateOf("") }
-    LaunchedEffect(query,group){gridState.scrollToItem(0)}
+    LaunchedEffect(query,group,matchFolder?.id){gridState.scrollToItem(0)}
     Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             if (selectedGroup != null) IconButton(onClick = {
-                if (onBackToFolders != null) onBackToFolders() else vm.groupFilter.value = null
+                if (onBackToFolders != null) onBackToFolders() else vm.groupFilter.value = null; vm.matchFolderFilter.value=null
             }) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back to folders") }
             Text(selectedGroup ?: "Videos", style = MaterialTheme.typography.titleLarge,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -279,7 +292,7 @@ fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoE
                 label = { Text("Search videos by filename") }, singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
         }
-        if (selectedGroup != null) {
+        if (selectedGroup != null && matchFolder==null) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text("Virtual folder", style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
@@ -293,10 +306,10 @@ fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoE
                 columns = GridCells.Fixed(if (vm.videoListMode) 1 else columns),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 24.dp),
+                contentPadding = PaddingValues(bottom = if(floatingPadding(vm))112.dp else 24.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                if (group == null && query.isEmpty() && continueWatching.isNotEmpty()) {
+                if (group == null && matchFolder==null && query.isEmpty() && continueWatching.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
                         Column {
                             Text("Continue watching", style = MaterialTheme.typography.titleMedium,
@@ -325,7 +338,7 @@ fun VideosScreen(vm: LibraryViewModel, gridState: LazyGridState, onPlay: (VideoE
                 }
                 items(count=videos.itemCount,key=videos.itemKey { it.relativePath },contentType={"video"}) { index ->
                     videos[index]?.let { video -> VideoCard(video,onClick={
-                        if(group!=null || query.isNotBlank()) vm.playLibrary("videos",video,onPlay) else onPlay(video,listOf(video))
+                        if(group!=null || matchFolder!=null || query.isNotBlank()) vm.playLibrary("videos",video,onPlay) else onPlay(video,listOf(video))
                     },vm=vm,listMode=vm.videoListMode) }
                 }
             }
@@ -473,7 +486,7 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
                 columns = GridCells.Fixed(if (vm.folderListMode) 1 else columns),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 24.dp),
+                contentPadding = PaddingValues(bottom = if(floatingPadding(vm))112.dp else 24.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
@@ -517,6 +530,7 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
                 gridItems(shownGroups, key = { it.groupKey }, contentType = { "folder" }) { row ->
                     Column {
                         FolderCard(vm, row, listMode = vm.folderListMode) {
+                            vm.matchFolderFilter.value=null
                             vm.groupFilter.value = row.groupKey
                             vm.query.value = if (matchesFilename(row.groupKey, folderQuery)) "" else folderQuery
                             onOpenGroup()
@@ -636,7 +650,7 @@ fun ScanScreen(vm: LibraryViewModel) {
 
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(vertical = 16.dp),
+        contentPadding = PaddingValues(top=16.dp,bottom=if(floatingPadding(vm))112.dp else 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Text("Scan & Sync", style = MaterialTheme.typography.titleLarge) }
@@ -838,13 +852,18 @@ fun SettingsScreen(vm: LibraryViewModel) {
     )
 
     Column(
-        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(16.dp).padding(bottom=if(floatingPadding(vm))100.dp else 0.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Text("Personalize your library, playback controls and network connection.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedButton(onClick={hiddenPage=true},modifier=Modifier.fillMaxWidth()){Text("Unhide files and folders")}
+        Text("Navigation position",style=MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+            RadioButton(selected=vm.navigationPosition=="SIDEBAR",onClick={vm.setNavigationPosition("SIDEBAR")});TextButton(onClick={vm.setNavigationPosition("SIDEBAR")}){Text("Sidebar")}
+            RadioButton(selected=vm.navigationPosition=="FLOATING",onClick={vm.setNavigationPosition("FLOATING")});TextButton(onClick={vm.setNavigationPosition("FLOATING")}){Text("Floating bottom bar")}
+        }
         DiagnosticsSettings()
         var gesturesExpanded by rememberSaveable { mutableStateOf(false) }
         var layoutExpanded by rememberSaveable { mutableStateOf(false) }
@@ -971,3 +990,5 @@ fun SettingsScreen(vm: LibraryViewModel) {
         }
     }
 }
+
+internal fun floatingPadding(vm:LibraryViewModel)=vm.navigationPosition=="FLOATING"

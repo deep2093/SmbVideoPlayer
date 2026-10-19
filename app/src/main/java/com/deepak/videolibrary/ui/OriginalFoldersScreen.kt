@@ -10,6 +10,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,14 +34,15 @@ fun OriginalFoldersScreen(vm: LibraryViewModel,onPlay:(VideoEntity,List<VideoEnt
     val root=vm.settings.rootPath.trim('/')
     val path=vm.originalPath.takeIf {isWithinFolder(it,root)} ?: root
     val query=vm.originalQuery
+    var searchExpanded by remember {mutableStateOf(query.isNotBlank())}
     fun up(){vm.originalQuery="";vm.originalPath=path.substringBeforeLast('/',"").takeIf {isWithinFolder(it,root)} ?: root}
     BackHandler(enabled=query.isNotEmpty() || path!=root){if(query.isNotEmpty())vm.originalQuery="" else up()}
     Column(Modifier.fillMaxSize().padding(horizontal=12.dp)) {
-        Row(verticalAlignment=Alignment.CenterVertically){Text("Original folders",style=MaterialTheme.typography.titleLarge,modifier=Modifier.weight(1f));TextButton(onClick={vm.startScan(ScanMode.REFRESH)}){Text("Refresh index")}}
+        Row(verticalAlignment=Alignment.CenterVertically){Text("Original folders",style=MaterialTheme.typography.titleLarge,modifier=Modifier.weight(1f));IconButton(onClick={searchExpanded=!searchExpanded;if(!searchExpanded)vm.originalQuery=""}){Icon(if(searchExpanded)Icons.Default.Close else Icons.Default.Search,if(searchExpanded)"Close original folder search" else "Search original folders")};TextButton(onClick={vm.startScan(ScanMode.REFRESH)}){Text("Refresh index")}}
         Row(verticalAlignment=Alignment.CenterVertically){TextButton(enabled=path!=root,onClick=::up){Text("← Up")};Text(path.ifEmpty {"/ (share root)"},Modifier.weight(1f),maxLines=2,overflow=TextOverflow.Ellipsis)}
-        OutlinedTextField(query,{vm.originalQuery=it},singleLine=true,label={Text("Search folder and video names")},modifier=Modifier.fillMaxWidth(),trailingIcon={if(query.isNotEmpty())TextButton(onClick={vm.originalQuery=""}){Text("Clear")}})
+        if(searchExpanded || query.isNotBlank())OutlinedTextField(query,{vm.originalQuery=it},singleLine=true,label={Text("Search folder and video names")},modifier=Modifier.fillMaxWidth(),trailingIcon={if(query.isNotEmpty())TextButton(onClick={vm.originalQuery=""}){Text("Clear")}})
         Row(verticalAlignment=Alignment.CenterVertically){Text("$count videos including subfolders",Modifier.weight(1f));TextButton(enabled=count>0,onClick={vm.playLibrary("originals",onPlay=onPlay)}){Text("Play all")}}
-        LazyVerticalGrid(columns=GridCells.Fixed(if(vm.folderListMode)1 else LibraryLayout.columns(vm.folderGridPreset)),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=24.dp),modifier=Modifier.weight(1f)){
+        LazyVerticalGrid(columns=GridCells.Fixed(if(vm.folderListMode)1 else LibraryLayout.columns(vm.folderGridPreset)),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=if(floatingPadding(vm))112.dp else 24.dp),modifier=Modifier.weight(1f)){
             if(count==0 && children.isEmpty())item(span={GridItemSpan(maxLineSpan)}){Text(if(query.isBlank())"No visible indexed videos here. Scan your library or check Hidden items in Settings." else "No matching visible folders or videos.")}
             items(children,key={"folder:${it.path}"}){folder->OriginalFolderCard(vm,folder){vm.originalQuery="";vm.originalPath=folder.path}}
             items(count=videos.itemCount,key=videos.itemKey {"video:${it.relativePath}"}){index->videos[index]?.let {video->VideoCard(video,onClick={vm.playLibrary("originals",video,onPlay)},vm=vm,listMode=vm.folderListMode,selectionScope="originals")}}

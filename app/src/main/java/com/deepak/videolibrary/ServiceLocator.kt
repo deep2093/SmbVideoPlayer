@@ -12,7 +12,7 @@ import com.deepak.videolibrary.thumbs.ThumbnailGenerator
 class ServiceLocator private constructor(context: Context) {
     val db: LibraryDatabase =
         Room.databaseBuilder(context, LibraryDatabase::class.java, "library.db")
-            .addMigrations(com.deepak.videolibrary.data.MIGRATION_1_2, com.deepak.videolibrary.data.MIGRATION_2_3).build()
+            .addMigrations(com.deepak.videolibrary.data.MIGRATION_1_2, com.deepak.videolibrary.data.MIGRATION_2_3, com.deepak.videolibrary.data.MIGRATION_3_4).build()
     val settings = SettingsStore(context)
     val scanRepository = ScanRepository(db)
     val thumbnails = ThumbnailGenerator(context, db)

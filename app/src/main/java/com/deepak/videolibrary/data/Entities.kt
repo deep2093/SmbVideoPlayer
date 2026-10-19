@@ -79,3 +79,10 @@ data class PlaybackStateEntity(val connectionKey: String, val path: String,
 
 data class FolderSummary(val groupKey: String, val count: Int, val thumbsDone: Int, val totalSize: Long, val lastModified: Long)
 data class DirectorySummary(val path: String, val count: Int, val thumbsDone: Int)
+
+/** An overlapping, automatic collection; membership never rewrites video assignments. */
+@Entity(tableName="match_folders",indices=[Index(value=["connectionKey","name"],unique=true)])
+data class MatchFolderEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,
+    val connectionKey:String,val name:String,val term:String)
+data class MatchFolderRow(@androidx.room.Embedded val folder:MatchFolderEntity,
+    val count:Int,val thumbsDone:Int,val lastModified:Long)

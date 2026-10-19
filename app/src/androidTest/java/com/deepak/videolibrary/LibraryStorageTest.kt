@@ -92,4 +92,23 @@ class LibraryStorageTest {
         assertTrue(db.dao().observeFailedThumbs().first().isEmpty())
         assertEquals(two,db.dao().findVideo("Movies/Two.mp4")!!.id)
     }
+    @Test fun automaticFoldersMatchAnywhereAndTrackNewFilesWithoutReassignment()=runBlocking {
+        val dao=db.libraryState()
+        val id=dao.createMatch(MatchFolderEntity(connectionKey="nas",name="Peter",term="Peter"))
+        add("A/2025 PETER film.mp4",custom="Keep this assignment")
+        add("B/Movie with peter.mp4")
+        add("Peter/Unrelated.mp4")
+        assertEquals(2,dao.matchingFolders(LibraryQueries.matchingFolders("nas","")).first().single().count)
+        add("C/New peter movie.mp4")
+        assertEquals(3,dao.matchingFolders(LibraryQueries.matchingFolders("nas","")).first().single().count)
+        assertEquals("Keep this assignment",db.dao().findVideo("A/2025 PETER film.mp4")!!.customGroup)
+        assertEquals(3,dao.videoList(LibraryQueries.videos(LibraryScope("nas",match="Peter"))).size)
+        dao.hide(HiddenItem("nas","FILE","B/Movie with peter.mp4","Movie"))
+        assertEquals(2,dao.matchingFolders(LibraryQueries.matchingFolders("nas","")).first().single().count)
+        dao.hide(HiddenItem("nas","MATCH",id.toString(),"Peter"))
+        assertTrue(dao.matchingFolders(LibraryQueries.matchingFolders("nas","")).first().isEmpty())
+        assertTrue(dao.matchingFolders(LibraryQueries.matchingFolders("other","")).first().isEmpty())
+        dao.deleteMatch(id)
+        assertEquals(4,dao.legacyVideos().size)
+    }
 }

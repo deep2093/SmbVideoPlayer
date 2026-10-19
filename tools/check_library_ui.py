@@ -30,6 +30,9 @@ def find(label,timeout=20):
     while time.monotonic()<end:
         root=tree()
         for node in root.iter('node'):
+            if node.get('content-desc')==label:
+                return node
+        for node in root.iter('node'):
             # Compose merges a clickable card's filename and secondary caption
             # into one accessibility node separated by newlines.
             if label in node.get('text','').splitlines() or node.get('content-desc')==label:
@@ -49,6 +52,13 @@ def click(label,long=False):
 
 def screenshot(name):
     Path('preview/device-'+name+'.png').write_bytes(adb('exec-out','screencap','-p'))
+
+def enter_text(value):
+    field=next(n for n in tree().iter('node') if n.get('class')=='android.widget.EditText')
+    x1,y1,x2,y2=map(int,re.findall(r'\d+',field.attrib['bounds']))
+    adb('shell','input','tap',(x1+x2)//2,(y1+y2)//2)
+    adb('shell','input','text',value)
+    adb('shell','input','keyevent','111')
 
 try:
     adb('shell','wm','size','2560x1600')
@@ -74,6 +84,23 @@ try:
     click('Settings');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
     find('No hidden items.');screenshot('unhide')
     print('PASS: hidden video stays browsable in File Explorer and can be restored in Settings')
+    click('Folders');click('Custom folders');click('+ Create')
+    enter_text('Cruise');click('Create');find('Cruise')
+    click('Cruise');click(NAME,long=True);click('Select all');find('2 selected');click('Done')
+    print('PASS: automatic custom folder matches filenames and supports Select all')
+    # Put many live, unindexed files before the failed video in the real listing.
+    for i in range(80):
+        (target.parent/f'A{i:03}.txt').write_text('fixture')
+    click('Scan');click(NAME);click('Open folder in File Explorer')
+    find('Target file: '+NAME);screenshot('exact-file-jump')
+    labels=[n.get('text','') for n in tree().iter('node')]
+    assert 'A000.txt' not in labels, 'Shortcut must scroll beyond the first page'
+    print('PASS: failed-thumbnail shortcut scrolls to the exact file and highlights it')
+    click('Settings');click('Floating bottom bar');click('Folders');find('Custom folders');screenshot('floating-navigation')
+    click('File Explorer');click('← Up');click('Movies');click('Sample.wmv')
+    find('WMV playback active',timeout=40);screenshot('wmv-playing')
+    adb('shell','input','keyevent','4')
+    print('PASS: WMV/ASF with WMA audio plays from SMB through the VLC compatibility player')
 except Exception:
     screenshot('failure')
     print('Visible labels:',[(n.get('text'),n.get('content-desc')) for n in tree().iter('node') if n.get('text') or n.get('content-desc')])

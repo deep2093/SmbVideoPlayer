@@ -1,6 +1,12 @@
 package com.deepak.videolibrary.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -30,10 +36,18 @@ import com.deepak.videolibrary.data.VideoEntity
 @Composable
 fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
     val transfers by vm.transfers.collectAsStateWithLifecycle()
-    LaunchedEffect(transfers.filter { it.state.isFinished }.map { it.id }) { if(transfers.any {it.state==androidx.work.WorkInfo.State.SUCCEEDED}) {vm.browse();if(vm.explorerQuery.isNotBlank())vm.searchExplorer(vm.explorerQuery,vm.explorerPath)} }
+    val completed=transfers.filter {it.state.isFinished}.map {it.id}
+    var priorCompleted by remember {mutableStateOf<List<java.util.UUID>?>(null)}
+    LaunchedEffect(completed) {if(priorCompleted!=null && priorCompleted!=completed){vm.browse(focus=vm.explorerFocusPath);if(vm.explorerQuery.isNotBlank())vm.searchExplorer(vm.explorerQuery,vm.explorerPath)};priorCompleted=completed}
+    val listState=rememberLazyListState()
+    var searchExpanded by rememberSaveable {mutableStateOf(vm.explorerQuery.isNotBlank())}
     val searching = vm.explorerQuery.isNotBlank()
     val shown = if (searching) vm.explorerHits else vm.explorerEntries.map {
         ExplorerHit(listOf(vm.explorerPath, it.name).filter { part -> part.isNotBlank() }.joinToString("/"), it)
+    }
+    LaunchedEffect(vm.explorerFocusPath,vm.explorerBusy,shown.map {it.path}) {
+        val index=shown.indexOfFirst {it.path==vm.explorerFocusPath}
+        if(!vm.explorerBusy && index>=0)listState.scrollToItem(index)
     }
     val playQueue = shown.filter { isPlayable(it.entry) }.map { explorerVideo(it, emptyMap()) }.distinctBy { it.relativePath }
     DisposableEffect(Unit) { onDispose { vm.stopExplorerSearch() } }
@@ -45,16 +59,15 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
             onPlay(item, if (searching) playQueue else listOf(item))
         }
     }
-    LaunchedEffect(Unit) { if (vm.explorerEntries.isEmpty()) vm.browse() }
+    LaunchedEffect(Unit) { if (vm.explorerEntries.isEmpty()) vm.browse(focus=vm.explorerFocusPath) }
     BackHandler(enabled = searching || vm.explorerPath.isNotEmpty()) {
         if (searching) vm.explorerQuery = "" else vm.browse(vm.explorerPath.substringBeforeLast('/', ""))
     }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Browse", style = MaterialTheme.typography.titleLarge)
-        Text("Local network · ${vm.settings.host.ifBlank { "SMB server" }}", style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary)
-        Text("Changes here affect the ORIGINAL files on your SMB drive.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        Row(verticalAlignment=Alignment.CenterVertically) {
+            Text("File Explorer",style=MaterialTheme.typography.titleLarge,modifier=Modifier.weight(1f))
+            IconButton(onClick={searchExpanded=!searchExpanded;if(!searchExpanded)vm.explorerQuery=""}){Icon(if(searchExpanded)Icons.Default.Close else Icons.Default.Search,if(searchExpanded)"Close explorer search" else "Search File Explorer")}
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { vm.browse(vm.explorerPath.substringBeforeLast('/', "")) },
                 enabled = vm.explorerPath.isNotEmpty() && !vm.explorerBusy) { Text("← Up") }
@@ -62,7 +75,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                 overflow = TextOverflow.Ellipsis)
             TextButton(onClick = { vm.browse(); vm.searchExplorer(vm.explorerQuery, vm.explorerPath) }, enabled = !vm.explorerBusy) { Text("Refresh") }
         }
-        OutlinedTextField(value = vm.explorerQuery, onValueChange = { vm.explorerQuery = it },
+        if(searchExpanded || searching)OutlinedTextField(value = vm.explorerQuery, onValueChange = { vm.explorerQuery = it },
             label = { Text("Search names anywhere in this folder and subfolders") },
             singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             trailingIcon = { if (searching) TextButton(onClick = { vm.explorerQuery = "" }) { Text("Clear") } },
@@ -89,12 +102,12 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
+        LazyColumn(state=listState,contentPadding=PaddingValues(bottom=if(floatingPadding(vm))112.dp else 16.dp),verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
             items(shown, key = { it.path }) { hit ->
                 val entry = hit.entry
                 var menu by remember(entry.name) { mutableStateOf(false) }
                 val fullPath = hit.path
-                Row(Modifier.fillMaxWidth().combinedClickable(onClick={open(hit)},onLongClick={menu=true}), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().then(if(hit.path==vm.explorerFocusPath)Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha=0.28f)).semantics{contentDescription="Target file: ${entry.name}"}else Modifier).combinedClickable(onClick={open(hit)},onLongClick={menu=true}), verticalAlignment = Alignment.CenterVertically) {
                     val playable = isPlayable(entry)
                     Icon(if (entry.isDirectory) Icons.Filled.Folder else if (playable) Icons.Filled.Movie else Icons.Filled.InsertDriveFile,
                         contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(12.dp).size(28.dp))

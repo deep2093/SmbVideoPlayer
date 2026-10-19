@@ -154,7 +154,7 @@ internal fun HiddenItemsScreen(vm: LibraryViewModel, back:()->Unit) {
         if(hidden.isEmpty()) Text("No hidden items.")
         LazyColumn {items(hidden,key={"${it.kind}:${it.target}"}){item->
             Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)){Text(item.label);Text("${if(item.kind=="GROUP") "Virtual folder" else if(item.kind=="DIRECTORY") "Original folder" else "File"} · ${item.target}",style=MaterialTheme.typography.bodySmall)}
+                Column(Modifier.weight(1f)){Text(item.label);Text("${if(item.kind=="MATCH") "Custom folder" else if(item.kind=="GROUP") "Virtual folder" else if(item.kind=="DIRECTORY") "Original folder" else "File"} · ${item.target}",style=MaterialTheme.typography.bodySmall)}
                 TextButton(onClick={vm.unhide(item)}){Text("Unhide")}
             }
         }}

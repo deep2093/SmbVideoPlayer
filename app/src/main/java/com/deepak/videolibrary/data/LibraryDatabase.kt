@@ -12,13 +12,21 @@ import androidx.room.RoomDatabase
         CustomFolderEntity::class,
         HiddenItem::class,
         PlaybackStateEntity::class,
+        MatchFolderEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class LibraryDatabase : RoomDatabase() {
     abstract fun dao(): LibraryDao
     abstract fun libraryState(): LibraryStateDao
+}
+
+val MIGRATION_3_4=object:androidx.room.migration.Migration(3,4){
+    override fun migrate(db:androidx.sqlite.db.SupportSQLiteDatabase){
+        db.execSQL("CREATE TABLE IF NOT EXISTS match_folders (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, connectionKey TEXT NOT NULL, name TEXT NOT NULL, term TEXT NOT NULL)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_match_folders_connectionKey_name ON match_folders(connectionKey,name)")
+    }
 }
 
 

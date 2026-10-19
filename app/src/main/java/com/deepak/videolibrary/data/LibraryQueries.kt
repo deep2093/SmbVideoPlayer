@@ -5,13 +5,15 @@ import androidx.sqlite.db.SimpleSQLiteQuery
 /** All values are bound parameters; only allowlisted sort expressions are interpolated. */
 data class LibraryScope(val key: String, val query: String = "", val group: String? = null,
     val directory: String? = null, val subtree: Boolean = false, val groupMatches: Boolean = false,
-    val pathMatches: Boolean = false, val sort: String = "NAME", val descending: Boolean = false)
+    val pathMatches: Boolean = false, val sort: String = "NAME", val descending: Boolean = false,
+    val match:String?=null)
 
 object LibraryQueries {
     private fun where(s: LibraryScope): Pair<String, MutableList<Any?>> {
         val args = mutableListOf<Any?>(s.key)
         val text = StringBuilder(" NOT EXISTS (SELECT 1 FROM hidden_items h WHERE h.connectionKey=? AND ((h.kind='FILE' AND h.target=v.relativePath) OR (h.kind='DIRECTORY' AND (h.target=v.relativePath OR substr(v.relativePath,1,length(h.target)+1)=h.target||'/')) OR (h.kind='GROUP' AND h.target=COALESCE(v.customGroup,v.groupKey))))")
         if (s.group != null) { text.append(" AND COALESCE(v.customGroup,v.groupKey)=?"); args.add(s.group) }
+        if(s.match!=null){text.append(" AND instr(lower(v.name),lower(?))>0");args.add(s.match)}
         s.directory?.let { dir ->
             if (!s.subtree) { text.append(" AND v.parentDir=?"); args.add(dir) }
             else if (dir.isNotEmpty()) { text.append(" AND (v.parentDir=? OR substr(v.parentDir,1,length(?)+1)=?||'/')"); args.addAll(listOf(dir,dir,dir)) }
@@ -49,5 +51,9 @@ object LibraryQueries {
     fun allDirectories(s:LibraryScope):SimpleSQLiteQuery {
         val(w,a)=where(s.copy(subtree=true,pathMatches=true))
         return SimpleSQLiteQuery("SELECT v.parentDir path,COUNT(*) count,SUM(CASE WHEN v.thumbStatus='DONE' THEN 1 ELSE 0 END) thumbsDone FROM videos v WHERE $w AND v.parentDir!=? GROUP BY v.parentDir ORDER BY v.parentDir COLLATE NOCASE",(a+(s.directory ?: "")).toTypedArray())
+    }
+    fun matchingFolders(key:String,query:String):SimpleSQLiteQuery {
+        val(w,a)=where(LibraryScope(key))
+        return SimpleSQLiteQuery("SELECT f.*,COUNT(v.id) count,SUM(CASE WHEN v.thumbStatus='DONE' THEN 1 ELSE 0 END) thumbsDone,COALESCE(MAX(v.modified),0) lastModified FROM match_folders f LEFT JOIN videos v ON instr(lower(v.name),lower(f.term))>0 AND $w WHERE f.connectionKey=? AND instr(lower(f.name),lower(?))>0 AND NOT EXISTS(SELECT 1 FROM hidden_items h WHERE h.connectionKey=? AND h.kind='MATCH' AND h.target=CAST(f.id AS TEXT)) GROUP BY f.id ORDER BY f.name COLLATE NOCASE",(a+listOf(key,query,key)).toTypedArray())
     }
 }

@@ -7,6 +7,12 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 abstract class LibraryStateDao {
+    @Insert abstract suspend fun createMatch(folder:MatchFolderEntity):Long
+    @Query("UPDATE match_folders SET name=:name,term=:name WHERE id=:id")
+    abstract suspend fun renameMatch(id:Long,name:String)
+    @Query("DELETE FROM match_folders WHERE id=:id") abstract suspend fun deleteMatch(id:Long)
+    @RawQuery(observedEntities=[MatchFolderEntity::class,VideoEntity::class,HiddenItem::class])
+    abstract fun matchingFolders(query:SupportSQLiteQuery):Flow<List<MatchFolderRow>>
     @RawQuery(observedEntities = [VideoEntity::class, HiddenItem::class])
     abstract fun pages(query: SupportSQLiteQuery): PagingSource<Int, VideoEntity>
     @RawQuery abstract suspend fun videoList(query: SupportSQLiteQuery): List<VideoEntity>

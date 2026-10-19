@@ -69,7 +69,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         private set
     val namespace = MutableStateFlow(connectionKey(settings))
     private val storageReady = MutableStateFlow(false)
-    var foldersTab by mutableIntStateOf(0)
+    var foldersTab by mutableIntStateOf(1)
+    val matchFolderFilter=MutableStateFlow<MatchFolderEntity?>(null)
+    val matchFolderQuery=MutableStateFlow("")
     private val folderQueryFlow = MutableStateFlow("")
     private val originalQueryFlow = MutableStateFlow("")
     private val originalLocation = MutableStateFlow(settings.rootPath.trim('/'))
@@ -81,6 +83,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
 
     // Grid preset preferences are independent for each library tab.
     private val layoutPrefs = app.getSharedPreferences("library_layout", Application.MODE_PRIVATE)
+    var navigationPosition by mutableStateOf(layoutPrefs.getString("navigation_position","SIDEBAR") ?: "SIDEBAR")
+        private set
+    fun setNavigationPosition(value:String){if(value !in setOf("SIDEBAR","FLOATING"))return;navigationPosition=value;layoutPrefs.edit().putString("navigation_position",value).apply()}
     private val isTablet = app.resources.configuration.smallestScreenWidthDp >= 600
     private val allowedGridPresets = LibraryLayout.presets.toSet()
     private fun restoredGrid(key: String, default: String): String =
@@ -164,8 +169,8 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         get() = originalQueryValue
         set(value) { originalQueryValue=value; originalQueryFlow.value=value }
 
-    private val videoScope = combine(query.debounce(200), groupFilter, sortChoice, namespace) { q,g,sort,key ->
-        LibraryScope(key,q,g,sort=sort.first,descending=sort.second)
+    private val videoScope = combine(query.debounce(200), groupFilter, sortChoice, namespace,matchFolderFilter) { q,g,sort,key,rule ->
+        LibraryScope(key,q,g,sort=sort.first,descending=sort.second,match=rule?.term)
     }
     private val folderScope = combine(folderQueryFlow.debounce(200),sortChoice,namespace) { q,sort,key ->
         LibraryScope(key,q,groupMatches=true,sort=sort.first,descending=sort.second)
@@ -184,6 +189,26 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     val originalResultsCount = originalScope.flatMapLatest { stateDao.count(LibraryQueries.count(it.copy(subtree=true))) }.state(0)
     val groups = combine(folderScope,folderSortChoice) { scope,sort -> LibraryQueries.groups(scope,sort.first,sort.second) }
         .flatMapLatest { stateDao.folders(it) }.state(emptyList())
+    val matchingFolders=combine(namespace,matchFolderQuery.debounce(200)){key,q->LibraryQueries.matchingFolders(key,q)}.flatMapLatest {stateDao.matchingFolders(it)}.state(emptyList())
+    fun createMatchingFolder(name:String)=organize {val clean=cleanFolderName(name) ?: return@organize;stateDao.createMatch(MatchFolderEntity(connectionKey=namespace.value,name=clean,term=clean))}
+    fun renameMatchingFolder(folder:MatchFolderEntity,name:String)=organize {val clean=cleanFolderName(name) ?: return@organize;stateDao.renameMatch(folder.id,clean);coverRevision++}
+    fun deleteMatchingFolder(folder:MatchFolderEntity)=organize {stateDao.deleteMatch(folder.id)}
+    fun hideMatchingFolder(folder:MatchFolderEntity) {viewModelScope.launch {stateDao.hide(HiddenItem(namespace.value,"MATCH",folder.id.toString(),folder.name))}}
+    fun stageMatchingFolder(folder:MatchFolderEntity,cut:Boolean) {viewModelScope.launch {
+        val rows=withContext(Dispatchers.IO){stateDao.videoList(LibraryQueries.videos(LibraryScope(namespace.value,match=folder.term)))}
+        clipboardBatch=rows.map {Triple(it.relativePath,false,cut)};explorerClipboard=clipboardBatch.firstOrNull()
+        notice="${rows.size} matching videos ready to ${if(cut) "move" else "copy"}."
+    }}
+    fun mergeMatchingFolder(folder:MatchFolderEntity,targetName:String)=organize {
+        val target=cleanFolderName(targetName) ?: return@organize
+        val rows=stateDao.videoList(LibraryQueries.videos(LibraryScope(namespace.value,match=folder.term)))
+        services.db.withTransaction {dao.createFolder(CustomFolderEntity(target));rows.map {it.relativePath}.chunked(500).forEach {dao.assignPaths(it,target)}}
+    }
+    suspend fun matchingCover(folder:MatchFolderEntity,key:String):File? {
+        coverFiles.get(key)?.let {return it}
+        val ids=withContext(Dispatchers.IO){stateDao.ids(LibraryQueries.coverIds(LibraryScope(namespace.value,match=folder.term)))}
+        return services.covers.buildOriginal("${namespace.value}:match:${folder.id}",ids)?.also {coverFiles.put(key,it)}
+    }
     val originalDirectories = originalScope.flatMapLatest { stateDao.directories(if(it.directory==settings.rootPath.trim('/')) LibraryQueries.allDirectories(it) else LibraryQueries.directories(it)) }.state(emptyList())
     val continuing = namespace.flatMapLatest { stateDao.continuing(LibraryQueries.continuing(it)) }.state(emptyList())
     val hiddenItems = namespace.flatMapLatest { stateDao.hiddenItems(it) }.state(emptyList())
@@ -215,7 +240,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private fun selectedScope(mode: String): LibraryScope = when(mode) {
         "folders" -> LibraryScope(namespace.value,folderSearch,groupMatches=true,sort=videoSort.name,descending=sortDescending)
         "originals" -> LibraryScope(namespace.value,originalQuery,directory=originalPath,subtree=true,pathMatches=true,sort=videoSort.name,descending=sortDescending)
-        else -> LibraryScope(namespace.value,query.value,groupFilter.value,sort=videoSort.name,descending=sortDescending)
+        else -> LibraryScope(namespace.value,query.value,groupFilter.value,sort=videoSort.name,descending=sortDescending,match=matchFolderFilter.value?.term)
     }
     fun playLibrary(mode: String, start: VideoEntity?=null, onPlay:(VideoEntity,List<VideoEntity>)->Unit) {
         val scope=selectedScope(mode)
@@ -228,7 +253,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var pasteDestination by mutableStateOf<String?>(null)
     var explorerNavigationRequest by mutableStateOf<String?>(null)
         private set
-    fun openFailureFolder(path:String) { explorerNavigationRequest=path.substringBeforeLast('/',"") }
+    fun openFailureFolder(path:String) { explorerNavigationRequest=path }
     fun consumeExplorerNavigation() { explorerNavigationRequest=null }
     val failedThumbnails=namespace.flatMapLatest {stateDao.thumbnailFailures(LibraryQueries.thumbnailFailures(it))}.state(emptyList())
     fun retryThumbnail(id:Long) {viewModelScope.launch {dao.setThumbStatus(id,"PENDING");startThumbnails()}}
@@ -566,7 +591,10 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun browse(path: String = explorerPath) {
+    var explorerFocusPath by mutableStateOf<String?>(null)
+        private set
+    fun browse(path: String = explorerPath,focus:String?=null) {
+        explorerFocusPath=focus
         val normalized = path.trim('/')
         explorerBusy = true
         explorerMessage = null
