@@ -124,10 +124,14 @@ try:
     # The Videos view can include the same SMB fixture in multiple library
     # sections. Select all operates on the visible library selection, so do not
     # assume that exactly one item is indexed at this point.
-    selection = next((n.get('text', '') for n in tree().iter('node')
-                      if re.fullmatch(r'[1-9]\\d* selected', n.get('text', ''))), None)
-    if selection is None:
-        find('2 selected')  # Retry while Compose settles; reports a useful failure.
+    end = time.monotonic() + 20
+    while time.monotonic() < end:
+        if any(re.fullmatch(r'[1-9][0-9]* selected', n.get('text', ''))
+               for n in tree().iter('node')):
+            break
+        time.sleep(.5)
+    else:
+        raise AssertionError('Select all did not produce a nonzero selection count')
     screenshot('selection')
     click('Copy')
     click('Folders');click('Original folders');click('Paste…')
