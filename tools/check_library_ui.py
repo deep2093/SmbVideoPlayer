@@ -1,5 +1,6 @@
 """Tablet smoke test against only the disposable CI share, using visible UI labels."""
 import re
+import shutil
 import subprocess
 import time
 import xml.etree.ElementTree as ET
@@ -14,9 +15,16 @@ def adb(*args):
 def tree():
     # A cold activity can briefly have no accessibility root after resizing.
     # UiAutomator reports that on stdout without a failing exit code.
+    text=''
     for _ in range(5):
-        adb('shell','uiautomator','dump','/sdcard/library-ui.xml')
-        text=adb('exec-out','cat','/sdcard/library-ui.xml').decode()
+        try:
+            adb('shell','uiautomator','dump','/sdcard/library-ui.xml')
+            text=adb('exec-out','cat','/sdcard/library-ui.xml').decode()
+        except (subprocess.CalledProcessError,subprocess.TimeoutExpired) as error:
+            # The separate UiAutomator process can crash during a transition.
+            text=str(error)
+            time.sleep(1)
+            continue
         try:
             root=ET.fromstring(text)
             # Screen resizing can hang the stock emulator launcher. Recover only
@@ -128,6 +136,9 @@ try:
     assert 'A000.txt' not in labels, 'Shortcut must scroll beyond the first page'
     print('PASS: failed-thumbnail shortcut scrolls to the exact file and highlights it')
     click('Settings');click('Floating bottom bar');click('Folders');find('Custom folders');screenshot('floating-navigation')
+    # Publish the WMV only for this step. A background refresh must not change
+    # the earlier one-video selection fixture while those checks are running.
+    shutil.copyfile('/tmp/videolibrary-sample.wmv','/tmp/videolibrary-fixtures/Movies/Sample.wmv')
     click('File Explorer');click('← Up');click('Movies')
     adb('logcat','-c')
     click('Sample.wmv')
