@@ -58,6 +58,17 @@ def find(label,timeout=20):
         time.sleep(.5)
     raise AssertionError('UI label not found: '+label)
 
+def scroll_to(label, attempts=14):
+    for _ in range(attempts):
+        try:
+            return find(label, timeout=1)
+        except AssertionError:
+            # Swipe the content panel, not the fixed navigation rail.
+            size=adb('shell','wm','size').decode()
+            width,height=map(int,re.findall(r'(\d+)x(\d+)',size)[-1])
+            adb('shell','input','swipe',int(width*.75),int(height*.8),int(width*.75),int(height*.3),350)
+    raise AssertionError('Could not scroll to '+label)
+
 def click(label,long=False):
     node=find(label)
     x1,y1,x2,y2=map(int,re.findall(r'\d+',node.attrib['bounds']))
@@ -147,14 +158,17 @@ try:
     click('Settings');click('Library');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
     find('No hidden items.');screenshot('unhide')
     print('PASS: hidden video stays browsable in File Explorer and can be restored in Settings')
-    click('Folders');click('Custom folders');click('+ Create')
+    click('Folders');click('Custom folders');click('Add');click('Create filename collection')
     enter_text('Cruise');click('Create');find('Cruise')
     click('Cruise');click(NAME,long=True);click('Select all');find('2 selected');click('Done')
     print('PASS: automatic custom folder matches filenames and supports Select all')
+    click('Folders');click('Custom folders');click('Add');click('Choose drive folders')
+    find('Select all here');click('Select all here');click('Add folders');find('Movies')
+    print('PASS: live folders can be added to Custom folders')
     # Put many live, unindexed files before the failed video in the real listing.
     for i in range(80):
         (target.parent/f'A{i:03}.txt').write_text('fixture')
-    click('Scan');click(NAME);click('Open folder in File Explorer')
+    click('Scan');scroll_to('View failed thumbnails');click('View failed thumbnails');scroll_to(NAME);click(NAME);click('Open folder in File Explorer')
     find('Target file: '+NAME);screenshot('exact-file-jump')
     labels=[n.get('text','') for n in tree().iter('node')]
     assert 'A000.txt' not in labels, 'Shortcut must scroll beyond the first page'

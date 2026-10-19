@@ -19,11 +19,23 @@ android {
         // Every CI run and its update-test build gets a higher installable version.
         versionCode = providers.gradleProperty("previewVersionCode").orNull?.toInt()
             ?: (1000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0) * 2)
-        versionName = "0.10.0"
+        versionName = "0.11.0"
         resValue("string", "app_name", "Video Library")
     }
 
     signingConfigs {
+        // Real release identity. Supplied outside the repository, e.g. in ~/.gradle/gradle.properties
+        // (releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword) or the
+        // same names as upper-case environment variables. Never commit these values.
+        val releaseStore = providers.gradleProperty("releaseStoreFile").orNull ?: System.getenv("RELEASE_STORE_FILE")
+        if (releaseStore != null) {
+            create("release") {
+                storeFile = file(releaseStore)
+                storePassword = providers.gradleProperty("releaseStorePassword").orNull ?: System.getenv("RELEASE_STORE_PASSWORD")
+                keyAlias = providers.gradleProperty("releaseKeyAlias").orNull ?: System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = providers.gradleProperty("releaseKeyPassword").orNull ?: System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
         create("preview") {
             // Dedicated non-production test identity. Keep this key stable across CI runs.
             storeFile = rootProject.file(".ci/preview-signing.p12")
@@ -45,7 +57,12 @@ android {
             signingConfig = signingConfigs.getByName("preview")
         }
         release {
-            isMinifyEnabled = false
+            // Shrunk with the same conservative SMB/crypto/JNI keep rules as the optimized preview.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "preview-rules.pro")
+            // Unsigned unless a release key is configured above; never signed with the preview key.
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
         create("optimized") {
             initWith(getByName("release"))
@@ -54,9 +71,7 @@ android {
             resValue("string","app_name","Video Library Preview")
             signingConfig=signingConfigs.getByName("preview")
             isDebuggable=false
-            isMinifyEnabled=true
-            isShrinkResources=true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"),"preview-rules.pro")
+            // Minification, resource shrinking and keep rules are inherited from release.
             matchingFallbacks+=listOf("release")
         }
     }
@@ -74,6 +89,11 @@ android {
         compose = true
     }
 
+    sourceSets {
+        // Exported Room schemas feed the migration tests.
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+
     packaging {
         resources {
             excludes += setOf(
@@ -89,6 +109,10 @@ android {
             )
         }
     }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -132,4 +156,8 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.room:room-testing:2.6.1")
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

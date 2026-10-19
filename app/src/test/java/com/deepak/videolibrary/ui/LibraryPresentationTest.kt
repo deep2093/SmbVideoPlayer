@@ -6,16 +6,24 @@ import org.junit.Test
 
 class LibraryPresentationTest {
     private fun video(path: String, name: String = path, added: Long = 0, size: Long = 0) = VideoEntity(
-        relativePath = path, name = name, parentDir = "", size = size, modified = 0,
-        groupKey = "", lastSeenSession = 0, addedAt = added)
+        relativePath = path,
+        name = name,
+        parentDir = "",
+        size = size,
+        modified = 0,
+        groupKey = "",
+        lastSeenSession = 0,
+        addedAt = added,
+    )
 
     @Test fun originalFolderLabelsStopAtFirstDelimiterAndPreserveCase() {
-        assertEquals("Tom Cruise",originalFolderLabel("Movies/Tom Cruise- movie"))
-        assertEquals("Tom Cruise",originalFolderLabel("Movies/Tom Cruise, Brad Pitt- movie"))
-        assertEquals("Help Wanted",originalFolderLabel("1/Allherluv/Help Wanted"))
-        assertEquals("Actor 2",originalFolderLabel("Actor 2"))
-        assertEquals("tom",originalFolderLabel("tom-cruise, other"))
+        assertEquals("Tom Cruise", originalFolderLabel("Movies/Tom Cruise- movie"))
+        assertEquals("Tom Cruise", originalFolderLabel("Movies/Tom Cruise, Brad Pitt- movie"))
+        assertEquals("Help Wanted", originalFolderLabel("1/Allherluv/Help Wanted"))
+        assertEquals("Actor 2", originalFolderLabel("Actor 2"))
+        assertEquals("tom", originalFolderLabel("tom-cruise, other"))
     }
+
     @Test fun legacyPresetsMigrateWithoutChangingColumnCount() {
         listOf("2×2", "2×3", "3×3", "3×4", "4×3", "4×4", "5×4", "5×5").forEach {
             assertEquals(it.substringBefore('×'), LibraryLayout.normalize(it))
@@ -45,6 +53,12 @@ class LibraryPresentationTest {
 
     @Test fun equalNamesHaveDeterministicOrdering() {
         val input = listOf(video("z/movie.mp4", "Movie"), video("a/movie.mp4", "movie"))
-        assertEquals("a/movie.mp4", VideoSort.NAME.arrange(input, false).first().relativePath)
+        assertEquals(
+            "a/movie.mp4",
+            VideoSort.NAME
+                .arrange(input, false)
+                .first()
+                .relativePath,
+        )
     }
 }

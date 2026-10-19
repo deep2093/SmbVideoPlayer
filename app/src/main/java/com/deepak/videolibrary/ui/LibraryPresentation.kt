@@ -6,16 +6,20 @@ import java.util.Locale
 /** Presentation choices shared by the toolbar and Settings. Existing preference keys stay valid. */
 object LibraryLayout {
     val presets = listOf("2", "3", "4", "5")
+
     // Migrate old columns × rows choices without losing the user's column count.
     fun normalize(preset: String?, fallback: String = "3"): String =
         preset?.substringBefore('×')?.takeIf { it in presets } ?: fallback
 
     fun columns(preset: String): Int = normalize(preset).toInt()
-
 }
 
 enum class VideoSort(val label: String) {
-    NAME("Name"), NEWEST("Recently added"), MODIFIED("Last modified"), SIZE("File size");
+    NAME("Name"),
+    NEWEST("Recently added"),
+    MODIFIED("Last modified"),
+    SIZE("File size"),
+    ;
 
     fun arrange(videos: List<VideoEntity>, descending: Boolean): List<VideoEntity> {
         val comparator = when (this) {
@@ -32,8 +36,8 @@ fun canContinue(position: Long, duration: Long, hidden: Boolean): Boolean =
     !hidden && position > 15_000L && (duration <= 0L || position < duration - 10_000L)
 
 /** Original-folder display only; physical paths remain the identity for every action. */
-fun originalFolderLabel(path:String):String {
-    val leaf=path.trimEnd('/').substringAfterLast('/')
-    val end=leaf.indexOfFirst {it=='-' || it==','}
-    return (if(end>=0)leaf.substring(0,end) else leaf).trim().ifEmpty {leaf}
+fun originalFolderLabel(path: String): String {
+    val leaf = path.trimEnd('/').substringAfterLast('/')
+    val end = leaf.indexOfFirst { it == '-' || it == ',' }
+    return (if (end >= 0)leaf.substring(0, end) else leaf).trim().ifEmpty { leaf }
 }

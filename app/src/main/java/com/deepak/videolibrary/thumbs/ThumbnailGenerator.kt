@@ -9,30 +9,29 @@ import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.smb.SmbConnection
 import com.deepak.videolibrary.smb.SmbErrors
 import com.deepak.videolibrary.smb.SmbProfile
-import java.io.File
-import java.io.FileOutputStream
-import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.coroutineScope
-import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
+import java.io.FileOutputStream
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Creates one cached JPEG per video by grabbing a frame straight from the SMB stream. Only the
  * pieces of the file the decoder asks for are read; nothing is downloaded or changed on the drive.
  */
 class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
-
     private val dao = db.dao()
 
     /** Only one generator runs at a time, so a scan and a manual run never process the same video twice. */
@@ -44,48 +43,76 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
      * Works through videos whose thumbnail is pending. When nothing is pending it either stops
      * (if [shouldStop] says so) or waits for the scanner to find more.
      */
-    suspend fun run(profile: SmbProfile, shouldStop: () -> Boolean) {
-        mutex.withLock { runLocked(profile, shouldStop) }
-    }
+    suspend fun run(profile: SmbProfile, shouldStop: () -> Boolean): Boolean = mutex.withLock { runLocked(profile, shouldStop) }
 
-    private suspend fun runLocked(profile: SmbProfile, shouldStop: () -> Boolean) {
+    suspend fun <T> exclusive(action: suspend () -> T): T = mutex.withLock { action() }
+
+    private suspend fun runLocked(profile: SmbProfile, shouldStop: () -> Boolean): Boolean {
         ThumbStore.thumbDir(context).mkdirs()
-        var conn: SmbConnection? = null
-        var transientStreak = 0
+        // One SMB connection per worker; workers never share a connection.
+        val connections = arrayOfNulls<SmbConnection>(WORKERS)
         try {
             while (true) {
                 currentCoroutineContext().ensureActive()
                 waitWhileHot()
                 val batch = dao.nextPendingThumbs(BATCH)
                 if (batch.isEmpty()) {
-                    if (shouldStop()) return
+                    if (shouldStop()) return true
                     delay(IDLE_POLL_MS)
                     continue
                 }
-                for (video in batch) {
-                    currentCoroutineContext().ensureActive()
-                    val c = conn ?: openConnection(profile) ?: return
-                    conn = c
-                    when (process(c, video)) {
-                        Outcome.DONE, Outcome.FAILED -> transientStreak = 0
-                        Outcome.TRANSIENT -> {
-                            transientStreak++
-                            // Network trouble: videos stay PENDING and are retried on the next run.
-                            if (transientStreak >= MAX_TRANSIENT_STREAK) return
-                            try {
-                                withContext(Dispatchers.IO) { c.reconnect() }
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                return
+                if (!processBatch(profile, batch, connections)) return false
+            }
+        } finally {
+            withContext(NonCancellable) { connections.forEach { c -> c?.let { runCatching { it.close() } } } }
+        }
+    }
+
+    /**
+     * Works through [batch] with up to [WORKERS] parallel connections. Returns false when the
+     * run should stop (the server cannot be reached or keeps failing); unfinished videos stay
+     * PENDING and are retried on the next run.
+     */
+    private suspend fun processBatch(profile: SmbProfile, batch: List<VideoEntity>, connections: Array<SmbConnection?>): Boolean {
+        val queue = java.util.concurrent.ConcurrentLinkedQueue(batch)
+        val transientStreak = java.util.concurrent.atomic
+            .AtomicInteger(0)
+        val abort = java.util.concurrent.atomic
+            .AtomicBoolean(false)
+        coroutineScope {
+            repeat(WORKERS) { worker ->
+                launch {
+                    while (!abort.get()) {
+                        currentCoroutineContext().ensureActive()
+                        val video = queue.poll() ?: break
+                        val c = connections[worker] ?: openConnection(profile)?.also { connections[worker] = it }
+                        if (c == null) {
+                            abort.set(true)
+                            break
+                        }
+                        when (process(c, video)) {
+                            Outcome.DONE, Outcome.FAILED -> transientStreak.set(0)
+                            Outcome.TRANSIENT -> {
+                                // Network trouble: the video stays PENDING and is retried on the next run.
+                                if (transientStreak.incrementAndGet() >= MAX_TRANSIENT_STREAK) {
+                                    abort.set(true)
+                                    break
+                                }
+                                try {
+                                    withContext(Dispatchers.IO) { c.reconnect() }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    abort.set(true)
+                                    break
+                                }
                             }
                         }
                     }
                 }
             }
-        } finally {
-            withContext(NonCancellable) { conn?.let { runCatching { it.close() } } }
         }
+        return !abort.get()
     }
 
     private suspend fun openConnection(profile: SmbProfile): SmbConnection? {
@@ -102,33 +129,36 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
     }
 
     private suspend fun process(conn: SmbConnection, video: VideoEntity): Outcome {
-        val source=AtomicReference<SmbMediaDataSource?>()
-        val frame=AtomicReference<Bitmap?>()
-        val timedOut=java.util.concurrent.atomic.AtomicBoolean(false)
+        val source = AtomicReference<SmbMediaDataSource?>()
+        val frame = AtomicReference<Bitmap?>()
+        val timedOut = java.util.concurrent.atomic
+            .AtomicBoolean(false)
         try {
             val bitmap = coroutineScope {
-                val extraction=async(Dispatchers.IO) {
+                val extraction = async(Dispatchers.IO) {
                     runInterruptible {
-                        val ds=SmbMediaDataSource(conn,video.relativePath,video.size)
+                        val ds = SmbMediaDataSource(conn, video.relativePath, video.size)
                         source.set(ds)
-                        try { extractFrame(ds)?.also { frame.set(it) } }
-                        finally { ds.close() }
+                        try {
+                            extractFrame(ds)?.also { frame.set(it) }
+                        } finally {
+                            ds.close()
+                        }
                     }
                 }
-                val watchdog=launch(Dispatchers.IO) {
+                val watchdog = launch(Dispatchers.IO) {
                     delay(PER_VIDEO_TIMEOUT_MS)
                     timedOut.set(true)
                     source.get()?.close()
                 }
                 try {
-                    val result=withTimeoutOrNull(PER_VIDEO_TIMEOUT_MS) { extraction.await() to true }
-                    if(result==null) timedOut.set(true)
+                    val result = withTimeoutOrNull(PER_VIDEO_TIMEOUT_MS) { extraction.await() to true }
+                    if (result == null) timedOut.set(true)
                     result?.first
-                }
-                finally {
+                } finally {
                     watchdog.cancel()
-                    if(!extraction.isCompleted) {
-                        withContext(NonCancellable+Dispatchers.IO) { source.get()?.close() }
+                    if (!extraction.isCompleted) {
+                        withContext(NonCancellable + Dispatchers.IO) { source.get()?.close() }
                         extraction.cancel()
                     }
                 }
@@ -136,7 +166,12 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
             if (bitmap == null) {
                 // A deadline without a decoder result is retryable, not proof of a bad file.
                 if (source.get()?.lastError?.let { SmbErrors.isTransient(it) } == true || timedOut.get()) return Outcome.TRANSIENT
-                dao.setThumbStatus(video.id, STATUS_FAILED, source.get()?.lastError?.let {SmbErrors.describe(it)} ?: "Android could not extract a video frame within 90 seconds. The file may use an unsupported codec, contain no video track, or be damaged; Android did not provide an exact cause.")
+                dao.setThumbStatus(
+                    video.id,
+                    STATUS_FAILED,
+                    source.get()?.lastError?.let { SmbErrors.describe(it) }
+                        ?: "Android could not extract a video frame within 90 seconds. The file may use an unsupported codec, contain no video track, or be damaged; Android did not provide an exact cause.",
+                )
                 return Outcome.FAILED
             }
             val target = ThumbStore.thumbFile(context, video.id)
@@ -149,10 +184,20 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
             throw e
         } catch (e: Exception) {
             if (timedOut.get() || SmbErrors.isTransient(e)) return Outcome.TRANSIENT
-            dao.setThumbStatus(video.id, STATUS_FAILED, if(e is IllegalArgumentException || e is IllegalStateException) "Android could not read a video frame (${e.javaClass.simpleName}). Check whether the file plays and whether its video codec is supported." else SmbErrors.describe(e))
+            dao.setThumbStatus(
+                video.id,
+                STATUS_FAILED,
+                if (e is IllegalArgumentException ||
+                    e is IllegalStateException
+                ) {
+                    "Android could not read a video frame (${e.javaClass.simpleName}). Check whether the file plays and whether its video codec is supported."
+                } else {
+                    SmbErrors.describe(e)
+                },
+            )
             return Outcome.FAILED
         } finally {
-            withContext(NonCancellable+Dispatchers.IO) { source.get()?.close() }
+            withContext(NonCancellable + Dispatchers.IO) { source.get()?.close() }
             frame.getAndSet(null)?.recycle()
         }
     }
@@ -184,12 +229,8 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
     }
 
     private fun save(bitmap: Bitmap, target: File) {
-        target.parentFile?.mkdirs()
-        val tmp = File(target.parentFile, target.name + ".tmp")
-        FileOutputStream(tmp).use { bitmap.compress(Bitmap.CompressFormat.JPEG, 80, it) }
-        if (!tmp.renameTo(target)) {
-            target.delete()
-            tmp.renameTo(target)
+        ArtworkFiles.publish(target) { output ->
+            check(bitmap.compress(Bitmap.CompressFormat.JPEG, 80, output)) { "Could not encode thumbnail" }
         }
     }
 
@@ -204,6 +245,9 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
 
     private companion object {
         const val BATCH = 10
+
+        /** Parallel SMB connections used for artwork; two allow overlapping IO and extraction; throughput is device-dependent. */
+        const val WORKERS = 2
         const val IDLE_POLL_MS = 3_000L
         const val PER_VIDEO_TIMEOUT_MS = 90_000L
         const val MAX_TRANSIENT_STREAK = 3

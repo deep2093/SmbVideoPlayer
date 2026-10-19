@@ -7,8 +7,16 @@ import org.junit.Test
 
 class LibrarySearchTest {
     private fun video(path: String, group: String = "films", id: Long = 0L) = VideoEntity(
-        id = id, relativePath = path, name = path.substringAfterLast('/'), parentDir = path.substringBeforeLast('/', ""),
-        size = 100, modified = 0, groupKey = group, lastSeenSession = 0, addedAt = 0)
+        id = id,
+        relativePath = path,
+        name = path.substringAfterLast('/'),
+        parentDir = path.substringBeforeLast('/', ""),
+        size = 100,
+        modified = 0,
+        groupKey = group,
+        lastSeenSession = 0,
+        addedAt = 0,
+    )
 
     @Test fun matchesInsideNameIgnoringCaseAndOuterSpaces() {
         assertTrue(matchesFilename("2024 - Tom Cruise - scene.MP4", " cruise "))
@@ -17,6 +25,7 @@ class LibrarySearchTest {
         assertTrue(matchesFilename("100%_fun.mp4", "%_"))
         assertFalse(matchesFilename("anything.mp4", "%"))
     }
+
     @Test fun folderSearchIncludesMatchingFilesAndAllVideosInMatchingFoldersWithoutDuplicates() {
         val a = video("a/Interview - Cruise.mp4", "interviews")
         val b = video("b/Top Gun.mp4", "Tom Cruise")
@@ -24,16 +33,18 @@ class LibrarySearchTest {
         assertEquals(listOf(a, b), folderSearchVideos(listOf(a, b, c, a), "cruise"))
         assertEquals(emptyList<VideoEntity>(), folderSearchVideos(listOf(c), "cruise"))
     }
+
     @Test fun originalHierarchyUsesPathBoundariesAndKeepsSameNamedDirectoriesSeparate() {
         val a = video("Films/Action/One.mp4")
         val b = video("Films/Drama/Two.mp4")
         val c = video("FilmsExtra/Action/Three.mp4")
-        assertEquals(listOf("Films/Action", "Films/Drama"), originalChildren(listOf(a,b,c), "Films").map { it.path })
-        assertEquals(listOf("Films", "FilmsExtra"), originalChildren(listOf(a,b,c), "").map { it.path })
+        assertEquals(listOf("Films/Action", "Films/Drama"), originalChildren(listOf(a, b, c), "Films").map { it.path })
+        assertEquals(listOf("Films", "FilmsExtra"), originalChildren(listOf(a, b, c), "").map { it.path })
         assertFalse(isWithinFolder("FilmsExtra/Action", "Films"))
         assertTrue(isWithinFolder("Films/Action", "Films"))
         assertEquals(emptyList<OriginalFolder>(), originalChildren(listOf(a), "Films/Action"))
     }
+
     @Test fun explorerKeepsDistinctUnindexedVideosAndReusesIndexedMetadata() {
         val entry = SmbEntry("Cruise.mp4", false, 200, 1)
         val hits = listOf(ExplorerHit("one/Cruise.mp4", entry), ExplorerHit("two/Cruise.mp4", entry))

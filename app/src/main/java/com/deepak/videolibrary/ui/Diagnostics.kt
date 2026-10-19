@@ -6,14 +6,14 @@ import android.content.Intent
 import android.os.Build
 import android.os.Debug
 import android.os.SystemClock
-import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
-import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import java.text.DateFormat
@@ -31,22 +31,35 @@ object AppDiagnostics {
 
     private var frameSummary = "No frame sample collected"
     fun frameSample(durations: List<Double>, budgetMs: Double) {
-        if(durations.isEmpty()) return
-        val sorted=durations.sorted()
-        val p95=sorted[((sorted.size-1)*0.95).toInt()]
-        val late=durations.count { it>budgetMs }
-        synchronized(lock) { frameSummary="${durations.size} frames; p95 ${"%.1f".format(java.util.Locale.ROOT,p95)} ms; $late over ${"%.1f".format(java.util.Locale.ROOT,budgetMs)} ms display budget" }
+        if (durations.isEmpty()) return
+        val sorted = durations.sorted()
+        val p95 = sorted[((sorted.size - 1) * 0.95).toInt()]
+        val late = durations.count { it > budgetMs }
+        synchronized(lock) {
+            frameSummary =
+                "${durations.size} frames; p95 ${"%.1f".format(
+                    java.util.Locale.ROOT,
+                    p95,
+                )} ms; $late over ${"%.1f".format(java.util.Locale.ROOT,budgetMs)} ms display budget"
+        }
     }
 
     fun enabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("enabled", false)
 
     fun setEnabled(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("enabled", enabled).apply()
+        context
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("enabled", enabled)
+            .apply()
         if (!enabled) clear()
     }
 
-    fun clear() = synchronized(lock) { events.clear();frameSummary="No frame sample collected" }
+    fun clear() = synchronized(lock) {
+        events.clear()
+        frameSummary = "No frame sample collected"
+    }
 
     fun record(context: Context, category: String, detail: String) {
         if (!enabled(context)) return
@@ -64,14 +77,17 @@ object AppDiagnostics {
         val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         manager.getMemoryInfo(memory)
         val heap = Runtime.getRuntime()
-        val display = if (Build.VERSION.SDK_INT >= 30) context.display?.refreshRate ?: 0f
-            else (context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay.refreshRate
+        val display = if (Build.VERSION.SDK_INT >= 30) {
+            context.display?.refreshRate ?: 0f
+        } else {
+            (context.getSystemService(Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay.refreshRate
+        }
         val entries = synchronized(lock) { events.toList() }
         return buildString {
             appendLine("SMB Video Library diagnostics")
             appendLine("Generated: ${DateFormat.getDateTimeInstance().format(Date())}")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} / Android ${Build.VERSION.RELEASE}")
-            appendLine("Display reported refresh rate: ${display} Hz (not measured app FPS)")
+            appendLine("Display reported refresh rate: $display Hz (not measured app FPS)")
             appendLine("Java heap used: ${(heap.totalMemory() - heap.freeMemory()) / 1048576} MiB")
             appendLine("Java heap maximum: ${heap.maxMemory() / 1048576} MiB")
             appendLine("Native heap allocated: ${Debug.getNativeHeapAllocatedSize() / 1048576} MiB")
@@ -92,17 +108,29 @@ fun DiagnosticsSettings() {
     var refresh by remember { mutableIntStateOf(0) }
     var expanded by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(expanded, enabled) {
-        while (expanded && enabled) { delay(2000); refresh++ }
+        while (expanded && enabled) {
+            delay(2000)
+            refresh++
+        }
     }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(Modifier.fillMaxWidth().clickable(role = Role.Button,
-                onClickLabel = if (expanded) "Hide diagnostics" else "Show diagnostics") { expanded = !expanded }
-                .padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        role = Role.Button,
+                        onClickLabel = if (expanded) "Hide diagnostics" else "Show diagnostics",
+                    ) { expanded = !expanded }
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
                 Text("Diagnostics", style = MaterialTheme.typography.titleMedium)
             }
             if (expanded) {
-                Text("Off by default. Records limited playback and navigation status in memory, without video names, paths or SMB credentials.")
+                Text(
+                    "Off by default. Records limited playback and navigation status in memory, without video names, paths or SMB credentials.",
+                )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Enable diagnostics")
                     Switch(checked = enabled, onCheckedChange = {
@@ -111,12 +139,15 @@ fun DiagnosticsSettings() {
                         refresh++
                     })
                 }
-                val report by produceState("Preparing report…",refresh,enabled) {
-                    value=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { AppDiagnostics.report(context) }
+                val report by produceState("Preparing report…", refresh, enabled) {
+                    value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { AppDiagnostics.report(context) }
                 }
-                Text(report,style=MaterialTheme.typography.bodySmall)
+                Text(report, style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { AppDiagnostics.clear(); refresh++ }) { Text("Clear") }
+                    OutlinedButton(onClick = {
+                        AppDiagnostics.clear()
+                        refresh++
+                    }) { Text("Clear") }
                     Button(onClick = {
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"

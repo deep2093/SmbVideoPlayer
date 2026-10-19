@@ -2,7 +2,6 @@ package com.deepak.videolibrary.smb
 
 import android.content.Context
 import android.net.ConnectivityManager
-import android.net.LinkAddress
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import kotlinx.coroutines.Dispatchers
@@ -35,10 +34,17 @@ object LanDiscovery {
         // Use Android's active network rather than the first interface (often VPN/tethering).
         val addresses = link?.linkAddresses.orEmpty().filter { it.address is Inet4Address }
         val candidates = LinkedHashSet<String>()
-        val gateways = link?.routes.orEmpty().filter { it.isDefaultRoute }
+        val gateways = link
+            ?.routes
+            .orEmpty()
+            .filter { it.isDefaultRoute }
             .mapNotNull { (it.gateway as? Inet4Address)?.hostAddress }
         candidates.addAll(gateways)
-        val trimmedKnown = knownHost.trim().removePrefix("smb://").substringBefore('/').substringBefore(':')
+        val trimmedKnown = knownHost
+            .trim()
+            .removePrefix("smb://")
+            .substringBefore('/')
+            .substringBefore(':')
         if (trimmedKnown.isNotEmpty()) candidates.add(trimmedKnown)
 
         // /24 sweep is bounded intentionally. Larger subnets would be slow and battery intensive.
@@ -50,6 +56,7 @@ object LanDiscovery {
         // Some devices expose only a VPN as active: also take Wi-Fi DHCP address and gateway.
         @Suppress("DEPRECATION")
         val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+
         @Suppress("DEPRECATION")
         val dhcp = wifi?.dhcpInfo
         if (dhcp != null) {
@@ -61,50 +68,63 @@ object LanDiscovery {
         // The saved host can be a router or NAS on a different subnet; always probe it.
         for (prefix in prefixes.take(2)) for (last in 1..254) candidates.add("$prefix.$last")
 
-        if (candidates.isEmpty()) return@withContext Result(emptyList(),
-            "No LAN IPv4 address found. Connect to Wi-Fi and make sure local network access is allowed.")
+        if (candidates.isEmpty()) {
+            return@withContext Result(
+                emptyList(),
+                "No LAN IPv4 address found. Connect to Wi-Fi and make sure local network access is allowed.",
+            )
+        }
 
         val executor = Executors.newFixedThreadPool(48)
         val found = LinkedHashSet<String>()
         try {
-            val tasks = candidates.map { host -> Callable {
-                try {
-                    // Network-bound sockets can fail on some Samsung/Android builds even
-                    // when the regular LAN route works. Probe both routes before rejecting.
-                    var reachable = false
-                    if (network != null) {
-                        reachable = runCatching {
-                            network.socketFactory.createSocket().use { sock ->
-                                sock.connect(InetSocketAddress(host, 445), 650)
-                            }
-                        }.isSuccess
+            val tasks = candidates.map { host ->
+                Callable {
+                    try {
+                        // Network-bound sockets can fail on some Samsung/Android builds even
+                        // when the regular LAN route works. Probe both routes before rejecting.
+                        var reachable = false
+                        if (network != null) {
+                            reachable = runCatching {
+                                network.socketFactory.createSocket().use { sock ->
+                                    sock.connect(InetSocketAddress(host, 445), 650)
+                                }
+                            }.isSuccess
+                        }
+                        if (!reachable) {
+                            reachable = runCatching {
+                                Socket().use { sock -> sock.connect(InetSocketAddress(host, 445), 650) }
+                            }.isSuccess
+                        }
+                        if (reachable) host else null
+                    } catch (_: Exception) {
+                        null
                     }
-                    if (!reachable) {
-                        reachable = runCatching {
-                            Socket().use { sock -> sock.connect(InetSocketAddress(host, 445), 650) }
-                        }.isSuccess
-                    }
-                    if (reachable) host else null
-                } catch (_: Exception) { null }
-            } }
+                }
+            }
             val futures = executor.invokeAll(tasks, 12, TimeUnit.SECONDS)
             futures.forEach { future ->
                 if (!future.isCancelled) runCatching { future.get() }.getOrNull()?.let(found::add)
             }
-        } finally { executor.shutdownNow() }
+        } finally {
+            executor.shutdownNow()
+        }
 
         val explanation = if (found.isEmpty()) {
             "No SMB server answered on TCP port 445. Probed ${candidates.size} addresses across ${prefixes.size} local subnet(s). " +
                 "If manual SMB access works, check the saved host, Wi-Fi client isolation, VPN and router SMB service. " +
                 if (!onLocalNetwork) "; Android does not report an active Wi-Fi/Ethernet network. Disable VPN or switch to Wi-Fi and retry." else ". Check router SMB sharing and guest-network isolation."
-        } else "Found ${found.size} SMB server(s). Select one, then enter the share name and credentials."
+        } else {
+            "Found ${found.size} SMB server(s). Select one, then enter the share name and credentials."
+        }
         Result(found.sorted(), explanation)
     }
 
     private fun isPrivate(ip: String): Boolean {
         val parts = ip.split('.').mapNotNull(String::toIntOrNull)
         if (parts.size != 4) return false
-        return parts[0] == 10 || (parts[0] == 192 && parts[1] == 168) ||
+        return parts[0] == 10 ||
+            (parts[0] == 192 && parts[1] == 168) ||
             (parts[0] == 172 && parts[1] in 16..31)
     }
 

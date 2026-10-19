@@ -5,3 +5,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "VideoLibrary"
 include(":app")
+
+include(":schema-history")

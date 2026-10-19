@@ -8,14 +8,14 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import com.deepak.videolibrary.data.LibraryDatabase
-import java.io.File
-import java.io.FileOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * Builds the cover image for a virtual folder from the thumbnails of its videos:
@@ -24,9 +24,13 @@ import kotlinx.coroutines.withContext
  * chosen videos change.
  */
 class CoverBuilder(private val context: Context, db: LibraryDatabase) {
-
     private val dao = db.dao()
     private val gate = Semaphore(2)
+    suspend fun <T> exclusive(action: suspend () -> T): T {
+        gate.acquire()
+        try { gate.acquire() } catch (e: Throwable) { gate.release(); throw e }
+        return try { action() } finally { gate.release(); gate.release() }
+    }
     private val groupLocks = Array(32) { Mutex() }
     private fun lock(key: String) = groupLocks[(key.hashCode() and Int.MAX_VALUE) % groupLocks.size]
 
@@ -48,9 +52,17 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
         }
 
         val dir = ThumbStore.coverDir(context).apply { mkdirs() }
-        val prefix = java.security.MessageDigest.getInstance("SHA-256").digest(group.toByteArray()).joinToString(""){"%02x".format(it)}.take(24)
-        val fingerprint=picks.joinToString("-"){id->val file=ThumbStore.thumbFile(context,id);"$id-${file.lastModified()}-${file.length()}"}
-        val target = File(dir, "${prefix}_${fingerprint}.jpg")
+        val prefix = java.security.MessageDigest
+            .getInstance(
+                "SHA-256",
+            ).digest(group.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+            .take(24)
+        val fingerprint = picks.joinToString("-") { id ->
+            val file = ThumbStore.thumbFile(context, id)
+            "$id-${file.lastModified()}-${file.length()}"
+        }
+        val target = File(dir, "${prefix}_$fingerprint.jpg")
         if (target.exists()) return target
 
         val bitmaps = picks.mapNotNull { id ->
@@ -78,11 +90,8 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
             }
 
             // Publish first; retain the previous cover if writing fails.
-            val tmp = File(dir, target.name + ".tmp")
-            FileOutputStream(tmp).use { out.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-            if (!tmp.renameTo(target)) {
-                target.delete()
-                check(tmp.renameTo(target)) { "Could not publish folder artwork" }
+            ArtworkFiles.publish(target) { output ->
+                check(out.compress(Bitmap.CompressFormat.JPEG, 85, output)) { "Could not encode folder artwork" }
             }
             dir.listFiles { f -> f != target && f.name.startsWith("${prefix}_") }?.forEach { it.delete() }
         } finally {

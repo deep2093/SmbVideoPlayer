@@ -68,21 +68,50 @@ data class GroupRow(
 
 /** Explicit virtual folders exist even when temporarily empty. */
 @Entity(tableName = "custom_folders")
-data class CustomFolderEntity(@PrimaryKey val name: String)
+data class CustomFolderEntity(
+    @PrimaryKey val name: String,
+)
 
 @Entity(tableName = "hidden_items", primaryKeys = ["connectionKey", "kind", "target"])
 data class HiddenItem(val connectionKey: String, val kind: String, val target: String, val label: String)
 
 @Entity(tableName = "playback_state", primaryKeys = ["connectionKey", "path"], indices = [Index(value = ["connectionKey", "updatedAt"])])
-data class PlaybackStateEntity(val connectionKey: String, val path: String,
-    val positionMs: Long = 0, val durationMs: Long = 0, val hidden: Boolean = false, val updatedAt: Long = 0)
+data class PlaybackStateEntity(
+    val connectionKey: String,
+    val path: String,
+    val positionMs: Long = 0,
+    val durationMs: Long = 0,
+    val hidden: Boolean = false,
+    val updatedAt: Long = 0,
+)
 
 data class FolderSummary(val groupKey: String, val count: Int, val thumbsDone: Int, val totalSize: Long, val lastModified: Long)
 data class DirectorySummary(val path: String, val count: Int, val thumbsDone: Int)
 
 /** An overlapping, automatic collection; membership never rewrites video assignments. */
-@Entity(tableName="match_folders",indices=[Index(value=["connectionKey","name"],unique=true)])
-data class MatchFolderEntity(@PrimaryKey(autoGenerate=true) val id:Long=0,
-    val connectionKey:String,val name:String,val term:String)
-data class MatchFolderRow(@androidx.room.Embedded val folder:MatchFolderEntity,
-    val count:Int,val thumbsDone:Int,val lastModified:Long)
+@Entity(tableName = "match_folders", indices = [Index(value = ["connectionKey", "name"], unique = true)])
+data class MatchFolderEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val connectionKey: String,
+    val name: String,
+    val term: String,
+    @androidx.room.ColumnInfo(defaultValue = "NULL") val sourcePath: String? = null,
+    @androidx.room.ColumnInfo(defaultValue = "1") val includeSubfolders: Boolean = true,
+)
+data class MatchFolderRow(
+    @androidx.room.Embedded val folder: MatchFolderEntity,
+    val count: Int,
+    val thumbsDone: Int,
+    val lastModified: Long,
+)
+
+@Entity(tableName = "transfer_journal")
+data class TransferJournal(
+    @PrimaryKey val operationId: String,
+    val operation: String,
+    val source: String,
+    val destination: String,
+    val directory: Boolean,
+    val phase: String,
+    val remoteIdentity: Long = 0,
+)

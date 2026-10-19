@@ -16,22 +16,24 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ScanResumeTest {
     @Test fun periodicScanResumesPendingQueueInsteadOfReplacingSession() = runBlocking {
-        assumeTrue(InstrumentationRegistry.getArguments().getString("smbFixture")=="true")
-        val context=InstrumentationRegistry.getInstrumentation().targetContext
-        val db=Room.inMemoryDatabaseBuilder(context,LibraryDatabase::class.java).build()
+        assumeTrue(InstrumentationRegistry.getArguments().getString("smbFixture") == "true")
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val db = Room.inMemoryDatabaseBuilder(context, LibraryDatabase::class.java).build()
         try {
-            val dao=db.dao()
-            val id=dao.insertSession(ScanSessionEntity(mode="REFRESH",status=ScanStatus.INTERRUPTED,startedAt=1))
+            val dao = db.dao()
+            val id = dao.insertSession(ScanSessionEntity(mode = "REFRESH", status = ScanStatus.INTERRUPTED, startedAt = 1))
             dao.insertPending(listOf(PendingDirEntity("Movies")))
-            val repo=ScanRepository(db)
-            val profile=SmbProfile("10.0.2.2","fixtures","Movies","vlfixture","ci-fixture-only")
+            val repo = ScanRepository(db)
+            val profile = SmbProfile("10.0.2.2", "fixtures", "Movies", "vlfixture", "ci-fixture-only")
             assertTrue(repo.runPeriodic(profile))
-            assertEquals(id,dao.latestSession()!!.id)
-            assertEquals(ScanStatus.COMPLETED,dao.latestSession()!!.status)
-            assertEquals(0,dao.pendingCountNow())
+            assertEquals(id, dao.latestSession()!!.id)
+            assertEquals(ScanStatus.COMPLETED, dao.latestSession()!!.status)
+            assertEquals(0, dao.pendingCountNow())
             assertNotNull(dao.findVideo("Movies/Tom Cruise - Fixture.mp4"))
-            assertFalse(repo.run(ScanMode.RESUME,profile))
-            assertFalse(repo.run(ScanMode.RETRY,profile))
-        } finally { db.close() }
+            assertFalse(repo.run(ScanMode.RESUME, profile))
+            assertFalse(repo.run(ScanMode.RETRY, profile))
+        } finally {
+            db.close()
+        }
     }
 }

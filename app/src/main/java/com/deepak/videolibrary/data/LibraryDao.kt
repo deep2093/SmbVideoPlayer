@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface LibraryDao {
-
     // ---- videos ----
 
     @Query("SELECT * FROM videos WHERE relativePath = :path LIMIT 1")
@@ -20,10 +19,14 @@ interface LibraryDao {
 
     @Update
     suspend fun updateVideo(video: VideoEntity)
-    @Query("UPDATE videos SET size=:size, modified=:modified, groupKey=:groupName, thumbStatus='PENDING', lastSeenSession=:session WHERE id=:id")
-    suspend fun updateMetadata(id:Long,size:Long,modified:Long,groupName:String,session:Long)
+
+    @Query(
+        "UPDATE videos SET size=:size, modified=:modified, groupKey=:groupName, thumbStatus='PENDING', lastSeenSession=:session WHERE id=:id",
+    )
+    suspend fun updateMetadata(id: Long, size: Long, modified: Long, groupName: String, session: Long)
+
     @Query("UPDATE videos SET groupKey=:groupName,lastSeenSession=:session WHERE id=:id")
-    suspend fun updateGroupKey(id:Long,groupName:String,session:Long)
+    suspend fun updateGroupKey(id: Long, groupName: String, session: Long)
 
     @Query("UPDATE videos SET lastSeenSession = :sessionId WHERE id = :id")
     suspend fun touchVideo(id: Long, sessionId: Long)
@@ -37,7 +40,7 @@ interface LibraryDao {
     @Query(
         "SELECT * FROM videos " +
             "WHERE (:group IS NULL OR COALESCE(customGroup, groupKey) = :group) AND instr(lower(name), lower(:query)) > 0 " +
-            "ORDER BY name COLLATE NOCASE"
+            "ORDER BY name COLLATE NOCASE",
     )
     fun observeVideos(group: String?, query: String): Flow<List<VideoEntity>>
 
@@ -49,7 +52,7 @@ interface LibraryDao {
             "SELECT COALESCE(customGroup, groupKey) AS groupKey, 1 AS count, " +
             "CASE WHEN thumbStatus = 'DONE' THEN 1 ELSE 0 END AS thumbsDone FROM videos " +
             "UNION ALL SELECT name AS groupKey, 0 AS count, 0 AS thumbsDone FROM custom_folders" +
-            ") GROUP BY groupKey ORDER BY groupKey COLLATE NOCASE"
+            ") GROUP BY groupKey ORDER BY groupKey COLLATE NOCASE",
     )
     fun observeGroups(): Flow<List<GroupRow>>
 
@@ -79,7 +82,9 @@ interface LibraryDao {
     @Query("SELECT * FROM videos WHERE customGroup IS NOT NULL ORDER BY name COLLATE NOCASE")
     suspend fun manuallyGroupedVideos(): List<VideoEntity>
 
-    @Query("SELECT * FROM videos WHERE (customGroup IS NULL OR customGroup != :name) AND instr(lower(name), lower(:query)) > 0 ORDER BY name COLLATE NOCASE LIMIT 100")
+    @Query(
+        "SELECT * FROM videos WHERE (customGroup IS NULL OR customGroup != :name) AND instr(lower(name), lower(:query)) > 0 ORDER BY name COLLATE NOCASE LIMIT 100",
+    )
     suspend fun findAssignableVideos(name: String, query: String): List<VideoEntity>
 
     // ---- thumbnails ----
@@ -94,7 +99,7 @@ interface LibraryDao {
     fun observeFailedThumbs(): Flow<List<VideoEntity>>
 
     @Query("UPDATE videos SET customGroup=:folder WHERE relativePath IN (:paths)")
-    suspend fun assignPaths(paths:List<String>,folder:String)
+    suspend fun assignPaths(paths: List<String>, folder: String)
 
     @Query("UPDATE videos SET thumbStatus = 'PENDING' WHERE thumbStatus = 'FAILED'")
     suspend fun resetFailedThumbs(): Int
@@ -141,7 +146,7 @@ interface LibraryDao {
             "currentDir = :dir, " +
             "videosFound = (SELECT COUNT(*) FROM videos WHERE lastSeenSession = :sessionId), " +
             "errorCount = (SELECT COUNT(*) FROM scan_errors WHERE sessionId = :sessionId) " +
-            "WHERE id = :sessionId"
+            "WHERE id = :sessionId",
     )
     suspend fun bumpProgress(sessionId: Long, dir: String)
 
@@ -149,7 +154,7 @@ interface LibraryDao {
         "UPDATE scan_sessions SET " +
             "videosFound = (SELECT COUNT(*) FROM videos WHERE lastSeenSession = :sessionId), " +
             "errorCount = (SELECT COUNT(*) FROM scan_errors WHERE sessionId = :sessionId) " +
-            "WHERE id = :sessionId"
+            "WHERE id = :sessionId",
     )
     suspend fun refreshCounters(sessionId: Long)
 

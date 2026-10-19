@@ -9,8 +9,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.deepak.videolibrary.ServiceLocator
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
+import java.util.concurrent.TimeUnit
 
 /**
  * WorkManager refresh: best-effort, NOT instant SMB filesystem watching.
@@ -21,7 +21,11 @@ class PeriodicSyncWorker(context: Context, params: WorkerParameters) : Coroutine
     override suspend fun doWork(): Result {
         val prefs = applicationContext.getSharedPreferences(DIAGNOSTICS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
-        prefs.edit().putLong("last_attempt", now).putString("last_status", "RUNNING").apply()
+        prefs
+            .edit()
+            .putLong("last_attempt", now)
+            .putString("last_status", "RUNNING")
+            .apply()
         val services = ServiceLocator.get(applicationContext)
         val saved = services.settings.load()
         val profile = services.settings.loadProfile()
@@ -36,13 +40,18 @@ class PeriodicSyncWorker(context: Context, params: WorkerParameters) : Coroutine
         }
         return try {
             val ok = services.scanRepository.runPeriodic(profile)
-            prefs.edit().putString("last_status", if (ok) "COMPLETED" else "FAILED: SMB unavailable or scan incomplete")
+            prefs
+                .edit()
+                .putString("last_status", if (ok) "COMPLETED" else "FAILED: SMB unavailable or scan incomplete")
                 .apply()
             if (ok) {
                 prefs.edit().putLong("last_success", System.currentTimeMillis()).apply()
-                com.deepak.videolibrary.thumbs.ThumbnailWorker.enqueue(applicationContext)
+                com.deepak.videolibrary.thumbs.ThumbnailWorker
+                    .enqueue(applicationContext)
                 Result.success()
-            } else Result.retry()
+            } else {
+                Result.retry()
+            }
         } catch (e: CancellationException) {
             prefs.edit().putString("last_status", "INTERRUPTED").apply()
             throw e
@@ -59,15 +68,17 @@ class PeriodicSyncWorker(context: Context, params: WorkerParameters) : Coroutine
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<PeriodicSyncWorker>(12, TimeUnit.HOURS)
                 .setConstraints(
-                    Constraints.Builder()
+                    Constraints
+                        .Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)
                         .setRequiresBatteryNotLow(true)
                         .setRequiresStorageNotLow(true)
-                        .build()
-                )
-                .build()
+                        .build(),
+                ).build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                UNIQUE, ExistingPeriodicWorkPolicy.UPDATE, request
+                UNIQUE,
+                ExistingPeriodicWorkPolicy.UPDATE,
+                request,
             )
         }
     }

@@ -3,8 +3,8 @@ package com.deepak.videolibrary.player
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.datasource.BaseDataSource
-import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
 import com.deepak.videolibrary.smb.SmbConnection
 import com.deepak.videolibrary.smb.SmbProfile
 import java.io.EOFException
@@ -42,7 +42,10 @@ class SmbPlaybackDataSource(private val profile: SmbProfile, private val diagnos
             opened = true
             transferStarted(dataSpec)
             return remaining
-        } catch (e: Exception) { close(); throw IOException("Unable to open SMB video", e) }
+        } catch (e: Exception) {
+            close()
+            throw IOException("Unable to open SMB video", e)
+        }
     }
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
@@ -61,7 +64,9 @@ class SmbPlaybackDataSource(private val profile: SmbProfile, private val diagnos
                     remoteReads++
                     if (remoteReads >= 32) {
                         diagnostic("readBytes=$remoteBytes readMs=$remoteReadMs requests=$remoteReads")
-                        remoteBytes = 0L; remoteReadMs = 0L; remoteReads = 0
+                        remoteBytes = 0L
+                        remoteReadMs = 0L
+                        remoteReads = 0
                     }
                     fetched
                 }
@@ -75,7 +80,10 @@ class SmbPlaybackDataSource(private val profile: SmbProfile, private val diagnos
                     reconnectAtPosition()
                     Thread.sleep(400L * (attempt + 1))
                 } catch (retryError: Exception) {
-                    if (retryError is InterruptedException) { Thread.currentThread().interrupt(); throw IOException("SMB read interrupted", retryError) }
+                    if (retryError is InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        throw IOException("SMB read interrupted", retryError)
+                    }
                     failure = retryError
                 }
             }
@@ -88,8 +96,10 @@ class SmbPlaybackDataSource(private val profile: SmbProfile, private val diagnos
         return n
     }
     private fun reconnectAtPosition() {
-        runCatching { handle?.close() }; handle = null
-        runCatching { conn?.close() }; conn = null
+        runCatching { handle?.close() }
+        handle = null
+        runCatching { conn?.close() }
+        conn = null
         val newConn = SmbConnection(profile)
         conn = newConn // close() also owns failed reconnects
         newConn.open()
@@ -105,7 +115,10 @@ class SmbPlaybackDataSource(private val profile: SmbProfile, private val diagnos
         uri = null
         remaining = 0
         readAhead.clear()
-        if (opened) { opened = false; transferEnded() }
+        if (opened) {
+            opened = false
+            transferEnded()
+        }
     }
     class Factory(private val profile: SmbProfile, private val diagnostic: (String) -> Unit = {}) : DataSource.Factory {
         override fun createDataSource(): DataSource = SmbPlaybackDataSource(profile, diagnostic)

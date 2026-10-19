@@ -14,10 +14,12 @@ import kotlin.coroutines.cancellation.CancellationException
 
 /** Generates all pending thumbnails, then stops. Used after a scan and from the Scan screen. */
 class ThumbnailWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-
     override suspend fun doWork(): Result {
         val services = ServiceLocator.get(applicationContext)
         val profile = services.settings.loadProfile() ?: return Result.failure()
+        if (com.deepak.videolibrary.settings.LibraryIdentity.of(services.settings.load()) != services.libraryId) return Result.retry()
+        val expected = inputData.getString("libraryId")
+        if (expected != null && expected != services.libraryId) return Result.failure()
 
         try {
             setForeground(WorkNotifications.info(applicationContext, 2, "Creating video thumbnails"))
@@ -27,8 +29,7 @@ class ThumbnailWorker(context: Context, params: WorkerParameters) : CoroutineWor
             // Not allowed to run as a foreground service right now; carry on as a normal worker.
         }
 
-        services.thumbnails.run(profile) { true }
-        return Result.success()
+        return if (services.thumbnails.run(profile) { true }) Result.success() else Result.retry()
     }
 
     companion object {
@@ -36,11 +37,12 @@ class ThumbnailWorker(context: Context, params: WorkerParameters) : CoroutineWor
 
         fun enqueue(context: Context) {
             val request = OneTimeWorkRequestBuilder<ThumbnailWorker>()
+                .setInputData(androidx.work.workDataOf("libraryId" to ServiceLocator.get(context).libraryId))
                 .setConstraints(
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
-                )
-                .build()
-            WorkManager.getInstance(context)
+                ).build()
+            WorkManager
+                .getInstance(context)
                 .enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.KEEP, request)
         }
 

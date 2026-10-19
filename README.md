@@ -14,7 +14,7 @@ Download **VideoLibrary-preview-apk** from a successful Android APK workflow run
 - The clipboard works across sections. Paste opens an original-folder destination chooser. Background jobs serialize with scans, refuse overwrite, and report progress/cancellation. Copies publish from a unique staging path only after completion; interrupted copies restart rather than resuming at a byte offset.
 - Hidden items remain in File Explorer and can be restored individually or together under **Settings → Unhide files and folders**.
 - Scan lists failed thumbnail filenames until successfully retried or deleted. Each opens a reason, individual retry and a shortcut to its File Explorer folder. Decoder failures report available information without claiming an exact cause Android did not supply.
-- The themed tablet sidebar starts expanded, collapses during vertical scrolling and expands on navigation clicks. Settings also offers a floating bottom bar with live backdrop blur on supported Android versions and a translucent fallback on older devices. App chrome follows the selected theme.
+- The themed tablet sidebar is fixed: always expanded, with labels, and never collapses. Settings also offers a floating bottom bar with live backdrop blur on supported Android versions and a translucent fallback on older devices. App chrome follows the selected theme.
 
 ## Automatic collections and file navigation
 

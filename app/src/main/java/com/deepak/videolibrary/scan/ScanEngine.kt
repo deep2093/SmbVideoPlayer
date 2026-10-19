@@ -1,7 +1,6 @@
 package com.deepak.videolibrary.scan
 
 import androidx.room.withTransaction
-import kotlinx.coroutines.sync.withLock
 import com.deepak.videolibrary.data.LibraryDatabase
 import com.deepak.videolibrary.data.PendingDirEntity
 import com.deepak.videolibrary.data.ScanErrorEntity
@@ -17,6 +16,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 enum class ScanMode { INITIAL, REFRESH, RESUME, RETRY }
@@ -30,8 +30,24 @@ object ScanStatus {
 }
 
 private val VIDEO_EXTENSIONS = setOf(
-    "mkv", "mp4", "m4v", "avi", "mov", "wmv", "asf", "flv", "webm", "ts", "m2ts", "mts",
-    "mpg", "mpeg", "3gp", "ogv", "vob", "divx",
+    "mkv",
+    "mp4",
+    "m4v",
+    "avi",
+    "mov",
+    "wmv",
+    "asf",
+    "flv",
+    "webm",
+    "ts",
+    "m2ts",
+    "mts",
+    "mpg",
+    "mpeg",
+    "3gp",
+    "ogv",
+    "vob",
+    "divx",
 )
 
 private val SKIPPED_NAMES = setOf("\$RECYCLE.BIN", "System Volume Information")
@@ -42,7 +58,8 @@ private fun isVideo(name: String): Boolean {
 }
 
 /** Skips dot-files (including macOS "._" resource forks) and system folders. */
-private fun isSkipped(name: String): Boolean = name.startsWith(".") || name.isBlank() || '/' in name || '\\' in name || SKIPPED_NAMES.any {it.equals(name,ignoreCase=true)}
+private fun isSkipped(name: String): Boolean =
+    name.startsWith(".") || name.isBlank() || '/' in name || '\\' in name || SKIPPED_NAMES.any { it.equals(name, ignoreCase = true) }
 
 /**
  * Prepares scan sessions and runs them. The directory queue lives in the database, so a scan that
@@ -65,9 +82,9 @@ class ScanRepository(private val db: LibraryDatabase) {
 
     suspend fun runPeriodic(profile: SmbProfile): Boolean = scanMutex.withLock {
         dao.markRunningInterrupted()
-        val mode=if(dao.latestResumableSession()!=null && dao.pendingCountNow()>0) ScanMode.RESUME else ScanMode.REFRESH
-        val session=prepare(mode,profile) ?: return@withLock false
-        ScanEngine(db,profile,session).run()
+        val mode = if (dao.latestResumableSession() != null && dao.pendingCountNow() > 0) ScanMode.RESUME else ScanMode.REFRESH
+        val session = prepare(mode, profile) ?: return@withLock false
+        ScanEngine(db, profile, session).run()
     }
 
     private suspend fun prepare(mode: ScanMode, profile: SmbProfile): ScanSessionEntity? {
@@ -167,7 +184,7 @@ class ScanEngine(
             for (entry in entries) {
                 if (isSkipped(entry.name)) continue
                 if (entry.isReparsePoint || (entry.isDirectory && dir.count { it == '/' } >= 127)) {
-                    recordError(dir, "Skipped a linked folder or the maximum folder depth.", isDirectory=true)
+                    recordError(dir, "Skipped a linked folder or the maximum folder depth.", isDirectory = true)
                     continue
                 }
                 val rel = if (dir.isEmpty()) entry.name else "$dir/${entry.name}"
@@ -223,9 +240,9 @@ class ScanEngine(
             )
 
             existing.size != entry.size || existing.modified != entry.modified ->
-                dao.updateMetadata(existing.id,entry.size,entry.modified,GroupKey.fromFileName(entry.name),sid)
+                dao.updateMetadata(existing.id, entry.size, entry.modified, GroupKey.fromFileName(entry.name), sid)
             existing.groupKey != GroupKey.fromFileName(entry.name) ->
-                dao.updateGroupKey(existing.id,GroupKey.fromFileName(entry.name),sid)
+                dao.updateGroupKey(existing.id, GroupKey.fromFileName(entry.name), sid)
             existing.lastSeenSession != sid -> dao.touchVideo(existing.id, sid)
         }
     }
@@ -243,8 +260,7 @@ class ScanEngine(
     }
 
     /**
-     * Queue is empty. Removed files are only dropped after a scan that finished with no errors and
-     * found something, so a partial or failed scan can never empty the library.
+     * Queue is empty. Removed files are only dropped after a scan that finished with no errors within this isolated library. A failed or partial scan never prunes unseen rows.
      */
     private suspend fun finish() {
         db.withTransaction {
@@ -252,7 +268,7 @@ class ScanEngine(
             val s = dao.getSession(sid)
             val errors = s?.errorCount ?: 0
             val found = s?.videosFound ?: 0
-            if (errors == 0 && found > 0) {
+            if (errors == 0) {
                 dao.deleteNotSeen(sid)
             }
             val status = if (errors == 0) ScanStatus.COMPLETED else ScanStatus.COMPLETED_WITH_ERRORS

@@ -3,3 +3,8 @@ build/
 local.properties
 .idea/
 *.iml
+# Keep exported Room schemas (app/schemas) in git.
+
+__pycache__/
+*.pyc
+*.apk

@@ -7,7 +7,6 @@ import java.util.Locale
  * Display only: the original file name is never changed and nothing is written to the SMB drive.
  */
 object GroupKey {
-
     const val FALLBACK = "#"
 
     // A leading [tag] or (tag), e.g. "[1080p]" or "[WEB-DL]".
@@ -29,7 +28,8 @@ object GroupKey {
         if (delimiter >= 0) s = s.substring(0, delimiter).trim()
         s = s.trim().trimStart { !it.isLetterOrDigit() }
         // Keep the complete cleaned phrase rather than only the first word.
-        s = s.replace(spaces, " ")
+        s = s
+            .replace(spaces, " ")
             .replace(trailingNumber, "")
             .trim(' ', '-', '_', '.', ',', ';', ':')
         return if (s.isBlank()) FALLBACK else s.lowercase(Locale.ROOT)

@@ -2,7 +2,7 @@ name: Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, master]
+    branches: [main, master, "codex/**"]
   pull_request:
     branches: [main]
 concurrency:
@@ -25,7 +25,7 @@ jobs:
           gradle-version: '8.11.1'
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
+          packages: 'platform-tools platforms;android-35 platforms;android-36 build-tools;35.0.0'
       - name: Export complete source as plain text
         run: |
           python3 - <<'PY'
@@ -54,12 +54,16 @@ jobs:
       - name: Verify preview keystore loads
         run: keytool -list -keystore .ci/preview-signing.p12 -storetype PKCS12 -storepass android
       - name: Check Kotlin dependency compatibility
-        run: gradle :app:dependencyInsight --configuration debugCompileClasspath --dependency kotlin-stdlib
+        run: ./gradlew :app:dependencyInsight --configuration debugCompileClasspath --dependency kotlin-stdlib
+      - name: Generate historical migration fixtures
+        run: |
+          ./gradlew :schema-history:assembleDebug --stacktrace
+          python3 tools/prepare_schemas.py
       - name: Unit tests
-        run: gradle testDebugUnitTest --stacktrace
+        run: ./gradlew testDebugUnitTest --stacktrace
       - name: Android lint
         run: |
-          gradle lintDebug --stacktrace || {
+          ./gradlew lintDebug --stacktrace || {
             cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
             exit 1
           }
@@ -72,7 +76,11 @@ jobs:
             app/build/test-results/
             app/build/reports/lint-results-debug.*
       - name: Build debug APK
-        run: gradle assembleDebug assembleDebugAndroidTest --stacktrace
+        run: ./gradlew assembleDebug assembleDebugAndroidTest --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Room-schemas
+          path: app/schemas/
       - uses: actions/upload-artifact@v4
         with:
           name: Preview-storage-tests
@@ -82,7 +90,7 @@ jobs:
         run: |
           mkdir -p preview
           cp app/build/outputs/apk/debug/app-debug.apk preview/base.apk
-          gradle assembleDebug -PpreviewVersionCode=$((1000 + GITHUB_RUN_NUMBER * 2 + 1)) --stacktrace
+          ./gradlew assembleDebug -PpreviewVersionCode=$((1000 + GITHUB_RUN_NUMBER * 2 + 1)) --stacktrace
           cp app/build/outputs/apk/debug/app-debug.apk preview/update.apk
           bash tools/check_preview_signing.sh
       - uses: actions/upload-artifact@v4
@@ -97,7 +105,7 @@ jobs:
           if-no-files-found: error
       - name: Build optimized Preview with stable update identity
         run: |
-          gradle assembleOptimized -PpreviewVersionCode=$((1000 + GITHUB_RUN_NUMBER * 2 + 1)) --stacktrace
+          ./gradlew assembleOptimized -PpreviewVersionCode=$((1000 + GITHUB_RUN_NUMBER * 2 + 1)) --stacktrace
           mkdir -p optimized
           cp app/build/outputs/apk/optimized/app-optimized.apk optimized/update.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs optimized/update.apk > optimized/signing.txt
@@ -113,13 +121,13 @@ jobs:
           name: Optimized-shrinker-reports
           path: app/build/outputs/mapping/optimized/
   update-test:
-    needs: build
+    needs: [build, legacy-build]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        api: [35]
+        api: [29, 35]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -141,9 +149,7 @@ jobs:
           path: preview/tests
       - uses: actions/download-artifact@v4
         with:
-          name: VideoLibrary-preview-apk
-          run-id: 39216778144
-          github-token: ${{ github.token }}
+          name: Legacy-v3-preview
           path: preview/legacy
       - uses: actions/download-artifact@v4
         with:
@@ -178,3 +184,28 @@ jobs:
             preview/device-logcat.txt
             preview/device-wmv-log.txt
           if-no-files-found: ignore
+
+  legacy-build:
+    runs-on: ubuntu-latest
+    steps:
+      # Rebuild a permanent, signed source fixture instead of depending on an expiring run artifact.
+      - uses: actions/checkout@v4
+        with:
+          ref: a2c52d89e26005d5c60e5b20af4dee84c05b4b4e
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - run: gradle assembleDebug -PpreviewVersionCode=1 --stacktrace
+      - run: mkdir -p legacy && cp app/build/outputs/apk/debug/app-debug.apk legacy/update.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Legacy-v3-preview
+          path: legacy/update.apk
+          if-no-files-found: error

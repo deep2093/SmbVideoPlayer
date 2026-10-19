@@ -1,0 +1,6 @@
+# Hand-written baseline profile for the app's own code: startup, library lists, scrolling,
+# folder navigation and playback setup. Compose, Media3 and Room ship their own profiles.
+# The wildcard rules are compiled into the ART profile by the Android Gradle plugin; replace
+# them with a Macrobenchmark-generated profile later for even tighter results.
+HSPLcom/deepak/videolibrary/**;->**(**)**
+Lcom/deepak/videolibrary/**;

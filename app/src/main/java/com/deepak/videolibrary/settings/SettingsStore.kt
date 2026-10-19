@@ -53,9 +53,9 @@ class SettingsStore(context: Context) {
             username = prefs.getString(KEY_USER, "") ?: "",
             password = password,
             savePassword = save,
-            domain=prefs.getString("domain", "") ?: "",
-            requireSigning=prefs.getBoolean("require_signing",false),
-            requireEncryption=prefs.getBoolean("require_encryption",false),
+            domain = prefs.getString("domain", "") ?: "",
+            requireSigning = prefs.getBoolean("require_signing", false),
+            requireEncryption = prefs.getBoolean("require_encryption", false),
         ).also { cached = it }
     }
 
@@ -63,15 +63,16 @@ class SettingsStore(context: Context) {
     fun save(settings: SmbSettings) {
         // Encrypt before touching preferences or the session password.
         val encrypted = if (settings.savePassword) encrypt(settings.password) else null
-        val editor = prefs.edit()
+        val editor = prefs
+            .edit()
             .putString(KEY_HOST, settings.host.trim())
             .putString(KEY_SHARE, settings.share.trim())
             .putString(KEY_ROOT, normalizeRoot(settings.rootPath))
             .putString(KEY_USER, settings.username.trim())
             .putBoolean(KEY_SAVE, settings.savePassword)
-            .putString("domain",settings.domain.trim())
-            .putBoolean("require_signing",settings.requireSigning)
-            .putBoolean("require_encryption",settings.requireEncryption)
+            .putString("domain", settings.domain.trim())
+            .putBoolean("require_signing", settings.requireSigning)
+            .putBoolean("require_encryption", settings.requireEncryption)
         if (settings.savePassword) {
             editor.putString(KEY_PASSWORD, encrypted)
             sessionPassword = ""
@@ -80,7 +81,14 @@ class SettingsStore(context: Context) {
             sessionPassword = settings.password
         }
         editor.apply()
-        cached = settings.copy(host=settings.host.trim(),share=settings.share.trim(),rootPath=normalizeRoot(settings.rootPath),username=settings.username.trim(),domain=settings.domain.trim())
+        cached =
+            settings.copy(
+                host = settings.host.trim(),
+                share = settings.share.trim(),
+                rootPath = normalizeRoot(settings.rootPath),
+                username = settings.username.trim(),
+                domain = settings.domain.trim(),
+            )
     }
 
     /** Null when host or share is missing. */
@@ -93,7 +101,9 @@ class SettingsStore(context: Context) {
             rootPath = normalizeRoot(s.rootPath),
             username = s.username,
             password = s.password,
-        domain=s.domain,requireSigning=s.requireSigning,requireEncryption=s.requireEncryption,
+            domain = s.domain,
+            requireSigning = s.requireSigning,
+            requireEncryption = s.requireEncryption,
         )
     }
 
@@ -103,7 +113,9 @@ class SettingsStore(context: Context) {
         rootPath = normalizeRoot(s.rootPath),
         username = s.username,
         password = s.password,
-        domain=s.domain,requireSigning=s.requireSigning,requireEncryption=s.requireEncryption,
+        domain = s.domain,
+        requireSigning = s.requireSigning,
+        requireEncryption = s.requireEncryption,
     )
 
     // ---- Keystore-backed encryption ----
@@ -113,11 +125,11 @@ class SettingsStore(context: Context) {
         (ks.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
         generator.init(
-            KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            KeyGenParameterSpec
+                .Builder(
+                    KEY_ALIAS,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
                 .build(),
@@ -146,6 +158,7 @@ class SettingsStore(context: Context) {
     }
 
     companion object {
+        val revision = kotlinx.coroutines.flow.MutableStateFlow(0L)
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "smb_password_key"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"

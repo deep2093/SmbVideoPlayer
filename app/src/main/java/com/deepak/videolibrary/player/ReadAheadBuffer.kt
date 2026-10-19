@@ -9,10 +9,18 @@ internal class ReadAheadBuffer(capacity: Int = 1024 * 1024) {
     private var cursor = 0
     private var end = 0
 
-    fun clear() { cursor = 0; end = 0 }
+    fun clear() {
+        cursor = 0
+        end = 0
+    }
 
-    fun read(target: ByteArray, offset: Int, length: Int, remaining: Long,
-             fetch: (ByteArray, Int) -> Int): Int {
+    fun read(
+        target: ByteArray,
+        offset: Int,
+        length: Int,
+        remaining: Long,
+        fetch: (ByteArray, Int) -> Int,
+    ): Int {
         if (length == 0) return 0
         if (remaining == 0L) return -1
         if (cursor == end) {

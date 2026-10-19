@@ -18,7 +18,11 @@ object ThumbStore {
     /** Private disk cache is persistent; it is not a video-stream buffer. */
     fun artworkBytes(context: Context): Long =
         listOf(thumbDir(context), coverDir(context)).sumOf { dir ->
-            dir.listFiles()?.asSequence()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L
+            dir
+                .listFiles()
+                ?.asSequence()
+                ?.filter { it.isFile }
+                ?.sumOf { it.length() } ?: 0L
         }
 
     /** Deletes cached artwork only. Nothing on the SMB drive is touched. */
@@ -31,7 +35,13 @@ object ThumbStore {
 
 /** Small in-memory cache of decoded images, capped by size so it cannot grow with the library. */
 object ImageMemoryCache {
-    private val cache = object : LruCache<String, ImageBitmap>((Runtime.getRuntime().maxMemory() / 8).coerceIn(16L * 1024 * 1024, 64L * 1024 * 1024).toInt()) {
+    private val cache = object : LruCache<String, ImageBitmap>(
+        (Runtime.getRuntime().maxMemory() / 8)
+            .coerceIn(
+                16L * 1024 * 1024,
+                64L * 1024 * 1024,
+            ).toInt(),
+    ) {
         override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
     }
 
@@ -45,8 +55,12 @@ object ImageMemoryCache {
                 override fun onLowMemory() = clear()
                 override fun onTrimMemory(level: Int) {
                     if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_BACKGROUND ||
-                        level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) clear()
-                    else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) cache.trimToSize(cache.maxSize() / 2)
+                        level == android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL
+                    ) {
+                        clear()
+                    } else if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+                        cache.trimToSize(cache.maxSize() / 2)
+                    }
                 }
             })
             registered = true

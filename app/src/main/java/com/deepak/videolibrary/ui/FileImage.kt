@@ -16,9 +16,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import com.deepak.videolibrary.thumbs.ImageMemoryCache
-import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * Shows a cached JPEG, decoded off the main thread and kept in a size-limited memory cache.

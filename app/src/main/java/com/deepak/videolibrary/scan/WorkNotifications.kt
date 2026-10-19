@@ -19,7 +19,8 @@ object WorkNotifications {
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Library scanning", NotificationManager.IMPORTANCE_LOW),
         )
-        val notification = Notification.Builder(context, CHANNEL_ID)
+        val notification = Notification
+            .Builder(context, CHANNEL_ID)
             .setContentTitle(title)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)

@@ -1,4 +1,4 @@
-"""Exercise the real v3 -> v4 upgrade with the previous signed preview."""
+"""Exercise the real v3 -> v5 upgrade with the previous signed preview."""
 import sqlite3
 import subprocess
 import tempfile
@@ -79,11 +79,11 @@ for _ in range(40):
     time.sleep(1)
 else:
     raise AssertionError('Database history migration did not finish')
-time.sleep(5)  # The existing history flag does not prove Room has opened schema 4.
+time.sleep(5)  # The existing history flag does not prove Room has opened schema 5.
 stop()
 with tempfile.TemporaryDirectory() as folder:
     db=database(folder)
-    assert db.execute('PRAGMA user_version').fetchone()[0]==4
+    assert db.execute('PRAGMA user_version').fetchone()[0]==5
     assert db.execute('SELECT id,thumbStatus,customGroup FROM videos WHERE relativePath=?',(VIDEO,)).fetchone()==(9001,'DONE','Favourites')
     assert db.execute('SELECT positionMs,durationMs FROM playback_state WHERE connectionKey=? AND path=?',('10.0.2.2/fixtures',VIDEO)).fetchone()==(60000,120000)
     db.close()

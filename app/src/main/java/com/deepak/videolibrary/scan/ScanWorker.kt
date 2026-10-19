@@ -10,20 +10,23 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.deepak.videolibrary.ServiceLocator
-import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 
 class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
-
     override suspend fun doWork(): Result {
-        val requested = inputData.getString(KEY_MODE)
+        val requested = inputData
+            .getString(KEY_MODE)
             ?.let { runCatching { ScanMode.valueOf(it) }.getOrNull() }
             ?: return Result.failure()
 
         val services = ServiceLocator.get(applicationContext)
         val profile = services.settings.loadProfile() ?: return Result.failure()
+        if (com.deepak.videolibrary.settings.LibraryIdentity.of(services.settings.load()) != services.libraryId) return Result.retry()
+        val expected = inputData.getString("libraryId")
+        if (expected != null && expected != services.libraryId) return Result.failure()
 
         try {
             setForeground(WorkNotifications.info(applicationContext, 1, "Scanning your video library"))
@@ -44,12 +47,12 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val completed = coroutineScope {
             val scan = async { services.scanRepository.run(mode, profile) }
             // Thumbnails are made while the scan is still running, so artwork appears progressively.
-            val thumbs = launch { services.thumbnails.run(profile) { scan.isCompleted } }
-            val ok=scan.await()
-            thumbs.join()
+            val thumbs = async { services.thumbnails.run(profile) { scan.isCompleted } }
+            val ok = scan.await()
+            if (!thumbs.await()) com.deepak.videolibrary.thumbs.ThumbnailWorker.enqueue(applicationContext)
             ok
         }
-        return if(completed) Result.success() else Result.retry()
+        return if (completed) Result.success() else Result.retry()
     }
 
     companion object {
@@ -59,11 +62,12 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         fun enqueue(context: Context, mode: ScanMode) {
             val request = OneTimeWorkRequestBuilder<ScanWorker>()
                 .setInputData(workDataOf(KEY_MODE to mode.name))
+                .setInputData(androidx.work.workDataOf("libraryId" to ServiceLocator.get(context).libraryId, "mode" to mode.name))
                 .setConstraints(
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
-                )
-                .build()
-            WorkManager.getInstance(context)
+                ).build()
+            WorkManager
+                .getInstance(context)
                 .enqueueUniqueWork(UNIQUE_NAME, ExistingWorkPolicy.KEEP, request)
         }
 
