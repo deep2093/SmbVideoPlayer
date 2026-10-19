@@ -18,6 +18,9 @@ data class SmbSettings(
     val username: String = "",
     val password: String = "",
     val savePassword: Boolean = false,
+    val domain: String = "",
+    val requireSigning: Boolean = false,
+    val requireEncryption: Boolean = false,
 )
 
 /**
@@ -50,6 +53,9 @@ class SettingsStore(context: Context) {
             username = prefs.getString(KEY_USER, "") ?: "",
             password = password,
             savePassword = save,
+            domain=prefs.getString("domain", "") ?: "",
+            requireSigning=prefs.getBoolean("require_signing",false),
+            requireEncryption=prefs.getBoolean("require_encryption",false),
         ).also { cached = it }
     }
 
@@ -63,6 +69,9 @@ class SettingsStore(context: Context) {
             .putString(KEY_ROOT, normalizeRoot(settings.rootPath))
             .putString(KEY_USER, settings.username.trim())
             .putBoolean(KEY_SAVE, settings.savePassword)
+            .putString("domain",settings.domain.trim())
+            .putBoolean("require_signing",settings.requireSigning)
+            .putBoolean("require_encryption",settings.requireEncryption)
         if (settings.savePassword) {
             editor.putString(KEY_PASSWORD, encrypted)
             sessionPassword = ""
@@ -71,7 +80,7 @@ class SettingsStore(context: Context) {
             sessionPassword = settings.password
         }
         editor.apply()
-        cached = settings.copy(host=settings.host.trim(),share=settings.share.trim(),rootPath=normalizeRoot(settings.rootPath),username=settings.username.trim())
+        cached = settings.copy(host=settings.host.trim(),share=settings.share.trim(),rootPath=normalizeRoot(settings.rootPath),username=settings.username.trim(),domain=settings.domain.trim())
     }
 
     /** Null when host or share is missing. */
@@ -84,6 +93,7 @@ class SettingsStore(context: Context) {
             rootPath = normalizeRoot(s.rootPath),
             username = s.username,
             password = s.password,
+        domain=s.domain,requireSigning=s.requireSigning,requireEncryption=s.requireEncryption,
         )
     }
 
@@ -93,6 +103,7 @@ class SettingsStore(context: Context) {
         rootPath = normalizeRoot(s.rootPath),
         username = s.username,
         password = s.password,
+        domain=s.domain,requireSigning=s.requireSigning,requireEncryption=s.requireEncryption,
     )
 
     // ---- Keystore-backed encryption ----

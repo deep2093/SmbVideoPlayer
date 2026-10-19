@@ -22,6 +22,8 @@ import com.deepak.videolibrary.ui.AppRoot
 import com.deepak.videolibrary.ui.VideoLibraryTheme
 
 class MainActivity : ComponentActivity() {
+    private var frameDiagnostics:com.deepak.videolibrary.ui.FrameDiagnostics?=null
+    override fun onDestroy() { frameDiagnostics?.close();super.onDestroy() }
     var onLeavePlayback:(()->Unit)?=null
     override fun onUserLeaveHint(){super.onUserLeaveHint();onLeavePlayback?.invoke()}
 
@@ -33,6 +35,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        frameDiagnostics=com.deepak.videolibrary.ui.FrameDiagnostics(this)
         ImageMemoryCache.register(applicationContext)
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED &&
             !getPreferences(MODE_PRIVATE).getBoolean("notification_requested", false)) {

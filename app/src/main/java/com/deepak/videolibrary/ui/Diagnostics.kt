@@ -29,6 +29,15 @@ object AppDiagnostics {
     private val events = ArrayDeque<String>()
     private val lock = Any()
 
+    private var frameSummary = "No frame sample collected"
+    fun frameSample(durations: List<Double>, budgetMs: Double) {
+        if(durations.isEmpty()) return
+        val sorted=durations.sorted()
+        val p95=sorted[((sorted.size-1)*0.95).toInt()]
+        val late=durations.count { it>budgetMs }
+        synchronized(lock) { frameSummary="${durations.size} frames; p95 ${"%.1f".format(java.util.Locale.ROOT,p95)} ms; $late over ${"%.1f".format(java.util.Locale.ROOT,budgetMs)} ms display budget" }
+    }
+
     fun enabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("enabled", false)
 
@@ -37,7 +46,7 @@ object AppDiagnostics {
         if (!enabled) clear()
     }
 
-    fun clear() = synchronized(lock) { events.clear() }
+    fun clear() = synchronized(lock) { events.clear();frameSummary="No frame sample collected" }
 
     fun record(context: Context, category: String, detail: String) {
         if (!enabled(context)) return
@@ -68,6 +77,7 @@ object AppDiagnostics {
             appendLine("Native heap allocated: ${Debug.getNativeHeapAllocatedSize() / 1048576} MiB")
             appendLine("System available memory: ${memory.availMem / 1048576} MiB")
             appendLine("System low memory: ${memory.lowMemory}")
+            appendLine("Rendered frames: ${synchronized(lock) { frameSummary }}")
             appendLine("Diagnostics enabled: ${enabled(context)}")
             appendLine("Events (${entries.size}):")
             entries.forEach { appendLine(it) }
@@ -101,16 +111,17 @@ fun DiagnosticsSettings() {
                         refresh++
                     })
                 }
-                key(refresh) {
-                    Text(AppDiagnostics.report(context), style = MaterialTheme.typography.bodySmall)
+                val report by produceState("Preparing report…",refresh,enabled) {
+                    value=kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { AppDiagnostics.report(context) }
                 }
+                Text(report,style=MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { AppDiagnostics.clear(); refresh++ }) { Text("Clear") }
                     Button(onClick = {
                         val send = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_SUBJECT, "SMB Video Library diagnostics")
-                            putExtra(Intent.EXTRA_TEXT, AppDiagnostics.report(context))
+                            putExtra(Intent.EXTRA_TEXT, report)
                         }
                         context.startActivity(Intent.createChooser(send, "Share diagnostics"))
                     }) { Text("Export report") }

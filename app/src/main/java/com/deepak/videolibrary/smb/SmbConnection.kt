@@ -28,6 +28,9 @@ data class SmbProfile(
     val rootPath: String,
     val username: String,
     val password: String,
+    val domain: String = "",
+    val requireSigning: Boolean = false,
+    val requireEncryption: Boolean = false,
 )
 
 data class SmbEntry(
@@ -51,6 +54,8 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
     fun open() {
         close()
         val config = SmbConfig.builder()
+            .withSigningRequired(profile.requireSigning)
+            .withEncryptData(profile.requireEncryption)
             .withTimeout(30, TimeUnit.SECONDS)
             .withSoTimeout(30, TimeUnit.SECONDS)
             .build()
@@ -60,9 +65,10 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
             val auth = if (profile.username.isBlank()) {
                 AuthenticationContext.anonymous()
             } else {
-                AuthenticationContext(profile.username.trim(), profile.password.toCharArray(), "")
+                AuthenticationContext(profile.username.trim(), profile.password.toCharArray(), profile.domain.trim())
             }
             val newSession = connection.authenticate(auth)
+            if(profile.requireEncryption && !newSession.shouldEncryptData()) throw SmbSecurityException()
             val newShare = newSession.connectShare(profile.share.trim()) as DiskShare
             client = newClient
             session = newSession
@@ -199,6 +205,8 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
     }
 }
 
+class SmbSecurityException : IOException("Required SMB encryption was not negotiated")
+
 object SmbErrors {
 
     /** Turns an exception into a message that is useful to show on screen. Never includes the password. */
@@ -206,6 +214,7 @@ object SmbErrors {
         var cause: Throwable? = e
         while (cause != null) {
             when (cause) {
+                is SmbSecurityException -> return "This server did not negotiate the required SMB encryption. Check its SMB3 security settings."
                 is IllegalArgumentException -> safeValidationMessage(cause.message)?.let { return it }
                 is SMBApiException -> return describeStatus(cause)
                 is UnknownHostException -> return "Server address not found. Check the address and that you are on the home Wi-Fi."
@@ -241,7 +250,13 @@ object SmbErrors {
 
     /** True for failures that a reconnect might fix (network drops), false for permission/path errors. */
     fun isTransient(e: Throwable): Boolean {
-        if (e is SMBApiException) return false
+        var cause:Throwable?=e
+        val seen=java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable,Boolean>())
+        while(cause!=null && seen.add(cause)) {
+            if(cause is SMBApiException || cause is SmbSecurityException || cause is IllegalArgumentException) return false
+            if(cause is InterruptedException || cause is java.io.InterruptedIOException && cause !is SocketTimeoutException) return false
+            cause=cause.cause
+        }
         return e is TransportException || e is IOException || e is SMBRuntimeException
     }
 }

@@ -101,7 +101,7 @@ private fun PasteDestinationDialog(vm: LibraryViewModel) {
     LaunchedEffect(path) {
         busy=true;error=null
         try { folders=withContext(Dispatchers.IO) {
-            SmbConnection(SmbProfile(s.host,s.share,s.rootPath,s.username,s.password)).use { conn ->
+            SmbConnection(SmbProfile(s.host,s.share,s.rootPath,s.username,s.password,s.domain,s.requireSigning,s.requireEncryption)).use { conn ->
                 conn.open();conn.list(path).filter {it.isDirectory}.map {it.name}.sortedWith(String.CASE_INSENSITIVE_ORDER)
             }
         } } catch(e:CancellationException){throw e} catch(e:Exception){error=SmbErrors.describe(e)} finally{busy=false}

@@ -838,6 +838,10 @@ fun SettingsScreen(vm: LibraryViewModel) {
     var root by remember { mutableStateOf(saved.rootPath) }
     var user by remember { mutableStateOf(saved.username) }
     var password by remember { mutableStateOf(saved.password) }
+    var domain by remember { mutableStateOf(saved.domain) }
+    var requireSigning by remember { mutableStateOf(saved.requireSigning) }
+    var requireEncryption by remember { mutableStateOf(saved.requireEncryption) }
+    var advancedConnection by rememberSaveable { mutableStateOf(false) }
     var savePassword by remember { mutableStateOf(saved.savePassword) }
     val context = LocalContext.current
     val gesturePrefs = remember(context) { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
@@ -854,6 +858,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
         username = user,
         password = password,
         savePassword = savePassword,
+        domain=domain,requireSigning=requireSigning,requireEncryption=requireEncryption,
     )
 
     BackHandler(enabled=section!=null) { section=null }
@@ -1010,6 +1015,19 @@ fun SettingsScreen(vm: LibraryViewModel) {
             )
         }
 
+        TextButton(onClick={advancedConnection=!advancedConnection}) { Text("Advanced connection options") }
+        if(advancedConnection) {
+            OutlinedTextField(value=domain,onValueChange={domain=it},label={Text("Domain (optional)")},singleLine=true,modifier=Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Require SMB signing",Modifier.weight(1f))
+                androidx.compose.material3.Switch(checked=requireSigning,onCheckedChange={requireSigning=it})
+            }
+            Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Require SMB encryption",Modifier.weight(1f))
+                androidx.compose.material3.Switch(checked=requireEncryption,onCheckedChange={requireEncryption=it})
+            }
+            Text("Required security must be supported by your server. Encryption requires SMB3 and can affect throughput.",style=MaterialTheme.typography.bodySmall)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { vm.saveSettings(current()) }) { Text("Save") }
             OutlinedButton(onClick = { vm.testConnection(current()) }) { Text("Test connection") }

@@ -92,7 +92,7 @@ internal fun VlcPlayerScreen(video:VideoEntity,settings:SmbSettings,vm:LibraryVi
             var opened:SmbProxyFile?=null
             try {
                 val resume=vm.resumeFor(current.relativePath)
-                withContext(Dispatchers.IO){opened=SmbProxyFile.open(context,SmbProfile(settings.host,settings.share,settings.rootPath,settings.username,settings.password),current.relativePath,current.size)}
+                withContext(Dispatchers.IO){opened=SmbProxyFile.open(context,SmbProfile(settings.host,settings.share,settings.rootPath,settings.username,settings.password,settings.domain,settings.requireSigning,settings.requireEncryption),current.relativePath,current.size)}
                 currentCoroutineContext().ensureActive()
                 source[0]=opened
                 Media(native,opened!!.descriptor.fileDescriptor).apply {

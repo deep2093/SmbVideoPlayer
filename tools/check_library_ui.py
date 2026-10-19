@@ -102,6 +102,9 @@ try:
     print('PASS: Virtual folders restored automatically without a source picker')
     click('Settings')
     find('Connection');find('Playback');find('Library');find('Diagnostics')
+    screenshot('settings-categories')
+    click('Connection');find('Server address');find('Share name');click('Advanced connection options');find('Domain (optional)');find('Require SMB encryption')
+    click('← All settings');click('Playback');find('Player gestures');click('← All settings')
     click('Appearance')
     current='Dark grey'
     for theme in ['AMOLED black','Midnight blue','Forest','Plum','Dark grey']:

@@ -94,7 +94,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, vm: LibraryViewModel
     }
     val volumeGestureEnabled = remember { prefs.getBoolean("volume_gesture_enabled", true) }
     val brightnessGestureEnabled = remember { prefs.getBoolean("brightness_gesture_enabled", true) }
-    val profile = remember(settings) { SmbProfile(settings.host, settings.share, settings.rootPath, settings.username, settings.password) }
+    val profile = remember(settings) { SmbProfile(settings.host, settings.share, settings.rootPath, settings.username, settings.password,settings.domain,settings.requireSigning,settings.requireEncryption) }
     // A virtual folder is a real ExoPlayer playlist: video N advances to N+1 automatically.
     val queue = remember(video.relativePath, playlist) {
         val entries = playlist.ifEmpty { listOf(video) }

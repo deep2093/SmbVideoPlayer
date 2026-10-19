@@ -47,6 +47,18 @@ android {
         release {
             isMinifyEnabled = false
         }
+        create("optimized") {
+            initWith(getByName("release"))
+            applicationIdSuffix=".preview"
+            versionNameSuffix="-preview-optimized"
+            resValue("string","app_name","Video Library Preview")
+            signingConfig=signingConfigs.getByName("preview")
+            isDebuggable=false
+            isMinifyEnabled=true
+            isShrinkResources=true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"),"preview-rules.pro")
+            matchingFallbacks+=listOf("release")
+        }
     }
 
     compileOptions {
@@ -110,6 +122,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
     implementation("androidx.media3:media3-datasource:1.5.1")
+
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 
     // SMB client
     implementation("com.hierynomus:smbj:0.13.0")
