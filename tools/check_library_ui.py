@@ -160,8 +160,18 @@ try:
         assert 'decoder=software' in output
         Path('preview/device-wmv-log.txt').write_text(output)
         screenshot('wmv-playing' if name=='Sample.wmv' else 'wmv9-playing')
-        adb('shell','input','keyevent','4')
-        time.sleep(1)
+        # Android 15 may place its one-time immersive tutorial over the player.
+        # Back first dismisses that tutorial, so wait for the actual browser.
+        for _ in range(4):
+            nodes=list(tree().iter('node'))
+            if any(n.get('text')=='Got it' for n in nodes):
+                click('Got it')
+            elif any(n.get('text')=='Refresh' for n in nodes):
+                break
+            else:
+                adb('shell','input','keyevent','4')
+                time.sleep(1)
+        find('Refresh')
         print('PASS: '+name+' streams from SMB with software decoding and advancing video output')
 
 except Exception:
