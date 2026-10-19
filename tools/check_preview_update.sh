@@ -5,11 +5,11 @@ adb install preview/base.apk
 adb shell am start -n "$app/com.deepak.videolibrary.MainActivity"
 # Wait for the real Room library to open; no SMB account is required for this test.
 for attempt in $(seq 1 30); do
-  if adb shell run-as "$app" test -f databases/library.db; then break; fi
+  if adb shell "run-as $app sh -c 'test -f databases/library.db'"; then break; fi
   sleep 1
 done
 adb shell am force-stop "$app"
-adb shell run-as "$app" test -f databases/library.db
+adb shell "run-as $app sh -c 'test -f databases/library.db'"
 adb shell "run-as $app sh -c 'mkdir -p files/thumbs shared_prefs; echo keep-thumbnail > files/thumbs/update-sentinel.jpg; echo keep-settings > shared_prefs/update-sentinel.xml'"
 before=$(adb shell "run-as $app sh -c 'sha256sum databases/library.db files/thumbs/update-sentinel.jpg shared_prefs/update-sentinel.xml'" | tr -d '\r')
 old_version=$(adb shell dumpsys package "$app" | sed -n 's/.*versionCode=\([0-9]*\).*/\1/p' | head -1 | tr -d '\r')
