@@ -7,7 +7,7 @@ on:
     branches: [main]
 concurrency:
   group: android-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 permissions:
   contents: read
   actions: read
@@ -31,18 +31,18 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          roots = ['app', 'gradle', 'tools', '.github']
+          roots = ['app', 'benchmarks', 'schema-history', 'gradle', 'tools', '.github']
           include = {'.kt', '.kts', '.java', '.xml', '.gradle', '.properties', '.toml', '.yml', '.yaml', '.py', '.md', '.json', '.pro', '.txt'}
           files = [p for root in roots for p in Path(root).rglob('*') if p.is_file() and p.suffix in include and not any(x in {'build', '.gradle', '.git'} for x in p.parts)]
           files += [p for p in (Path('settings.gradle.kts'), Path('build.gradle.kts'), Path('gradle.properties'), Path('README.md')) if p.is_file()]
           files = sorted(set(files))
           with open('SMB-Video-Player-complete-source.txt', 'w', encoding='utf-8') as out:
-              out.write('SMB VIDEO PLAYER - COMPLETE SOURCE CODE\\n')
-              out.write('Each section begins with its relative repository path.\\n\\n')
+              out.write('SMB VIDEO PLAYER - COMPLETE SOURCE CODE\n')
+              out.write('Each section begins with its relative repository path.\n\n')
               for p in files:
-                  out.write('\\n' + '=' * 90 + '\\nFILE: ' + str(p) + '\\n' + '=' * 90 + '\\n')
+                  out.write('\n' + '=' * 90 + '\nFILE: ' + str(p) + '\n' + '=' * 90 + '\n')
                   out.write(p.read_text(encoding='utf-8', errors='replace'))
-                  out.write('\\n')
+                  out.write('\n')
           print('Exported', len(files), 'files')
           PY
       - uses: actions/upload-artifact@v4
@@ -200,19 +200,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: a2c52d89e26005d5c60e5b20af4dee84c05b4b4e
+      - uses: actions/cache@v4
+        id: legacy-cache
+        with:
+          path: legacy/update.apk
+          key: legacy-preview-a2c52d89-jdk17-sdk35
       - uses: actions/setup-java@v4
+        if: steps.legacy-cache.outputs.cache-hit != 'true'
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+        if: steps.legacy-cache.outputs.cache-hit != 'true'
         with:
           gradle-version: '8.11.1'
           cache-read-only: false
       - uses: android-actions/setup-android@v3
+        if: steps.legacy-cache.outputs.cache-hit != 'true'
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
-      - run: gradle assembleDebug -PpreviewVersionCode=1 --stacktrace
-      - run: mkdir -p legacy && cp app/build/outputs/apk/debug/app-debug.apk legacy/update.apk
+      - if: steps.legacy-cache.outputs.cache-hit != 'true'
+        run: gradle assembleDebug -PpreviewVersionCode=1 --stacktrace
+      - if: steps.legacy-cache.outputs.cache-hit != 'true'
+        run: mkdir -p legacy && cp app/build/outputs/apk/debug/app-debug.apk legacy/update.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Legacy-v3-preview

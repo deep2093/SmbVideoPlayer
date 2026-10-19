@@ -40,12 +40,8 @@ have been copied. The app continues to use its existing Media3 player and SMB st
 
 ## Validation and limits
 
-Run `gradle testDebugUnitTest assembleDebug` with JDK 17, Gradle 8.9 and Android SDK
-35, or use the existing Android APK GitHub Actions workflow. Presentation tests cover
-legacy grid preference migration, continue-watching boundary cases and deterministic sorting.
+Use the checked-in Gradle 8.11.1 wrapper with JDK 17 and Android SDK 36. Build historical schema fixtures as described in README before assembling instrumentation tests. GitHub Actions builds signed previews, runs unit tests/lint and exercises API 29/35 with a disposable SMB share. The benchmark module generates profiles and measures cold startup separately.
 
-The development machine has no Gradle/JDK/Android SDK on PATH. The pushed commit's
-GitHub Actions result is the build authority. Physical phone/tablet checks still need
-the user's SMB server: resume/seek, subtitles, large libraries, IME visibility, original
-file operations, gestures and PiP. No VLC-only features such as casting, audio-library
-indexing or subtitle downloading are advertised as implemented.
+v0.11 adds selectable physical folders, isolated library storage, durable transfer recovery and a simpler Scan screen. Settings uses a readable maximum width, secondary scan actions live in a menu, and failures expand only when needed.
+
+Physical phone/tablet checks still need the user's SMB server: resume/seek, subtitles, large libraries, IME visibility, original file operations, gestures and PiP. Emulator results do not establish 4K throughput or tablet frame rates. No casting or subtitle downloading is advertised as implemented.

@@ -15,4 +15,4 @@ CI assigns monotonically increasing version codes (1000 + run number * 2), build
 a second APK at the next code, verifies both signing identities, then checks with
 an emulator that installing the second APK using `adb install -r` preserves the
 thumbnail file, database and saved preference test data. The delivered APK is the
-second, higher-version build. No Room schema or storage paths are changed.
+second, higher-version build. The default upgraded library keeps its database and artwork paths. Room migrations preserve its data; additional connection/account/root combinations use isolated databases and artwork directories.

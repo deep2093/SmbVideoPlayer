@@ -11,6 +11,7 @@
 - Split live browsing, artwork coordination, folder collection storage, backup and playback queue responsibilities out of LibraryViewModel.
 - Export schema 5 and regenerate historical fixtures, including the two historical version-3 shapes. Exercise migrations without skipping missing schema tests.
 - Add regression coverage for path-bounded collections, future scans, library isolation, queues, backup, real folder/back navigation and interrupted transfer recovery.
+- Upgrade Kotlin/KSP, Media3 1.6.1, Compose BOM 2025.04.01, Room 2.7.2 and SMBJ 0.14.0 in separate commits for review.
 - Check in the Gradle wrapper with distribution checksum verification. Rebuild the pinned legacy APK from source instead of relying on an expiring run artifact. Test API 29 and 35. Add profile-generation and startup-measurement tooling.
 
 See the GitHub Actions run for validation status. Hardware 4K/WMV, Wi-Fi throughput, PiP and large-font tablet layouts still require the target device; emulator checks cannot establish those results.
