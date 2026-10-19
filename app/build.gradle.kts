@@ -1,3 +1,5 @@
+import java.security.KeyStore
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -26,7 +28,7 @@ android {
             storeFile = rootProject.file(".ci/preview-signing.p12")
             storeType = "PKCS12"
             storePassword = "android"
-            keyAlias = java.security.KeyStore.getInstance("PKCS12").run {
+            keyAlias = KeyStore.getInstance("PKCS12").run {
                 rootProject.file(".ci/preview-signing.p12").inputStream().use { load(it, "android".toCharArray()) }
                 aliases().toList().single { isKeyEntry(it) }
             }
