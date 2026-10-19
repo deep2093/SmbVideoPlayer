@@ -14,6 +14,12 @@ PY
 chmod -R a+rwX /tmp/videolibrary-fixtures
 ffmpeg -v error -f lavfi -i testsrc2=size=320x180:rate=15 -f lavfi -i sine=frequency=440:sample_rate=44100 -t 30 -c:v wmv2 -b:v 300k -c:a wmav2 -b:a 96k -y /tmp/videolibrary-sample.wmv
 chmod a+rw /tmp/videolibrary-sample.wmv
+# Real WMV9/WMV3 bitstream: FFmpeg cannot encode WMV3 from the generated fixture.
+# Keep it outside the share until its UI playback check.
+curl --fail --retry 3 --connect-timeout 20 --max-time 120 'https://samples.ffmpeg.org/V-codecs/WMV9/wmv-samples/sample-wmv9-main-MP%40LL.wmv' -o /tmp/videolibrary-wmv9.wmv
+echo 'eedc185719bff2094df32642ec48d909  /tmp/videolibrary-wmv9.wmv' | md5sum --check
+ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 /tmp/videolibrary-wmv9.wmv | grep -x wmv3
+chmod a+rw /tmp/videolibrary-wmv9.wmv
 cat > /tmp/videolibrary-smb.conf <<EOF
 [global]
 server role = standalone server

@@ -197,7 +197,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
             Box(Modifier.fillMaxSize()) {
             Row(Modifier.padding(padding).fillMaxSize().then(if(floating)Modifier.haze(hazeState)else Modifier)) {
                 if (tabletLayout && !floating) {
-                    androidx.compose.material3.NavigationRail(modifier=Modifier.width(railWidth),containerColor = Color.Black) {
+                    androidx.compose.material3.NavigationRail(modifier=Modifier.width(railWidth),containerColor = MaterialTheme.colorScheme.surface) {
                         IconButton(onClick={railExpanded=!railExpanded}){Icon(Icons.Filled.Menu,contentDescription="Expand or collapse sidebar",tint=Color.White)}
                         TAB_LABELS.forEachIndexed { index, label ->
                             androidx.compose.material3.NavigationRailItem(
@@ -251,7 +251,7 @@ private fun FoldersHub(vm: LibraryViewModel, gridState: LazyGridState, onOpenGro
     val scope=rememberCoroutineScope()
     LaunchedEffect(pager.settledPage){vm.foldersTab=pager.settledPage}
     Column(Modifier.fillMaxSize()) {
-        androidx.compose.material3.TabRow(selectedTabIndex=pager.currentPage,containerColor=Color.Black,contentColor=Color.White) {
+        androidx.compose.material3.TabRow(selectedTabIndex=pager.currentPage,containerColor=MaterialTheme.colorScheme.surface,contentColor=MaterialTheme.colorScheme.onSurface) {
             listOf("Custom folders","Virtual folders","Original folders").forEachIndexed { index,title ->
                 androidx.compose.material3.Tab(selected=pager.currentPage==index,onClick={scope.launch{pager.animateScrollToPage(index)}},text={Text(title)})
             }
@@ -428,8 +428,6 @@ internal fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewM
 fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: () -> Unit, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, onOpenSettings: () -> Unit) {
     val shownGroups by vm.groups.collectAsStateWithLifecycle()
     val recentlyWatched by vm.continuing.collectAsStateWithLifecycle()
-    var sourcePicker by remember { mutableStateOf(false) }
-    if(sourcePicker) VirtualSourcesDialog(vm,onDismiss={sourcePicker=false})
     var folderQuery by vm::folderSearch
     var searchExpanded by rememberSaveable { mutableStateOf(folderQuery.isNotBlank()) }
     var sourceFolder by remember { mutableStateOf<String?>(null) }
@@ -478,12 +476,6 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
                 }
             }
         }
-        Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
-            Text("Automatic virtual folders",Modifier.weight(1f))
-            Switch(checked=vm.automaticVirtualFolders,onCheckedChange=vm::updateAutomaticVirtualFolders,modifier=Modifier.semantics {contentDescription="Enable automatic virtual folders"})
-        }
-        TextButton(onClick={sourcePicker=true}) {Text("Choose source folders (${vm.virtualSources.size})")}
-        if(!vm.automaticVirtualFolders) Text("Automatic folders are off. Your saved folders and thumbnails are kept.",style=MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (searchExpanded) {
@@ -536,7 +528,7 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
                     matchingVideos[index]?.let { video -> VideoCard(video,onClick={vm.playLibrary("folders",video,onPlay)},vm=vm,listMode=vm.folderListMode,selectionScope="folders") }
                 }
                 if (shownGroups.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-                    Text(if (folderQuery.isNotBlank()) "No matching folders." else "Select source folders and turn on automatic virtual folders to show filename groups.",
+                    Text(if (folderQuery.isNotBlank()) "No matching folders." else "Your virtual folders appear after a scan.",
                         modifier = Modifier.padding(vertical = 24.dp))
                 }
                 gridItems(shownGroups, key = { it.groupKey }, contentType = { "folder" }) { row ->
@@ -871,6 +863,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
         Text("Personalize your library, playback controls and network connection.",
             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedButton(onClick={hiddenPage=true},modifier=Modifier.fillMaxWidth()){Text("Unhide files and folders")}
+        ThemeSettings()
         Text("Navigation position",style=MaterialTheme.typography.titleMedium)
         Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
             RadioButton(selected=vm.navigationPosition=="SIDEBAR",onClick={vm.updateNavigationPosition("SIDEBAR")});TextButton(onClick={vm.updateNavigationPosition("SIDEBAR")}){Text("Sidebar")}

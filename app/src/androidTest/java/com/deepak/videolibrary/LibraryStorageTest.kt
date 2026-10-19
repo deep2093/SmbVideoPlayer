@@ -18,21 +18,6 @@ class LibraryStorageTest {
     @Before fun setup(){db=Room.inMemoryDatabaseBuilder(InstrumentationRegistry.getInstrumentation().targetContext,LibraryDatabase::class.java).build()}
     @After fun close(){db.close()}
     private suspend fun add(path:String,group:String="Cruise",custom:String?=null,size:Long=1):Long=db.dao().insertVideo(VideoEntity(relativePath=path,name=path.substringAfterLast('/'),parentDir=path.substringBeforeLast('/',""),size=size,modified=1,groupKey=group,customGroup=custom,thumbStatus="DONE",lastSeenSession=0,addedAt=1))
-    @Test fun virtualSourcesIncludeDescendantsAndKeepManualFoldersWhenOff()=runBlocking {
-        add("Selected/One.mp4");add("Selected/Sub/Two.mp4");add("SelectedExtra/Three.mp4")
-        add("Elsewhere/Manual.mp4",custom="Favourites")
-        val dao=db.libraryState()
-        val off=LibraryScope("nas",automaticSources=emptyList())
-        assertEquals(listOf("Favourites"),dao.folders(LibraryQueries.groups(off,"NAME",false)).first().map{it.groupKey})
-        val selected=off.copy(automaticSources=listOf("Selected"))
-        assertEquals(3,dao.videoList(LibraryQueries.videos(selected)).size)
-        assertEquals(2,dao.videoList(LibraryQueries.videos(selected.copy(group="Cruise"))).size)
-        assertEquals(1,dao.videoList(LibraryQueries.videos(off.copy(automaticSources=listOf("Selected/Sub")))).count{it.customGroup==null})
-        assertEquals(4,dao.videoList(LibraryQueries.videos(LibraryScope("nas"))).size)
-        val rootScope=off.copy(automaticSources=listOf(""))
-        assertEquals(4,dao.videoList(LibraryQueries.videos(rootScope)).size)
-        assertTrue(dao.videoList(LibraryQueries.videos(off.copy(group="Cruise"))).isEmpty())
-    }
     @Test fun hiddenRulesAreScopedAndPathBounded()=runBlocking {
         add("A/Cruise.mp4");add("A/Sub/Cruise.mp4");add("AB/Cruise.mp4",group="Other")
         val dao=db.libraryState()

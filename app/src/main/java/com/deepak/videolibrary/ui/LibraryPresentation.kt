@@ -30,3 +30,10 @@ enum class VideoSort(val label: String) {
 
 fun canContinue(position: Long, duration: Long, hidden: Boolean): Boolean =
     !hidden && position > 15_000L && (duration <= 0L || position < duration - 10_000L)
+
+/** Original-folder display only; physical paths remain the identity for every action. */
+fun originalFolderLabel(path:String):String {
+    val leaf=path.trimEnd('/').substringAfterLast('/')
+    val end=leaf.indexOfFirst {it=='-' || it==','}
+    return (if(end>=0)leaf.substring(0,end) else leaf).trim().ifEmpty {leaf}
+}

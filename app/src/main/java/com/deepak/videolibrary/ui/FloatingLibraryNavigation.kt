@@ -26,7 +26,7 @@ internal fun FloatingLibraryNavigation(selected:Int,labels:List<String>,icons:Li
     val shape=RoundedCornerShape(50)
     Box(modifier.fillMaxWidth().padding(horizontal=16.dp),contentAlignment=Alignment.Center) {
         BoxWithConstraints(Modifier.widthIn(max=440.dp).fillMaxWidth().height(68.dp).clip(shape)
-            .hazeChild(haze,HazeStyle(backgroundColor=Color.Black,tint=HazeTint(Color.Black.copy(alpha=0.65f)),blurRadius=22.dp,noiseFactor=0.04f))
+            .hazeChild(haze,HazeStyle(backgroundColor=MaterialTheme.colorScheme.surface,tint=HazeTint(MaterialTheme.colorScheme.surface.copy(alpha=0.76f)),blurRadius=22.dp,noiseFactor=0.04f))
             .border(1.dp,Color.White.copy(alpha=0.28f),shape)) {
             val slot=maxWidth/labels.size
             val offset by animateDpAsState(slot*selected,animationSpec=spring(dampingRatio=0.85f,stiffness=500f),label="navigation_selection")

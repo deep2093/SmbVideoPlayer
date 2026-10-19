@@ -96,15 +96,21 @@ try:
         else:
             time.sleep(1)
     find('Virtual folders');find('Original folders')
-    click('Virtual folders')
-    assert find('Enable automatic virtual folders').get('checked')=='false'
-    click('Choose source folders (0)');click('Movies  ›')
-    click('Include current folder and subfolders');click('Save sources')
-    find('Choose source folders (1)');click('Enable automatic virtual folders')
-    assert find('Enable automatic virtual folders').get('checked')=='true'
-    click('Enable automatic virtual folders')
-    assert find('Enable automatic virtual folders').get('checked')=='false'
-    print('PASS: automatic virtual folders default off, accept a browsed source and toggle without deleting library data')
+    click('Virtual folders');find('Favourites')
+    labels=[n.get('text','') for n in tree().iter('node')]
+    assert not any('Choose source folders' in label for label in labels)
+    print('PASS: Virtual folders restored automatically without a source picker')
+    click('Settings')
+    current='Dark grey'
+    for theme in ['AMOLED black','Midnight blue','Forest','Plum','Dark grey']:
+        click('Theme: '+current);click(theme);find('Theme: '+theme)
+        current=theme
+    screenshot('dark-grey-theme')
+    adb('shell','am','force-stop',APP)
+    adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
+    click('Settings');find('Theme: Dark grey')
+    print('PASS: five theme choices apply live and persist across restart')
+    click('Folders')
     click('Original folders');find('Movies');screenshot('originals')
     click('Videos');click(NAME,long=True)
     find('Cut');find('Copy');find('Select all')
@@ -136,24 +142,28 @@ try:
     assert 'A000.txt' not in labels, 'Shortcut must scroll beyond the first page'
     print('PASS: failed-thumbnail shortcut scrolls to the exact file and highlights it')
     click('Settings');click('Floating bottom bar');click('Folders');find('Custom folders');screenshot('floating-navigation')
-    # Publish the WMV only for this step. A background refresh must not change
-    # the earlier one-video selection fixture while those checks are running.
-    shutil.copyfile('/tmp/videolibrary-sample.wmv','/tmp/videolibrary-fixtures/Movies/Sample.wmv')
-    click('File Explorer');click('← Up');click('Movies')
-    adb('logcat','-c')
-    click('Sample.wmv')
-    # Native video rendering may never give UiAutomator an idle hierarchy.
-    # Verify real vout + playing + advancing time, without polling accessibility.
-    for _ in range(40):
-        output=adb('logcat','-d','-s','SmbWmv:I','*:S').decode(errors='replace')
-        if 'video_output_active' in output:break
+    # Publish codec fixtures only now so background refresh cannot change the
+    # earlier one-video selection scenario. Exercise generated WMV8 and real WMV9.
+    for source,name in [('/tmp/videolibrary-sample.wmv','Sample.wmv'),('/tmp/videolibrary-wmv9.wmv','WMV9.wmv')]:
+        shutil.copyfile(source,'/tmp/videolibrary-fixtures/Movies/'+name)
+        if name=='Sample.wmv':
+            click('File Explorer');click('← Up');click('Movies')
+        else:
+            click('Refresh')
+        adb('logcat','-c');click(name)
+        for _ in range(40):
+            output=adb('logcat','-d','-s','SmbWmv:I','*:S').decode(errors='replace')
+            if 'video_output_active' in output:break
+            time.sleep(1)
+        else:
+            raise AssertionError(name+' did not produce advancing video output: '+output)
+        assert 'decoder=software' in output
+        Path('preview/device-wmv-log.txt').write_text(output)
+        screenshot('wmv-playing' if name=='Sample.wmv' else 'wmv9-playing')
+        adb('shell','input','keyevent','4')
         time.sleep(1)
-    else:
-        raise AssertionError('WMV did not produce advancing video output')
-    Path('preview/device-wmv-log.txt').write_text(output)
-    screenshot('wmv-playing')
-    adb('shell','input','keyevent','4')
-    print('PASS: WMV/ASF with WMA audio plays from SMB through the VLC compatibility player')
+        print('PASS: '+name+' streams from SMB with software decoding and advancing video output')
+
 except Exception:
     screenshot('failure')
     print('Visible labels:',[(n.get('text'),n.get('content-desc')) for n in tree().iter('node') if n.get('text') or n.get('content-desc')])

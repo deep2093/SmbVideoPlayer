@@ -9,6 +9,13 @@ class LibraryPresentationTest {
         relativePath = path, name = name, parentDir = "", size = size, modified = 0,
         groupKey = "", lastSeenSession = 0, addedAt = added)
 
+    @Test fun originalFolderLabelsStopAtFirstDelimiterAndPreserveCase() {
+        assertEquals("Tom Cruise",originalFolderLabel("Movies/Tom Cruise- movie"))
+        assertEquals("Tom Cruise",originalFolderLabel("Movies/Tom Cruise, Brad Pitt- movie"))
+        assertEquals("Help Wanted",originalFolderLabel("1/Allherluv/Help Wanted"))
+        assertEquals("Actor 2",originalFolderLabel("Actor 2"))
+        assertEquals("tom",originalFolderLabel("tom-cruise, other"))
+    }
     @Test fun legacyPresetsMigrateWithoutChangingColumnCount() {
         listOf("2×2", "2×3", "3×3", "3×4", "4×3", "4×4", "5×4", "5×5").forEach {
             assertEquals(it.substringBefore('×'), LibraryLayout.normalize(it))

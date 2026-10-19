@@ -62,7 +62,7 @@ private fun OriginalFolderCard(vm:LibraryViewModel,folder:DirectorySummary,onCli
         Card(Modifier.fillMaxWidth().combinedClickable(onClick=onClick,onLongClick={menu=true})){
             Column {
                 Box(Modifier.fillMaxWidth().aspectRatio(16f/9f),contentAlignment=Alignment.Center){if(cover!=null)FileImage(cover,Modifier.fillMaxSize())else Icon(Icons.Filled.Folder,null,Modifier.size(48.dp))}
-                Column(Modifier.padding(10.dp)){Text(folder.path.substringAfterLast('/'),maxLines=2,overflow=TextOverflow.Ellipsis);Text(folder.path,style=MaterialTheme.typography.labelSmall,maxLines=2,overflow=TextOverflow.Ellipsis);Text("${folder.count} videos",style=MaterialTheme.typography.bodySmall)}
+                Column(Modifier.padding(10.dp)){Text(originalFolderLabel(folder.path),maxLines=2,overflow=TextOverflow.Ellipsis);Text("${folder.count} items",style=MaterialTheme.typography.bodySmall)}
             }
         }
         FileActionsMenu(menu,{menu=false},vm,folder.path,directory=true,details="${folder.path}\n${folder.count} visible indexed videos\nOriginal SMB folder")

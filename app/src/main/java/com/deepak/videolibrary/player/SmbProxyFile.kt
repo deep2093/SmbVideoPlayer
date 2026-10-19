@@ -20,6 +20,8 @@ class SmbProxyFile private constructor(private val connection:SmbConnection,
     private val released=AtomicBoolean(false)
     private val cache=ReadAheadBuffer()
     private var nextOffset=-1L
+    @Volatile var bytesRead:Long=0
+        private set
     @Volatile var failure:String?=null
         private set
     lateinit var descriptor:ParcelFileDescriptor
@@ -35,7 +37,7 @@ class SmbProxyFile private constructor(private val connection:SmbConnection,
                     return try {
                         if(offset!=nextOffset)cache.clear()
                         val n=cache.read(data,0,requested.coerceAtMost(data.size),size-offset){block,count->file.read(block,offset,0,count)}
-                        nextOffset=offset+n;n
+                        nextOffset=offset+n;bytesRead+=n;n
                     }catch(e:Exception){failure=SmbErrors.describe(e);throw ErrnoException("SMB read",OsConstants.EIO,e)}
                 }
                 override fun onRelease(){releaseData()}
