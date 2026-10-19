@@ -9,20 +9,30 @@ APP='com.deepak.videolibrary.preview'
 NAME='Tom Cruise - Fixture.mp4'
 
 def adb(*args):
-    return subprocess.check_output(['adb',*map(str,args)])
+    return subprocess.check_output(['adb',*map(str,args)],timeout=30)
 
 def tree():
-    adb('shell','uiautomator','dump','/sdcard/library-ui.xml')
-    text=adb('exec-out','cat','/sdcard/library-ui.xml').decode()
-    Path('preview/device-ui.xml').write_text(text)
-    return ET.fromstring(text)
+    # A cold activity can briefly have no accessibility root after resizing.
+    # UiAutomator reports that on stdout without a failing exit code.
+    for _ in range(5):
+        adb('shell','uiautomator','dump','/sdcard/library-ui.xml')
+        text=adb('exec-out','cat','/sdcard/library-ui.xml').decode()
+        try:
+            root=ET.fromstring(text)
+            Path('preview/device-ui.xml').write_text(text)
+            return root
+        except ET.ParseError:
+            time.sleep(1)
+    raise AssertionError('UiAutomator did not produce a hierarchy: '+text[:300])
 
 def find(label,timeout=20):
     end=time.monotonic()+timeout
     while time.monotonic()<end:
         root=tree()
         for node in root.iter('node'):
-            if node.get('text')==label or node.get('content-desc')==label:
+            # Compose merges a clickable card's filename and secondary caption
+            # into one accessibility node separated by newlines.
+            if label in node.get('text','').splitlines() or node.get('content-desc')==label:
                 return node
         time.sleep(.5)
     raise AssertionError('UI label not found: '+label)
