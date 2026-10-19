@@ -31,7 +31,7 @@ SMB playback uses 1 MiB read-ahead and a bounded Media3 buffer for high-bitrate 
 
 Videos load in pages and sort in SQL; folder summaries aggregate in SQL. Full queues are materialized only for explicit Play all / selection actions. This improves scalability but does not establish a particular refresh rate on a real tablet.
 
-WMV/ASF queues use a bundled VLC compatibility player through a seekable, read-only Android proxy descriptor backed by SMB. Files are streamed rather than downloaded. Credentials remain in the existing SMB connection, not a playback URL. WMV defaults to software decoding to avoid hardware-decoder startup stalls; Options can switch back to automatic decoding. A 15-second zero-time stall exposes restart/decoder recovery and redacted diagnostics. The compatibility player supports queue advance, resume, seek, speed, embedded audio/subtitle tracks, zoom/reset, focus, headphone unplug, keep-awake and optional PiP. Normal queues retain Media3 playback. Protected/damaged files are not guaranteed to play.
+WMV/ASF queues use a bundled VLC compatibility player through a seekable, read-only Android proxy descriptor backed by SMB. Files are streamed rather than downloaded. Credentials remain in the existing SMB connection, not a playback URL. WMV retains the previous automatic decoder selection. The experimental software-default and startup-recovery changes were reverted at the user's request. The compatibility player supports queue advance, resume, seek, speed, embedded audio/subtitle tracks, zoom/reset, focus, headphone unplug, keep-awake and optional PiP. Normal queues retain Media3 playback. Protected/damaged files are not guaranteed to play.
 
 ## Build and validation
 

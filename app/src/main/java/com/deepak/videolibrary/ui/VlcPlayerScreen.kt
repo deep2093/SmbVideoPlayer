@@ -71,11 +71,6 @@ internal fun VlcPlayerScreen(video:VideoEntity,settings:SmbSettings,vm:LibraryVi
     var videoOutput by remember {mutableStateOf(false)}
     val prefs=remember {context.getSharedPreferences("player_prefs",Context.MODE_PRIVATE)}
     var pip by remember {mutableStateOf(prefs.getBoolean("pip_enabled",false))}
-    var softwareWmv by remember {mutableStateOf(prefs.getString("wmv_decoder","SOFTWARE")!="AUTO")}
-    var stalled by remember {mutableStateOf(false)}
-    var restartFromBeginning by remember {mutableStateOf(false)}
-    var seeking by remember {mutableStateOf(false)}
-    val wmv=current.name.endsWith(".wmv",true) || current.name.endsWith(".asf",true)
     val audio=remember {context.getSystemService(AudioManager::class.java)}
     var resumeFocus by remember {mutableStateOf(false)}
     fun debugStatus(message:String){if((context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0)android.util.Log.i("SmbWmv",message)}
@@ -91,19 +86,17 @@ internal fun VlcPlayerScreen(video:VideoEntity,settings:SmbSettings,vm:LibraryVi
     fun play(){resumeFocus=false;if(audio.requestAudioFocus(focus)==AudioManager.AUDIOFOCUS_REQUEST_GRANTED){wantsPlay=true;player.play()}else error="Another app currently has audio focus. Tap Play to try again."}
     fun pause(){resumeFocus=false;wantsPlay=false;player.pause();save()}
     LaunchedEffect(index,attempt) {
-        ready=false;error=null;stalled=false;seeking=false;zoom=1f;position=0;duration=0;videoOutput=false
+        ready=false;error=null;zoom=1f;position=0;duration=0;videoOutput=false
         gate.withLock {
             withContext(Dispatchers.IO){player.stop();source[0]?.close();source[0]=null}
             var opened:SmbProxyFile?=null
             try {
-                val resume=if(restartFromBeginning)null else vm.resumeFor(current.relativePath)
-                restartFromBeginning=false
+                val resume=vm.resumeFor(current.relativePath)
                 withContext(Dispatchers.IO){opened=SmbProxyFile.open(context,SmbProfile(settings.host,settings.share,settings.rootPath,settings.username,settings.password),current.relativePath,current.size)}
                 currentCoroutineContext().ensureActive()
                 source[0]=opened
                 Media(native,opened!!.descriptor.fileDescriptor).apply {
-                    setHWDecoderEnabled(!(wmv && softwareWmv),false)
-                    debugStatus("decoder=${if(wmv && softwareWmv) "software" else "automatic"}")
+                    setHWDecoderEnabled(true,false)
                     if(resume!=null && (resume.durationMs<=0 || resume.positionMs<resume.durationMs-10000))addOption(":start-time=${resume.positionMs/1000.0}")
                     player.media=this;release()
                 }
@@ -114,25 +107,14 @@ internal fun VlcPlayerScreen(video:VideoEntity,settings:SmbSettings,vm:LibraryVi
             catch(e:Exception){opened?.close();error=SmbErrors.describe(e);AppDiagnostics.record(context,"wmv","open_failed_${e.javaClass.simpleName}")}
         }
     }
-    LaunchedEffect(player) {var tick=0;var last=-1L;while(true){if(ready){if(!seeking)position=player.time.coerceAtLeast(0);duration=player.length.coerceAtLeast(0);playing=player.isPlaying;if(++tick>=5){tick=0;debugStatus("position_ms=$position playing=$playing video_output=$videoOutput");if(position!=last){latestSave();last=position}}};delay(1000)}}
+    LaunchedEffect(player) {var tick=0;var last=-1L;while(true){if(ready){position=player.time.coerceAtLeast(0);duration=player.length.coerceAtLeast(0);playing=player.isPlaying;if(++tick>=5){tick=0;debugStatus("position_ms=$position playing=$playing video_output=$videoOutput");if(position!=last){latestSave();last=position}}};delay(1000)}}
     LaunchedEffect(playing,videoOutput,position>1000) {
         if(playing && videoOutput && position>1000) {
-            stalled=false
             AppDiagnostics.record(context,"wmv","video_output_active")
             debugStatus("video_output_active")
         }
     }
-    LaunchedEffect(index,attempt,ready,wantsPlay) {
-        if(ready && wantsPlay) {
-            delay(15000)
-            if(player.time<=0 && wantsPlay) {
-                stalled=true;controls=true
-                val detail="stalled_zero software=$softwareWmv bytes=${source[0]?.bytesRead ?: 0}"
-                debugStatus(detail);AppDiagnostics.record(context,"wmv",detail)
-            }
-        }
-    }
-    LaunchedEffect(playing,controls,tracks,options,stalled,seeking){if(playing && controls && !tracks && !options && !stalled && !seeking){delay(3000);controls=false}}
+    LaunchedEffect(playing,controls,tracks,options){if(playing && controls && !tracks && !options){delay(3000);controls=false}}
     DisposableEffect(player) {
         player.setEventListener {event->when(event.type){
             MediaPlayer.Event.Playing->{playing=true;debugStatus("playing");AppDiagnostics.record(context,"wmv","playing")}
@@ -171,7 +153,7 @@ internal fun VlcPlayerScreen(video:VideoEntity,settings:SmbSettings,vm:LibraryVi
         if(controls || !playing)Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha=0.88f)).windowInsetsPadding(WindowInsets.safeDrawing).padding(12.dp)) {
             Row(verticalAlignment=Alignment.CenterVertically){Text(current.name,Modifier.weight(1f),maxLines=2,color=Color.White);TextButton(onClick=onClose){Text("Close")}}
             Text("WMV compatibility playback · VLC",style=MaterialTheme.typography.labelSmall,color=Color.White)
-            if(duration>0)Slider(value=(position.toFloat()/duration).coerceIn(0f,1f),onValueChange={seeking=true;position=(it*duration).toLong()},onValueChangeFinished={player.setTime(position);seeking=false;save()})
+            if(duration>0)Slider(value=(position.toFloat()/duration).coerceIn(0f,1f),onValueChange={position=(it*duration).toLong()},onValueChangeFinished={player.setTime(position);save()})
             Text("${android.text.format.DateUtils.formatElapsedTime(position/1000)} / ${android.text.format.DateUtils.formatElapsedTime(duration/1000)}",color=Color.White)
             Row(modifier=Modifier.horizontalScroll(rememberScrollState()),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                 TextButton(enabled=index>0,onClick={save();index--}){Text("Previous")}
@@ -182,11 +164,6 @@ internal fun VlcPlayerScreen(video:VideoEntity,settings:SmbSettings,vm:LibraryVi
                 TextButton(onClick={tracks=true}){Text("Tracks")}
                 TextButton(onClick={options=true}){Text("Options")}
             }
-            if(stalled) {
-                Text("Playback is stuck at 00:00. Try restarting or changing the decoder.",color=MaterialTheme.colorScheme.error)
-                TextButton(onClick={restartFromBeginning=true;attempt++}) {Text("Restart from beginning")}
-                if(wmv)TextButton(onClick={softwareWmv=!softwareWmv;prefs.edit().putString("wmv_decoder",if(softwareWmv)"SOFTWARE"else"AUTO").apply();attempt++}) {Text(if(softwareWmv)"Try automatic decoding"else"Try software decoding")}
-            }
             error?.let {Text(it,color=MaterialTheme.colorScheme.error);TextButton(onClick={attempt++}){Text("Retry")}}
         }
     }
@@ -196,10 +173,6 @@ internal fun VlcPlayerScreen(video:VideoEntity,settings:SmbSettings,vm:LibraryVi
     }},confirmButton={TextButton(onClick={tracks=false}){Text("Close")}})
     if(options)AlertDialog(onDismissRequest={options=false},title={Text("Playback options")},text={Column {
         TextButton(onClick={zoom=1f}){Text("Reset zoom")}
-        if(wmv) {
-            Text("WMV decoding")
-            TextButton(onClick={softwareWmv=!softwareWmv;prefs.edit().putString("wmv_decoder",if(softwareWmv)"SOFTWARE"else"AUTO").apply();options=false;attempt++}) {Text(if(softwareWmv)"Software (change to automatic)"else"Automatic (change to software)")}
-        }
         Row {listOf(0.75f,1f,1.5f,2f).forEach {speed->TextButton(onClick={player.rate=speed}){Text("${speed}×")}}}
         Row(verticalAlignment=Alignment.CenterVertically){Text("Picture in picture");Switch(pip,{pip=it;prefs.edit().putBoolean("pip_enabled",it).apply()})}
         Text("Volume");var volume by remember {mutableFloatStateOf(audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat())};val max=audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).toFloat();Slider(volume,{volume=it;audio.setStreamVolume(AudioManager.STREAM_MUSIC,it.toInt(),0)},valueRange=0f..max)

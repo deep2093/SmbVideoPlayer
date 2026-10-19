@@ -158,20 +158,25 @@ try:
             time.sleep(1)
         else:
             raise AssertionError(name+' did not produce advancing video output: '+output)
-        assert 'decoder=software' in output
         Path('preview/device-wmv-log.txt').write_text(output)
         screenshot('wmv-playing' if name=='Sample.wmv' else 'wmv9-playing')
         # Android 15 may place its one-time immersive tutorial over the player.
         # Back first dismisses that tutorial, so wait for the actual browser.
-        for _ in range(4):
+        for _ in range(10):
             nodes=list(tree().iter('node'))
             if any(n.get('text')=='Refresh' for n in nodes):
                 break
+            # Use the current hierarchy directly: the system tutorial cannot
+            # reliably be dismissed with Back, and may vanish before a lookup.
+            got_it=next((n for n in nodes if n.get('text')=='Got it'),None)
+            if got_it is not None and any(n.get('text')=='Viewing full screen' for n in nodes):
+                x1,y1,x2,y2=map(int,re.findall(r'\d+',got_it.attrib['bounds']))
+                adb('shell','input','tap',(x1+x2)//2,(y1+y2)//2)
             else:
                 adb('shell','input','keyevent','4')
-                time.sleep(1)
+            time.sleep(1)
         find('Refresh')
-        print('PASS: '+name+' streams from SMB with software decoding and advancing video output')
+        print('PASS: '+name+' streams from SMB with advancing video output')
 
 except Exception:
     screenshot('failure')
