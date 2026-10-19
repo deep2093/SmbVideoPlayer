@@ -104,7 +104,7 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
     private suspend fun process(conn: SmbConnection, video: VideoEntity): Outcome {
         val source=AtomicReference<SmbMediaDataSource?>()
         val frame=AtomicReference<Bitmap?>()
-        var timedOut=false
+        val timedOut=java.util.concurrent.atomic.AtomicBoolean(false)
         try {
             val bitmap = coroutineScope {
                 val extraction=async(Dispatchers.IO) {
@@ -117,11 +117,12 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
                 }
                 val watchdog=launch(Dispatchers.IO) {
                     delay(PER_VIDEO_TIMEOUT_MS)
+                    timedOut.set(true)
                     source.get()?.close()
                 }
                 try {
                     val result=withTimeoutOrNull(PER_VIDEO_TIMEOUT_MS) { extraction.await() to true }
-                    timedOut=result==null
+                    if(result==null) timedOut.set(true)
                     result?.first
                 }
                 finally {
@@ -134,7 +135,7 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
             }
             if (bitmap == null) {
                 // A deadline without a decoder result is retryable, not proof of a bad file.
-                if (source.get()?.lastError?.let { SmbErrors.isTransient(it) } == true || timedOut) return Outcome.TRANSIENT
+                if (source.get()?.lastError?.let { SmbErrors.isTransient(it) } == true || timedOut.get()) return Outcome.TRANSIENT
                 dao.setThumbStatus(video.id, STATUS_FAILED, source.get()?.lastError?.let {SmbErrors.describe(it)} ?: "Android could not extract a video frame within 90 seconds. The file may use an unsupported codec, contain no video track, or be damaged; Android did not provide an exact cause.")
                 return Outcome.FAILED
             }
@@ -147,7 +148,7 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (SmbErrors.isTransient(e)) return Outcome.TRANSIENT
+            if (timedOut.get() || SmbErrors.isTransient(e)) return Outcome.TRANSIENT
             dao.setThumbStatus(video.id, STATUS_FAILED, if(e is IllegalArgumentException || e is IllegalStateException) "Android could not read a video frame (${e.javaClass.simpleName}). Check whether the file plays and whether its video codec is supported." else SmbErrors.describe(e))
             return Outcome.FAILED
         } finally {
