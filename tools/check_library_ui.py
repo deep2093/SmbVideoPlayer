@@ -66,6 +66,15 @@ try:
     adb('shell','am','force-stop',APP)
     adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
     find('Virtual folders');find('Original folders')
+    click('Virtual folders')
+    assert find('Enable automatic virtual folders').get('checked')=='false'
+    click('Choose source folders (0)');click('Movies  ›')
+    click('Include current folder and subfolders');click('Save sources')
+    find('Choose source folders (1)');click('Enable automatic virtual folders')
+    assert find('Enable automatic virtual folders').get('checked')=='true'
+    click('Enable automatic virtual folders')
+    assert find('Enable automatic virtual folders').get('checked')=='false'
+    print('PASS: automatic virtual folders default off, accept a browsed source and toggle without deleting library data')
     click('Original folders');find('Movies');screenshot('originals')
     click('Videos');click(NAME,long=True)
     find('Cut');find('Copy');find('Select all')

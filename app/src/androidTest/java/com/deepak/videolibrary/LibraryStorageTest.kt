@@ -29,7 +29,8 @@ class LibraryStorageTest {
         assertEquals(2,dao.videoList(LibraryQueries.videos(selected.copy(group="Cruise"))).size)
         assertEquals(1,dao.videoList(LibraryQueries.videos(off.copy(automaticSources=listOf("Selected/Sub")))).count{it.customGroup==null})
         assertEquals(4,dao.videoList(LibraryQueries.videos(LibraryScope("nas"))).size)
-        assertEquals(4,dao.videoList(LibraryQueries.videos(off.copy(automaticSources=listOf(""))))).size)
+        val rootScope=off.copy(automaticSources=listOf(""))
+        assertEquals(4,dao.videoList(LibraryQueries.videos(rootScope)).size)
         assertTrue(dao.videoList(LibraryQueries.videos(off.copy(group="Cruise"))).isEmpty())
     }
     @Test fun hiddenRulesAreScopedAndPathBounded()=runBlocking {

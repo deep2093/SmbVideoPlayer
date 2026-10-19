@@ -1,5 +1,8 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateDpAsState
@@ -476,7 +479,7 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
         }
         Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
             Text("Automatic virtual folders",Modifier.weight(1f))
-            Switch(checked=vm.automaticVirtualFolders,onCheckedChange=vm::updateAutomaticVirtualFolders)
+            Switch(checked=vm.automaticVirtualFolders,onCheckedChange=vm::updateAutomaticVirtualFolders,modifier=Modifier.semantics {contentDescription="Enable automatic virtual folders"})
         }
         TextButton(onClick={sourcePicker=true}) {Text("Choose source folders (${vm.virtualSources.size})")}
         if(!vm.automaticVirtualFolders) Text("Automatic folders are off. Your saved folders and thumbnails are kept.",style=MaterialTheme.typography.bodySmall)

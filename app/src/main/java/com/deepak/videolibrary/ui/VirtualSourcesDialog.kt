@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import com.deepak.videolibrary.smb.SmbEntry
@@ -39,7 +41,7 @@ internal fun VirtualSourcesDialog(vm:LibraryViewModel,onDismiss:()->Unit) {
             if(path!=root) TextButton(onClick={path=path.substringBeforeLast('/',"")}){Text("Up one folder")}
             val inherited=selected.any {it!=path && includes(it,path)}
             Row(verticalAlignment=Alignment.CenterVertically) {
-                Checkbox(checked=selected.any {includes(it,path)},enabled=!inherited,onCheckedChange={toggle(path,it)})
+                Checkbox(modifier=Modifier.semantics {contentDescription="Include current folder and subfolders"},checked=selected.any {includes(it,path)},enabled=!inherited,onCheckedChange={toggle(path,it)})
                 Text("Include this folder and subfolders")
             }
             if(inherited) Text("Included by a selected parent. Unselect that parent to choose individual subfolders.",style=MaterialTheme.typography.bodySmall)
