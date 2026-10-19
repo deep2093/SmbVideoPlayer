@@ -91,6 +91,8 @@ dependencies {
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.9.3")
+    // LibVLC also exposes fragment helpers; align its older transitive Fragment with Activity Result.
+    implementation("androidx.fragment:fragment:1.8.5")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 
