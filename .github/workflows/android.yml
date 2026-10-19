@@ -156,6 +156,8 @@ jobs:
           api-level: ${{ matrix.api }}
           arch: x86_64
           profile: pixel_2
+          # Avoid the Android 10 profile's oversized default userdata image.
+          disk-size: 4096M
           disable-animations: true
           script: |
             python3 tools/check_legacy_upgrade.py
