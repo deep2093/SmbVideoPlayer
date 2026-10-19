@@ -54,7 +54,7 @@ jobs:
       - name: Verify preview keystore loads
         run: keytool -list -keystore .ci/preview-signing.p12 -storetype PKCS12 -storepass android
       - name: Check Kotlin dependency compatibility
-        run: gradle dependencyInsight --configuration debugCompileClasspath --dependency kotlin-stdlib
+        run: gradle :app:dependencyInsight --configuration debugCompileClasspath --dependency kotlin-stdlib
       - name: Unit tests
         run: gradle testDebugUnitTest --stacktrace
       - name: Android lint
@@ -99,6 +99,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [29, 35]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -128,7 +132,7 @@ jobs:
         run: bash tools/start_test_share.sh
       - uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 29
+          api-level: ${{ matrix.api }}
           arch: x86_64
           profile: pixel_2
           disable-animations: true
@@ -142,7 +146,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Preview-device-check
+          name: Preview-device-check-${{ matrix.api }}
           path: |
             preview/device-*.png
             preview/storage-tests.txt
