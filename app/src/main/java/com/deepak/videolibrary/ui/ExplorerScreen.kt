@@ -49,6 +49,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
         val index=shown.indexOfFirst {it.path==vm.explorerFocusPath}
         if(!vm.explorerBusy && index>=0)listState.scrollToItem(index)
     }
+    LaunchedEffect(vm.explorerPath) {if(vm.explorerFocusPath==null)listState.scrollToItem(0)}
     val playQueue = shown.filter { isPlayable(it.entry) }.map { explorerVideo(it, emptyMap()) }.distinctBy { it.relativePath }
     DisposableEffect(Unit) { onDispose { vm.stopExplorerSearch() } }
     LaunchedEffect(vm.explorerQuery, vm.explorerPath) { vm.searchExplorer(vm.explorerQuery, vm.explorerPath) }

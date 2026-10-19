@@ -1,5 +1,6 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -32,7 +33,7 @@ internal fun FileActionsMenu(expanded: Boolean, dismiss:()->Unit, vm: LibraryVie
     var merge by remember(path) { mutableStateOf(false) }
     var mergeName by remember(path) { mutableStateOf("") }
     var name by remember(path) { mutableStateOf(if(virtual) path else path.substringAfterLast('/')) }
-    DropdownMenu(expanded=expanded,onDismissRequest=dismiss) {
+    DropdownMenu(expanded=expanded,onDismissRequest=dismiss,shape=RoundedCornerShape(16.dp)) {
         if(onPlay!=null) DropdownMenuItem(text={Text("Play")},onClick={dismiss();onPlay()})
         if(onPlayFromStart!=null) DropdownMenuItem(text={Text("Play from start")},onClick={dismiss();onPlayFromStart()})
         if(!directory && !virtual) {

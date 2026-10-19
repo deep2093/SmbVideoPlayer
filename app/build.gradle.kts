@@ -9,7 +9,7 @@ plugins {
 
 android {
     namespace = "com.deepak.videolibrary"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.deepak.videolibrary"

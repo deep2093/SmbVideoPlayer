@@ -30,7 +30,7 @@ object ScanStatus {
 }
 
 private val VIDEO_EXTENSIONS = setOf(
-    "mkv", "mp4", "m4v", "avi", "mov", "wmv", "flv", "webm", "ts", "m2ts", "mts",
+    "mkv", "mp4", "m4v", "avi", "mov", "wmv", "asf", "flv", "webm", "ts", "m2ts", "mts",
     "mpg", "mpeg", "3gp", "ogv", "vob", "divx",
 )
 

@@ -23,7 +23,7 @@ fun originalChildren(videos: List<VideoEntity>, folder: String): List<OriginalFo
 
 data class ExplorerHit(val path: String, val entry: SmbEntry)
 
-private val playableExtensions = setOf("mp4", "mkv", "avi", "mov", "m4v", "webm", "ts", "m2ts", "wmv", "flv", "mpg", "mpeg", "3gp")
+private val playableExtensions = setOf("mp4", "mkv", "avi", "mov", "m4v", "webm", "ts", "m2ts", "wmv", "asf", "flv", "mpg", "mpeg", "3gp")
 fun isPlayable(entry: SmbEntry): Boolean = !entry.isDirectory &&
     entry.name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT) in playableExtensions
 
