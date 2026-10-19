@@ -8,6 +8,12 @@ import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.util.Rational
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.draw.clipToBounds
+import androidx.media3.common.AudioAttributes
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import android.os.SystemClock
 import android.view.ViewGroup
 import android.view.View
 import androidx.compose.ui.graphics.graphicsLayer
@@ -95,8 +101,19 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     val player = remember(queue, profile) {
         AppDiagnostics.record(context, "player", "open")
         val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
-        ExoPlayer.Builder(context, renderers).build().apply {
-            val factory = ProgressiveMediaSource.Factory(SmbPlaybackDataSource.Factory(profile))
+        // At 28 Mbps, 20 seconds needs about 70 MB. Bound sample memory while
+        // allowing a useful buffer for Wi-Fi jitter; do not force software decoding.
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15_000, 30_000, 2_500, 5_000)
+            .setTargetBufferBytes(96 * 1024 * 1024)
+            .setPrioritizeTimeOverSizeThresholds(false)
+            .build()
+        ExoPlayer.Builder(context, renderers).setLoadControl(loadControl).build().apply {
+            setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
+            setHandleAudioBecomingNoisy(true)
+            setWakeMode(C.WAKE_MODE_NETWORK)
+            val factory = ProgressiveMediaSource.Factory(SmbPlaybackDataSource.Factory(profile) { detail -> AppDiagnostics.record(context, "smb_read", detail) })
             setMediaSources(queue.map { item ->
                 val uri = Uri.Builder().scheme("smbvideo").authority("library")
                     .appendQueryParameter("path", item.relativePath)
@@ -138,7 +155,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     var pipEnabled by remember { mutableStateOf(prefs.getBoolean("pip_enabled", false)) }
     var trackRefresh by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
-    var isPlaying by remember { mutableStateOf(true) }
+    var isPlaying by remember { mutableStateOf(player.isPlaying) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var retry by remember { mutableIntStateOf(0) }
@@ -181,7 +198,24 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
         }
     }
     DisposableEffect(player) {
+        fun updateKeepAwake() {
+            val active = player.playWhenReady && player.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE && (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING)
+            if (active) activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        var bufferingSince = 0L
+        val analytics = object : AnalyticsListener {
+            override fun onVideoDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
+                AppDiagnostics.record(context, "decoder", "name=$decoderName initMs=$initializationDurationMs")
+            }
+            override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) {
+                AppDiagnostics.record(context, "frames", "dropped=$droppedFrames elapsedMs=$elapsedMs bufferedMs=${player.totalBufferedDuration}")
+            }
+        }
         val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { updateKeepAwake() }
+            override fun onPlaybackSuppressionReasonChanged(reason: Int) { updateKeepAwake() }
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                 AppDiagnostics.record(context, "video", "width=" + videoSize.width + " height=" + videoSize.height)
             }
@@ -193,22 +227,33 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
             override fun onPlayerError(error: PlaybackException) {
                 AppDiagnostics.record(context, "error", error.errorCodeName)
                 message = "Playback interruption: ${error.errorCodeName}"
-                retryPending = true
+                retryPending = error.errorCode in setOf(PlaybackException.ERROR_CODE_IO_UNSPECIFIED, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT)
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
+                updateKeepAwake()
+                if (playbackState == Player.STATE_BUFFERING) bufferingSince = SystemClock.elapsedRealtime()
+                if (playbackState == Player.STATE_READY && bufferingSince > 0L) {
+                    AppDiagnostics.record(context, "buffer", "waitMs=${SystemClock.elapsedRealtime() - bufferingSince} bufferedMs=${player.totalBufferedDuration}")
+                    bufferingSince = 0L
+                }
                 if (playbackState == Player.STATE_READY) { retry = 0; message = null; AppDiagnostics.record(context, "player", "ready") }
                 if (playbackState == Player.STATE_BUFFERING) AppDiagnostics.record(context, "player", "buffering")
                 if (playbackState == Player.STATE_ENDED) revealControls()
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
+                zoom = 1f
                 revealControls()
             }
         }
         player.addListener(listener)
+        player.addAnalyticsListener(analytics)
+        updateKeepAwake()
         onDispose {
             prefs.edit().putLong("resume_path_${queue.getOrElse(player.currentMediaItemIndex.coerceAtLeast(0)) { video }.relativePath}", player.currentPosition.coerceAtLeast(0)).apply()
             player.removeListener(listener)
+            player.removeAnalyticsListener(analytics)
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             AppDiagnostics.record(context, "player", "closed")
             player.release()
         }
@@ -226,22 +271,19 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
     }
     BackHandler { if (showTracks) showTracks = false else if (showSettings) showSettings = false else onClose() }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(factory = { PlayerView(it).apply {
-            this.player = player
-            useController = false
-            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-        } }, update = { view ->
+        AndroidView(factory = { android.view.LayoutInflater.from(it).inflate(com.deepak.videolibrary.R.layout.playback_view, null) as PlayerView }, update = { view ->
+            view.player = player
+            view.useController = false
             view.resizeMode = aspect
-            view.videoSurfaceView?.apply { scaleX = zoom; scaleY = zoom }
-        }, modifier = Modifier.fillMaxSize())
-        // A single pointer handler arbitrates taps, drags and long-press.
+        }, modifier = Modifier.fillMaxSize().clipToBounds().graphicsLayer { scaleX = zoom; scaleY = zoom })
+        // One full-width handler keeps both pinch pointers in the same coordinate space.
         // Separate stacked detectors previously competed and swallowed gestures.
-        Row(Modifier.fillMaxSize()) {
-            repeat(2) { side ->
-                Box(Modifier.weight(1f).fillMaxHeight().pointerInput(player, side, holdSpeed, activity, volumeGestureEnabled, brightnessGestureEnabled) {
+        Box(Modifier.fillMaxSize().pointerInput(player, holdSpeed, activity, volumeGestureEnabled, brightnessGestureEnabled) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val start = down.position
+                        val side = if (start.x < size.width / 2f) 0 else 1
+                        var pinching = false
                         var previous = start
                         var last = start
                         var moved = false
@@ -264,6 +306,22 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                                     holding = true
                                     boost = true
                                 }
+                                continue
+                            }
+                            if (event.changes.count { it.pressed } >= 2) {
+                                pinching = true
+                                moved = true
+                                mode = 3
+                                seekingGesture = false
+                                if (holding) { player.setPlaybackSpeed(previousSpeed); holding = false; boost = false }
+                                zoom = (zoom * event.calculateZoom()).coerceIn(1f, 4f)
+                                gestureMessage = "Zoom ${(zoom * 100).roundToInt()}%"
+                                event.changes.forEach { it.consume() }
+                                continue
+                            }
+                            if (pinching) {
+                                event.changes.forEach { it.consume() }
+                                if (event.changes.none { it.pressed }) break
                                 continue
                             }
                             val pointer = event.changes.firstOrNull { it.id == down.id }
@@ -338,8 +396,6 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                         }
                     }
                 })
-            }
-        }
         if (seekingGesture) Text("Release to seek: ${formatPlaybackTime(seekingTarget)}", color = Color.White, modifier = Modifier.align(Alignment.Center).background(Color(0xCC101010), RoundedCornerShape(12.dp)).padding(12.dp))
         if (boost) Text("${holdSpeed}×", color = Color.White, modifier = Modifier.align(Alignment.TopCenter).padding(16.dp))
         LaunchedEffect(gestureMessage) {
@@ -364,7 +420,8 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                         Icon(Icons.Filled.Replay10, "Rewind 10 seconds", tint = Color.White, modifier = Modifier.size(32.dp))
                     }
                     FilledIconButton(onClick = { if (player.isPlaying) player.pause() else player.play(); revealControls() },
-                        modifier = Modifier.size(72.dp)) {
+                        modifier = Modifier.size(72.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFFD32F2F), contentColor = Color.White)) {
                         Icon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             if (isPlaying) "Pause" else "Play", modifier = Modifier.size(40.dp))
                     }
@@ -383,6 +440,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                     Slider(value = if (scrubbing) seekPosition else position.coerceIn(0L, duration.coerceAtLeast(1L)).toFloat(),
                         onValueChange = { scrubbing = true; seekPosition = it; revealControls() },
                         onValueChangeFinished = { player.seekTo(seekPosition.toLong()); scrubbing = false; revealControls() },
+                        colors = SliderDefaults.colors(thumbColor = Color(0xFFEF5350), activeTrackColor = Color(0xFFD32F2F), inactiveTrackColor = Color.DarkGray),
                         valueRange = 0f..duration.coerceAtLeast(1L).toFloat(), modifier = Modifier.fillMaxWidth().height(22.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("${currentIndex + 1}/${queue.size}", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
@@ -449,7 +507,7 @@ fun PlayerScreen(video: VideoEntity, settings: SmbSettings, playlist: List<Video
                     Text("Picture in Picture", color = Color.White)
                     Switch(checked = pipEnabled, onCheckedChange = { pipEnabled = it; prefs.edit().putBoolean("pip_enabled", it).apply(); revealControls() })
                 }
-                TextButton(onClick = { zoom = 1f; revealControls() }) { Text("Reset zoom") }
+                TextButton(onClick = { zoom = 1f; aspectIndex = 0; revealControls() }) { Text("Reset zoom", color = Color.White) }
             }
         }
         message?.let { warning ->

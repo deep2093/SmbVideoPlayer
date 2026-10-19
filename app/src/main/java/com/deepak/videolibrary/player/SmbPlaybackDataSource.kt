@@ -12,12 +12,17 @@ import java.io.IOException
 import kotlin.math.min
 
 /** Random-access SMB file transport for Media3. Never downloads an entire video. */
-class SmbPlaybackDataSource(private val profile: SmbProfile) : BaseDataSource(true) {
+class SmbPlaybackDataSource(private val profile: SmbProfile, private val diagnostic: (String) -> Unit = {}) : BaseDataSource(true) {
     private var conn: SmbConnection? = null
     private var handle: com.hierynomus.smbj.share.File? = null
     private var uri: Uri? = null
     private var position = 0L
     private var remaining = 0L
+    private val readAhead = ReadAheadBuffer()
+    private var opened = false
+    private var remoteBytes = 0L
+    private var remoteReadMs = 0L
+    private var remoteReads = 0
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
         uri = dataSpec.uri
@@ -27,10 +32,13 @@ class SmbPlaybackDataSource(private val profile: SmbProfile) : BaseDataSource(tr
             connection.open()
             val path = dataSpec.uri.getQueryParameter("path") ?: throw IOException("Missing video path")
             handle = connection.openFile(path)
+            readAhead.clear()
             position = dataSpec.position
-            remaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) dataSpec.length
-                        else (dataSpec.uri.getQueryParameter("size")?.toLongOrNull() ?: throw IOException("Missing video size")) - position
+            val size = dataSpec.uri.getQueryParameter("size")?.toLongOrNull() ?: throw IOException("Missing video size")
+            if (position > size) throw EOFException("Seek past end of video")
+            remaining = if (dataSpec.length != C.LENGTH_UNSET.toLong()) min(dataSpec.length, size - position) else size - position
             if (remaining < 0) throw EOFException("Seek past end of video")
+            opened = true
             transferStarted(dataSpec)
             return remaining
         } catch (e: Exception) { close(); throw IOException("Unable to open SMB video", e) }
@@ -44,17 +52,31 @@ class SmbPlaybackDataSource(private val profile: SmbProfile) : BaseDataSource(tr
         var failure: Exception? = null
         for (attempt in 0..3) {
             try {
-                n = handle?.read(buffer, position, offset, min(length.toLong(), remaining).toInt())
-                    ?: throw IOException("SMB file is closed")
+                n = readAhead.read(buffer, offset, length, remaining) { block, count ->
+                    val start = android.os.SystemClock.elapsedRealtime()
+                    val fetched = handle?.read(block, position, 0, count) ?: throw IOException("SMB file is closed")
+                    remoteBytes += fetched.coerceAtLeast(0)
+                    remoteReadMs += android.os.SystemClock.elapsedRealtime() - start
+                    remoteReads++
+                    if (remoteReads >= 32) {
+                        diagnostic("readBytes=$remoteBytes readMs=$remoteReadMs requests=$remoteReads")
+                        remoteBytes = 0L; remoteReadMs = 0L; remoteReads = 0
+                    }
+                    fetched
+                }
                 failure = null
                 break
             } catch (e: Exception) {
                 failure = e
-                if (attempt == 3) break
+                diagnostic("reconnectAttempt=${attempt + 1} cause=${e.javaClass.simpleName}")
+                if (attempt == 3 || e is EOFException) break
                 try {
                     reconnectAtPosition()
                     Thread.sleep(400L * (attempt + 1))
-                } catch (retryError: Exception) { failure = retryError }
+                } catch (retryError: Exception) {
+                    if (retryError is InterruptedException) { Thread.currentThread().interrupt(); throw IOException("SMB read interrupted", retryError) }
+                    failure = retryError
+                }
             }
         }
         if (failure != null) throw IOException("SMB stream could not reconnect", failure)
@@ -68,10 +90,10 @@ class SmbPlaybackDataSource(private val profile: SmbProfile) : BaseDataSource(tr
         runCatching { handle?.close() }; handle = null
         runCatching { conn?.close() }; conn = null
         val newConn = SmbConnection(profile)
+        conn = newConn // close() also owns failed reconnects
         newConn.open()
         val path = uri?.getQueryParameter("path") ?: throw IOException("Missing playback file")
         handle = newConn.openFile(path)
-        conn = newConn
     }
     override fun getUri(): Uri? = uri
     override fun close() {
@@ -80,9 +102,11 @@ class SmbPlaybackDataSource(private val profile: SmbProfile) : BaseDataSource(tr
         runCatching { conn?.close() }
         conn = null
         uri = null
-        if (remaining > 0) remaining = 0
+        remaining = 0
+        readAhead.clear()
+        if (opened) { opened = false; transferEnded() }
     }
-    class Factory(private val profile: SmbProfile) : DataSource.Factory {
-        override fun createDataSource(): DataSource = SmbPlaybackDataSource(profile)
+    class Factory(private val profile: SmbProfile, private val diagnostic: (String) -> Unit = {}) : DataSource.Factory {
+        override fun createDataSource(): DataSource = SmbPlaybackDataSource(profile, diagnostic)
     }
 }
