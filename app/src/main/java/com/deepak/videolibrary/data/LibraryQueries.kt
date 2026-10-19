@@ -6,12 +6,23 @@ import androidx.sqlite.db.SimpleSQLiteQuery
 data class LibraryScope(val key: String, val query: String = "", val group: String? = null,
     val directory: String? = null, val subtree: Boolean = false, val groupMatches: Boolean = false,
     val pathMatches: Boolean = false, val sort: String = "NAME", val descending: Boolean = false,
-    val match:String?=null)
+    val match:String?=null, val automaticSources:List<String>?=null)
 
 object LibraryQueries {
     private fun where(s: LibraryScope): Pair<String, MutableList<Any?>> {
         val args = mutableListOf<Any?>(s.key)
         val text = StringBuilder(" NOT EXISTS (SELECT 1 FROM hidden_items h WHERE h.connectionKey=? AND ((h.kind='FILE' AND h.target=v.relativePath) OR (h.kind='DIRECTORY' AND (h.target=v.relativePath OR substr(v.relativePath,1,length(h.target)+1)=h.target||'/')) OR (h.kind='GROUP' AND h.target=COALESCE(v.customGroup,v.groupKey))))")
+        s.automaticSources?.let { sources ->
+            text.append(" AND (v.customGroup IS NOT NULL OR (")
+            if(sources.isEmpty()) text.append("0") else sources.forEachIndexed { i,path ->
+                if(i>0) text.append(" OR ")
+                if(path.isEmpty()) text.append("1") else {
+                    text.append("(v.parentDir=? OR substr(v.parentDir,1,length(?)+1)=?||'/')")
+                    args.addAll(listOf(path,path,path))
+                }
+            }
+            text.append("))")
+        }
         if (s.group != null) { text.append(" AND COALESCE(v.customGroup,v.groupKey)=?"); args.add(s.group) }
         if(s.match!=null){text.append(" AND instr(lower(v.name),lower(?))>0");args.add(s.match)}
         s.directory?.let { dir ->

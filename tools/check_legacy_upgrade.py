@@ -79,6 +79,7 @@ for _ in range(40):
     time.sleep(1)
 else:
     raise AssertionError('Database history migration did not finish')
+time.sleep(5)  # The existing history flag does not prove Room has opened schema 4.
 stop()
 with tempfile.TemporaryDirectory() as folder:
     db=database(folder)

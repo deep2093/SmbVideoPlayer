@@ -85,7 +85,29 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     private val layoutPrefs = app.getSharedPreferences("library_layout", Application.MODE_PRIVATE)
     var navigationPosition by mutableStateOf(layoutPrefs.getString("navigation_position","SIDEBAR") ?: "SIDEBAR")
         private set
-    fun setNavigationPosition(value:String){if(value !in setOf("SIDEBAR","FLOATING"))return;navigationPosition=value;layoutPrefs.edit().putString("navigation_position",value).apply()}
+    fun updateNavigationPosition(value:String){if(value !in setOf("SIDEBAR","FLOATING"))return;navigationPosition=value;layoutPrefs.edit().putString("navigation_position",value).apply()}
+    var automaticVirtualFolders by mutableStateOf(layoutPrefs.getBoolean("virtual_enabled:${namespace.value}",false))
+        private set
+    var virtualSources by mutableStateOf(layoutPrefs.getStringSet("virtual_sources:${namespace.value}",emptySet())!!.toSet())
+        private set
+    private val virtualSourceFlow=MutableStateFlow(if(automaticVirtualFolders) virtualSources.toList() else emptyList())
+    fun updateAutomaticVirtualFolders(enabled:Boolean){
+        automaticVirtualFolders=enabled
+        layoutPrefs.edit().putBoolean("virtual_enabled:${namespace.value}",enabled).apply()
+        virtualSourceFlow.value=if(enabled) virtualSources.toList() else emptyList()
+        coverRevision++
+    }
+    fun updateVirtualSources(paths:Set<String>){
+        virtualSources=paths.toSet()
+        layoutPrefs.edit().putStringSet("virtual_sources:${namespace.value}",virtualSources).apply()
+        virtualSourceFlow.value=if(automaticVirtualFolders) virtualSources.toList() else emptyList()
+        coverRevision++
+    }
+    suspend fun virtualSourceDirectories(path:String):List<SmbEntry> = withContext(Dispatchers.IO) {
+        val profile=settingsStore.loadProfile() ?: error("Configure SMB in Settings first")
+        SmbConnection(profile).use { it.open();it.list(path).filter { entry->entry.isDirectory }.sortedBy { entry->entry.name.lowercase() } }
+    }
+    private fun virtualScope(scope:LibraryScope)=scope.copy(automaticSources=virtualSourceFlow.value)
     private val isTablet = app.resources.configuration.smallestScreenWidthDp >= 600
     private val allowedGridPresets = LibraryLayout.presets.toSet()
     private fun restoredGrid(key: String, default: String): String =
@@ -169,11 +191,12 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         get() = originalQueryValue
         set(value) { originalQueryValue=value; originalQueryFlow.value=value }
 
-    private val videoScope = combine(query.debounce(200), groupFilter, sortChoice, namespace,matchFolderFilter) { q,g,sort,key,rule ->
+    private val unscopedVideoScope = combine(query.debounce(200), groupFilter, sortChoice, namespace,matchFolderFilter) { q,g,sort,key,rule ->
         LibraryScope(key,q,g,sort=sort.first,descending=sort.second,match=rule?.term)
     }
-    private val folderScope = combine(folderQueryFlow.debounce(200),sortChoice,namespace) { q,sort,key ->
-        LibraryScope(key,q,groupMatches=true,sort=sort.first,descending=sort.second)
+    private val videoScope=combine(unscopedVideoScope,virtualSourceFlow){scope,sources -> if(scope.group!=null) scope.copy(automaticSources=sources) else scope}
+    private val folderScope = combine(folderQueryFlow.debounce(200),sortChoice,namespace,virtualSourceFlow) { q,sort,key,sources ->
+        LibraryScope(key,q,groupMatches=true,sort=sort.first,descending=sort.second,automaticSources=sources)
     }
     private val originalScope = combine(originalLocation,originalQueryFlow.debounce(200),sortChoice,namespace) { dir,q,sort,key ->
         LibraryScope(key,q,directory=dir,subtree=q.isNotBlank(),pathMatches=true,sort=sort.first,descending=sort.second)
@@ -238,9 +261,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun unhide(item: HiddenItem) { viewModelScope.launch(Dispatchers.IO) { stateDao.unhide(item);coverRevision++ } }
     fun unhideAll() { viewModelScope.launch(Dispatchers.IO) { stateDao.unhideAll(namespace.value);coverRevision++ } }
     private fun selectedScope(mode: String): LibraryScope = when(mode) {
-        "folders" -> LibraryScope(namespace.value,folderSearch,groupMatches=true,sort=videoSort.name,descending=sortDescending)
+        "folders" -> virtualScope(LibraryScope(namespace.value,folderSearch,groupMatches=true,sort=videoSort.name,descending=sortDescending))
         "originals" -> LibraryScope(namespace.value,originalQuery,directory=originalPath,subtree=true,pathMatches=true,sort=videoSort.name,descending=sortDescending)
-        else -> LibraryScope(namespace.value,query.value,groupFilter.value,sort=videoSort.name,descending=sortDescending,match=matchFolderFilter.value?.term)
+        else -> LibraryScope(namespace.value,query.value,groupFilter.value,sort=videoSort.name,descending=sortDescending,match=matchFolderFilter.value?.term,automaticSources=if(groupFilter.value!=null) virtualSourceFlow.value else null)
     }
     fun playLibrary(mode: String, start: VideoEntity?=null, onPlay:(VideoEntity,List<VideoEntity>)->Unit) {
         val scope=selectedScope(mode)
@@ -287,13 +310,13 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     var clipboardBatch by mutableStateOf<List<Triple<String,Boolean,Boolean>>>(emptyList())
         private set
     fun stageGroup(group: String, cut: Boolean) { viewModelScope.launch {
-        val rows=withContext(Dispatchers.IO) { stateDao.videoList(LibraryQueries.videos(LibraryScope(namespace.value,group=group))) }
+        val rows=withContext(Dispatchers.IO) { stateDao.videoList(LibraryQueries.videos(virtualScope(LibraryScope(namespace.value,group=group)))) }
         clipboardBatch=rows.map { Triple(it.relativePath,false,cut) }
         explorerClipboard=clipboardBatch.firstOrNull()
         notice="${rows.size} videos ${if(cut) "cut" else "copied"}. Choose Paste to select a destination."
     } }
     fun deleteGroupFiles(group: String) { viewModelScope.launch(Dispatchers.IO) {
-        stateDao.videoList(LibraryQueries.videos(LibraryScope(namespace.value,group=group))).forEach {
+        stateDao.videoList(LibraryQueries.videos(virtualScope(LibraryScope(namespace.value,group=group)))).forEach {
             TransferWorker.enqueue(getApplication(),"DELETE",it.relativePath,"",false,namespace.value)
         }
     } }
@@ -391,7 +414,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun cachedCover(key:String):File?=coverFiles.get(key)
     suspend fun coverFor(group:String,key:String):File? {
         coverFiles.get(key)?.let{return it}
-        val ids=withContext(Dispatchers.IO){stateDao.ids(LibraryQueries.coverIds(LibraryScope(namespace.value,group=group)))}
+        val ids=withContext(Dispatchers.IO){stateDao.ids(LibraryQueries.coverIds(virtualScope(LibraryScope(namespace.value,group=group))))}
         return services.covers.buildOriginal("${namespace.value}:virtual:$group",ids)?.also{coverFiles.put(key,it)}
     }
     suspend fun originalCover(path:String,key:String):File? {
@@ -653,6 +676,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
             saved.copy(password = s.password)
         }
         namespace.value=connectionKey(settings)
+        automaticVirtualFolders=layoutPrefs.getBoolean("virtual_enabled:${namespace.value}",false)
+        virtualSources=layoutPrefs.getStringSet("virtual_sources:${namespace.value}",emptySet())!!.toSet()
+        virtualSourceFlow.value=if(automaticVirtualFolders) virtualSources.toList() else emptyList()
         originalPath=settings.rootPath.trim('/')
     }
 

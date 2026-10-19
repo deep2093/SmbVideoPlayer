@@ -424,6 +424,8 @@ internal fun VideoCard(video: VideoEntity, onClick: () -> Unit, vm: LibraryViewM
 fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: () -> Unit, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, onOpenSettings: () -> Unit) {
     val shownGroups by vm.groups.collectAsStateWithLifecycle()
     val recentlyWatched by vm.continuing.collectAsStateWithLifecycle()
+    var sourcePicker by remember { mutableStateOf(false) }
+    if(sourcePicker) VirtualSourcesDialog(vm,onDismiss={sourcePicker=false})
     var folderQuery by vm::folderSearch
     var searchExpanded by rememberSaveable { mutableStateOf(folderQuery.isNotBlank()) }
     var sourceFolder by remember { mutableStateOf<String?>(null) }
@@ -472,6 +474,12 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
                 }
             }
         }
+        Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+            Text("Automatic virtual folders",Modifier.weight(1f))
+            Switch(checked=vm.automaticVirtualFolders,onCheckedChange=vm::updateAutomaticVirtualFolders)
+        }
+        TextButton(onClick={sourcePicker=true}) {Text("Choose source folders (${vm.virtualSources.size})")}
+        if(!vm.automaticVirtualFolders) Text("Automatic folders are off. Your saved folders and thumbnails are kept.",style=MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(12.dp))
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (searchExpanded) {
@@ -524,7 +532,7 @@ fun FoldersScreen(vm: LibraryViewModel, gridState: LazyGridState, onOpenGroup: (
                     matchingVideos[index]?.let { video -> VideoCard(video,onClick={vm.playLibrary("folders",video,onPlay)},vm=vm,listMode=vm.folderListMode,selectionScope="folders") }
                 }
                 if (shownGroups.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-                    Text(if (folderQuery.isNotBlank()) "No matching folders." else "Your virtual folders appear after a scan.",
+                    Text(if (folderQuery.isNotBlank()) "No matching folders." else "Select source folders and turn on automatic virtual folders to show filename groups.",
                         modifier = Modifier.padding(vertical = 24.dp))
                 }
                 gridItems(shownGroups, key = { it.groupKey }, contentType = { "folder" }) { row ->
@@ -861,8 +869,8 @@ fun SettingsScreen(vm: LibraryViewModel) {
         OutlinedButton(onClick={hiddenPage=true},modifier=Modifier.fillMaxWidth()){Text("Unhide files and folders")}
         Text("Navigation position",style=MaterialTheme.typography.titleMedium)
         Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
-            RadioButton(selected=vm.navigationPosition=="SIDEBAR",onClick={vm.setNavigationPosition("SIDEBAR")});TextButton(onClick={vm.setNavigationPosition("SIDEBAR")}){Text("Sidebar")}
-            RadioButton(selected=vm.navigationPosition=="FLOATING",onClick={vm.setNavigationPosition("FLOATING")});TextButton(onClick={vm.setNavigationPosition("FLOATING")}){Text("Floating bottom bar")}
+            RadioButton(selected=vm.navigationPosition=="SIDEBAR",onClick={vm.updateNavigationPosition("SIDEBAR")});TextButton(onClick={vm.updateNavigationPosition("SIDEBAR")}){Text("Sidebar")}
+            RadioButton(selected=vm.navigationPosition=="FLOATING",onClick={vm.updateNavigationPosition("FLOATING")});TextButton(onClick={vm.updateNavigationPosition("FLOATING")}){Text("Floating bottom bar")}
         }
         DiagnosticsSettings()
         var gesturesExpanded by rememberSaveable { mutableStateOf(false) }
