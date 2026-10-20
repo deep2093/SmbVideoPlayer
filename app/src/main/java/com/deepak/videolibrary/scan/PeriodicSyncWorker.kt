@@ -41,13 +41,15 @@ class PeriodicSyncWorker(context: Context, params: WorkerParameters) : Coroutine
         }
         return try {
             val ok = services.scanRepository.runPeriodic(profile)
-            val partial = ok && services.db.dao().latestSession()?.status == ScanStatus.COMPLETED_WITH_ERRORS
+            val finishedStatus=services.db.dao().latestSession()?.status
+            val partial = ok && finishedStatus == ScanStatus.COMPLETED_WITH_ERRORS
+            val emptySource=ok && finishedStatus==ScanStatus.EMPTY_SOURCE
             prefs
                 .edit()
-                .putString("last_status", if (partial) "COMPLETED_WITH_ERRORS" else if (ok) "COMPLETED" else "FAILED: SMB unavailable or scan incomplete")
+                .putString("last_status", if(emptySource) "EMPTY_SOURCE" else if (partial) "COMPLETED_WITH_ERRORS" else if (ok) "COMPLETED" else "FAILED: SMB unavailable or scan incomplete")
                 .apply()
             if (ok) {
-                if(!partial) prefs.edit().putLong("last_success", System.currentTimeMillis()).apply()
+                if(!partial && !emptySource) prefs.edit().putLong("last_success", System.currentTimeMillis()).apply()
                 com.deepak.videolibrary.thumbs.ThumbnailWorker
                     .enqueue(applicationContext, services.libraryId)
                 Result.success()

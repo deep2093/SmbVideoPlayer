@@ -732,6 +732,13 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
 
+    fun confirmEmptyLibrary(sessionId: Long) {
+        viewModelScope.launch {
+            val cleared=services.scanRepository.confirmEmpty(sessionId)
+            if(cleared)artwork.invalidate()
+            notice=if(cleared) "Missing entries removed from the index. Files on your drive were kept." else "The scan changed. Check its current results before clearing entries."
+        }
+    }
     fun stopScan() {
         ScanWorker.cancel(getApplication())
         ThumbnailWorker.cancel(getApplication())

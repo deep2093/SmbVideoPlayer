@@ -27,6 +27,7 @@ object ScanStatus {
     const val FAILED = "FAILED"
     const val COMPLETED = "COMPLETED"
     const val COMPLETED_WITH_ERRORS = "COMPLETED_WITH_ERRORS"
+    const val EMPTY_SOURCE = "EMPTY_SOURCE"
 }
 
 private val VIDEO_EXTENSIONS = setOf(
@@ -78,7 +79,7 @@ class ScanRepository(private val db: LibraryDatabase, private val owners: androi
         dao.markRunningInterrupted()
         val latest=dao.latestSession()
         val sameRequest=owner!=null && owners?.getLong(owner,-1L)==latest?.id
-        if(sameRequest && latest?.status in setOf(ScanStatus.COMPLETED,ScanStatus.COMPLETED_WITH_ERRORS)) return@withLock true
+        if(sameRequest && latest?.status in setOf(ScanStatus.COMPLETED,ScanStatus.COMPLETED_WITH_ERRORS,ScanStatus.EMPTY_SOURCE)) return@withLock true
         val effective=if(sameRequest && mode in setOf(ScanMode.INITIAL,ScanMode.REFRESH) && dao.pendingCountNow()>0) ScanMode.RESUME else mode
         val session=prepare(effective,profile) ?: return@withLock false
         if(owner!=null && owners!=null) withContext(Dispatchers.IO) {
@@ -94,6 +95,16 @@ class ScanRepository(private val db: LibraryDatabase, private val owners: androi
         val mode = if (dao.latestResumableSession() != null && dao.pendingCountNow() > 0) ScanMode.RESUME else ScanMode.REFRESH
         val session = prepare(mode, profile) ?: return@withLock false
         ScanEngine(db, profile, session).run()
+    }
+
+    suspend fun confirmEmpty(sessionId: Long): Boolean = scanMutex.withLock {
+        db.withTransaction {
+            val latest=dao.latestSession()
+            if(latest?.id!=sessionId || latest.status!=ScanStatus.EMPTY_SOURCE || dao.pendingCountNow()!=0) return@withTransaction false
+            dao.deleteNotSeen(sessionId)
+            dao.setSessionStatus(sessionId,ScanStatus.COMPLETED,System.currentTimeMillis())
+            true
+        }
     }
 
     private suspend fun prepare(mode: ScanMode, profile: SmbProfile): ScanSessionEntity? {
@@ -280,10 +291,9 @@ class ScanEngine(
             val s = dao.getSession(sid)
             val errors = s?.errorCount ?: 0
             val found = s?.videosFound ?: 0
-            if (errors == 0) {
-                dao.deleteNotSeen(sid)
-            }
-            val status = if (errors == 0) ScanStatus.COMPLETED else ScanStatus.COMPLETED_WITH_ERRORS
+            val emptySource=errors==0 && found==0 && dao.countNotSeen(sid)>0
+            if(errors==0 && !emptySource)dao.deleteNotSeen(sid)
+            val status=when { emptySource -> ScanStatus.EMPTY_SOURCE; errors==0 -> ScanStatus.COMPLETED; else -> ScanStatus.COMPLETED_WITH_ERRORS }
             dao.setSessionStatus(sid, status, System.currentTimeMillis())
         }
     }

@@ -54,4 +54,23 @@ class ScanResumeTest {
         } finally { db.close(); prefs.edit().clear().commit() }
     }
 
+    @Test fun emptyDriveRetainsIndexUntilItsExactScanIsConfirmed() = runBlocking {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("smbFixture")=="true")
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
+        val db=Room.inMemoryDatabaseBuilder(context,LibraryDatabase::class.java).build()
+        try {
+            db.dao().insertVideo(VideoEntity(relativePath="Destination/Gone.mp4",name="Gone.mp4",parentDir="Destination",size=1,modified=1,groupKey="A",customGroup="Keep",lastSeenSession=0,addedAt=1))
+            val repository=ScanRepository(db)
+            assertTrue(repository.run(ScanMode.REFRESH,SmbProfile("10.0.2.2","fixtures","Destination","vlfixture","ci-fixture-only")))
+            val session=db.dao().latestSession()!!
+            assertEquals(ScanStatus.EMPTY_SOURCE,session.status)
+            assertEquals("Keep",db.dao().findVideo("Destination/Gone.mp4")!!.customGroup)
+            assertFalse(repository.confirmEmpty(session.id+1))
+            assertNotNull(db.dao().findVideo("Destination/Gone.mp4"))
+            assertTrue(repository.confirmEmpty(session.id))
+            assertNull(db.dao().findVideo("Destination/Gone.mp4"))
+            assertFalse(repository.confirmEmpty(session.id))
+        } finally { db.close() }
+    }
+
 }

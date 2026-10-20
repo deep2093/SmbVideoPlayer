@@ -55,10 +55,18 @@ fun ScanScreen(vm: LibraryViewModel) {
     val thumbsPending by vm.thumbsPending.collectAsStateWithLifecycle()
     val thumbsFailed by vm.thumbsFailed.collectAsStateWithLifecycle()
     val busy = active || thumbsActive || vm.artworkMaintenance
+    var confirmEmpty by remember { androidx.compose.runtime.mutableStateOf(false) }
     var scanMenu by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var showFailures by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var showErrors by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
 
+    if(confirmEmpty) androidx.compose.material3.AlertDialog(
+        onDismissRequest={confirmEmpty=false},
+        title={Text("Remove missing library entries?")},
+        text={Text("This clears the retained index and its video assignments. Files on your drive stay untouched. Export your library first if these files may reappear.")},
+        confirmButton={TextButton(onClick={session?.let { vm.confirmEmptyLibrary(it.id) };confirmEmpty=false}){Text("Remove entries")}},
+        dismissButton={TextButton(onClick={confirmEmpty=false}){Text("Keep index")}},
+    )
     // Centered, readable column on tablets; full width on phones.
     Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
         LazyColumn(
@@ -137,6 +145,10 @@ fun ScanScreen(vm: LibraryViewModel) {
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
+                    }
+                    if(s?.status==ScanStatus.EMPTY_SOURCE) {
+                        Text("No videos found. The previous index was kept in case your drive is unavailable.",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(enabled=!busy,onClick={confirmEmpty=true}){Text("Remove missing entries…")}
                     }
                     HorizontalDivider()
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -274,6 +286,7 @@ private fun AutomaticSyncSummary() {
         "RUNNING" -> "Syncing…"
         "COMPLETED" -> "Up to date"
         "COMPLETED_WITH_ERRORS" -> "Finished with scan errors"
+        "EMPTY_SOURCE" -> "Drive empty · index retained"
         "INTERRUPTED" -> "Interrupted · will try again"
         else -> when {
             raw.startsWith("SKIPPED:") -> raw.removePrefix("SKIPPED:").trim()

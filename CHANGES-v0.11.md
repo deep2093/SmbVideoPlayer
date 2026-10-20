@@ -5,6 +5,7 @@
 - Simplify Scan to a primary action plus a menu, expandable failures/errors, and consistent cards. Keep Settings within a readable width and remove duplicate notices.
 - Isolate each server/account/root index and artwork. Adopt the existing upgraded library in place. Bind background queues and worker requests to a stable library identity.
 - Journal transfer phases and server file identities, so interruption after remote publication can be reconciled before updating Room. Reject unknown or conflicting destinations. Bound linked-folder traversal and retry transient failures.
+- Retain an existing index after an unexpectedly empty scan; require confirmation of that exact scan before removing missing entries. Automatic sync reports the retained state instead of claiming success.
 - Make thumbnail network failures retryable, check encoded artwork publication, preserve old artwork on write failure, and invalidate every artwork cache on clear.
 - Advance playback in bounded 100-item batches instead of materializing the whole library. Media3 and VLC continue at batch boundaries.
 - Export and restore organization/history without passwords. Configure automatic virtual-folder grouping while preserving manual assignments.
