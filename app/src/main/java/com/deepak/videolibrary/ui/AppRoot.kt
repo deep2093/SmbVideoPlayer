@@ -46,12 +46,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.deepak.videolibrary.data.VideoEntity
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.haze
 import kotlinx.coroutines.launch
 
 /** The tablet sidebar is always expanded, with labels, at a fixed width. */
-private val SIDEBAR_WIDTH = 148.dp
+private val SIDEBAR_WIDTH = 204.dp
 
 private val TAB_LABELS = listOf("Folders", "Videos", "File Explorer", "Scan", "Settings")
 private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Sync, Icons.Filled.Settings)
@@ -115,20 +113,19 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         }
         return
     }
-    val hazeState = remember { HazeState() }
     val floating = vm.navigationPosition == "FLOATING"
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val tabletLayout = maxWidth >= 700.dp
         Scaffold(
             bottomBar = {
                 if (!tabletLayout && !floating) {
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                    NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp) {
                         TAB_LABELS.forEachIndexed { index, label ->
                             NavigationBarItem(
                                 selected = tab == index,
                                 colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    selectedIconColor = MaterialTheme.colorScheme.onSurface,
+                                    selectedTextColor = MaterialTheme.colorScheme.onSurface,
                                     indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 ),
@@ -139,7 +136,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                     vm.matchFolderFilter.value = null
                                 },
                                 icon = { Icon(TAB_ICONS[index], contentDescription = label) },
-                                label = { Text(label) },
+                                label = { Text(label, maxLines = 1, style = MaterialTheme.typography.labelSmall) },
                             )
                         }
                     }
@@ -147,34 +144,13 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
             },
         ) { padding ->
             Box(Modifier.fillMaxSize()) {
-                Row(Modifier.padding(padding).fillMaxSize().then(if (floating)Modifier.haze(hazeState)else Modifier)) {
+                Row(Modifier.padding(padding).fillMaxSize()) {
                     if (tabletLayout && !floating) {
-                        androidx.compose.material3.NavigationRail(
-                            modifier = Modifier.width(SIDEBAR_WIDTH),
-                            containerColor = MaterialTheme.colorScheme.surface,
-                        ) {
-                            Spacer(Modifier.height(12.dp))
-                            TAB_LABELS.forEachIndexed { index, label ->
-                                androidx.compose.material3.NavigationRailItem(
-                                    selected = tab == index,
-                                    colors = androidx.compose.material3.NavigationRailItemDefaults.colors(
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                                        indicatorColor = Color.White.copy(alpha = 0.12f),
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    ),
-                                    onClick = {
-                                        tab = index
-                                        folderDetails = false
-                                        vm.groupFilter.value = null
-                                        vm.matchFolderFilter.value = null
-                                    },
-                                    icon = { Icon(TAB_ICONS[index], contentDescription = label) },
-                                    label = { Text(label) },
-                                    alwaysShowLabel = true,
-                                )
-                            }
+                        LibrarySidebar(selected = tab, labels = TAB_LABELS, icons = TAB_ICONS, modifier = Modifier.width(SIDEBAR_WIDTH).fillMaxHeight()) { index ->
+                            tab = index
+                            folderDetails = false
+                            vm.groupFilter.value = null
+                            vm.matchFolderFilter.value = null
                         }
                     }
                     Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -246,7 +222,6 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         tab,
                         TAB_LABELS,
                         TAB_ICONS,
-                        hazeState,
                         Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 12.dp),
                     ) { index ->
                         tab =

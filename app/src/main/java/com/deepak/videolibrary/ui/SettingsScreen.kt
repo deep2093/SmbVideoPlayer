@@ -138,7 +138,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
     Column(
         Modifier
-            .widthIn(max = 760.dp)
+            .widthIn(max = 920.dp)
             .fillMaxSize()
             .imePadding()
             .verticalScroll(

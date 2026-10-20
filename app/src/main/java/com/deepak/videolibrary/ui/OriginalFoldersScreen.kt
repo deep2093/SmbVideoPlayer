@@ -55,7 +55,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
         vm.originalPath = path.substringBeforeLast('/', "").takeIf { isWithinFolder(it, root) } ?: root
     }
     BackHandler(enabled = query.isNotEmpty() || path != root) { if (query.isNotEmpty())vm.originalQuery = "" else up() }
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.ui_original_folders_38a7a75), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             IconButton(onClick = {
@@ -108,9 +108,9 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment=Alignment.Center) { CircularProgressIndicator() }
         } else LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Fixed(if (vm.folderListMode)1 else LibraryLayout.columns(vm.folderGridPreset)),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            columns = GridCells.Fixed(if (vm.folderListMode)1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
             contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
             modifier = Modifier.weight(1f).testTag("original-folder-grid"),
         ) {
@@ -157,7 +157,7 @@ private fun OriginalFolderCard(vm: LibraryViewModel, folder: DirectorySummary, o
     val hidden by vm.hiddenItems.collectAsStateWithLifecycle()
     LaunchedEffect(key, hidden) { cover = vm.originalCover(folder.path, key) }
     Box {
-        Card(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menu = true })) {
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menu = true })) {
             Column {
                 Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f), contentAlignment = Alignment.Center) {
                     if (cover !=
@@ -165,12 +165,12 @@ private fun OriginalFolderCard(vm: LibraryViewModel, folder: DirectorySummary, o
                     ) {
                         FileImage(cover, Modifier.fillMaxSize())
                     } else {
-                        Icon(Icons.Filled.Folder, null, Modifier.size(48.dp))
+                        Icon(Icons.Filled.Folder, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                Column(Modifier.padding(10.dp)) {
+                Column(Modifier.padding(12.dp)) {
                     Text(originalFolderLabel(folder.path), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("${folder.count} items", style = MaterialTheme.typography.bodySmall)
+                    Text("${folder.count} items", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

@@ -5,6 +5,9 @@ import com.deepak.videolibrary.R
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,15 +80,20 @@ internal fun FoldersHub(
     val scope = rememberCoroutineScope()
     LaunchedEffect(pager.settledPage) { vm.foldersTab = pager.settledPage }
     Column(Modifier.fillMaxSize()) {
+        Text(
+            "Video Library",
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 16.dp),
+        )
         androidx.compose.material3.TabRow(
             selectedTabIndex = pager.currentPage,
-            containerColor = MaterialTheme.colorScheme.surface,
+            containerColor = MaterialTheme.colorScheme.background,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
             listOf("Custom folders", "Virtual folders", "Original folders").forEachIndexed { index, title ->
                 androidx.compose.material3.Tab(selected = pager.currentPage == index, onClick = {
                     scope.launch { pager.animateScrollToPage(index) }
-                }, text = { Text(title) })
+                }, text = { Text(title, maxLines = 1, style = MaterialTheme.typography.labelMedium) })
             }
         }
         HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { page ->
@@ -200,13 +208,13 @@ fun FoldersScreen(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )
         }
-        val columns = LibraryLayout.columns(vm.folderGridPreset)
+        val columns = libraryColumns(vm.folderGridPreset, floatingPadding(vm))
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(if (vm.folderListMode) 1 else columns),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
                 contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
                 modifier = Modifier.fillMaxSize().testTag("virtual-folder-grid"),
             ) {
@@ -219,7 +227,7 @@ fun FoldersScreen(
                             )
                             androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 items(recentlyWatched, key = { it.id }) { video ->
-                                    Box(Modifier.width(218.dp)) {
+                                    Box(Modifier.width(280.dp)) {
                                         VideoCard(
                                             video,
                                             onClick = { onPlay(video, listOf(video)) },
@@ -376,18 +384,20 @@ private fun FolderCard(
             ) {
                 FileImage(cover, Modifier.fillMaxSize())
             } else {
-                Icon(Icons.Filled.Folder, null, modifier = Modifier.height(36.dp).width(36.dp))
+                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                    Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.height(36.dp).width(36.dp))
+                }
             }
         }
     }
     val caption: @Composable () -> Unit = {
-        Column(Modifier.padding(6.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
             Text(row.groupKey.replaceFirstChar { it.titlecase(Locale.ROOT) }, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("${row.count} videos", style = MaterialTheme.typography.labelSmall)
+            Text("${row.count} videos", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
     Box(modifier) {
-        Column(Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { actions = true })) {
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surface).combinedClickable(onClick = onClick, onLongClick = { actions = true })) {
             if (listMode) {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     artwork()

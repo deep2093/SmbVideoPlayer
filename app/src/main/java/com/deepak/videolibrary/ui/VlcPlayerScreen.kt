@@ -454,71 +454,33 @@ internal fun VlcPlayerScreen(
                     })
                 },
         )
-        if (controls ||
-            !playing
-        ) {
+        if (controls || !playing) {
+            LibraryPlayerControls(
+                title = current.name,
+                position = position,
+                duration = duration,
+                isPlaying = playing,
+                canPlay = ready,
+                canPrevious = index > 0,
+                canNext = index < queue.lastIndex || vm.playbackHasMore,
+                queueLabel = "${index + 1} / ${queue.size}",
+                onBack = onClose,
+                onTogglePlayback = { if (player.isPlaying) pause() else play() },
+                onSeek = { player.setTime(it); position = it; save() },
+                onPrevious = { save(); index-- },
+                onNext = { save(); if (index < queue.lastIndex) index++ else onQueueEnded() },
+                onTracks = { tracks = true },
+                onOptions = { options = true },
+                onInteraction = { controls = true },
+            )
+        }
+        error?.let { message ->
             Column(
-                Modifier
-                    .align(
-                        Alignment.BottomCenter,
-                    ).fillMaxWidth()
-                    .background(
-                        Color.Black.copy(alpha = 0.88f),
-                    ).windowInsetsPadding(WindowInsets.safeDrawing)
-                    .padding(12.dp),
+                Modifier.align(Alignment.Center).widthIn(max = 420.dp)
+                    .background(MaterialTheme.colorScheme.errorContainer).padding(20.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(current.name, Modifier.weight(1f), maxLines = 2, color = Color.White)
-                    TextButton(onClick = onClose) { Text(stringResource(R.string.ui_close_bbfa773)) }
-                }
-                Text(stringResource(R.string.ui_wmv_compatibility_playback_vlc_6547634), style = MaterialTheme.typography.labelSmall, color = Color.White)
-                if (duration >
-                    0
-                ) {
-                    Slider(value = (position.toFloat() / duration).coerceIn(0f, 1f), onValueChange = {
-                        position = (it * duration).toLong()
-                    }, onValueChangeFinished = {
-                        player.setTime(position)
-                        save()
-                    })
-                }
-                Text(
-                    "${android.text.format.DateUtils.formatElapsedTime(
-                        position / 1000,
-                    )} / ${android.text.format.DateUtils.formatElapsedTime(
-                        duration / 1000,
-                    )}",
-                    color = Color.White,
-                )
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    TextButton(enabled = index > 0, onClick = {
-                        save()
-                        index--
-                    }) { Text(stringResource(R.string.ui_previous_50f9428)) }
-                    TextButton(onClick = {
-                        player.setTime((player.time - 10000).coerceAtLeast(0))
-                        save()
-                    }) { Text(stringResource(R.string.ui_10_5092ac9)) }
-                    Button(enabled = ready, onClick = { if (player.isPlaying)pause()else play() }) { Text(if (playing)"Pause"else "Play") }
-                    TextButton(onClick = {
-                        player.setTime(player.time + 10000)
-                        save()
-                    }) { Text(stringResource(R.string.ui_10_00741a0)) }
-                    TextButton(enabled = index < queue.lastIndex || vm.playbackHasMore, onClick = {
-                        save()
-                        if (index < queue.lastIndex) index++ else onQueueEnded()
-                    }) { Text(stringResource(R.string.ui_next_bc98198)) }
-                    TextButton(onClick = { tracks = true }) { Text(stringResource(R.string.ui_tracks_3dd1a4d)) }
-                    TextButton(onClick = { options = true }) { Text(stringResource(R.string.ui_options_6bf5da9)) }
-                }
-                error?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.ui_retry_9f5cd8a)) }
-                }
+                Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
+                TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.ui_retry_9f5cd8a)) }
             }
         }
     }

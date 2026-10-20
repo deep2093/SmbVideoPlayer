@@ -33,7 +33,7 @@ internal fun MatchingFoldersScreen(
     var creating by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     ScrollToTopOnChange(query, gridState)
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.ui_custom_folders_097a811), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             IconButton(onClick = {
@@ -57,9 +57,9 @@ internal fun MatchingFoldersScreen(
         LazyVerticalGrid(
             state = gridState,
             modifier = Modifier.weight(1f),
-            columns = GridCells.Fixed(if (vm.folderListMode)1 else LibraryLayout.columns(vm.folderGridPreset)),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            columns = GridCells.Fixed(if (vm.folderListMode)1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = if (floatingPadding(vm))112.dp else 16.dp),
         ) {
             if (folders.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
@@ -123,7 +123,7 @@ private fun MatchingFolderCard(
         onOpen()
     }
     Box {
-        Card(Modifier.fillMaxWidth().combinedClickable(onClick = ::open, onLongClick = { menu = true })) {
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth().combinedClickable(onClick = ::open, onLongClick = { menu = true })) {
             Column {
                 Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f), contentAlignment = Alignment.Center) {
                     if (cover !=
@@ -131,13 +131,13 @@ private fun MatchingFolderCard(
                     ) {
                         FileImage(cover, Modifier.fillMaxSize())
                     } else {
-                        Icon(Icons.Default.Folder, null, Modifier.size(48.dp))
+                        Icon(Icons.Default.Folder, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(folder.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text("${row.count} videos", style = MaterialTheme.typography.bodySmall)
+                        Text("${row.count} videos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(onClick = {
                         menu =
