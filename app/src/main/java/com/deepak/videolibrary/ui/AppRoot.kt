@@ -83,9 +83,10 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
             vm.consumeExplorerNavigation()
         }
     }
+    val closePlayer: () -> Unit = { playing=null; playQueue=emptyList(); vm.resetPlaybackQueue() }
     BackHandler(enabled = playing != null || folderDetails || tab != 0) {
         when {
-            playing != null -> playing = null
+            playing != null -> closePlayer()
             tab == 2 && returnToThumbnails -> {
                 tab = 3
                 returnToThumbnails = false
@@ -106,19 +107,11 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     val advanceQueue: () -> Unit = { vm.nextPlaybackBatch { next, queue -> playing = next; playQueue = queue } }
     if (playing != null) {
         androidx.compose.runtime.key(playing!!.relativePath) {
-        if (playQueue.any { it.name.endsWith(".wmv", true) || it.name.endsWith(".asf", true) }) {
-            VlcPlayerScreen(video = playing!!, settings = vm.settings, vm = vm, playlist = playQueue, onQueueEnded = advanceQueue, onClose = {
-                playing =
-                    null
-                playQueue = emptyList()
-            })
-        } else {
-            PlayerScreen(video = playing!!, settings = vm.settings, vm = vm, playlist = playQueue, onQueueEnded = advanceQueue, onClose = {
-                playing = null
-                playQueue =
-                    emptyList()
-            })
-        }
+            if(playQueue.any { it.name.endsWith(".wmv",true) || it.name.endsWith(".asf",true) }) {
+                VlcPlayerScreen(video=playing!!,settings=vm.settings,vm=vm,playlist=playQueue,onQueueEnded=advanceQueue,onClose=closePlayer)
+            } else {
+                PlayerScreen(video=playing!!,settings=vm.settings,vm=vm,playlist=playQueue,onQueueEnded=advanceQueue,onClose=closePlayer)
+            }
         }
         return
     }
@@ -238,6 +231,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                     },
                                 )
                                 2 -> ExplorerScreen(vm, onPlay = { video, queue ->
+                                    vm.resetPlaybackQueue()
                                     playing = video
                                     playQueue = queue
                                 })

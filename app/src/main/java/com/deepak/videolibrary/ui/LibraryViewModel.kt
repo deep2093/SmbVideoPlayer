@@ -389,27 +389,40 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     var playbackHasMore by mutableStateOf(false)
         private set
     private var queueLoading = false
+    private var queueJob: Job? = null
+    private var queueSerial = 0
+    fun resetPlaybackQueue() {
+        queueSerial++
+        queueJob?.cancel(); queueJob=null; queueLoading=false
+        playbackQueue.reset(); playbackHasMore=false
+    }
     fun playLibrary(mode: String, start: VideoEntity? = null, onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
-        if (queueLoading) return
-        val scope = selectedScope(mode)
-        queueLoading = true
-        viewModelScope.launch {
+        if(queueLoading)return
+        val scope=selectedScope(mode)
+        val serial=++queueSerial
+        queueLoading=true
+        queueJob=viewModelScope.launch {
             try {
-                val queue = playbackQueue.begin(scope, start)
-                playbackHasMore = playbackQueue.hasMore
-                if (queue.isNotEmpty()) onPlay(queue.first(), queue) else notice = "No visible videos match this search."
-            } finally { queueLoading = false }
+                val queue=playbackQueue.begin(scope,start)
+                playbackHasMore=playbackQueue.hasMore
+                if(queue.isNotEmpty())onPlay(queue.first(),queue) else notice="No visible videos match this search."
+            } catch(e:CancellationException){throw e}
+            catch(_:Exception){notice="Could not load the playback queue. Try again."}
+            finally {if(serial==queueSerial)queueLoading=false}
         }
     }
     fun nextPlaybackBatch(onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
-        if (queueLoading || !playbackHasMore) return
-        queueLoading = true
-        viewModelScope.launch {
+        if(queueLoading || !playbackHasMore)return
+        val serial=queueSerial
+        queueLoading=true
+        queueJob=viewModelScope.launch {
             try {
-                val queue = playbackQueue.next()
-                playbackHasMore = playbackQueue.hasMore
-                if (queue.isNotEmpty()) onPlay(queue.first(), queue)
-            } finally { queueLoading = false }
+                val queue=playbackQueue.next()
+                playbackHasMore=playbackQueue.hasMore
+                if(queue.isNotEmpty())onPlay(queue.first(),queue)
+            } catch(e:CancellationException){throw e}
+            catch(_:Exception){notice="Could not load the next videos. Try Next again."}
+            finally {if(serial==queueSerial)queueLoading=false}
         }
     }
     var pasteDestination by mutableStateOf<String?>(null)

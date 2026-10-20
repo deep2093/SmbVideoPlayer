@@ -59,6 +59,11 @@ class FolderCollectionsTest {
                 assertEquals(expected,actual.map { it.id })
                 val chosen = actual[151]
                 assertEquals(expected.drop(151).take(100),queue.begin(scope,chosen).map { it.id })
+                assertTrue(queue.hasMore)
+                queue.reset()
+                assertFalse(queue.hasMore)
+                assertTrue(queue.next().isEmpty())
+                assertEquals(expected.take(100),queue.begin(scope,null).map { it.id })
             }
         } finally { db.close() }
     }
