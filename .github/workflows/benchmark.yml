@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ["codex/**"]
-    paths-ignore: ["app/schemas/**", "app/src/main/baseline-prof.txt", "**/*.md"]
+    paths-ignore: ["app/schemas/**", "app/src/main/baseline-prof.txt", "**/*.md", ".github/workflows/**"]
 concurrency:
   group: benchmarks-${{ github.ref }}
   cancel-in-progress: true
@@ -44,7 +44,7 @@ jobs:
                 printf '%s %s\n' "$profile_source_run" "$candidate_sha" > profile-source-run.txt
                 break
               fi
-            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=$GITHUB_REF_NAME&per_page=30" --jq '.workflow_runs[] | select(.name=="Android APK" and (.conclusion==null or .conclusion=="success")) | "\(.id) \(.head_sha)"')
+            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=$GITHUB_REF_NAME&per_page=30" --jq '.workflow_runs[] | select(.name=="Android APK") | "\(.id) \(.head_sha)"')
             if [ -n "$profile_source_run" ]; then break; fi
             if [ "$profile_attempt" -eq 120 ]; then echo 'Timed out waiting for matching build artifacts'; exit 1; fi
             sleep 15

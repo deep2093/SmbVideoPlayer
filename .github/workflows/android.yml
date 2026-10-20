@@ -12,7 +12,44 @@ permissions:
   contents: read
   actions: read
 jobs:
+  select-build:
+    runs-on: ubuntu-latest
+    outputs:
+      source_run: ${{ steps.reuse.outputs.source_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: reuse
+        name: Find a successful build with identical application sources
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          source_run=''
+          build_recipe() {
+            git show "$1:.github/workflows/android.yml" | sed -n '/^  build:$/,/^  update-test:$/p' | sed '/^    needs:/d; /^    if:/d'
+          }
+          current_recipe=$(build_recipe "$GITHUB_SHA")
+          # A manual run always performs a fresh build. Workflow-only pushes can reuse signed APKs.
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
+            while read -r candidate_run candidate_sha; do
+              git cat-file -e "$candidate_sha^{commit}" 2>/dev/null || git fetch --no-tags origin "$candidate_sha"
+              if ! git diff --quiet "$candidate_sha" "$GITHUB_SHA" -- app benchmarks schema-history gradle .ci gradlew gradlew.bat build.gradle.kts settings.gradle.kts gradle.properties; then continue; fi
+              if [ "$(build_recipe "$candidate_sha")" != "$current_recipe" ]; then continue; fi
+              candidate_built=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate_run/jobs" --jq 'any(.jobs[]; .name=="build" and .conclusion=="success")')
+              if [ "$candidate_built" != true ]; then continue; fi
+              candidate_ready=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate_run/artifacts" --jq '[.artifacts[] | select(.expired==false) | .name] | (index("Preview-update-test-apks")!=null and index("Preview-storage-tests")!=null and index("VideoLibrary-optimized-preview-apk")!=null)')
+              if [ "$candidate_ready" = true ]; then
+                source_run="$candidate_run"
+                echo "Reusing signed APKs and successful unit/lint build from run $candidate_run ($candidate_sha)"
+                break
+              fi
+            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=$GITHUB_REF_NAME&per_page=30" --jq '.workflow_runs[] | select(.name=="Android APK") | "\(.id) \(.head_sha)"')
+          fi
+          echo "source_run=$source_run" >> "$GITHUB_OUTPUT"
   build:
+    needs: select-build
+    if: needs['select-build'].outputs.source_run == ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -134,7 +171,8 @@ jobs:
           name: Optimized-shrinker-reports
           path: app/build/outputs/mapping/optimized/
   update-test:
-    needs: [build, legacy-build]
+    needs: [select-build, build, legacy-build]
+    if: ${{ always() && needs['select-build'].result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') && needs['legacy-build'].result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -151,6 +189,8 @@ jobs:
         with:
           name: Preview-update-test-apks
           path: preview
+          run-id: ${{ needs['select-build'].outputs.source_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Enable emulator acceleration
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -160,6 +200,8 @@ jobs:
         with:
           name: Preview-storage-tests
           path: preview/tests
+          run-id: ${{ needs['select-build'].outputs.source_run || github.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
         with:
           name: Legacy-v3-preview
@@ -168,6 +210,13 @@ jobs:
         with:
           name: VideoLibrary-optimized-preview-apk
           path: optimized
+          run-id: ${{ needs['select-build'].outputs.source_run || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Free space for emulator userdata
+        run: |
+          # Android 10 requires over 7 GB free even with a 4 GB data-partition setting.
+          sudo rm -rf /usr/share/dotnet "${ANDROID_HOME:?}/ndk"
+          df -h .
       - name: Start disposable SMB test share
         run: bash tools/start_test_share.sh
       - uses: reactivecircus/android-emulator-runner@v2
