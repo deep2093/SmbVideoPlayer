@@ -16,34 +16,45 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools'
-      - name: Download this commit's validated build artifacts
+          packages: 'platform-tools build-tools;35.0.0'
+      - name: Download artifacts with identical application and benchmark sources
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           for profile_attempt in $(seq 1 120); do
-            profile_source_run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&per_page=20" --jq '.workflow_runs[] | select(.name=="Android APK") | .id' | head -1)
-            if [ -n "$profile_source_run" ]; then
-              profile_ready=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$profile_source_run/artifacts" --jq '[.artifacts[] | select(.expired==false) | .name] | (index("VideoLibrary-optimized-preview-apk")!=null and index("Benchmark-instrumentation")!=null and index("Profile-source-apk")!=null)')
+            profile_source_run=''
+            while read -r candidate_run candidate_sha; do
+              # Workflow-only fixes can reuse the exact same APKs without recompiling the app.
+              git cat-file -e "$candidate_sha^{commit}" 2>/dev/null || git fetch --no-tags origin "$candidate_sha"
+              if ! git diff --quiet "$candidate_sha" "$GITHUB_SHA" -- app benchmarks gradle .ci gradlew gradlew.bat build.gradle.kts settings.gradle.kts gradle.properties; then continue; fi
+              profile_ready=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate_run/artifacts" --jq '[.artifacts[] | select(.expired==false) | .name] | (index("VideoLibrary-optimized-preview-apk")!=null and index("Benchmark-instrumentation")!=null and index("Profile-source-apk")!=null)')
               if [ "$profile_ready" = true ]; then
+                profile_source_run="$candidate_run"
                 gh run download "$profile_source_run" --name VideoLibrary-optimized-preview-apk --dir optimized
                 gh run download "$profile_source_run" --name Benchmark-instrumentation --dir benchmark-apk
                 gh run download "$profile_source_run" --name Profile-source-apk --dir profile-source
-                echo "$profile_source_run" > profile-source-run.txt
+                printf '%s %s\n' "$profile_source_run" "$candidate_sha" > profile-source-run.txt
                 break
               fi
-              profile_conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$profile_source_run" --jq '.conclusion')
-              case "$profile_conclusion" in failure|cancelled|timed_out|action_required) echo "Source build did not produce APKs: $profile_conclusion"; exit 1;; esac
-            fi
-            if [ "$profile_attempt" -eq 120 ]; then echo 'Timed out waiting for build artifacts'; exit 1; fi
+            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=$GITHUB_REF_NAME&per_page=30" --jq '.workflow_runs[] | select(.name=="Android APK" and (.conclusion==null or .conclusion=="success")) | "\(.id) \(.head_sha)"')
+            if [ -n "$profile_source_run" ]; then break; fi
+            if [ "$profile_attempt" -eq 120 ]; then echo 'Timed out waiting for matching build artifacts'; exit 1; fi
             sleep 15
           done
+      - name: Sign the self-instrumenting test runner
+        run: |
+          # The runner instruments itself and uses a disposable test identity, separate from the app.
+          keytool -genkeypair -keystore "$RUNNER_TEMP/benchmark.p12" -storetype PKCS12 -storepass android -keypass android -alias benchmark -keyalg RSA -keysize 2048 -validity 2 -dname CN=Benchmark
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks "$RUNNER_TEMP/benchmark.p12" --ks-pass pass:android --key-pass pass:android --out benchmark-apk/runner.apk benchmark-apk/benchmarks-optimized.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose benchmark-apk/runner.apk
       - name: Free space for emulator userdata
         run: |
           # This test-only runner does not compile or use these preinstalled toolchains.
@@ -64,7 +75,7 @@ jobs:
           disable-animations: true
           script: |
             adb install optimized/update.apk
-            adb install benchmark-apk/benchmarks-optimized.apk
+            adb install benchmark-apk/runner.apk
             adb shell am instrument -w -e class com.deepak.videolibrary.benchmark.StartupBenchmark -e additionalTestOutputDir /sdcard/Android/media/com.deepak.videolibrary.benchmark -e androidx.benchmark.suppressErrors EMULATOR com.deepak.videolibrary.benchmark/androidx.test.runner.AndroidJUnitRunner | tee startup-results.txt
             grep -Eq '^OK \([0-9]+ tests?\)' startup-results.txt
             adb install -r profile-source/app-profile.apk
