@@ -204,7 +204,7 @@ fun ScanScreen(vm: LibraryViewModel) {
                     if (visibleFailures.isNotEmpty()) {
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                             TextButton(onClick = { showFailures = !showFailures }, modifier = Modifier.weight(1f)) {
-                                Text(if (showFailures) "Hide failed thumbnails" else "View failed thumbnails (${visibleFailures.size})")
+                                Text(if (showFailures) "Hide failed thumbnails" else "View failed thumbnails")
                             }
                             TextButton(onClick = { vm.dismissThumbnailFailures(visibleFailures.map { it.relativePath }) }) {
                                 Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))
