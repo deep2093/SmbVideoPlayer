@@ -74,6 +74,7 @@ internal fun VlcPlayerScreen(
     var duration by remember { mutableLongStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var controls by remember { mutableStateOf(true) }
+    var controlsInteraction by remember { mutableIntStateOf(0) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var tracks by remember { mutableStateOf(false) }
     var options by remember { mutableStateOf(false) }
@@ -231,7 +232,7 @@ internal fun VlcPlayerScreen(
             debugStatus("video_output_active")
         }
     }
-    LaunchedEffect(playing, controls, tracks, options) {
+    LaunchedEffect(playing, controls, tracks, options, controlsInteraction) {
         if (playing && controls && !tracks && !options) {
             delay(3000)
             controls = false
@@ -471,7 +472,7 @@ internal fun VlcPlayerScreen(
                 onNext = { save(); if (index < queue.lastIndex) index++ else onQueueEnded() },
                 onTracks = { tracks = true },
                 onOptions = { options = true },
-                onInteraction = { controls = true },
+                onInteraction = { controls = true; controlsInteraction++ },
             )
         }
         error?.let { message ->

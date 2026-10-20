@@ -296,7 +296,7 @@ internal fun VideoCard(
                         ).padding(horizontal = 4.dp),
                 )
             }
-            if (onRemoveFromContinue != null) {
+            if (onRemoveFromContinue != null && vm.selectedPaths.isEmpty()) {
                 androidx.compose.material3.FilledIconButton(
                     onClick = onClick,
                     modifier = Modifier.align(androidx.compose.ui.Alignment.Center).width(48.dp).height(48.dp),
