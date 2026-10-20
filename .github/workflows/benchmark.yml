@@ -76,10 +76,10 @@ jobs:
           script: |
             adb install optimized/update.apk
             adb install benchmark-apk/runner.apk
-            adb shell am instrument -w -e class com.deepak.videolibrary.benchmark.StartupBenchmark -e additionalTestOutputDir /sdcard/Android/media/com.deepak.videolibrary.benchmark -e androidx.benchmark.suppressErrors EMULATOR com.deepak.videolibrary.benchmark/androidx.test.runner.AndroidJUnitRunner | tee startup-results.txt
+            adb shell am instrument -w -e class com.deepak.videolibrary.benchmark.StartupBenchmark -e androidx.benchmark.suppressErrors EMULATOR com.deepak.videolibrary.benchmark/androidx.test.runner.AndroidJUnitRunner | tee startup-results.txt
             grep -Eq '^OK \([0-9]+ tests?\)' startup-results.txt
             adb install -r profile-source/app-profile.apk
-            adb shell am instrument -w -e class com.deepak.videolibrary.benchmark.GenerateBaselineProfile -e additionalTestOutputDir /sdcard/Android/media/com.deepak.videolibrary.benchmark -e androidx.benchmark.suppressErrors EMULATOR com.deepak.videolibrary.benchmark/androidx.test.runner.AndroidJUnitRunner | tee profile-results.txt
+            adb shell am instrument -w -e class com.deepak.videolibrary.benchmark.GenerateBaselineProfile -e androidx.benchmark.suppressErrors EMULATOR com.deepak.videolibrary.benchmark/androidx.test.runner.AndroidJUnitRunner | tee profile-results.txt
             grep -Eq '^OK \([0-9]+ tests?\)' profile-results.txt
             adb pull /sdcard/Android/media/com.deepak.videolibrary.benchmark benchmark-output
       - run: python3 tools/log_baseline_profile.py
