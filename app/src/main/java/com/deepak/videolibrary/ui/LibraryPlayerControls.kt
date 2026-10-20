@@ -78,7 +78,7 @@ internal fun LibraryPlayerControls(
             ) {
                 Icon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, if (isPlaying) "Pause" else "Play", modifier = Modifier.size(36.dp))
             }
-            IconButton(onClick = { onSeek((position + 10_000L).coerceAtMost(duration.coerceAtLeast(0))); onInteraction() }, modifier = Modifier.size(56.dp)) {
+            IconButton(onClick = { onSeek((position + 10_000L).coerceAtMost(duration.coerceAtLeast(0))); onInteraction() }, modifier = Modifier.size(56.dp), colors = transportColors) {
                 Icon(Icons.Filled.Forward10, "Forward 10 seconds", tint = ink, modifier = Modifier.size(30.dp))
             }
             IconButton(enabled = canNext, onClick = onNext, colors = transportColors) {
