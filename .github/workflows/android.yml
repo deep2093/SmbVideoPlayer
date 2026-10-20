@@ -227,14 +227,7 @@ jobs:
           # Avoid the Android 10 profile's oversized default userdata image.
           disk-size: 4096M
           disable-animations: true
-          script: |
-            python3 tools/check_legacy_upgrade.py
-            bash tools/check_preview_update.sh
-            adb install -r preview/tests/app-debug-androidTest.apk
-            adb shell am instrument -w -e smbFixture true com.deepak.videolibrary.preview.test/androidx.test.runner.AndroidJUnitRunner | tee preview/storage-tests.txt
-            grep -Eq '^OK \([0-9]+ tests?\)' preview/storage-tests.txt
-            python3 tools/check_library_ui.py
-            python3 tools/check_optimized_smoke.py
+          script: bash tools/ci_device_checks.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
