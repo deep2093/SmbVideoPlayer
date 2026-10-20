@@ -64,6 +64,18 @@ android {
             // Unsigned unless a release key is configured above; never signed with the preview key.
             signingConfigs.findByName("release")?.let { signingConfig = it }
         }
+        // Capture profiles with original method names; startup timing uses optimized instead.
+        create("profile") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-preview-profile"
+            resValue("string", "app_name", "Video Library Preview")
+            signingConfig = signingConfigs.getByName("preview")
+            isDebuggable = false
+            isMinifyEnabled = false
+            isShrinkResources = false
+            matchingFallbacks += listOf("release")
+        }
         create("optimized") {
             initWith(getByName("release"))
             applicationIdSuffix=".preview"

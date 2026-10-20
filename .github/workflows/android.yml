@@ -108,7 +108,7 @@ jobs:
           if-no-files-found: error
       - name: Build optimized Preview with stable update identity
         run: |
-          ./gradlew :app:assembleOptimized :benchmarks:assembleOptimized -PpreviewVersionCode=$((1000 + GITHUB_RUN_NUMBER * 2 + 1)) --stacktrace
+          ./gradlew :app:assembleOptimized :app:assembleProfile :benchmarks:assembleOptimized -PpreviewVersionCode=$((1000 + GITHUB_RUN_NUMBER * 2 + 1)) --stacktrace
           mkdir -p optimized
           cp app/build/outputs/apk/optimized/app-optimized.apk optimized/update.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs optimized/update.apk > optimized/signing.txt
@@ -118,6 +118,11 @@ jobs:
         with:
           name: VideoLibrary-optimized-preview-apk
           path: optimized/update.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Profile-source-apk
+          path: app/build/outputs/apk/profile/app-profile.apk
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:

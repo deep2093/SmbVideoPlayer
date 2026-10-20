@@ -50,4 +50,4 @@ Do not merge the draft PR until the user has tested the APK.
 - Try Play all with more than 200 items and confirm advance across queue batch boundaries in Media3 and VLC.
 - Test the fixed tablet sidebar and Scan/Settings at large font sizes and in split-screen.
 
-Run `./gradlew :app:assembleOptimized :benchmarks:assembleOptimized`, install both APKs, then run the benchmark instrumentation on a physical device. Keep startup/frame reports alongside device model, Android version, refresh rate and library size. Emulator timing is not a performance guarantee.
+Run `./gradlew :app:assembleOptimized :app:assembleProfile :benchmarks:assembleOptimized`. Install the optimized app and benchmark APK for StartupBenchmark. Then install the profile app over it for GenerateBaselineProfile; that non-debuggable variant keeps original method names so captured rules remain valid before R8. The workflow performs these steps automatically. Keep startup/frame reports alongside device model, Android version, refresh rate and library size. Emulator timing is not a performance guarantee.
