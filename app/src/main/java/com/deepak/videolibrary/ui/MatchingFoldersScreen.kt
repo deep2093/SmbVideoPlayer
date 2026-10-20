@@ -34,12 +34,14 @@ internal fun MatchingFoldersScreen(
     var name by remember { mutableStateOf("") }
     ScrollToTopOnChange(query, gridState)
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.ui_custom_folders_097a811), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            IconButton(onClick = {
-                search = !search
-                if (!search)vm.matchFolderQuery.value = ""
-            }) { Icon(Icons.Default.Search, "Search custom folders") }
+        SearchableTopBar(
+            title = stringResource(R.string.ui_custom_folders_097a811),
+            searching = search,
+            onSearchingChange = { search = it },
+            query = query,
+            onQueryChange = { vm.matchFolderQuery.value = it },
+            placeholder = stringResource(R.string.ui_search_custom_folders_89257e5),
+        ) {
             Box {
                 FilledTonalButton(onClick = { addMenu = true }) { Icon(Icons.Default.Add, null); Text(stringResource(R.string.ui_add_61cc55a)) }
                 DropdownMenu(addMenu, { addMenu = false }) {
@@ -49,11 +51,6 @@ internal fun MatchingFoldersScreen(
             }
         }
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        if (search) {
-            OutlinedTextField(query, {
-                vm.matchFolderQuery.value = it
-            }, label = { Text(stringResource(R.string.ui_search_custom_folders_89257e5)) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        }
         LazyVerticalGrid(
             state = gridState,
             modifier = Modifier.weight(1f),
@@ -79,10 +76,12 @@ internal fun MatchingFoldersScreen(
             text = {
                 Column {
                     Text(stringResource(R.string.ui_the_folder_name_is_matched_anywhere_in_vid_a4aa69a))
-                    OutlinedTextField(name, {
-                        name =
-                            it
-                    }, label = { Text(stringResource(R.string.ui_folder_name_filename_match_e8e1149)) }, singleLine = true)
+                    PillTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = stringResource(R.string.ui_folder_name_filename_match_e8e1149),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
                 }
             },
             confirmButton = {
@@ -214,19 +213,18 @@ private fun MatchingFolderCard(
                     if (dialog == "Rename" ||
                         dialog == "Merge"
                     ) {
-                        OutlinedTextField(name, { name = it }, singleLine = true, label = {
-                            Text(
-                                if (dialog ==
-                                    "Merge"
-                                ) {
-                                    "Destination virtual folder"
-                                } else if(folder.sourcePath!=null) {
-                                    "Display name"
-                                } else {
-                                    "Name / filename match"
-                                },
-                            )
-                        })
+                        PillTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = if (dialog == "Merge") {
+                                "Destination virtual folder"
+                            } else if (folder.sourcePath != null) {
+                                "Display name"
+                            } else {
+                                "Name / filename match"
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        )
                     }
                 }
             },

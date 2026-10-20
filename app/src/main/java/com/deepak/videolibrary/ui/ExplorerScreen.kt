@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -81,45 +82,30 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
         if (searching) vm.explorerQuery = "" else vm.browse(vm.explorerPath.substringBeforeLast('/', ""))
     }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.ui_file_explorer_700869d), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            IconButton(onClick = {
-                searchExpanded = !searchExpanded
-                if (!searchExpanded)vm.explorerQuery = ""
-            }) {
-                Icon(
-                    if (searchExpanded)Icons.Default.Close else Icons.Default.Search,
-                    if (searchExpanded)"Close explorer search" else "Search File Explorer",
-                )
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(
-                onClick = { vm.browse(vm.explorerPath.substringBeforeLast('/', "")) },
-                enabled = vm.explorerPath.isNotEmpty() && !vm.explorerBusy,
-            ) { Text(stringResource(R.string.ui_up_2c97c0b)) }
-            Text(
-                vm.explorerPath.ifEmpty { "/ (share root)" },
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            TextButton(onClick = {
-                vm.browse()
-                vm.searchExplorer(vm.explorerQuery, vm.explorerPath)
-            }, enabled = !vm.explorerBusy) { Text(stringResource(R.string.ui_refresh_56e3bad)) }
-        }
-        if (searchExpanded || searching) {
-            OutlinedTextField(
-                value = vm.explorerQuery,
-                onValueChange = { vm.explorerQuery = it },
-                label = { Text(stringResource(R.string.ui_search_names_anywhere_in_this_folder_and_s_7fe98c1)) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                trailingIcon = { if (searching) TextButton(onClick = { vm.explorerQuery = "" }) { Text(stringResource(R.string.ui_clear_719ea39)) } },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        SearchableTopBar(
+            title = stringResource(R.string.ui_file_explorer_700869d),
+            searching = searchExpanded,
+            onSearchingChange = { searchExpanded = it },
+            query = vm.explorerQuery,
+            onQueryChange = { vm.explorerQuery = it },
+            placeholder = stringResource(R.string.ui_search_names_anywhere_in_this_folder_and_s_7fe98c1),
+        )
+        BreadcrumbBar(
+            crumbs = breadcrumbs(vm.explorerPath),
+            onHome = { vm.browse("") },
+            onSelect = { vm.browse(it) },
+            enabled = !vm.explorerBusy,
+            trailing = {
+                IconButton(
+                    onClick = {
+                        vm.browse()
+                        vm.searchExplorer(vm.explorerQuery, vm.explorerPath)
+                    },
+                    enabled = !vm.explorerBusy,
+                    modifier = Modifier.size(40.dp),
+                ) { Icon(Icons.Filled.Refresh, contentDescription = "Refresh", modifier = Modifier.size(22.dp)) }
+            },
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${playQueue.size} ${if (searching) "matching" else "playable"} videos", modifier = Modifier.weight(1f))
             TextButton(enabled = playQueue.isNotEmpty(), onClick = { playQueue.firstOrNull()?.let { onPlay(it, playQueue) } }) {
@@ -144,11 +130,12 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        FolderTransition(vm.explorerPath, Modifier.weight(1f)) {
         LazyColumn(
             state = listState,
             contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxSize(),
         ) {
             items(shown, key = { it.path }) { hit ->
                 val entry = hit.entry
@@ -213,6 +200,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                 }
                 HorizontalDivider()
             }
+        }
         }
     }
 }

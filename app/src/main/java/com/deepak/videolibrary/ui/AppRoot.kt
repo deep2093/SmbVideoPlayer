@@ -4,8 +4,15 @@ import androidx.compose.ui.res.stringResource
 import com.deepak.videolibrary.R
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -41,6 +48,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
@@ -81,7 +89,9 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
             vm.consumeExplorerNavigation()
         }
     }
-    val closePlayer: () -> Unit = { playing=null; playQueue=emptyList(); vm.resetPlaybackQueue() }
+    var closing by remember { mutableStateOf(false) }
+    // Closing fades the player out first; the real teardown happens when that animation ends.
+    val closePlayer: () -> Unit = { if (!closing) closing = true }
     BackHandler(enabled = playing != null || folderDetails || tab != 0) {
         when {
             playing != null -> closePlayer()
@@ -104,11 +114,40 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     }
     val advanceQueue: () -> Unit = { vm.nextPlaybackBatch { next, queue -> playing = next; playQueue = queue } }
     if (playing != null) {
-        androidx.compose.runtime.key(playing!!.relativePath) {
-            if(playQueue.any { it.name.endsWith(".wmv",true) || it.name.endsWith(".asf",true) }) {
-                VlcPlayerScreen(video=playing!!,settings=vm.settings,vm=vm,playlist=playQueue,onQueueEnded=advanceQueue,onClose=closePlayer)
+        // The player fades and scales in when it opens (not on every queue change).
+        val enter = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
+        LaunchedEffect(closing) {
+            if (closing) {
+                enter.animateTo(0f, tween(240, easing = androidx.compose.animation.core.FastOutLinearInEasing))
+                playing = null
+                playQueue = emptyList()
+                vm.resetPlaybackQueue()
+                closing = false
             } else {
-                PlayerScreen(video=playing!!,settings=vm.settings,vm=vm,playlist=playQueue,onQueueEnded=advanceQueue,onClose=closePlayer)
+                enter.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
+            }
+        }
+        val entering by androidx.compose.runtime.remember { androidx.compose.runtime.derivedStateOf { enter.value < 1f } }
+        Box(
+            Modifier.fillMaxSize().then(
+                if (entering) {
+                    Modifier.graphicsLayer {
+                        alpha = enter.value
+                        val scale = 0.94f + 0.06f * enter.value
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                } else {
+                    Modifier
+                },
+            ),
+        ) {
+            androidx.compose.runtime.key(playing!!.relativePath) {
+                if(playQueue.any { it.name.endsWith(".wmv",true) || it.name.endsWith(".asf",true) }) {
+                    VlcPlayerScreen(video=playing!!,settings=vm.settings,vm=vm,playlist=playQueue,onQueueEnded=advanceQueue,onClose=closePlayer)
+                } else {
+                    PlayerScreen(video=playing!!,settings=vm.settings,vm=vm,playlist=playQueue,onQueueEnded=advanceQueue,onClose=closePlayer)
+                }
             }
         }
         return
@@ -154,12 +193,14 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         }
                     }
                     Column(Modifier.weight(1f).fillMaxHeight()) {
+                        Column(Modifier.animateContentSize(tween(260, easing = FastOutSlowInEasing))) {
                         if (tab == 2 && returnToThumbnails) {
                             TextButton(onClick = {
                                 tab = 3
                                 returnToThumbnails = false
                             }) { Text(stringResource(R.string.ui_thumbnail_failures_737d640)) }
                         }
+                        VpnStatusBanner(Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                         FileClipboardBar(vm)
                         vm.notice?.takeIf { tab != 3 }?.let { message ->
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -167,10 +208,21 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                 TextButton(onClick = vm::dismissNotice) { Text(stringResource(R.string.ui_dismiss_70afe9e)) }
                             }
                         }
-                        Crossfade(
+                        }
+                        // Sections and folder pages slide in the direction of travel and fade, like VLC.
+                        AnimatedContent(
                             targetState = tab,
                             modifier = Modifier.weight(1f),
-                            animationSpec = tween(140),
+                            transitionSpec = {
+                                val forward = targetState > initialState
+                                val enter = slideInHorizontally(tween(320, easing = FastOutSlowInEasing)) { width ->
+                                    if (forward) width / 5 else -width / 5
+                                } + fadeIn(tween(260, delayMillis = 40))
+                                val exit = slideOutHorizontally(tween(320, easing = FastOutSlowInEasing)) { width ->
+                                    if (forward) -width / 5 else width / 5
+                                } + fadeOut(tween(160))
+                                enter togetherWith exit
+                            },
                             label = "section_transition",
                         ) { currentTab ->
                             when (currentTab) {

@@ -102,6 +102,11 @@ class VpnPreferences(context: Context) {
         get() = prefs.getBoolean("auto_connect", false)
         set(value) { prefs.edit().putBoolean("auto_connect", value).apply() }
 
+    /** Turn the tunnel off when the app is closed, or 5 minutes after it is left or the phone is locked. */
+    var autoDisconnect: Boolean
+        get() = prefs.getBoolean("auto_disconnect", true)
+        set(value) { prefs.edit().putBoolean("auto_disconnect", value).apply() }
+
     /** Route only this app through the tunnel (VpnService.Builder.addAllowedApplication). */
     var appOnly: Boolean
         get() = prefs.getBoolean("app_only", true)

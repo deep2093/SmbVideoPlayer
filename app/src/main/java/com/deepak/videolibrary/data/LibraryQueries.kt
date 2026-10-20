@@ -96,7 +96,11 @@ object LibraryQueries {
         return SimpleSQLiteQuery("SELECT COUNT(*) FROM videos v WHERE $w", a.toTypedArray())
     }
     fun groups(s: LibraryScope, sort: String, descending: Boolean): SimpleSQLiteQuery {
-        val(w, a) = where(s.copy(groupMatches = true))
+        // Virtual-folder search matches the FOLDER NAME only, never the names of the files inside it.
+        val folderText = s.query.trim()
+        val (baseWhere, baseArgs) = where(s.copy(query = "", groupMatches = false))
+        val w = if (folderText.isEmpty()) baseWhere else "$baseWhere AND instr(lower(COALESCE(v.customGroup,v.groupKey)),lower(?))>0"
+        val a: List<Any?> = if (folderText.isEmpty()) baseArgs else baseArgs + folderText
         val order = when (sort) {
             "COUNT" -> "count"
             "DATE" -> "lastModified"

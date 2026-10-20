@@ -194,6 +194,8 @@ fun PlayerScreen(
         controlsVisible = true
         controlsInteraction++
     }
+    val orientation = remember(activity) { com.deepak.videolibrary.ui.PlayerOrientation(activity) }
+    DisposableEffect(orientation) { onDispose { orientation.restore() } }
     DisposableEffect(activity) {
         val window = activity?.window
         val beforeBrightness = window?.attributes?.screenBrightness
@@ -366,6 +368,11 @@ fun PlayerScreen(
             }
             override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                 AppDiagnostics.record(context, "video", "width=" + videoSize.width + " height=" + videoSize.height)
+                // Sideways-stored clips (rotation 90/270) are shown the other way round; anamorphic ones are widened.
+                val quarterTurn = videoSize.unappliedRotationDegrees == 90 || videoSize.unappliedRotationDegrees == 270
+                val shownWidth = (videoSize.width * videoSize.pixelWidthHeightRatio).toInt()
+                if (quarterTurn) orientation.onVideoShape(videoSize.height, shownWidth)
+                else orientation.onVideoShape(shownWidth, videoSize.height)
             }
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                 val format = player.videoFormat
@@ -408,6 +415,7 @@ fun PlayerScreen(
                 if (playbackState == Player.STATE_ENDED) { revealControls(); onQueueEnded() }
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                orientation.newVideo()
                 currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
                 player.trackSelectionParameters = player.trackSelectionParameters
                     .buildUpon()
@@ -696,6 +704,7 @@ fun PlayerScreen(
                 canNext = player.hasNextMediaItem() || vm.playbackHasMore,
                 queueLabel = "${currentIndex + 1} / ${queue.size}",
                 aspectLabel = aspectLabels[aspectIndex],
+                onRotate = { orientation.rotate() },
                 onBack = onClose,
                 onTogglePlayback = { if (player.playWhenReady) player.pause() else player.play() },
                 onSeek = { player.seekTo(it); revealControls() },

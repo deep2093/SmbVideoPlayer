@@ -5,7 +5,9 @@ import com.deepak.videolibrary.R
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -18,13 +20,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 
-data class LibraryTheme(val id: String, val label: String, val background: Color, val surface: Color, val card: Color, val accent: Color)
+data class LibraryTheme(val id: String, val label: String, val background: Color, val surface: Color, val card: Color, val accent: Color, val glass: Boolean = false)
 val libraryThemes = listOf(
     LibraryTheme("CHARCOAL", "Dark grey", Color(0xFF0D0D0D), Color(0xFF171717), Color(0xFF262626), Color(0xFFFF837A)),
     LibraryTheme("AMOLED", "AMOLED black", Color.Black, Color.Black, Color(0xFF101010), Color(0xFFFF837A)),
     LibraryTheme("SLATE", "Midnight blue", Color(0xFF141C29), Color(0xFF1B2738), Color(0xFF26364D), Color(0xFF3569AA)),
     LibraryTheme("FOREST", "Forest", Color(0xFF14221D), Color(0xFF1D3028), Color(0xFF2A4036), Color(0xFF26715B)),
     LibraryTheme("PLUM", "Plum", Color(0xFF241A2B), Color(0xFF30233A), Color(0xFF40304D), Color(0xFF884EAA)),
+    // Liquid Glass: a deep gradient behind translucent, softly lit surfaces with a thin bright edge.
+    LibraryTheme("LIQUID", "Liquid Glass", Color.Transparent, Color(0x26FFFFFF), Color(0x38FFFFFF), Color(0xFF8CD4FF), glass = true),
 )
 
 @Composable
@@ -65,8 +69,8 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         surfaceVariant = theme.card,
         onSurfaceVariant = Color(0xFFB8B8B8),
         surfaceTint = Color.Transparent,
-        outline = Color(0xFF777777),
-        outlineVariant = Color(0xFF333333),
+        outline = if (theme.glass) Color(0x80FFFFFF) else Color(0xFF777777),
+        outlineVariant = if (theme.glass) Color(0x40FFFFFF) else Color(0xFF333333),
         error = Color(0xFFFF6B6B),
         onError = Color.Black,
         errorContainer = Color(0xFF452323),
@@ -74,10 +78,11 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         inverseSurface = Color.White,
         inverseOnSurface = theme.background,
         inversePrimary = theme.accent,
-        surfaceContainer = theme.surface,
+        // Menus and dialogs float above the content, so they stay opaque for legibility.
+        surfaceContainer = if (theme.glass) Color(0xFF1B2A44) else theme.surface,
         surfaceContainerLow = theme.background,
-        surfaceContainerHigh = theme.card,
-        surfaceContainerHighest = theme.card,
+        surfaceContainerHigh = if (theme.glass) Color(0xFF22345A) else theme.card,
+        surfaceContainerHighest = if (theme.glass) Color(0xFF22345A) else theme.card,
         surfaceContainerLowest = theme.background,
     )
     MaterialTheme(
@@ -94,7 +99,17 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
             labelSmall = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 12.sp, lineHeight = 18.sp, fontFeatureSettings = "tnum"),
         ),
         shapes = Shapes(small = RoundedCornerShape(8.dp), medium = RoundedCornerShape(8.dp), large = RoundedCornerShape(16.dp)),
-        content = content,
+        content = {
+            if (theme.glass) {
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.linearGradient(listOf(Color(0xFF0B1B3A), Color(0xFF2A1F5C), Color(0xFF0E4A5E))),
+                    ),
+                ) { content() }
+            } else {
+                content()
+            }
+        },
     )
 }
 

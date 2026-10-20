@@ -88,39 +88,26 @@ fun VideosScreen(
     // another tab keeps the previous position.
     ScrollToTopOnChange(Triple(query, group, matchFolder?.id), gridState)
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            if (selectedGroup != null) {
-                IconButton(onClick = {
-                    if (onBackToFolders != null) onBackToFolders() else vm.groupFilter.value = null
-                    vm.matchFolderFilter.value = null
-                }) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back to folders") }
-            }
-            Text(
-                selectedGroup ?: "Videos",
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
+        SearchableTopBar(
+            title = selectedGroup ?: "Videos",
+            searching = searchExpanded,
+            onSearchingChange = { searchExpanded = it },
+            query = query,
+            onQueryChange = { vm.query.value = it },
+            placeholder = stringResource(R.string.ui_search_videos_by_filename_1c7bc42),
+            modifier = Modifier.padding(top = 8.dp),
+            navigation = if (selectedGroup != null) {
+                {
+                    IconButton(onClick = {
+                        if (onBackToFolders != null) onBackToFolders() else vm.groupFilter.value = null
+                        vm.matchFolderFilter.value = null
+                    }) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back to folders") }
+                }
+            } else {
+                null
+            },
+        ) {
             LibraryDisplayMenu(vm)
-            IconButton(onClick = {
-                searchExpanded = !searchExpanded
-                if (!searchExpanded) vm.query.value = ""
-            }) {
-                Icon(
-                    if (searchExpanded) Icons.Filled.Close else Icons.Filled.Search,
-                    contentDescription = if (searchExpanded) "Close search" else "Search videos",
-                )
-            }
-        }
-        if (searchExpanded) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { vm.query.value = it },
-                label = { Text(stringResource(R.string.ui_search_videos_by_filename_1c7bc42)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-            )
         }
         if (selectedGroup != null && matchFolder == null) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -232,10 +219,15 @@ fun VideosScreen(
             title = { Text("Add videos to $group") },
             text = {
                 Column {
-                    OutlinedTextField(value = videoSearch, onValueChange = {
-                        videoSearch = it
-                        vm.findVideosToAdd(selectedGroup, it)
-                    }, label = { Text(stringResource(R.string.ui_search_filenames_50f3cf4)) })
+                    PillTextField(
+                        value = videoSearch,
+                        onValueChange = {
+                            videoSearch = it
+                            vm.findVideosToAdd(selectedGroup, it)
+                        },
+                        label = stringResource(R.string.ui_search_filenames_50f3cf4),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    )
                     LazyColumn(Modifier.heightIn(max = 350.dp)) {
                         items(vm.assignCandidates, key = { it.id }) { video ->
                             TextButton(onClick = {

@@ -123,7 +123,7 @@ internal fun FileActionsMenu(
             text = {
                 Column {
                     Text(stringResource(R.string.ui_move_this_folder_s_video_assignments_into__61204ac))
-                    OutlinedTextField(mergeName, { mergeName = it }, label = { Text(stringResource(R.string.ui_destination_virtual_folder_fda9d5d)) })
+                    PillTextField(mergeName, { mergeName = it }, label = stringResource(R.string.ui_destination_virtual_folder_fda9d5d), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
                 }
             },
             confirmButton = {
@@ -147,10 +147,10 @@ internal fun FileActionsMenu(
             text = {
                 Column {
                     Text(if (virtual) "This changes library organisation only." else "This changes the name on your network drive.")
-                    OutlinedTextField(name, {
+                    PillTextField(name, {
                         name =
                             it
-                    }, label = { Text(stringResource(R.string.ui_new_name_9e627c7)) })
+                    }, label = stringResource(R.string.ui_new_name_9e627c7), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
                 }
             },
             confirmButton = {
@@ -337,10 +337,10 @@ private fun SelectionBar(vm: LibraryViewModel) {
             text = {
                 Column {
                     Text(stringResource(R.string.ui_assign_selected_videos_to_an_existing_or_n_b820db7))
-                    OutlinedTextField(name, {
+                    PillTextField(name, {
                         name =
                             it
-                    }, label = { Text(stringResource(R.string.ui_destination_virtual_folder_fda9d5d)) })
+                    }, label = stringResource(R.string.ui_destination_virtual_folder_fda9d5d), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
                 }
             },
             confirmButton = {

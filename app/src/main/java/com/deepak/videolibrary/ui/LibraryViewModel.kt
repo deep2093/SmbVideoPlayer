@@ -435,7 +435,23 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         explorerNavigationRequest = null
     }
     val failedThumbnails = namespace.flatMapLatest { stateDao.thumbnailFailures(LibraryQueries.thumbnailFailures(it)) }.state(emptyList())
+
+    // Failures the user cleared from the list. Kept per library in preferences (no database change);
+    // the videos themselves are untouched and a retried file can fail and show up again.
+    private val failureDismissPrefs = app.getSharedPreferences("thumb-failures-dismissed-${services.libraryId}", android.content.Context.MODE_PRIVATE)
+    private val dismissedFailures = MutableStateFlow(failureDismissPrefs.getStringSet("paths", emptySet()).orEmpty().toSet())
+    val visibleFailedThumbnails = combine(failedThumbnails, dismissedFailures) { failures, dismissed ->
+        failures.filter { it.relativePath !in dismissed }
+    }.state(emptyList())
+    private fun updateDismissedFailures(change: (Set<String>) -> Set<String>) {
+        val updated = change(dismissedFailures.value)
+        dismissedFailures.value = updated
+        failureDismissPrefs.edit().putStringSet("paths", updated).apply()
+    }
+    /** Hides the given failed thumbnails from the Scan list. Pass every visible path to clear all. */
+    fun dismissThumbnailFailures(paths: Collection<String>) = updateDismissedFailures { it + paths }
     fun retryThumbnail(id: Long) {
+        failedThumbnails.value.firstOrNull { it.id == id }?.let { video -> updateDismissedFailures { it - video.relativePath } }
         viewModelScope.launch {
             dao.setThumbStatus(id, "PENDING")
             startThumbnails()
@@ -626,6 +642,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
 
     fun retryFailedThumbnails() {
+        updateDismissedFailures { emptySet() }
         viewModelScope.launch {
             dao.resetFailedThumbs()
             startThumbnails()

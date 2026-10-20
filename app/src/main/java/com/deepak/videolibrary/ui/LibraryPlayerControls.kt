@@ -35,6 +35,7 @@ internal fun LibraryPlayerControls(
     onTracks: () -> Unit,
     onOptions: () -> Unit,
     onAspect: () -> Unit = {},
+    onRotate: (() -> Unit)? = null,
     onInteraction: () -> Unit = {},
 ) {
     var scrubbing by remember(title) { mutableStateOf(false) }
@@ -109,7 +110,12 @@ internal fun LibraryPlayerControls(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 queueLabel?.let { Text(it, color = muted, style = MaterialTheme.typography.labelSmall) }
                 Spacer(Modifier.weight(1f))
-                if (aspectLabel != null) TextButton(onClick = onAspect) { Text("Aspect: " + aspectLabel, color = ink) }
+                if (onRotate != null) IconButton(onClick = { onRotate(); onInteraction() }) {
+                    Icon(Icons.Filled.ScreenRotation, "Rotate screen", tint = ink)
+                }
+                if (aspectLabel != null) IconButton(onClick = onAspect) {
+                    Icon(Icons.Filled.AspectRatio, "Zoom and aspect ratio: $aspectLabel", tint = ink)
+                }
                 TextButton(onClick = onOptions) { Text("Options", color = ink) }
             }
         }

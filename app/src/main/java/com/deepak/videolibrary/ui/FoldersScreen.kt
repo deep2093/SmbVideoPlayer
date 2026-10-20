@@ -123,23 +123,19 @@ fun FoldersScreen(
     var operation by remember { mutableStateOf("") }
     var targetName by remember { mutableStateOf("") }
     var editFolders by rememberSaveable { mutableStateOf(false) }
-    val matchingVideos = vm.folderPages.collectAsLazyPagingItems()
-    val matchingCount by vm.folderResultsCount.collectAsStateWithLifecycle()
     // Jump to the top only when the search text changes while this screen is visible.
     // Re-entering the screen (e.g. coming back from a folder) must keep the saved position.
     ScrollToTopOnChange(folderQuery, gridState)
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text(stringResource(R.string.ui_folders_19adc47), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            IconButton(onClick = {
-                searchExpanded = !searchExpanded
-                if (!searchExpanded) folderQuery = ""
-            }) {
-                Icon(
-                    if (searchExpanded) Icons.Filled.Close else Icons.Filled.Search,
-                    contentDescription = if (searchExpanded) "Close folder search" else "Search folders",
-                )
-            }
+        SearchableTopBar(
+            title = stringResource(R.string.ui_folders_19adc47),
+            searching = searchExpanded,
+            onSearchingChange = { searchExpanded = it },
+            query = folderQuery,
+            onQueryChange = { folderQuery = it },
+            placeholder = "Search virtual folders",
+            modifier = Modifier.padding(top = 8.dp),
+        ) {
             Box {
                 var sortExpanded by remember { mutableStateOf(false) }
                 IconButton(onClick = { sortExpanded = true }) {
@@ -200,15 +196,6 @@ fun FoldersScreen(
         }
         Spacer(Modifier.height(12.dp))
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        if (searchExpanded) {
-            OutlinedTextField(
-                value = folderQuery,
-                onValueChange = { folderQuery = it },
-                label = { Text(stringResource(R.string.ui_search_folder_and_video_names_b2eeabc)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-            )
-        }
         val columns = libraryColumns(vm.folderGridPreset, floatingPadding(vm))
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyVerticalGrid(
@@ -257,30 +244,6 @@ fun FoldersScreen(
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
                 }
-                if (folderQuery.isNotBlank()) {
-                    item(span = { GridItemSpan(maxLineSpan) }, key = "play-matches") {
-                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Text("$matchingCount matching videos", modifier = Modifier.weight(1f))
-                            TextButton(
-                                enabled = matchingCount > 0,
-                                onClick = { vm.playLibrary("folders", onPlay = onPlay) },
-                            ) { Text(stringResource(R.string.ui_play_all_results_dee8bdc)) }
-                        }
-                    }
-                }
-                if (folderQuery.isNotBlank()) {
-                    items(count = matchingVideos.itemCount, key = matchingVideos.itemKey { "result:${it.relativePath}" }) { index ->
-                        matchingVideos[index]?.let { video ->
-                            VideoCard(
-                                video,
-                                onClick = { vm.playLibrary("folders", video, onPlay) },
-                                vm = vm,
-                                listMode = vm.folderListMode,
-                                selectionScope = "folders",
-                            )
-                        }
-                    }
-                }
                 if (shownGroups.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
@@ -294,7 +257,7 @@ fun FoldersScreen(
                         FolderCard(vm, row, listMode = vm.folderListMode) {
                             vm.matchFolderFilter.value = null
                             vm.groupFilter.value = row.groupKey
-                            vm.query.value = if (matchesFilename(row.groupKey, folderQuery)) "" else folderQuery
+                            vm.query.value = ""
                             onOpenGroup()
                         }
                         var menuExpanded by remember(row.groupKey) { mutableStateOf(false) }
@@ -337,17 +300,12 @@ fun FoldersScreen(
                             "Rename this virtual folder. No SMB files are renamed."
                         },
                     )
-                    OutlinedTextField(value = targetName, onValueChange = { targetName = it }, label = {
-                        Text(
-                            if (operation ==
-                                "Merge"
-                            ) {
-                                "Destination folder"
-                            } else {
-                                "New name"
-                            },
-                        )
-                    })
+                    PillTextField(
+                        value = targetName,
+                        onValueChange = { targetName = it },
+                        label = if (operation == "Merge") "Destination folder" else "New name",
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
                 }
             },
             confirmButton = {

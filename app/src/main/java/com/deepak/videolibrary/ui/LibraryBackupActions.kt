@@ -15,14 +15,13 @@ import androidx.compose.ui.unit.dp
 internal fun LibraryBackupActions(vm: LibraryViewModel) {
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { it?.let(vm::exportLibrary) }
     val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let(vm::importLibrary) }
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.ui_library_backup_51ed40f), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.ui_save_collections_assignments_hidden_items__48ef66a), style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { export.launch("video-library-backup.json") }) { Text(stringResource(R.string.ui_export_f3e4fad)) }
-                TextButton(onClick = { restore.launch(arrayOf("application/json","text/plain")) }) { Text(stringResource(R.string.ui_restore_3cbe6d6)) }
-            }
+    // Sits inside the Library section of Settings, which already provides the card.
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.ui_library_backup_51ed40f), style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.ui_save_collections_assignments_hidden_items__48ef66a), style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { export.launch("video-library-backup.json") }) { Text(stringResource(R.string.ui_export_f3e4fad)) }
+            TextButton(onClick = { restore.launch(arrayOf("application/json","text/plain")) }) { Text(stringResource(R.string.ui_restore_3cbe6d6)) }
         }
     }
 }

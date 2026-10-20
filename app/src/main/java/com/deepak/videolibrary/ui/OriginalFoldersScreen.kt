@@ -56,41 +56,29 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
     }
     BackHandler(enabled = query.isNotEmpty() || path != root) { if (query.isNotEmpty())vm.originalQuery = "" else up() }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.ui_original_folders_38a7a75), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            IconButton(onClick = {
-                searchExpanded =
-                    !searchExpanded
-                if (!searchExpanded)vm.originalQuery = ""
-            }) {
-                Icon(
-                    if (searchExpanded)Icons.Default.Close else Icons.Default.Search,
-                    if (searchExpanded)"Close original folder search" else "Search original folders",
-                )
-            }
+        SearchableTopBar(
+            title = stringResource(R.string.ui_original_folders_38a7a75),
+            searching = searchExpanded,
+            onSearchingChange = { searchExpanded = it },
+            query = query,
+            onQueryChange = { vm.originalQuery = it },
+            placeholder = stringResource(R.string.ui_search_folder_and_video_names_b2eeabc),
+        ) {
             TextButton(onClick = { vm.startScan(ScanMode.REFRESH) }) { Text(stringResource(R.string.ui_refresh_index_2b7da4d)) }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(enabled = path != root, onClick = ::up) { Text(stringResource(R.string.ui_up_2c97c0b)) }
-            Text(path.ifEmpty { "/ (share root)" }, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-        if (searchExpanded ||
-            query.isNotBlank()
-        ) {
-            OutlinedTextField(query, {
-                vm.originalQuery = it
-            }, singleLine = true, label = {
-                Text(stringResource(R.string.ui_search_folder_and_video_names_b2eeabc),
-                )
-            }, modifier = Modifier.fillMaxWidth(), trailingIcon = {
-                if (query.isNotEmpty()) {
-                    TextButton(onClick = {
-                        vm.originalQuery =
-                            ""
-                    }) { Text(stringResource(R.string.ui_clear_719ea39)) }
-                }
-            })
-        }
+        BreadcrumbBar(
+            crumbs = breadcrumbs(path, root),
+            onHome = {
+                vm.originalQuery = ""
+                vm.originalPath = root
+            },
+            onSelect = {
+                vm.originalQuery = ""
+                vm.originalPath = it
+            },
+            rootLabel = if (root.isEmpty()) "Share root" else root.substringAfterLast('/'),
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("$count videos including subfolders", Modifier.weight(1f))
             TextButton(
@@ -99,20 +87,21 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                 onClick = { vm.playLibrary("originals", onPlay = onPlay) },
             ) { Text(stringResource(R.string.ui_play_all_ebb2ffd)) }
         }
+        FolderTransition(path, Modifier.weight(1f)) {
         if(videos.loadState.refresh is androidx.paging.LoadState.Error) {
-            Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.Center) {
+            Column(Modifier.fillMaxSize(), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.Center) {
                 Text(stringResource(R.string.ui_could_not_load_this_folder_567d2b5))
                 TextButton(onClick = { videos.retry() }) { Text(stringResource(R.string.ui_retry_9f5cd8a)) }
             }
         } else if(!ready || videos.itemCount != listing.videoCount || videos.loadState.refresh is androidx.paging.LoadState.Loading) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment=Alignment.Center) { CircularProgressIndicator() }
+            Box(Modifier.fillMaxSize(), contentAlignment=Alignment.Center) { CircularProgressIndicator() }
         } else LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Fixed(if (vm.folderListMode)1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
-            modifier = Modifier.weight(1f).testTag("original-folder-grid"),
+            modifier = Modifier.fillMaxSize().testTag("original-folder-grid"),
         ) {
             if (count == 0 &&
                 children.isEmpty()
@@ -144,6 +133,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                     else Column { Box(Modifier.fillMaxWidth().aspectRatio(16f/9f)); Text("", minLines=2, maxLines=2, style=MaterialTheme.typography.bodyMedium); Text("",style=MaterialTheme.typography.labelSmall) }
                 }
             }
+        }
         }
     }
 }

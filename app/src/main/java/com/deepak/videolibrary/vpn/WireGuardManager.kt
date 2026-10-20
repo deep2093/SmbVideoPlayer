@@ -86,7 +86,22 @@ class WireGuardManager private constructor(context: Context) {
 
     private val holds = AtomicInteger(0)
 
+    private val autoBusyCount = AtomicInteger(0)
+    private val _launchBusy = MutableStateFlow(false)
+
+    /**
+     * True while a launch-time automatic connection attempt is running, including the quick check of
+     * whether the server is already reachable. The status banner shows "Connecting to VPN..." from it.
+     */
+    val launchBusy: StateFlow<Boolean> = _launchBusy.asStateFlow()
+
     @Volatile private var pendingDisconnect = false
+
+    // Leaving the app: timer, visibility and bookkeeping for the automatic disconnect.
+    private var leaveTimer: Job? = null
+    @Volatile private var appVisible = true
+    @Volatile private var idleDisconnectPending = false
+    @Volatile private var disconnectedForIdle = false
 
     /** The user pressed Disconnect: no automatic reconnect until they connect again or the app process restarts. */
     @Volatile private var manualOff = false
@@ -192,7 +207,13 @@ class WireGuardManager private constructor(context: Context) {
             _playbackActive.value = remaining > 0
             if (remaining == 0) {
                 scope.launch {
-                    if (pendingDisconnect) disconnect(force = false, userInitiated = false) else scheduleEvaluation(0)
+                    if (pendingDisconnect) {
+                        val result = disconnect(force = false, userInitiated = false)
+                        if (result == DisconnectResult.DONE && !appVisible) disconnectedForIdle = true
+                        idleDisconnectPending = false
+                    } else {
+                        scheduleEvaluation(0)
+                    }
                 }
             }
         }
@@ -255,7 +276,17 @@ class WireGuardManager private constructor(context: Context) {
      * which is a deliberate user action; network events keep the back-off so a flapping network
      * does not cause a reconnect loop.
      */
-    suspend fun autoConnect(respectBackoff: Boolean): AutoConnectOutcome {
+    suspend fun autoConnect(respectBackoff: Boolean, showBusy: Boolean = false): AutoConnectOutcome {
+        if (!showBusy) return autoConnectInternal(respectBackoff)
+        _launchBusy.value = autoBusyCount.incrementAndGet() > 0
+        try {
+            return autoConnectInternal(respectBackoff)
+        } finally {
+            _launchBusy.value = autoBusyCount.decrementAndGet() > 0
+        }
+    }
+
+    private suspend fun autoConnectInternal(respectBackoff: Boolean): AutoConnectOutcome {
         if (!prefs.autoConnect) return AutoConnectOutcome.DISABLED
         if (!store.hasConfig()) return AutoConnectOutcome.NO_CONFIG
         if (manualOff) return AutoConnectOutcome.SUPPRESSED_BY_USER
@@ -284,6 +315,62 @@ class WireGuardManager private constructor(context: Context) {
             startedByAuto = true
             doConnect()
         }
+    }
+
+    // ---- Leaving the app (call from the Activity) ----
+
+    /** The app came back to the foreground: cancel the leave timer and reconnect if it had been dropped. */
+    fun onAppForegrounded() {
+        appVisible = true
+        synchronized(this) {
+            leaveTimer?.cancel()
+            leaveTimer = null
+        }
+        if (idleDisconnectPending) {
+            // A disconnect that was waiting for playback to end is no longer wanted.
+            idleDisconnectPending = false
+            cancelPendingDisconnect()
+        }
+        if (disconnectedForIdle) {
+            disconnectedForIdle = false
+            scope.launch { autoConnect(respectBackoff = false, showBusy = true) }
+        }
+    }
+
+    /**
+     * The app left the screen (home, another app, phone locked). After [LEAVE_DISCONNECT_MS] the tunnel is
+     * turned off, unless a video is still playing, in which case it is turned off when playback ends.
+     * This is not a manual disconnect, so the next launch connects again if Auto Connect is on.
+     */
+    fun onAppBackgrounded() {
+        appVisible = false
+        synchronized(this) {
+            leaveTimer?.cancel()
+            leaveTimer = null
+            if (!prefs.autoDisconnect || !isActive()) return
+            leaveTimer = scope.launch {
+                delay(LEAVE_DISCONNECT_MS)
+                if (prefs.autoDisconnect && isActive()) {
+                    val result = disconnect(force = false, userInitiated = false)
+                    if (result == DisconnectResult.DONE) {
+                        disconnectedForIdle = true
+                    } else if (result == DisconnectResult.DEFERRED_PLAYBACK) {
+                        idleDisconnectPending = true
+                    }
+                }
+            }
+        }
+    }
+
+    /** The app was closed (activity finishing). Disconnects right away, or after playback if one is running. */
+    fun onAppClosed() {
+        appVisible = false
+        synchronized(this) {
+            leaveTimer?.cancel()
+            leaveTimer = null
+        }
+        if (!prefs.autoDisconnect || !isActive()) return
+        scope.launch { disconnect(force = false, userInitiated = false) }
     }
 
     // ---- Network monitoring (call from the Activity) ----
@@ -341,7 +428,10 @@ class WireGuardManager private constructor(context: Context) {
                     if (!reachability.isReachableViaDefaultRoute(host) && !recentlyTried) restartTunnel()
                 }
             }
-            VpnState.Disconnected, is VpnState.Error -> autoConnect(respectBackoff = true)
+            VpnState.Disconnected, is VpnState.Error -> {
+                // Never start the VPN behind the user's back after they have left the app.
+                if (appVisible) autoConnect(respectBackoff = true)
+            }
             else -> Unit // Connecting, NeedsPermission, NoConfig
         }
     }
@@ -456,6 +546,7 @@ class WireGuardManager private constructor(context: Context) {
 
     companion object {
         private const val TUNNEL_NAME = "videolibrary"
+        private const val LEAVE_DISCONNECT_MS = 5 * 60 * 1000L
         private const val NETWORK_SETTLE_MS = 3_000L
         private const val HEALTH_RECHECK_MS = 5_000L
         private const val REACHABLE_WAIT_MS = 8_000L

@@ -26,17 +26,27 @@ import com.deepak.videolibrary.ui.VideoLibraryTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-
-/** Longest the launch screen waits for the VPN before showing the library anyway. */
-private const val VPN_LAUNCH_TIMEOUT_MS = 25_000L
 
 class MainActivity : ComponentActivity() {
     private var frameDiagnostics: com.deepak.videolibrary.ui.FrameDiagnostics? = null
+    override fun onStart() {
+        super.onStart()
+        vpn.onAppForegrounded()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Home, another app or a locked phone: the VPN is turned off 5 minutes later (never during playback).
+        // A rotation or other configuration change is not leaving the app.
+        if (!isChangingConfigurations) vpn.onAppBackgrounded()
+    }
+
     override fun onDestroy() {
         frameDiagnostics?.close()
-        // Stops listening for network changes. The tunnel itself is deliberately left as it is.
+        // Stops listening for network changes.
         vpn.stopMonitoring()
+        // Closing the app turns the VPN off right away (after playback, if a video is still playing).
+        if (isFinishing) vpn.onAppClosed()
         super.onDestroy()
     }
     var onLeavePlayback: (() -> Unit)? = null
@@ -57,24 +67,23 @@ class MainActivity : ComponentActivity() {
     private val vpnConsent =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
-                lifecycleScope.launch { vpn.autoConnect(respectBackoff = false) }
+                lifecycleScope.launch { vpn.autoConnect(respectBackoff = false, showBusy = true) }
             } else {
                 vpn.consentDenied()
             }
         }
 
     /**
-     * Auto Connect VPN at launch. Returns quickly (no work at all) when the feature is off or no
-     * configuration is imported, so users without a VPN see no startup delay.
+     * Auto Connect VPN at launch, in the background: the library opens immediately and the
+     * "Connecting to VPN" banner shows progress. Does nothing when the feature is off or no
+     * configuration is imported. Runs once per launch; later changes are handled by the network monitor.
      */
     private suspend fun connectVpnIfNeeded() {
         try {
             if (!vpn.prefs.autoConnect || !vpn.store.hasConfig()) return
-            // The startup effect re-runs when the library changes; only gate the first open of this launch.
-            // Later changes are handled by the network monitor.
             if (vpnLaunchHandled) return
             vpnLaunchHandled = true
-            val outcome = withTimeoutOrNull(VPN_LAUNCH_TIMEOUT_MS) { vpn.autoConnect(respectBackoff = false) }
+            val outcome = vpn.autoConnect(respectBackoff = false, showBusy = true)
             if (outcome == AutoConnectOutcome.NEEDS_PERMISSION && !vpnConsentAsked) {
                 vpnConsentAsked = true
                 vpn.consentIntent()?.let { vpnConsent.launch(it) }
@@ -97,6 +106,7 @@ class MainActivity : ComponentActivity() {
             .FrameDiagnostics(this)
         ImageMemoryCache.register(applicationContext)
         vpn.startMonitoring()
+        lifecycleScope.launch { connectVpnIfNeeded() }
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED &&
             !getPreferences(MODE_PRIVATE).getBoolean("notification_requested", false)
@@ -119,9 +129,6 @@ class MainActivity : ComponentActivity() {
                             services.settings.load()
                             PeriodicSyncWorker.schedule(applicationContext)
                         }
-                        // Bring the VPN up first when the server is not directly reachable, so the first
-                        // SMB request already has a route. No-op unless Auto Connect VPN is enabled.
-                        connectVpnIfNeeded()
                         ready = true
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e

@@ -47,6 +47,7 @@ fun VpnSettings() {
 
     var autoConnect by remember { mutableStateOf(vpn.prefs.autoConnect) }
     var appOnly by remember { mutableStateOf(vpn.prefs.appOnly) }
+    var autoDisconnect by remember { mutableStateOf(vpn.prefs.autoDisconnect) }
     var message by remember { mutableStateOf<String?>(null) }
     var messageIsError by remember { mutableStateOf(false) }
     var askDisconnectAnyway by remember { mutableStateOf(false) }
@@ -167,6 +168,23 @@ fun VpnSettings() {
                     onCheckedChange = {
                         autoConnect = it
                         vpn.prefs.autoConnect = it
+                    },
+                )
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Disconnect VPN when I leave the app")
+                    Text(
+                        "Disconnects right away when you close the app, or 5 minutes after you leave it or lock the phone. Never during playback.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = autoDisconnect,
+                    onCheckedChange = {
+                        autoDisconnect = it
+                        vpn.prefs.autoDisconnect = it
                     },
                 )
             }

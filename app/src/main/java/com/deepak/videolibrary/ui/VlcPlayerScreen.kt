@@ -243,6 +243,9 @@ internal fun VlcPlayerScreen(
             controls = false
         }
     }
+    val orientation = remember(activity) { PlayerOrientation(activity) }
+    DisposableEffect(orientation) { onDispose { orientation.restore() } }
+    LaunchedEffect(index) { orientation.newVideo() }
     DisposableEffect(player) {
         player.setEventListener { event ->
             when (event.type) {
@@ -257,6 +260,13 @@ internal fun VlcPlayerScreen(
                 }
                 MediaPlayer.Event.Vout -> {
                     videoOutput = event.voutCount > 0
+                    if (event.voutCount > 0) {
+                        runCatching { player.currentVideoTrack }.getOrNull()?.let { t ->
+                            // Orientation codes 5..8 are the transposed (quarter-turn) layouts.
+                            if (t.orientation in 5..8) orientation.onVideoShape(t.height, t.width)
+                            else orientation.onVideoShape(t.width, t.height)
+                        }
+                    }
                     debugStatus("vout_count=${event.voutCount}")
                 }
                 MediaPlayer.Event.EndReached -> {
@@ -477,6 +487,7 @@ internal fun VlcPlayerScreen(
                 onNext = { save(); if (index < queue.lastIndex) index++ else onQueueEnded() },
                 onTracks = { tracks = true },
                 onOptions = { options = true },
+                onRotate = { orientation.rotate() },
                 onInteraction = { controls = true; controlsInteraction++ },
             )
         }

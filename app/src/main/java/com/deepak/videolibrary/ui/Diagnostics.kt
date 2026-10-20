@@ -9,14 +9,11 @@ import android.content.Intent
 import android.os.Build
 import android.os.Debug
 import android.os.SystemClock
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import java.text.DateFormat
@@ -104,62 +101,53 @@ object AppDiagnostics {
     }
 }
 
+/**
+ * The diagnostics controls, shown directly inside the Diagnostics section of Settings. There is no
+ * separate page or inner expander: the section that hosts it already expands and collapses.
+ */
 @Composable
 fun DiagnosticsSettings() {
     val context = LocalContext.current
     var enabled by remember { mutableStateOf(AppDiagnostics.enabled(context)) }
     var refresh by remember { mutableIntStateOf(0) }
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(expanded, enabled) {
-        while (expanded && enabled) {
+    // Only composed while the section is open, so the live refresh stops when it collapses.
+    LaunchedEffect(enabled) {
+        while (enabled) {
             delay(2000)
             refresh++
         }
     }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(
-                        role = Role.Button,
-                        onClickLabel = if (expanded) "Hide diagnostics" else "Show diagnostics",
-                    ) { expanded = !expanded }
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(stringResource(R.string.ui_diagnostics_3af2279), style = MaterialTheme.typography.titleMedium)
-            }
-            if (expanded) {
-                Text(stringResource(R.string.ui_off_by_default_records_limited_playback_an_685dd71),
-                )
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text(stringResource(R.string.ui_enable_diagnostics_bc3f246))
-                    Switch(checked = enabled, onCheckedChange = {
-                        enabled = it
-                        AppDiagnostics.setEnabled(context, it)
-                        refresh++
-                    })
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            stringResource(R.string.ui_off_by_default_records_limited_playback_an_685dd71),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text(stringResource(R.string.ui_enable_diagnostics_bc3f246), modifier = Modifier.weight(1f))
+            Switch(checked = enabled, onCheckedChange = {
+                enabled = it
+                AppDiagnostics.setEnabled(context, it)
+                refresh++
+            })
+        }
+        val report by produceState("Preparing report…", refresh, enabled) {
+            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { AppDiagnostics.report(context) }
+        }
+        Text(report, style = MaterialTheme.typography.bodySmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                AppDiagnostics.clear()
+                refresh++
+            }) { Text(stringResource(R.string.ui_clear_719ea39)) }
+            Button(onClick = {
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "SMB Video Library diagnostics")
+                    putExtra(Intent.EXTRA_TEXT, report)
                 }
-                val report by produceState("Preparing report…", refresh, enabled) {
-                    value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { AppDiagnostics.report(context) }
-                }
-                Text(report, style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        AppDiagnostics.clear()
-                        refresh++
-                    }) { Text(stringResource(R.string.ui_clear_719ea39)) }
-                    Button(onClick = {
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "SMB Video Library diagnostics")
-                            putExtra(Intent.EXTRA_TEXT, report)
-                        }
-                        context.startActivity(Intent.createChooser(send, "Share diagnostics"))
-                    }) { Text(stringResource(R.string.ui_export_report_0ddb744)) }
-                }
-            }
+                context.startActivity(Intent.createChooser(send, "Share diagnostics"))
+            }) { Text(stringResource(R.string.ui_export_report_0ddb744)) }
         }
     }
 }

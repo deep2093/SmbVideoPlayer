@@ -14,15 +14,24 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -30,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,6 +49,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.scan.ScanMode
 import com.deepak.videolibrary.scan.ScanStatus
 
@@ -54,6 +65,7 @@ fun ScanScreen(vm: LibraryViewModel) {
     val thumbsDone by vm.thumbsDone.collectAsStateWithLifecycle()
     val thumbsPending by vm.thumbsPending.collectAsStateWithLifecycle()
     val thumbsFailed by vm.thumbsFailed.collectAsStateWithLifecycle()
+    val visibleFailures by vm.visibleFailedThumbnails.collectAsStateWithLifecycle()
     val busy = active || thumbsActive || vm.artworkMaintenance
     var confirmEmpty by remember { androidx.compose.runtime.mutableStateOf(false) }
     var scanMenu by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
@@ -175,7 +187,7 @@ fun ScanScreen(vm: LibraryViewModel) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ScanStat("Ready", thumbsDone.toString(), Modifier.weight(1f))
                         ScanStat("Waiting", thumbsPending.toString(), Modifier.weight(1f))
-                        ScanStat("Failed", thumbsFailed.toString(), Modifier.weight(1f), warn = thumbsFailed > 0)
+                        ScanStat("Failed", thumbsFailed.toString(), Modifier.weight(1f), warn = visibleFailures.isNotEmpty())
                     }
                     if (busy && thumbsPending > 0) {
                         LinearProgressIndicator(
@@ -189,9 +201,18 @@ fun ScanScreen(vm: LibraryViewModel) {
                         OutlinedButton(onClick = vm::retryFailedThumbnails, enabled = !busy && thumbsFailed > 0) { Text(stringResource(R.string.ui_retry_failed_7b6ca4d)) }
                         TextButton(onClick = vm::clearThumbnailCache, enabled = !busy) { Text(if(vm.artworkMaintenance) "Clearing…" else "Clear cache") }
                     }
-                    if (thumbsFailed > 0) {
-                        TextButton(onClick = { showFailures = !showFailures }) { Text(if (showFailures) "Hide failed thumbnails" else "View failed thumbnails") }
-                        if (showFailures) ThumbnailFailures(vm)
+                    if (visibleFailures.isNotEmpty()) {
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            TextButton(onClick = { showFailures = !showFailures }, modifier = Modifier.weight(1f)) {
+                                Text(if (showFailures) "Hide failed thumbnails" else "View failed thumbnails (${visibleFailures.size})")
+                            }
+                            TextButton(onClick = { vm.dismissThumbnailFailures(visibleFailures.map { it.relativePath }) }) {
+                                Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Clear")
+                            }
+                        }
+                        if (showFailures) DismissibleThumbnailFailures(vm, visibleFailures)
                     }
                 }
             }
@@ -216,6 +237,63 @@ fun ScanScreen(vm: LibraryViewModel) {
                 }
             }
         }
+    }
+}
+
+/** Failed-thumbnail list with a per-item dismiss button. Dismissing only hides the entry; no video is deleted. */
+@Composable
+private fun DismissibleThumbnailFailures(vm: LibraryViewModel, failures: List<VideoEntity>) {
+    var selected by remember { mutableStateOf<VideoEntity?>(null) }
+    Text("Failed thumbnails (${failures.size})", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Tap a filename for the reason. Use the X to remove an entry from this list, or Clear to remove all of them.",
+        style = MaterialTheme.typography.bodySmall,
+    )
+    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
+        items(failures, key = { it.id }) { video ->
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                TextButton(onClick = { selected = video }, modifier = Modifier.weight(1f)) {
+                    Text(video.name, modifier = Modifier.fillMaxWidth(), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                IconButton(onClick = { vm.dismissThumbnailFailures(listOf(video.relativePath)) }) {
+                    Icon(Icons.Filled.Close, contentDescription = "Remove ${video.name} from the failed list")
+                }
+            }
+        }
+    }
+    selected?.let { video ->
+        AlertDialog(
+            onDismissRequest = { selected = null },
+            title = { Text(video.name) },
+            text = {
+                Column {
+                    Text(
+                        video.thumbError
+                            ?: "This thumbnail failed in an earlier build. Retry it to record a reason if Android provides one.",
+                    )
+                    Text(video.relativePath, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.openFailureFolder(video.relativePath)
+                    selected = null
+                }) { Text("Open folder in File Explorer") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        vm.retryThumbnail(video.id)
+                        selected = null
+                    }) { Text("Retry this file") }
+                    TextButton(onClick = {
+                        vm.dismissThumbnailFailures(listOf(video.relativePath))
+                        selected = null
+                    }) { Text("Clear") }
+                    TextButton(onClick = { selected = null }) { Text("Close") }
+                }
+            },
+        )
     }
 }
 
