@@ -165,6 +165,10 @@ dependencies {
     implementation("com.hierynomus:smbj:0.14.0")
     implementation("org.slf4j:slf4j-android:1.7.36")
 
+    // Official WireGuard userspace tunnel (GoBackend). Apache-2.0. The AAR ships its own
+    // VpnService declaration and native libraries; no protocol code lives in this app.
+    implementation("com.wireguard.android:tunnel:1.0.20260102")
+
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

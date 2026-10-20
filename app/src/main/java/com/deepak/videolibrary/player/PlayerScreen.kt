@@ -89,6 +89,11 @@ fun PlayerScreen(
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
+    // While this screen streams, the WireGuard tunnel (if any) must not be taken down automatically.
+    DisposableEffect(Unit) {
+        val vpnHold = com.deepak.videolibrary.vpn.WireGuardManager.get(context).beginPlayback()
+        onDispose { vpnHold.release() }
+    }
     val activity = remember(context) { context.findActivity() }
     val lifecycleOwner = LocalLifecycleOwner.current
     val audio = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }

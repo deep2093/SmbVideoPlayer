@@ -58,6 +58,11 @@ internal fun VlcPlayerScreen(
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
+    // While this screen streams, the WireGuard tunnel (if any) must not be taken down automatically.
+    DisposableEffect(Unit) {
+        val vpnHold = com.deepak.videolibrary.vpn.WireGuardManager.get(context).beginPlayback()
+        onDispose { vpnHold.release() }
+    }
     val activity = context.findActivity()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val queue = remember(playlist, video.relativePath) { playlist.ifEmpty { listOf(video) }.distinctBy { it.relativePath } }

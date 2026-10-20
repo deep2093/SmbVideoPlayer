@@ -152,6 +152,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
         if (section == null) {
             listOf(
                 "Connection" to "Server, account and saved password",
+                "VPN" to "WireGuard for remote access to your server",
                 "Appearance" to "Theme, navigation and grid layout",
                 "Playback" to "Brightness and volume gestures",
                 "Library" to "Hidden files and folders",
@@ -202,6 +203,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
             }
         }
         if (section == "Diagnostics") DiagnosticsSettings()
+        if (section == "VPN") VpnSettings()
         var gesturesExpanded by rememberSaveable { mutableStateOf(false) }
         var layoutExpanded by rememberSaveable { mutableStateOf(false) }
         if (section == "Playback") {

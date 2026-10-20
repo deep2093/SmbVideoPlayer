@@ -5,6 +5,9 @@
 -keep class org.slf4j.** { *; }
 # Native JNI entry points and VLC events must retain their names/signatures.
 -keep class org.videolan.** { *; }
+# WireGuard GoBackend: JNI natives (wgTurnOn etc.), the VpnService subclass named in the
+# library manifest, and config classes parsed reflectively by name must keep their names.
+-keep class com.wireguard.** { *; }
 -keepattributes Signature,*Annotation*,InnerClasses,EnclosingMethod
 
 # Optional Java SE GSS, LDAP certificate stores and expression-language filters
