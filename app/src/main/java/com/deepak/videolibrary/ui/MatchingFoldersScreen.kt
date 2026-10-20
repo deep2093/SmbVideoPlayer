@@ -207,7 +207,7 @@ private fun MatchingFolderCard(
                         when (dialog) {
                             "Rename" -> if (folder.sourcePath == null) "Renaming also changes the automatic filename match." else "Change the display name. Your drive folder keeps its name."
                             "Merge" -> "Assign matching videos to a destination virtual folder. This automatic collection remains available."
-                            "Delete" -> "Remove this automatic collection? Original files and existing virtual assignments are kept."
+                            "Delete" -> if(folder.sourcePath==null) "Remove this automatic collection? Original files and existing virtual assignments are kept." else "Remove this folder from Custom folders? Files on your drive and virtual assignments are kept."
                             else -> folder.sourcePath?.let { "${row.count} indexed videos in $it. " + if (folder.includeSubfolders) "Includes subfolders." else "This folder only." } ?: "${row.count} visible videos with '${folder.term}' anywhere in the filename, ignoring case. Membership updates automatically."
                         },
                     )
@@ -220,6 +220,8 @@ private fun MatchingFolderCard(
                                     "Merge"
                                 ) {
                                     "Destination virtual folder"
+                                } else if(folder.sourcePath!=null) {
+                                    "Display name"
                                 } else {
                                     "Name / filename match"
                                 },

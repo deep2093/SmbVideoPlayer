@@ -121,6 +121,7 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
             withContext(Dispatchers.IO) { c.open() }
             c
         } catch (e: CancellationException) {
+            withContext(NonCancellable + Dispatchers.IO) { runCatching { c.close() } }
             throw e
         } catch (e: Exception) {
             runCatching { c.close() }

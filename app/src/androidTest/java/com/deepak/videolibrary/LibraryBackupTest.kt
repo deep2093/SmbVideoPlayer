@@ -20,6 +20,7 @@ class LibraryBackupTest {
             val collection=state.createMatch(MatchFolderEntity(connectionKey="nas/share",name="Films",term="",sourcePath="Movies"))
             state.hide(HiddenItem("nas/share","MATCH",collection.toString(),"Films"))
             state.putProgress(PlaybackStateEntity("nas/share",video.relativePath,30000,120000))
+            target.libraryState().createMatch(MatchFolderEntity(connectionKey="nas/share",name="Existing",term="Existing"))
             val text=LibraryBackup(source,"library-one","nas/share").export()
             assertFalse(text.contains("password")); assertFalse(text.contains("username"))
             assertEquals(0,LibraryBackup(target,"library-one","nas/share").restore(text))
