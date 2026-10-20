@@ -116,7 +116,7 @@ try:
     find('Connection');find('Playback');find('Library');find('Diagnostics')
     screenshot('settings-categories')
     click('Connection');find('Server address');find('Share name');click('Advanced connection options');find('Domain (optional)');find('Require SMB encryption')
-    click('← All settings');click('Playback');find('Player gestures');click('← All settings')
+    click('Playback');find('Player gestures')
     click('Appearance')
     current='Dark grey'
     for theme in ['AMOLED black','Midnight blue','Forest','Plum','Dark grey']:
@@ -180,7 +180,7 @@ try:
     for source,name in [('/tmp/videolibrary-sample.wmv','Sample.wmv'),('/tmp/videolibrary-wmv9.wmv','WMV9.wmv')]:
         shutil.copyfile(source,'/tmp/videolibrary-fixtures/Movies/'+name)
         if name=='Sample.wmv':
-            click('File Explorer');click('← Up');click('Movies')
+            click('File Explorer');click('Go to Share root');click('Movies')
         else:
             click('Refresh')
         adb('logcat','-c');click(name)
@@ -196,7 +196,7 @@ try:
         # Back first dismisses that tutorial, so wait for the actual browser.
         for _ in range(10):
             nodes=list(tree().iter('node'))
-            if any(n.get('text')=='Refresh' for n in nodes):
+            if any(n.get('text')=='Refresh' or n.get('content-desc')=='Refresh' for n in nodes):
                 break
             # Use the current hierarchy directly: the system tutorial cannot
             # reliably be dismissed with Back, and may vanish before a lookup.
@@ -219,7 +219,7 @@ try:
         adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
         find('Custom folders')
         screenshot('redesign-'+label+'-folders')
-        click('Videos');find('Search videos')
+        click('Videos');find('Search')
         screenshot('redesign-'+label+'-videos')
         click('Settings');find('Connection')
         screenshot('redesign-'+label+'-settings')
