@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
@@ -86,7 +87,7 @@ fun VideosScreen(
     // Scroll to top only when the filter changes while visible; returning from the player or
     // another tab keeps the previous position.
     ScrollToTopOnChange(Triple(query, group, matchFolder?.id), gridState)
-    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             if (selectedGroup != null) {
                 IconButton(onClick = {
@@ -135,13 +136,13 @@ fun VideosScreen(
                 }) { Text(stringResource(R.string.ui_add_109b936)) }
             }
         }
-        val columns = LibraryLayout.columns(vm.videoGridPreset)
+        val columns = libraryColumns(vm.videoGridPreset, floatingPadding(vm))
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(if (vm.videoListMode) 1 else columns),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
                 contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
@@ -158,7 +159,7 @@ fun VideosScreen(
                                         video,
                                         onClick = { onPlay(video, listOf(video)) },
                                         vm = vm,
-                                        modifier = Modifier.width(210.dp),
+                                        modifier = Modifier.width(280.dp),
                                         onRemoveFromContinue = {
                                             vm.hideContinue(video.relativePath)
                                         },
@@ -179,7 +180,23 @@ fun VideosScreen(
                         TextButton(onClick = { vm.playLibrary("videos", onPlay = onPlay) }, enabled = count > 0) { Text(stringResource(R.string.ui_play_all_ebb2ffd)) }
                     }
                 }
-                if (count == 0) {
+                if (videos.loadState.refresh is androidx.paging.LoadState.Loading) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "loading") {
+                        Row(Modifier.padding(vertical = 24.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.width(24.dp).height(24.dp), strokeWidth = 2.dp)
+                            Text("Loading videos…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                if (videos.loadState.refresh is androidx.paging.LoadState.Error) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "retry") {
+                        Column(Modifier.padding(vertical = 20.dp)) {
+                            Text("Couldn’t load videos. Try loading your library again.")
+                            TextButton(onClick = { videos.retry() }) { Text("Retry") }
+                        }
+                    }
+                }
+                if (count == 0 && videos.loadState.refresh is androidx.paging.LoadState.NotLoading) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             if (total == 0) {
@@ -258,12 +275,12 @@ internal fun VideoCard(
     val artwork: @Composable () -> Unit = {
         Box(
             if (listMode) {
-                Modifier.width(120.dp).height(76.dp)
+                Modifier.width(128.dp).height(80.dp)
             } else {
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f)
             },
         ) {
-            FileImage(thumb, Modifier.fillMaxSize().clip(RoundedCornerShape(4.dp)))
+            FileImage(thumb, Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
             if (totalMs > 0L) {
                 Text(
                     DateUtils.formatElapsedTime(totalMs / 1_000),
@@ -271,7 +288,7 @@ internal fun VideoCard(
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier
                         .align(androidx.compose.ui.Alignment.BottomEnd)
-                        .padding(4.dp)
+                        .padding(8.dp)
                         .background(
                             androidx.compose.ui.graphics
                                 .Color(0xBB000000),
@@ -279,13 +296,20 @@ internal fun VideoCard(
                         ).padding(horizontal = 4.dp),
                 )
             }
+            if (onRemoveFromContinue != null && vm.selectedPaths.isEmpty()) {
+                androidx.compose.material3.FilledIconButton(
+                    onClick = onClick,
+                    modifier = Modifier.align(androidx.compose.ui.Alignment.Center).width(48.dp).height(48.dp),
+                    colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black),
+                ) { Icon(androidx.compose.material.icons.Icons.Filled.PlayArrow, "Resume ${video.name}") }
+            }
             if (totalMs > 0L && watchedMs > 0L) {
                 Box(
                     Modifier
                         .align(androidx.compose.ui.Alignment.BottomStart)
                         .fillMaxWidth((watchedMs.toFloat() / totalMs).coerceIn(0f, 1f))
                         .height(3.dp)
-                        .background(MaterialTheme.colorScheme.primary),
+                        .background(MaterialTheme.colorScheme.tertiary),
                 )
             }
         }
@@ -297,11 +321,11 @@ internal fun VideoCard(
                     vm.toggleSelected(video.relativePath, selectionScope)
                 })
             }
-            Column(Modifier.weight(1f).padding(start = if (listMode) 12.dp else 2.dp)) {
+            Column(Modifier.weight(1f).padding(start = if (listMode) 12.dp else 0.dp, top = if (listMode) 0.dp else 8.dp)) {
                 Text(
                     video.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    minLines = 2,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
+                    minLines = if (listMode) 1 else 2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -318,7 +342,7 @@ internal fun VideoCard(
     }
     Box(modifier) {
         Column(
-            Modifier.fillMaxWidth().combinedClickable(onClick = {
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).combinedClickable(onClick = {
                 if (vm.selectedPaths.isNotEmpty())vm.toggleSelected(video.relativePath, selectionScope) else onClick()
             }, onLongClick = {
                 menuOpen =

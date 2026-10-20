@@ -682,120 +682,28 @@ fun PlayerScreen(
             )
         }
         if (controlsVisible) {
-            // Overlay is transient; controls never permanently consume video height.
-            Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing), verticalArrangement = Arrangement.SpaceBetween) {
-                Row(Modifier.fillMaxWidth().background(Color(0xA6000000)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onClose) { Icon(Icons.Filled.ArrowBack, "Back to library", tint = Color.White) }
-                    Text(
-                        activeVideo.name,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = Color.White,
-                    )
-                    IconButton(onClick = {
-                        showTracks = !showTracks
-                        showSettings = false
-                        revealControls()
-                    }) {
-                        Icon(Icons.Filled.Subtitles, "Audio and subtitles", tint = Color.White)
-                    }
-                    IconButton(onClick = {
-                        showSettings = !showSettings
-                        showTracks = false
-                        revealControls()
-                    }) {
-                        Icon(Icons.Filled.MoreVert, "Playback options", tint = Color.White)
-                    }
-                }
-                Column(Modifier.fillMaxWidth().background(Color(0xEB000000)).padding(horizontal = 12.dp, vertical = 5.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(formatPlaybackTime(position), color = Color.White, style = MaterialTheme.typography.labelMedium)
-                        Spacer(Modifier.weight(1f))
-                        Text(formatPlaybackTime(duration), color = Color.White, style = MaterialTheme.typography.labelMedium)
-                    }
-                    var scrubbing by remember { mutableStateOf(false) }
-                    var seekPosition by remember { mutableFloatStateOf(0f) }
-                    Slider(
-                        value = if (scrubbing) {
-                            seekPosition
-                        } else {
-                            (
-                                position.toDouble() / duration.coerceAtLeast(
-                                    1L,
-                                )
-                            ).coerceIn(0.0, 1.0).toFloat()
-                        },
-                        onValueChange = {
-                            scrubbing = true
-                            seekPosition = it
-                            revealControls()
-                        },
-                        onValueChangeFinished = {
-                            player.seekTo((seekPosition.toDouble() * duration.coerceAtLeast(0L)).toLong())
-                            scrubbing =
-                                false
-                            revealControls()
-                        },
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color(0xFFEF5350),
-                            activeTrackColor = Color(0xFFD32F2F),
-                            inactiveTrackColor = Color.DarkGray,
-                        ),
-                        valueRange = 0f..1f,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    )
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        IconButton(onClick = {
-                            player.seekTo((player.currentPosition - 10_000).coerceAtLeast(0))
-                            revealControls()
-                        }, modifier = Modifier.size(64.dp)) {
-                            Icon(Icons.Filled.Replay10, "Rewind 10 seconds", tint = Color.White, modifier = Modifier.size(32.dp))
-                        }
-                        FilledIconButton(
-                            onClick = {
-                                if (player.playWhenReady) player.pause() else player.play()
-                                revealControls()
-                            },
-                            modifier = Modifier.size(72.dp),
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = Color(0xFFD32F2F),
-                                contentColor = Color.White,
-                            ),
-                        ) {
-                            Icon(
-                                if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                if (isPlaying) "Pause" else "Play",
-                                modifier = Modifier.size(40.dp),
-                            )
-                        }
-                        IconButton(onClick = {
-                            player.seekTo((player.currentPosition + 10_000).coerceAtMost(duration.coerceAtLeast(0)))
-                            revealControls()
-                        }, modifier = Modifier.size(64.dp)) {
-                            Icon(Icons.Filled.Forward10, "Forward 10 seconds", tint = Color.White, modifier = Modifier.size(32.dp))
-                        }
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("${currentIndex + 1}/${queue.size}", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
-                        TextButton(onClick = {
-                            aspectIndex = (aspectIndex + 1) % aspectModes.size
-                            zoom = 1f
-                            revealControls()
-                        }) { Text("Aspect: ${aspectLabels[aspectIndex]} ↻", color = Color.White) }
-                        if (queue.size > 1 || vm.playbackHasMore) {
-                            TextButton(onClick = {
-                                if (player.hasNextMediaItem()) player.seekToNextMediaItem() else onQueueEnded()
-                                revealControls()
-                            }) { Text(stringResource(R.string.ui_next_51802ba)) }
-                        }
-                    }
-                }
-            }
+            LibraryPlayerControls(
+                title = activeVideo.name,
+                position = position,
+                duration = duration,
+                isPlaying = isPlaying,
+                canPrevious = player.hasPreviousMediaItem(),
+                canNext = player.hasNextMediaItem() || vm.playbackHasMore,
+                queueLabel = "${currentIndex + 1} / ${queue.size}",
+                aspectLabel = aspectLabels[aspectIndex],
+                onBack = onClose,
+                onTogglePlayback = { if (player.playWhenReady) player.pause() else player.play() },
+                onSeek = { player.seekTo(it); revealControls() },
+                onPrevious = { player.seekToPreviousMediaItem(); revealControls() },
+                onNext = {
+                    if (player.hasNextMediaItem()) player.seekToNextMediaItem() else onQueueEnded()
+                    revealControls()
+                },
+                onTracks = { showTracks = !showTracks; showSettings = false; revealControls() },
+                onOptions = { showSettings = !showSettings; showTracks = false; revealControls() },
+                onAspect = { aspectIndex = (aspectIndex + 1) % aspectModes.size; zoom = 1f; revealControls() },
+                onInteraction = ::revealControls,
+            )
         }
         if (showTracks && controlsVisible) {
             val trackGroups = player.currentTracks.groups

@@ -10,12 +10,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 
 data class LibraryTheme(val id: String, val label: String, val background: Color, val surface: Color, val card: Color, val accent: Color)
 val libraryThemes = listOf(
-    LibraryTheme("CHARCOAL", "Dark grey", Color(0xFF121416), Color(0xFF191C1F), Color(0xFF24282D), Color(0xFFBB3333)),
-    LibraryTheme("AMOLED", "AMOLED black", Color.Black, Color.Black, Color(0xFF101010), Color(0xFFB00000)),
+    LibraryTheme("CHARCOAL", "Dark grey", Color(0xFF0D0D0D), Color(0xFF171717), Color(0xFF262626), Color(0xFFFF837A)),
+    LibraryTheme("AMOLED", "AMOLED black", Color.Black, Color.Black, Color(0xFF101010), Color(0xFFFF837A)),
     LibraryTheme("SLATE", "Midnight blue", Color(0xFF141C29), Color(0xFF1B2738), Color(0xFF26364D), Color(0xFF3569AA)),
     LibraryTheme("FOREST", "Forest", Color(0xFF14221D), Color(0xFF1D3028), Color(0xFF2A4036), Color(0xFF26715B)),
     LibraryTheme("PLUM", "Plum", Color(0xFF241A2B), Color(0xFF30233A), Color(0xFF40304D), Color(0xFF884EAA)),
@@ -40,16 +46,16 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
     val choice by rememberThemeChoice()
     val theme = libraryThemes.first { it.id == choice }
     val colors = darkColorScheme(
-        primary = theme.accent,
-        onPrimary = Color.White,
+        primary = Color(0xFFF5F5F5),
+        onPrimary = Color(0xFF101010),
         primaryContainer = theme.card,
         onPrimaryContainer = Color.White,
-        secondary = theme.accent,
-        onSecondary = Color.White,
+        secondary = Color(0xFFF5F5F5),
+        onSecondary = Color(0xFF101010),
         secondaryContainer = theme.card,
         onSecondaryContainer = Color.White,
         tertiary = theme.accent,
-        onTertiary = Color.White,
+        onTertiary = Color.Black,
         tertiaryContainer = theme.card,
         onTertiaryContainer = Color.White,
         background = theme.background,
@@ -57,10 +63,10 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         surface = theme.surface,
         onSurface = Color.White,
         surfaceVariant = theme.card,
-        onSurfaceVariant = Color.White.copy(alpha = 0.82f),
-        surfaceTint = theme.accent,
-        outline = Color.White.copy(alpha = 0.5f),
-        outlineVariant = Color.White.copy(alpha = 0.25f),
+        onSurfaceVariant = Color(0xFFB8B8B8),
+        surfaceTint = Color.Transparent,
+        outline = Color(0xFF777777),
+        outlineVariant = Color(0xFF333333),
         error = Color(0xFFFF6B6B),
         onError = Color.Black,
         errorContainer = Color(0xFF452323),
@@ -74,7 +80,22 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         surfaceContainerHighest = theme.card,
         surfaceContainerLowest = theme.background,
     )
-    MaterialTheme(colorScheme = colors, content = content)
+    MaterialTheme(
+        colorScheme = colors,
+        typography = Typography(
+            headlineSmall = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 26.sp, lineHeight = 32.sp, letterSpacing = (-0.5).sp),
+            titleLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 30.sp, letterSpacing = (-0.4).sp),
+            titleMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 24.sp),
+            bodyLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 16.sp, lineHeight = 24.sp),
+            bodyMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 14.sp, lineHeight = 21.sp),
+            bodySmall = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 12.sp, lineHeight = 18.sp),
+            labelLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp),
+            labelMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 18.sp, fontFeatureSettings = "tnum"),
+            labelSmall = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 12.sp, lineHeight = 18.sp, fontFeatureSettings = "tnum"),
+        ),
+        shapes = Shapes(small = RoundedCornerShape(8.dp), medium = RoundedCornerShape(8.dp), large = RoundedCornerShape(16.dp)),
+        content = content,
+    )
 }
 
 @Composable

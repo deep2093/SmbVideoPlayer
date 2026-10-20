@@ -70,7 +70,7 @@ fun ScanScreen(vm: LibraryViewModel) {
     // Centered, readable column on tablets; full width on phones.
     Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
         LazyColumn(
-            Modifier.widthIn(max = 760.dp).fillMaxSize().padding(horizontal = 16.dp),
+            Modifier.widthIn(max = 920.dp).fillMaxSize().padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
