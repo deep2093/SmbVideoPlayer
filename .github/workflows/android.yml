@@ -98,7 +98,12 @@ jobs:
           ./gradlew :schema-history:assembleDebug --stacktrace
           python3 tools/prepare_schemas.py
       - name: Unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+        run: |
+          if ! ./gradlew testDebugUnitTest --stacktrace > unit-tests.log 2>&1; then
+            grep -E '^e: |FAILED|AssertionError|What went wrong' -A1 unit-tests.log | grep -v '^--$' | head -40 | sed -e 's#/home/runner/work/[^/]*/[^/]*/##' | while IFS= read -r line; do echo "::error::${line}"; done
+            tail -30 unit-tests.log
+            exit 1
+          fi
       - name: Retain generated Room schema history
         run: python3 tools/log_schema_manifest.py
       - name: Android lint
