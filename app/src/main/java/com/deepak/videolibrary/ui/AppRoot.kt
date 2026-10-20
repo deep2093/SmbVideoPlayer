@@ -181,7 +181,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                     playing =
                                         video
                                     playQueue = queue
-                                }, onOpenSettings = { tab = 4 })
+                                }, onOpenSettings = { tab = 4 }, showBrand = !tabletLayout || floating)
                                 1 -> VideosScreen(
                                     vm,
                                     gridState = if (folderDetails) folderVideosScrollState else videosScrollState,

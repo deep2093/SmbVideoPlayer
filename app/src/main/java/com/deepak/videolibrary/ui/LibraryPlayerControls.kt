@@ -42,6 +42,10 @@ internal fun LibraryPlayerControls(
     val shownPosition = if (scrubbing) (fraction.toDouble() * duration).toLong() else position
     val ink = Color.White
     val muted = Color(0xFFB8B8B8)
+    val transportColors = IconButtonDefaults.iconButtonColors(
+        containerColor = Color(0xE6101010), contentColor = ink,
+        disabledContainerColor = Color(0xB3101010),
+    )
     Column(
         Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
         verticalArrangement = Arrangement.SpaceBetween,
@@ -58,12 +62,12 @@ internal fun LibraryPlayerControls(
         Row(
             Modifier.fillMaxWidth().weight(1f),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         ) {
-            IconButton(enabled = canPrevious, onClick = onPrevious) {
+            IconButton(enabled = canPrevious, onClick = onPrevious, colors = transportColors) {
                 Icon(Icons.Filled.SkipPrevious, "Previous video", tint = if (canPrevious) ink else muted.copy(alpha = 0.5f))
             }
-            IconButton(onClick = { onSeek((position - 10_000L).coerceAtLeast(0)); onInteraction() }, modifier = Modifier.size(56.dp)) {
+            IconButton(onClick = { onSeek((position - 10_000L).coerceAtLeast(0)); onInteraction() }, modifier = Modifier.size(56.dp), colors = transportColors) {
                 Icon(Icons.Filled.Replay10, "Rewind 10 seconds", tint = ink, modifier = Modifier.size(30.dp))
             }
             FilledIconButton(
@@ -77,7 +81,7 @@ internal fun LibraryPlayerControls(
             IconButton(onClick = { onSeek((position + 10_000L).coerceAtMost(duration.coerceAtLeast(0))); onInteraction() }, modifier = Modifier.size(56.dp)) {
                 Icon(Icons.Filled.Forward10, "Forward 10 seconds", tint = ink, modifier = Modifier.size(30.dp))
             }
-            IconButton(enabled = canNext, onClick = onNext) {
+            IconButton(enabled = canNext, onClick = onNext, colors = transportColors) {
                 Icon(Icons.Filled.SkipNext, "Next video", tint = if (canNext) ink else muted.copy(alpha = 0.5f))
             }
         }

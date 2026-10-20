@@ -75,12 +75,13 @@ internal fun FoldersHub(
     onOpenGroup: () -> Unit,
     onPlay: (VideoEntity, List<VideoEntity>) -> Unit,
     onOpenSettings: () -> Unit,
+    showBrand: Boolean = true,
 ) {
     val pager = rememberPagerState(initialPage = vm.foldersTab, pageCount = { 3 })
     val scope = rememberCoroutineScope()
     LaunchedEffect(pager.settledPage) { vm.foldersTab = pager.settledPage }
     Column(Modifier.fillMaxSize()) {
-        Text(
+        if (showBrand) Text(
             "Video Library",
             style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 16.dp),
@@ -222,7 +223,7 @@ fun FoldersScreen(
                     Column {
                         if (recentlyWatched.isNotEmpty() && folderQuery.isBlank()) {
                             Text(stringResource(R.string.ui_continue_watching_b60506f),
-                                style = MaterialTheme.typography.titleLarge,
+                                style = MaterialTheme.typography.titleMedium,
                                 modifier = Modifier.padding(top = 8.dp, bottom = 10.dp),
                             )
                             androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
