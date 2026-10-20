@@ -40,3 +40,20 @@ fun explorerVideo(hit: ExplorerHit, indexed: Map<String, VideoEntity>): VideoEnt
     lastSeenSession = 0L,
     addedAt = 0L,
 )
+
+
+/**
+ * File Explorer ordering. Folders always come first; within each group the chosen key decides
+ * (NAME, DATE, SIZE or TYPE = file extension), with the name as a tie-breaker.
+ */
+fun sortExplorerHits(hits: List<ExplorerHit>, sort: String, descending: Boolean): List<ExplorerHit> {
+    val byName: Comparator<ExplorerHit> = compareBy(String.CASE_INSENSITIVE_ORDER) { it.entry.name }
+    val key: Comparator<ExplorerHit> = when (sort) {
+        "DATE" -> compareBy<ExplorerHit> { it.entry.modified }.then(byName)
+        "SIZE" -> compareBy<ExplorerHit> { it.entry.size }.then(byName)
+        "TYPE" -> compareBy<ExplorerHit> { it.entry.name.substringAfterLast('.', "").lowercase() }.then(byName)
+        else -> byName
+    }
+    val ordered = if (descending) key.reversed() else key
+    return hits.sortedWith(compareBy<ExplorerHit> { !it.entry.isDirectory }.then(ordered))
+}

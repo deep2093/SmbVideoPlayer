@@ -11,6 +11,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.ViewList
+import androidx.compose.ui.draw.clip
+import com.deepak.videolibrary.thumbs.ThumbStore
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -25,6 +34,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
@@ -53,18 +63,33 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
     val listState = rememberLazyListState()
     var searchExpanded by rememberSaveable { mutableStateOf(vm.explorerQuery.isNotBlank()) }
     val searching = vm.explorerQuery.isNotBlank()
-    val shown = if (searching) {
+    val listed = if (searching) {
         vm.explorerHits
     } else {
         vm.explorerEntries.map {
             ExplorerHit(listOf(vm.explorerPath, it.name).filter { part -> part.isNotBlank() }.joinToString("/"), it)
         }
     }
+    val shown = remember(listed, vm.explorerSort, vm.explorerSortDescending) {
+        sortExplorerHits(listed, vm.explorerSort, vm.explorerSortDescending)
+    }
+    val gridState = rememberLazyGridState()
+    // Thumbnails for the grid come from the library index (only looked up while the grid is shown).
+    val indexed by produceState(emptyMap<String, VideoEntity>(), vm.explorerGridMode, shown.map { it.path }) {
+        value = if (vm.explorerGridMode) vm.indexedVideos(shown.filter { isPlayable(it.entry) }.map { it.path }) else emptyMap()
+    }
     LaunchedEffect(vm.explorerFocusPath, vm.explorerBusy, shown.map { it.path }) {
         val index = shown.indexOfFirst { it.path == vm.explorerFocusPath }
-        if (!vm.explorerBusy && index >= 0)listState.scrollToItem(index)
+        if (!vm.explorerBusy && index >= 0) {
+            if (vm.explorerGridMode) gridState.scrollToItem(index) else listState.scrollToItem(index)
+        }
     }
-    LaunchedEffect(vm.explorerPath) { if (vm.explorerFocusPath == null)listState.scrollToItem(0) }
+    LaunchedEffect(vm.explorerPath) {
+        if (vm.explorerFocusPath == null) {
+            listState.scrollToItem(0)
+            gridState.scrollToItem(0)
+        }
+    }
     val playQueue = shown.filter { isPlayable(it.entry) }.map { explorerVideo(it, emptyMap()) }.distinctBy { it.relativePath }
     DisposableEffect(Unit) { onDispose { vm.stopExplorerSearch() } }
     LaunchedEffect(vm.explorerQuery, vm.explorerPath) { vm.searchExplorer(vm.explorerQuery, vm.explorerPath) }
@@ -89,7 +114,44 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
             query = vm.explorerQuery,
             onQueryChange = { vm.explorerQuery = it },
             placeholder = stringResource(R.string.ui_search_names_anywhere_in_this_folder_and_s_7fe98c1),
-        )
+        ) {
+            Box {
+                var sortExpanded by remember { mutableStateOf(false) }
+                IconButton(onClick = { sortExpanded = true }) {
+                    Icon(Icons.Filled.Sort, contentDescription = "Sort files")
+                }
+                DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+                    listOf(
+                        "NAME" to "Name",
+                        "DATE" to "Date modified",
+                        "SIZE" to "Size",
+                        "TYPE" to "Type",
+                    ).forEach { (sort, label) ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    label + if (vm.explorerSort == sort) {
+                                        if (vm.explorerSortDescending) " ↓" else " ↑"
+                                    } else {
+                                        ""
+                                    },
+                                )
+                            },
+                            onClick = {
+                                vm.selectExplorerSort(sort)
+                                sortExpanded = false
+                            },
+                        )
+                    }
+                }
+            }
+            IconButton(onClick = vm::toggleExplorerLayout) {
+                Icon(
+                    if (vm.explorerGridMode) Icons.Filled.ViewList else Icons.Filled.GridView,
+                    contentDescription = if (vm.explorerGridMode) "Show file list" else "Show file grid",
+                )
+            }
+        }
         BreadcrumbBar(
             crumbs = breadcrumbs(vm.explorerPath),
             onHome = { vm.browse("") },
@@ -131,7 +193,28 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
             )
         }
         FolderTransition(vm.explorerPath, Modifier.weight(1f)) {
-        LazyColumn(
+        if (vm.explorerGridMode) {
+            LazyVerticalGrid(
+                state = gridState,
+                columns = GridCells.Fixed(libraryColumns(vm.videoGridPreset, floatingPadding(vm))),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(shown.size, key = { shown[it].path }) { index ->
+                    val hit = shown[index]
+                    ExplorerGridCard(
+                        vm = vm,
+                        hit = hit,
+                        indexed = indexed[hit.path],
+                        focused = hit.path == vm.explorerFocusPath,
+                        showFolder = searching,
+                        onOpen = { open(hit) },
+                    )
+                }
+            }
+        } else LazyColumn(
             state = listState,
             contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -202,5 +285,98 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
             }
         }
         }
+    }
+}
+
+/** One File Explorer entry in grid mode: thumbnail (or folder cover / file icon), name and details. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ExplorerGridCard(
+    vm: LibraryViewModel,
+    hit: ExplorerHit,
+    indexed: VideoEntity?,
+    focused: Boolean,
+    showFolder: Boolean,
+    onOpen: () -> Unit,
+) {
+    val entry = hit.entry
+    val playable = isPlayable(entry)
+    var menu by remember(hit.path) { mutableStateOf(false) }
+    val image: java.io.File? = when {
+        entry.isDirectory -> {
+            val key = vm.coverKey("original:${hit.path}", 0, 0)
+            var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
+            LaunchedEffect(key) { cover = vm.originalCover(hit.path, key) }
+            cover
+        }
+        indexed != null -> {
+            val customRevision by com.deepak.videolibrary.thumbs.CustomThumbs.revision.collectAsStateWithLifecycle()
+            remember(indexed.id, indexed.thumbStatus, customRevision) {
+                ThumbStore.displayFile(vm.artworkContext, indexed.id, indexed.thumbStatus)
+            }
+        }
+        else -> null
+    }
+    Box {
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.28f) else MaterialTheme.colorScheme.surface,
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (focused) Modifier.semantics { contentDescription = "Target file: ${entry.name}" } else Modifier)
+                .combinedClickable(onClick = onOpen, onLongClick = { menu = true }),
+        ) {
+            Column {
+                Box(
+                    Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (image != null) {
+                        FileImage(image, Modifier.fillMaxSize())
+                    } else {
+                        Icon(
+                            when {
+                                entry.isDirectory -> Icons.Filled.Folder
+                                playable -> Icons.Filled.Movie
+                                else -> Icons.Filled.InsertDriveFile
+                            },
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(36.dp),
+                        )
+                    }
+                }
+                Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(entry.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (showFolder) {
+                                hit.path.substringBeforeLast('/', "/")
+                            } else if (entry.isDirectory) {
+                                "Folder"
+                            } else {
+                                android.text.format.Formatter.formatShortFileSize(LocalContext.current, entry.size)
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Options for ${entry.name}") }
+                }
+            }
+        }
+        FileActionsMenu(
+            menu,
+            { menu = false },
+            vm,
+            hit.path,
+            directory = entry.isDirectory,
+            selectionScope = "explorer",
+            onPlay = if (playable) onOpen else null,
+            details = "${entry.name}\n${hit.path}\n${entry.size} bytes",
+        )
     }
 }

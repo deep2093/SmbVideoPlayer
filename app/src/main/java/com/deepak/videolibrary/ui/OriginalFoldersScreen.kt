@@ -31,7 +31,7 @@ import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.scan.ScanMode
 
 @Composable
-fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
+fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, active: Boolean = true) {
     val listing by vm.originalListing.collectAsStateWithLifecycle()
     val root = vm.settings.rootPath.trim('/')
     val path = vm.originalPath.takeIf { isWithinFolder(it, root) } ?: root
@@ -50,6 +50,12 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
         }
     }
     ScrollToTopOnChange(query, gridState)
+    LaunchedEffect(active) {
+        if (!active && searchExpanded) {
+            vm.originalQuery = ""
+            searchExpanded = false
+        }
+    }
     fun up() {
         vm.originalQuery = ""
         vm.originalPath = path.substringBeforeLast('/', "").takeIf { isWithinFolder(it, root) } ?: root
@@ -87,7 +93,24 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                 onClick = { vm.playLibrary("originals", onPlay = onPlay) },
             ) { Text(stringResource(R.string.ui_play_all_ebb2ffd)) }
         }
-        FolderTransition(path, Modifier.weight(1f)) {
+        FastScrollBox(
+            state = gridState,
+            modifier = Modifier.weight(1f),
+            labelFor = if (vm.videoSort == VideoSort.NAME) {
+                { index ->
+                    // Sub-folders first, then the videos of this folder.
+                    when {
+                        index < children.size -> sectionLetter(originalFolderLabel(children[index].path))
+                        index - children.size < videos.itemCount -> videos.peek(index - children.size)?.name?.let(::sectionLetter)
+                        else -> null
+                    }
+                }
+            } else {
+                null
+            },
+            bottomInset = if (floatingPadding(vm)) 100.dp else 16.dp,
+        ) {
+        FolderTransition(path, Modifier.fillMaxSize()) {
         if(videos.loadState.refresh is androidx.paging.LoadState.Error) {
             Column(Modifier.fillMaxSize(), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.Center) {
                 Text(stringResource(R.string.ui_could_not_load_this_folder_567d2b5))
@@ -133,6 +156,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                     else Column { Box(Modifier.fillMaxWidth().aspectRatio(16f/9f)); Text("", minLines=2, maxLines=2, style=MaterialTheme.typography.bodyMedium); Text("",style=MaterialTheme.typography.labelSmall) }
                 }
             }
+        }
         }
         }
     }

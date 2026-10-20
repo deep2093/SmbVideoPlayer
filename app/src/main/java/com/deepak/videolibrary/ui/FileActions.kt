@@ -38,6 +38,7 @@ internal fun FileActionsMenu(
     details: String = path,
     onRemoveContinue: (() -> Unit)? = null,
     selectionScope: String = "videos",
+    onChangeThumbnail: (() -> Unit)? = null,
 ) {
     var rename by remember(path) { mutableStateOf(false) }
     var delete by remember(path) { mutableStateOf(false) }
@@ -56,6 +57,12 @@ internal fun FileActionsMenu(
             DropdownMenuItem(text = { Text(stringResource(R.string.ui_play_from_start_c052f7a)) }, onClick = {
                 dismiss()
                 onPlayFromStart()
+            })
+        }
+        if (onChangeThumbnail != null) {
+            DropdownMenuItem(text = { Text("Change thumbnail") }, onClick = {
+                dismiss()
+                onChangeThumbnail()
             })
         }
         if (!directory && !virtual) {
@@ -313,7 +320,8 @@ private fun PasteDestinationDialog(vm: LibraryViewModel) {
 
 @Composable
 private fun SelectionBar(vm: LibraryViewModel) {
-    if (vm.selectedPaths.isEmpty())return
+    // Videos show their own icon header while selecting.
+    if (vm.selectedPaths.isEmpty() || vm.selectionScope == "videos") return
     var merge by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     BackHandler { vm.clearSelection() }

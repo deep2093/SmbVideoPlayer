@@ -30,6 +30,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Deselect
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.MoreVert
@@ -88,7 +91,9 @@ fun VideosScreen(
     // another tab keeps the previous position.
     ScrollToTopOnChange(Triple(query, group, matchFolder?.id), gridState)
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        SearchableTopBar(
+        if (vm.selectedPaths.isNotEmpty() && vm.selectionScope == "videos") {
+            VideoSelectionHeader(vm, Modifier.padding(top = 8.dp))
+        } else SearchableTopBar(
             title = selectedGroup ?: "Videos",
             searching = searchExpanded,
             onSearchingChange = { searchExpanded = it },
@@ -124,7 +129,25 @@ fun VideosScreen(
             }
         }
         val columns = libraryColumns(vm.videoGridPreset, floatingPadding(vm))
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        // Grid rows before the first video, so the fast scroller can map a position to a filename.
+        val headerRows = (if (group == null && matchFolder == null && query.isEmpty() && continueWatching.isNotEmpty()) 1 else 0) +
+            1 +
+            (if (videos.loadState.refresh is androidx.paging.LoadState.Loading) 1 else 0) +
+            (if (videos.loadState.refresh is androidx.paging.LoadState.Error) 1 else 0) +
+            (if (count == 0 && videos.loadState.refresh is androidx.paging.LoadState.NotLoading) 1 else 0)
+        FastScrollBox(
+            state = gridState,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            labelFor = if (vm.videoSort == VideoSort.NAME) {
+                { index ->
+                    val at = index - headerRows
+                    if (at in 0 until videos.itemCount) videos.peek(at)?.name?.let(::sectionLetter) else null
+                }
+            } else {
+                null
+            },
+            bottomInset = if (floatingPadding(vm)) 100.dp else 16.dp,
+        ) {
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(if (vm.videoListMode) 1 else columns),
@@ -258,7 +281,12 @@ internal fun VideoCard(
 ) {
     var menuOpen by remember(video.relativePath) { mutableStateOf(false) }
     val context = LocalContext.current
-    val thumb: File? = if (video.thumbStatus == "DONE") ThumbStore.thumbFile(vm.artworkContext, video.id) else null
+    // Custom thumbnail first, then the automatic one; refreshed as soon as a custom thumbnail changes.
+    val customRevision by com.deepak.videolibrary.thumbs.CustomThumbs.revision.collectAsStateWithLifecycle()
+    val thumb: File? = remember(video.id, video.thumbStatus, customRevision) {
+        ThumbStore.displayFile(vm.artworkContext, video.id, video.thumbStatus)
+    }
+    var pickThumbnail by remember(video.relativePath) { mutableStateOf(false) }
     val namespace by vm.namespace.collectAsStateWithLifecycle()
     val progressFlow = remember(video.relativePath, namespace) { vm.progressFlow(video.relativePath) }
     val progress by progressFlow.collectAsStateWithLifecycle(initialValue = null)
@@ -337,8 +365,8 @@ internal fun VideoCard(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).combinedClickable(onClick = {
                 if (vm.selectedPaths.isNotEmpty())vm.toggleSelected(video.relativePath, selectionScope) else onClick()
             }, onLongClick = {
-                menuOpen =
-                    true
+                // In Videos, holding a video selects it; elsewhere it opens the options menu as before.
+                if (selectionScope == "videos") vm.toggleSelected(video.relativePath, selectionScope) else menuOpen = true
             }),
         ) {
             if (listMode) {
@@ -361,8 +389,10 @@ internal fun VideoCard(
             onPlayFromStart = { vm.playFromStart(video.relativePath, onClick) },
             onRemoveContinue = onRemoveFromContinue,
             details = "${video.name}\n${Formatter.formatFileSize(context,video.size)}\n${vm.originalVideoLocation(video.relativePath)}",
+            onChangeThumbnail = if (video.id > 0) ({ pickThumbnail = true }) else null,
         )
     }
+    if (pickThumbnail) ThumbnailPicker(vm, video, onDismiss = { pickThumbnail = false })
 }
 
 @Composable
@@ -392,5 +422,86 @@ internal fun LibraryDisplayMenu(vm: LibraryViewModel) {
                 })
             }
         }
+    }
+}
+
+/**
+ * Header shown while videos are selected (hold a video to start): close, the count, then icon-only
+ * Select all, Unselect all and Delete. Cut, Copy, Paste and Merge sit in the overflow menu.
+ */
+@Composable
+private fun VideoSelectionHeader(vm: LibraryViewModel, modifier: Modifier = Modifier) {
+    var confirmDelete by remember { mutableStateOf(false) }
+    var more by remember { mutableStateOf(false) }
+    var merge by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    val count = vm.selectedPaths.size
+    Row(modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        IconButton(onClick = vm::clearSelection) { Icon(Icons.Filled.Close, contentDescription = "Done") }
+        Text(
+            "$count selected",
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = { vm.selectAll("videos") }) { Icon(Icons.Filled.SelectAll, contentDescription = "Select all") }
+        IconButton(onClick = vm::clearSelection) { Icon(Icons.Filled.Deselect, contentDescription = "Unselect all") }
+        IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, contentDescription = "Delete selected") }
+        Box {
+            IconButton(onClick = { more = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "More selection actions") }
+            DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
+                DropdownMenuItem(text = { Text(stringResource(R.string.ui_cut_38d13bd)) }, onClick = {
+                    more = false
+                    vm.stageSelected(true)
+                })
+                DropdownMenuItem(text = { Text(stringResource(R.string.ui_copy_af74f7c)) }, onClick = {
+                    more = false
+                    vm.stageSelected(false)
+                })
+                DropdownMenuItem(text = { Text(stringResource(R.string.ui_paste_9db2f69)) }, enabled = vm.explorerClipboard != null, onClick = {
+                    more = false
+                    vm.pasteDestination = vm.settings.rootPath
+                })
+                DropdownMenuItem(text = { Text(stringResource(R.string.ui_merge_into_56f0e1a)) }, onClick = {
+                    more = false
+                    name = ""
+                    merge = true
+                })
+            }
+        }
+    }
+    androidx.activity.compose.BackHandler { vm.clearSelection() }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete $count ${if (count == 1) "video" else "videos"}?") },
+            text = { Text("The selected files are deleted from your server. This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    vm.deleteSelected()
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.ui_cancel_77dfd21)) } },
+        )
+    }
+    if (merge) {
+        AlertDialog(
+            onDismissRequest = { merge = false },
+            title = { Text(stringResource(R.string.ui_merge_selected_videos_e03e58e)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.ui_assign_selected_videos_to_an_existing_or_n_b820db7))
+                    PillTextField(name, { name = it }, label = stringResource(R.string.ui_destination_virtual_folder_fda9d5d), modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = name.isNotBlank(), onClick = {
+                    vm.mergeSelected(name)
+                    merge = false
+                }) { Text(stringResource(R.string.ui_merge_ea8f0d0)) }
+            },
+            dismissButton = { TextButton(onClick = { merge = false }) { Text(stringResource(R.string.ui_cancel_77dfd21)) } },
+        )
     }
 }

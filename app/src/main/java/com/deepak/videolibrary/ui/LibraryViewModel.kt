@@ -138,6 +138,35 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         layoutPrefs.edit().putBoolean("video_list", videoListMode).apply()
     }
 
+    // ---- File Explorer layout ----
+    /** NAME, DATE, SIZE or TYPE. Folders are always listed before files. */
+    var explorerSort by mutableStateOf(layoutPrefs.getString("explorer_sort", "NAME") ?: "NAME")
+        private set
+    var explorerSortDescending by mutableStateOf(layoutPrefs.getBoolean("explorer_sort_descending", false))
+        private set
+    var explorerGridMode by mutableStateOf(layoutPrefs.getBoolean("explorer_grid", false))
+        private set
+
+    /** Choosing the current sort again flips its direction, like the other library sorts. */
+    fun selectExplorerSort(sort: String) {
+        explorerSortDescending = if (explorerSort == sort) !explorerSortDescending else false
+        explorerSort = sort
+        layoutPrefs.edit()
+            .putString("explorer_sort", sort)
+            .putBoolean("explorer_sort_descending", explorerSortDescending)
+            .apply()
+    }
+
+    fun toggleExplorerLayout() {
+        explorerGridMode = !explorerGridMode
+        layoutPrefs.edit().putBoolean("explorer_grid", explorerGridMode).apply()
+    }
+
+    /** Indexed library rows (with thumbnails) for the given share-relative paths. */
+    suspend fun indexedVideos(paths: List<String>): Map<String, VideoEntity> = withContext(Dispatchers.IO) {
+        paths.distinct().chunked(500).flatMap { dao.videosByPaths(it) }.associateBy { it.relativePath }
+    }
+
     fun toggleFolderLayout() {
         folderListMode = !folderListMode
         layoutPrefs.edit().putBoolean("folder_list", folderListMode).apply()
@@ -469,6 +498,13 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     fun clearSelection() {
         selectedPaths = emptySet()
     }
+    /** Deletes the selected files from the server (queued like other file operations), then ends selection. */
+    fun deleteSelected() {
+        val paths = selectedPaths.toList()
+        paths.forEach { TransferWorker.enqueue(getApplication(), "DELETE", it, "", false, namespace.value, services.libraryId) }
+        clearSelection()
+        notice = "Deleting ${paths.size} ${if (paths.size == 1) "video" else "videos"}."
+    }
     fun selectAll(mode: String) {
         viewModelScope.launch {
             selectionScope = mode
@@ -628,6 +664,43 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     var coverRevision: Int
         get() = artwork.revision
         private set(value) { artwork.revision = value }
+    // ---- Custom thumbnails ----
+    init {
+        // Load the custom-thumbnail index off the main thread and drop files of videos that no longer exist.
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                com.deepak.videolibrary.thumbs.CustomThumbs.preload(services.artworkContext)
+                val live = dao.allVideoIds().toSet()
+                if (live.isNotEmpty()) com.deepak.videolibrary.thumbs.CustomThumbs.prune(services.artworkContext, live)
+            }
+        }
+    }
+
+    /** The SMB connection details, for components that open their own short-lived connection. */
+    fun smbProfile() = settingsStore.toProfile(settings)
+
+    fun hasCustomThumbnail(video: VideoEntity) = com.deepak.videolibrary.thumbs.CustomThumbs.has(services.artworkContext, video.id)
+
+    /** Saves [frame] as the video's custom thumbnail and refreshes thumbnails and folder covers. */
+    suspend fun saveCustomThumbnail(video: VideoEntity, frame: android.graphics.Bitmap) {
+        withContext(Dispatchers.IO) { com.deepak.videolibrary.thumbs.CustomThumbs.save(services.artworkContext, video.id, frame) }
+        artwork.invalidate()
+        notice = "Thumbnail updated."
+    }
+
+    /** Removes the custom thumbnail so the automatic one is used again. */
+    fun resetCustomThumbnail(video: VideoEntity) {
+        viewModelScope.launch {
+            val removed = withContext(Dispatchers.IO) {
+                com.deepak.videolibrary.thumbs.CustomThumbs.reset(services.artworkContext, video.id)
+            }
+            if (removed) {
+                artwork.invalidate()
+                notice = "Thumbnail reset to automatic."
+            }
+        }
+    }
+
     fun coverKey(name: String, count: Int, done: Int, modified: Long = 0) = artwork.key(name,count,done,modified)
     fun cachedCover(key: String): File? = artwork.cached(key)
     suspend fun coverFor(group: String, key: String): File? = artwork.cover("virtual:$group",key,LibraryScope(namespace.value,group=group))

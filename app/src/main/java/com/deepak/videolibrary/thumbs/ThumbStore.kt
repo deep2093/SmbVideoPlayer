@@ -15,6 +15,14 @@ object ThumbStore {
 
     fun thumbFile(context: Context, videoId: Long) = File(thumbDir(context), "$videoId.jpg")
 
+    /** What to show for a video: the user's custom thumbnail first, then the automatic one when it is ready. */
+    fun displayFile(context: Context, videoId: Long, thumbStatus: String): File? =
+        CustomThumbs.fileFor(context, videoId) ?: if (thumbStatus == "DONE") thumbFile(context, videoId) else null
+
+    /** Thumbnail used when building folder covers: custom first, automatic otherwise. */
+    fun coverSourceFile(context: Context, videoId: Long): File =
+        CustomThumbs.fileFor(context, videoId) ?: thumbFile(context, videoId)
+
     /** Private disk cache is persistent; it is not a video-stream buffer. */
     fun artworkBytes(context: Context): Long =
         listOf(thumbDir(context), coverDir(context)).sumOf { dir ->
@@ -25,7 +33,11 @@ object ThumbStore {
                 ?.sumOf { it.length() } ?: 0L
         }
 
-    /** Deletes cached artwork only. Nothing on the SMB drive is touched. */
+    /**
+     * Deletes cached artwork only (automatic thumbnails and folder covers). Custom thumbnails the user
+     * picked are kept: they live in their own folder and are only removed by Reset or by deleting the video.
+     * Nothing on the SMB drive is touched.
+     */
     fun clearAll(context: Context) {
         thumbDir(context).deleteRecursively()
         coverDir(context).deleteRecursively()

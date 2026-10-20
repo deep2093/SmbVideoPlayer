@@ -49,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
@@ -153,6 +154,34 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         return
     }
     val floating = vm.navigationPosition == "FLOATING"
+    // Swiping between sections follows the order Custom, Virtual, Original folders, Videos, File Explorer,
+    // Scan, Settings. Inside Folders the tab pager moves between its three pages itself.
+    val selectSection: (Int) -> Unit = { index ->
+        tab = index
+        folderDetails = false
+        vm.groupFilter.value = null
+        vm.matchFolderFilter.value = null
+    }
+    val nextSection: () -> Unit = {
+        when {
+            tab == 0 && vm.foldersTab < 2 -> Unit
+            tab < TAB_LABELS.lastIndex -> selectSection(tab + 1)
+            else -> Unit
+        }
+    }
+    val previousSection: () -> Unit = {
+        when {
+            tab == 0 -> Unit
+            tab == 1 && folderDetails -> selectSection(0) // Back to the folder list it was opened from.
+            tab == 1 -> {
+                vm.foldersTab = 2
+                selectSection(0)
+            }
+            else -> selectSection(tab - 1)
+        }
+    }
+    val glassTheme = LocalLibraryTheme.current.glass
+    val hazeState = androidx.compose.runtime.remember { dev.chrisbanes.haze.HazeState() }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val tabletLayout = maxWidth >= 700.dp
         Scaffold(
@@ -183,7 +212,11 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
             },
         ) { padding ->
             Box(Modifier.fillMaxSize()) {
-                Row(Modifier.padding(padding).fillMaxSize()) {
+                // Glass themes: the content is the source the floating bar blurs.
+                Row(
+                    Modifier.padding(padding).fillMaxSize()
+                        .then(if (glassTheme && floating) Modifier.hazeSource(hazeState) else Modifier),
+                ) {
                     if (tabletLayout && !floating) {
                         LibrarySidebar(selected = tab, labels = TAB_LABELS, icons = TAB_ICONS, modifier = Modifier.width(SIDEBAR_WIDTH).fillMaxHeight()) { index ->
                             tab = index
@@ -212,7 +245,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         // Sections and folder pages slide in the direction of travel and fade, like VLC.
                         AnimatedContent(
                             targetState = tab,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).sectionSwipe(onNext = nextSection, onPrevious = previousSection),
                             transitionSpec = {
                                 val forward = targetState > initialState
                                 val enter = slideInHorizontally(tween(320, easing = FastOutSlowInEasing)) { width ->
@@ -275,6 +308,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         TAB_LABELS,
                         TAB_ICONS,
                         Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 12.dp),
+                        hazeState = if (glassTheme) hazeState else null,
                     ) { index ->
                         tab =
                             index

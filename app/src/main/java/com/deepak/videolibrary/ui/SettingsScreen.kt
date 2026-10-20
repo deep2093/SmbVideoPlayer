@@ -106,12 +106,13 @@ private fun GridPresetSetting(label: String, selected: String, onSelect: (String
 private class SettingsSection(val id: String, val title: String, val description: String)
 
 private val SETTINGS_SECTIONS = listOf(
-    SettingsSection("Connection", "Connection", "Server, account and saved password"),
-    SettingsSection("VPN", "VPN", "WireGuard for remote access to your server"),
+    // Alphabetical.
     SettingsSection("Appearance", "Appearance", "Theme, navigation and grid layout"),
-    SettingsSection("Playback", "Playback", "Brightness and volume gestures"),
-    SettingsSection("Library", "Library", "Hidden files and folders"),
+    SettingsSection("Connection", "Connection", "Server, account and saved password"),
     SettingsSection("Diagnostics", "Diagnostics", "Playback reports and troubleshooting"),
+    SettingsSection("Library", "Library", "Hidden files and folders"),
+    SettingsSection("Playback", "Playback", "Brightness and volume gestures"),
+    SettingsSection("VPN", "VPN", "WireGuard for remote access to your server"),
 )
 
 /** One settings group: a card whose content drops down in place when the header is tapped. */
@@ -128,11 +129,11 @@ private fun SettingsAccordion(
         animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "settings_chevron",
     )
+    val cardShape = RoundedCornerShape(if (LocalLibraryTheme.current.glass) 22.dp else 16.dp)
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().themedOutline(cardShape),
+        shape = cardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(Modifier.fillMaxWidth()) {
             Row(

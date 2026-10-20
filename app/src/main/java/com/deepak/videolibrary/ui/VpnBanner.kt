@@ -99,7 +99,7 @@ fun VpnStatusBanner(modifier: Modifier = Modifier) {
                     .fillMaxWidth()
                     .clip(shape)
                     .background(colors.surface)
-                    .border(1.dp, colors.outlineVariant, shape),
+                    .themedOutline(shape),
             ) {
                 Row(
                     Modifier.padding(start = 16.dp, end = 4.dp).heightIn(min = 44.dp),

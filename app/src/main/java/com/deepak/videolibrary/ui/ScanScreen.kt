@@ -44,6 +44,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -105,7 +106,10 @@ fun ScanScreen(vm: LibraryViewModel) {
                 }
             }
 
-            // ---- 1. Library scan: status, numbers, actions ----
+            // ---- Sections in alphabetical order: Automatic sync ----
+            item { AutomaticSyncSummary() }
+
+            // ---- Library scan: status, numbers, actions ----
             item {
                 ScanSection("Library scan") {
                     val s = session
@@ -180,7 +184,24 @@ fun ScanScreen(vm: LibraryViewModel) {
                 }
             }
 
-            // ---- 2. Thumbnails ----
+            // ---- Scan errors ----
+            if (errors.isNotEmpty()) {
+                item { TextButton(onClick = { showErrors = !showErrors }) { Text(if (showErrors) "Hide scan errors" else "View scan errors (${errors.size})") } }
+                if (showErrors) items(errors, key = { it.id }) { e ->
+                    Column(Modifier.padding(vertical = 2.dp)) {
+                        Text(
+                            e.path.ifEmpty { "(connection)" },
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(e.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        HorizontalDivider(Modifier.padding(top = 8.dp))
+                    }
+                }
+            }
+
+            // ---- Thumbnails ----
             item {
                 val all = thumbsDone + thumbsPending + thumbsFailed
                 ScanSection("Thumbnails") {
@@ -217,25 +238,6 @@ fun ScanScreen(vm: LibraryViewModel) {
                 }
             }
 
-            // ---- 3. Automatic sync ----
-            item { AutomaticSyncSummary() }
-
-            // ---- 4. Scan errors ----
-            if (errors.isNotEmpty()) {
-                item { TextButton(onClick = { showErrors = !showErrors }) { Text(if (showErrors) "Hide scan errors" else "View scan errors (${errors.size})") } }
-                if (showErrors) items(errors, key = { it.id }) { e ->
-                    Column(Modifier.padding(vertical = 2.dp)) {
-                        Text(
-                            e.path.ifEmpty { "(connection)" },
-                            style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(e.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                        HorizontalDivider(Modifier.padding(top = 8.dp))
-                    }
-                }
-            }
         }
     }
 }
@@ -321,7 +323,11 @@ private fun ScanStat(label: String, value: String, modifier: Modifier = Modifier
     Column(
         modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
+            // Glass themes: a darker inset keeps white numbers and labels readable on the frosted card.
+            .background(
+                if (LocalLibraryTheme.current.glass) Color.Black.copy(alpha = 0.24f)
+                else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+            )
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
         Text(

@@ -59,14 +59,14 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
             .joinToString("") { "%02x".format(it) }
             .take(24)
         val fingerprint = picks.joinToString("-") { id ->
-            val file = ThumbStore.thumbFile(context, id)
+            val file = ThumbStore.coverSourceFile(context, id)
             "$id-${file.lastModified()}-${file.length()}"
         }
         val target = File(dir, "${prefix}_$fingerprint.jpg")
         if (target.exists()) return target
 
         val bitmaps = picks.mapNotNull { id ->
-            ThumbStore.thumbFile(context, id).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
+            ThumbStore.coverSourceFile(context, id).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.path) }
         }
         if (bitmaps.isEmpty()) return null
 

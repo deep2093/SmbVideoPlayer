@@ -131,7 +131,8 @@ try:
     click('Folders')
     click('Original folders');find('Movies');screenshot('originals')
     click('Videos');click(NAME,long=True)
-    find('Cut');find('Copy');find('Select all')
+    # Holding a video selects it; the header shows icon-only Select all, Unselect all and Delete.
+    find('Select all');find('Unselect all');find('Delete selected')
     click('Select all')
     # The Videos view can include the same SMB fixture in multiple library
     # sections. Select all operates on the visible library selection, so do not
@@ -145,7 +146,7 @@ try:
     else:
         raise AssertionError('Select all did not produce a nonzero selection count')
     screenshot('selection')
-    click('Copy')
+    click('More selection actions');click('Copy')
     click('Folders');click('Original folders');click('Paste…')
     click('Destination');click('Paste here')
     target=Path('/tmp/videolibrary-fixtures/Destination')/NAME
@@ -154,7 +155,7 @@ try:
         time.sleep(1)
     assert target.read_bytes()==(Path('/tmp/videolibrary-fixtures/Movies')/NAME).read_bytes()
     print('PASS: Select all in Videos -> shared Copy -> Paste from Original folders')
-    click('Videos');click(NAME,long=True);click('Remove / Hide')
+    click('Videos');click('Options for '+NAME);click('Remove / Hide')
     click('File Explorer');click('Movies');find(NAME);screenshot('hidden-in-explorer')
     click('Settings');click('Library');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
     find('No hidden items.');screenshot('unhide')

@@ -80,6 +80,13 @@ internal fun FoldersHub(
     val pager = rememberPagerState(initialPage = vm.foldersTab, pageCount = { 3 })
     val scope = rememberCoroutineScope()
     LaunchedEffect(pager.settledPage) { vm.foldersTab = pager.settledPage }
+    // Swiping to another tab closes the keyboard; each page also closes its own search box.
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(pager.currentPage) {
+        focusManager.clearFocus()
+        keyboard?.hide()
+    }
     Column(Modifier.fillMaxSize()) {
         if (showBrand) Text(
             "Video Library",
@@ -98,10 +105,15 @@ internal fun FoldersHub(
             }
         }
         HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { page ->
-            when (page) {
-                0 -> MatchingFoldersScreen(vm, customGridState, onOpenGroup, onPlay)
-                1 -> FoldersScreen(vm, gridState, onOpenGroup, onPlay, onOpenSettings)
-                else -> OriginalFoldersScreen(vm, onPlay)
+            // A focused search field asks its ancestors to scroll it into view when the keyboard opens.
+            // The pager would answer by sliding to a neighbouring tab, so the request stops at the page.
+            Box(Modifier.fillMaxSize().stopBringIntoViewPropagation()) {
+                val active = pager.currentPage == page
+                when (page) {
+                    0 -> MatchingFoldersScreen(vm, customGridState, onOpenGroup, onPlay, active = active)
+                    1 -> FoldersScreen(vm, gridState, onOpenGroup, onPlay, onOpenSettings, active = active)
+                    else -> OriginalFoldersScreen(vm, onPlay, active = active)
+                }
             }
         }
     }
@@ -114,6 +126,7 @@ fun FoldersScreen(
     onOpenGroup: () -> Unit,
     onPlay: (VideoEntity, List<VideoEntity>) -> Unit,
     onOpenSettings: () -> Unit,
+    active: Boolean = true,
 ) {
     val shownGroups by vm.groups.collectAsStateWithLifecycle()
     val recentlyWatched by vm.continuing.collectAsStateWithLifecycle()
@@ -126,6 +139,12 @@ fun FoldersScreen(
     // Jump to the top only when the search text changes while this screen is visible.
     // Re-entering the screen (e.g. coming back from a folder) must keep the saved position.
     ScrollToTopOnChange(folderQuery, gridState)
+    LaunchedEffect(active) {
+        if (!active && searchExpanded) {
+            folderQuery = ""
+            searchExpanded = false
+        }
+    }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         SearchableTopBar(
             title = stringResource(R.string.ui_folders_19adc47),
@@ -197,7 +216,20 @@ fun FoldersScreen(
         Spacer(Modifier.height(12.dp))
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         val columns = libraryColumns(vm.folderGridPreset, floatingPadding(vm))
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        FastScrollBox(
+            state = gridState,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            labelFor = if (vm.folderSort == "NAME") {
+                { index ->
+                    // Two header rows (continue watching, count), plus the empty message when there are no folders.
+                    val at = index - 2
+                    if (at in shownGroups.indices) sectionLetter(shownGroups[at].groupKey) else null
+                }
+            } else {
+                null
+            },
+            bottomInset = if (floatingPadding(vm)) 100.dp else 16.dp,
+        ) {
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(if (vm.folderListMode) 1 else columns),

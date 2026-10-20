@@ -149,6 +149,7 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
                                         state.journalPhase(operationId, "DONE")
                                     }
                                     rows.forEach { ThumbStore.thumbFile(services.artworkContext, it.id).delete() }
+                                    com.deepak.videolibrary.thumbs.CustomThumbs.forget(services.artworkContext, rows.map { it.id })
                                 }
                             }
                         }

@@ -90,7 +90,7 @@ fun PillTextField(
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { focused = it.isFocused }
             .background(colors.surface, CircleShape)
-            .border(1.dp, if (focused) colors.onSurfaceVariant else colors.outlineVariant, CircleShape)
+            .themedOutline(CircleShape, emphasised = focused)
             .semantics { contentDescription = label },
         enabled = enabled,
         singleLine = singleLine,
@@ -241,7 +241,7 @@ fun BreadcrumbBar(
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .background(colors.surface, CircleShape)
-            .border(1.dp, colors.outlineVariant, CircleShape)
+            .themedOutline(CircleShape)
             .padding(start = 4.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -364,3 +364,25 @@ fun FolderTransition(path: String, modifier: Modifier = Modifier, content: @Comp
 }
 
 private fun pathDepth(path: String): Int = if (path.isEmpty()) 0 else path.count { it == '/' } + 1
+
+/**
+ * Stops "bring into view" requests (sent by a focused text field, for example when the keyboard opens)
+ * from travelling further up the layout. Scroll containers inside still handle them first.
+ */
+fun Modifier.stopBringIntoViewPropagation(): Modifier = this then StopBringIntoViewElement
+
+private object StopBringIntoViewElement : androidx.compose.ui.node.ModifierNodeElement<StopBringIntoViewNode>() {
+    override fun create() = StopBringIntoViewNode()
+    override fun update(node: StopBringIntoViewNode) = Unit
+    override fun hashCode(): Int = "StopBringIntoView".hashCode()
+    override fun equals(other: Any?): Boolean = other === this
+}
+
+private class StopBringIntoViewNode :
+    Modifier.Node(),
+    androidx.compose.ui.relocation.BringIntoViewModifierNode {
+    override suspend fun bringIntoView(
+        childCoordinates: androidx.compose.ui.layout.LayoutCoordinates,
+        boundsProvider: () -> androidx.compose.ui.geometry.Rect?,
+    ) = Unit
+}

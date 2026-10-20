@@ -24,6 +24,7 @@ internal fun MatchingFoldersScreen(
     gridState: LazyGridState,
     onOpen: () -> Unit,
     onPlay: (VideoEntity, List<VideoEntity>) -> Unit,
+    active: Boolean = true,
 ) {
     val folders by vm.matchingFolders.collectAsStateWithLifecycle()
     val query by vm.matchFolderQuery.collectAsStateWithLifecycle()
@@ -33,6 +34,12 @@ internal fun MatchingFoldersScreen(
     var creating by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     ScrollToTopOnChange(query, gridState)
+    LaunchedEffect(active) {
+        if (!active && search) {
+            vm.matchFolderQuery.value = ""
+            search = false
+        }
+    }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         SearchableTopBar(
             title = stringResource(R.string.ui_custom_folders_097a811),
@@ -51,9 +58,16 @@ internal fun MatchingFoldersScreen(
             }
         }
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        LazyVerticalGrid(
+        FastScrollBox(
             state = gridState,
             modifier = Modifier.weight(1f),
+            // Custom folders are always listed by name.
+            labelFor = { index -> folders.getOrNull(index)?.let { sectionLetter(it.folder.name) } },
+            bottomInset = if (floatingPadding(vm)) 100.dp else 16.dp,
+        ) {
+        LazyVerticalGrid(
+            state = gridState,
+            modifier = Modifier.fillMaxSize(),
             columns = GridCells.Fixed(if (vm.folderListMode)1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -66,6 +80,7 @@ internal fun MatchingFoldersScreen(
                 }
             }
             items(folders, key = { it.folder.id }) { row -> MatchingFolderCard(vm, row, onOpen, onPlay) }
+        }
         }
     }
     if (picking) SourceFolderPicker(vm, onClose = { picking = false })
