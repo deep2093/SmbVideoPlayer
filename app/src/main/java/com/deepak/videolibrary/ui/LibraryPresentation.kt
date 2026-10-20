@@ -12,6 +12,10 @@ object LibraryLayout {
         preset?.substringBefore('×')?.takeIf { it in presets } ?: fallback
 
     fun columns(preset: String): Int = normalize(preset).toInt()
+
+    /** A 148dp artwork tile plus a 12dp gutter, respecting the saved column ceiling. */
+    fun fittedColumns(preset: String, availableWidthDp: Int): Int =
+        minOf(columns(preset), ((availableWidthDp.coerceAtLeast(1) + 12) / 160).coerceAtLeast(1))
 }
 
 enum class VideoSort(val label: String) {

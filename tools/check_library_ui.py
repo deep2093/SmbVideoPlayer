@@ -89,6 +89,7 @@ def enter_text(value):
     adb('shell','input','text',value)
 
 try:
+    adb('shell','settings','put','secure','immersive_mode_confirmations','confirmed')
     adb('shell','wm','size','2560x1600')
     adb('shell','wm','density','240')
     adb('shell','am','force-stop',APP)
@@ -208,6 +209,23 @@ try:
             time.sleep(1)
         find('Refresh')
         print('PASS: '+name+' streams from SMB with advancing video output')
+
+    # Native visual review at exact logical widths, after the existing functional checks.
+    click('Settings');click('Appearance');click('Sidebar')
+    for width,height,density,label in [(780,1688,320,'phone-390'),(1536,2048,320,'tablet-768'),(2560,1600,320,'landscape-1280')]:
+        adb('shell','wm','size',str(width)+'x'+str(height))
+        adb('shell','wm','density',str(density))
+        adb('shell','am','force-stop',APP)
+        adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
+        find('Custom folders')
+        screenshot('redesign-'+label+'-folders')
+        click('Videos');find('Search videos')
+        screenshot('redesign-'+label+'-videos')
+        click('Settings');find('Connection')
+        screenshot('redesign-'+label+'-settings')
+        print('PASS: native redesign renders at '+label)
+    adb('shell','wm','size','2560x1600')
+    adb('shell','wm','density','240')
 
 except Exception:
     screenshot('failure')

@@ -180,7 +180,23 @@ fun VideosScreen(
                         TextButton(onClick = { vm.playLibrary("videos", onPlay = onPlay) }, enabled = count > 0) { Text(stringResource(R.string.ui_play_all_ebb2ffd)) }
                     }
                 }
-                if (count == 0) {
+                if (videos.loadState.refresh is androidx.paging.LoadState.Loading) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "loading") {
+                        Row(Modifier.padding(vertical = 24.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            androidx.compose.material3.CircularProgressIndicator(modifier = Modifier.width(24.dp).height(24.dp), strokeWidth = 2.dp)
+                            Text("Loading videos…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                if (videos.loadState.refresh is androidx.paging.LoadState.Error) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "retry") {
+                        Column(Modifier.padding(vertical = 20.dp)) {
+                            Text("Couldn’t load videos. Try loading your library again.")
+                            TextButton(onClick = { videos.retry() }) { Text("Retry") }
+                        }
+                    }
+                }
+                if (count == 0 && videos.loadState.refresh is androidx.paging.LoadState.NotLoading) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             if (total == 0) {
