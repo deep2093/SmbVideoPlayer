@@ -326,6 +326,8 @@ private fun ExplorerGridCard(
     val entry = hit.entry
     val playable = isPlayable(entry)
     var menu by remember(hit.path) { mutableStateOf(false) }
+    var changeCover by remember(hit.path) { mutableStateOf(false) }
+    val artworkOn = rememberArtworkEnabled(vm)
     val image: java.io.File? = when {
         entry.isDirectory -> {
             val key = vm.coverKey("original:${hit.path}", 0, 0)
@@ -404,6 +406,10 @@ private fun ExplorerGridCard(
             selectionScope = "explorer",
             onPlay = if (playable) onOpen else null,
             details = "${entry.name}\n${hit.path}\n${entry.size} bytes",
+            onChangeCover = if (indexed != null && indexed.id > 0 && artworkOn) ({ changeCover = true }) else null,
         )
+    }
+    if (changeCover && indexed != null) {
+        ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.video(indexed.id), indexed.name, indexed.name, indexed), null) { changeCover = false }
     }
 }

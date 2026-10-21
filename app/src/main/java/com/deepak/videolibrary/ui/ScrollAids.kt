@@ -63,10 +63,9 @@ fun sectionLetter(name: String): String {
 }
 
 /**
- * Wraps a library grid with two scrolling aids:
+ * Wraps a library grid with a scrolling aid:
  * - Fast scroll: drag along the right edge to jump through the list. While dragging, a bubble shows the
  *   letter of the current position when [labelFor] gives one (lists sorted by name); otherwise it just scrolls.
- * - Back to top: a round button in the middle at the bottom once the end of a non-empty list is reached.
  *
  * Taps near the edge still reach the grid; only a vertical drag that starts there becomes a fast scroll.
  */
@@ -194,22 +193,5 @@ fun FastScrollBox(
             }
         }
 
-        // Back to top, once the end of the list is reached.
-        val atBottom by remember { derivedStateOf { state.layoutInfo.totalItemsCount > 0 && !state.canScrollForward && state.canScrollBackward } }
-        AnimatedVisibility(
-            visible = atBottom && !dragging,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset),
-            enter = fadeIn(tween(200)) + scaleIn(tween(200), initialScale = 0.8f),
-            exit = fadeOut(tween(150)) + scaleOut(tween(150), targetScale = 0.8f),
-        ) {
-            FilledTonalIconButton(
-                onClick = { scope.launch { state.animateScrollToItem(0) } },
-                colors = IconButtonDefaults.filledTonalIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    contentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-                modifier = Modifier.size(44.dp).themedOutline(CircleShape),
-            ) { Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Back to top") }
-        }
     }
 }

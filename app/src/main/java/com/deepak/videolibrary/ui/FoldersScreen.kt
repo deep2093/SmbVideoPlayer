@@ -77,7 +77,10 @@ internal fun FoldersHub(
     onOpenSettings: () -> Unit,
     showBrand: Boolean = true,
 ) {
-    val pager = rememberPagerState(initialPage = vm.foldersTab, pageCount = { 3 })
+    // Pages follow the tabs chosen in Settings (some may be hidden or reordered).
+    val sections = vm.folderSections
+    val pager = rememberPagerState(initialPage = vm.foldersTab.coerceIn(0, sections.lastIndex), pageCount = { vm.folderSections.size })
+    LaunchedEffect(sections) { if (pager.currentPage != vm.foldersTab.coerceIn(0, sections.lastIndex)) pager.scrollToPage(vm.foldersTab.coerceIn(0, sections.lastIndex)) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(pager.settledPage) { vm.foldersTab = pager.settledPage }
     // Swiping to another tab closes the keyboard; each page also closes its own search box.
@@ -102,13 +105,13 @@ internal fun FoldersHub(
         if (showBrand) {
             HubBarLine(bars, pager.currentPage, APP_NAME, Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp))
         }
-        androidx.compose.material3.TabRow(
-            selectedTabIndex = pager.currentPage,
+        if (sections.size > 1) androidx.compose.material3.TabRow(
+            selectedTabIndex = pager.currentPage.coerceIn(0, sections.lastIndex),
             containerColor = MaterialTheme.colorScheme.background,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
-            (0..2).forEach { index ->
-                HubTab(vm.sectionName(index), pager.currentPage == index, onClick = { selectTab(index) }, onRename = { renaming = index })
+            sections.forEachIndexed { index, section ->
+                HubTab(vm.sectionName(section), pager.currentPage == index, onClick = { selectTab(index) }, onRename = { renaming = section })
             }
         }
         HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { page ->
@@ -118,10 +121,11 @@ internal fun FoldersHub(
                 val active = pager.currentPage == page
                 val slot = remember(page, showBrand) { if (showBrand) HubBarSlot(bars, page) else null }
                 androidx.compose.runtime.CompositionLocalProvider(LocalHubBarSlot provides slot) {
-                    when (page) {
+                    when (sections.getOrNull(page)) {
+                        null -> Unit
                         0 -> MatchingFoldersScreen(vm, customGridState, onOpenGroup, onPlay, active = active)
                         1 -> FoldersScreen(vm, gridState, onOpenGroup, onPlay, onOpenSettings, active = active)
-                        else -> OriginalFoldersScreen(vm, onPlay, active = active)
+                        2 -> OriginalFoldersScreen(vm, onPlay, active = active)
                     }
                 }
             }
@@ -173,6 +177,7 @@ fun FoldersScreen(
         if (selection != null) {
             FolderSelectionBar(
                 count = selection.keys.size,
+                total = shownGroups.size,
                 onClose = { vm.ui.endSelection(selectPage) },
                 onSelectAll = { vm.ui.selectAllFolders(selectPage, shownGroups.map { it.groupKey }) },
                 onDownload = {
@@ -193,15 +198,15 @@ fun FoldersScreen(
             query = folderQuery,
             onQueryChange = { folderQuery = it },
             placeholder = "Search virtual folders",
-            modifier = Modifier.padding(top = 8.dp),
+            modifier = if (LocalHubTitle.current == null) Modifier.padding(top = 8.dp) else Modifier,
         ) {
             CardShapeButton(vm, Pages.VIRTUAL)
+            // Sort and list/grid live in this one menu so the top line keeps room for the app name.
             Box {
-                var sortExpanded by remember { mutableStateOf(false) }
-                IconButton(onClick = { sortExpanded = true }) {
-                    Icon(Icons.Filled.Sort, contentDescription = "Sort virtual folders")
-                }
-                DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+                var folderMenu by remember { mutableStateOf(false) }
+                IconButton(onClick = { folderMenu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Folder options") }
+                DropdownMenu(expanded = folderMenu, onDismissRequest = { folderMenu = false }) {
+                    Text("Sort by", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
                     listOf(
                         "NAME" to "Name",
                         "COUNT" to "Number of items",
@@ -209,33 +214,23 @@ fun FoldersScreen(
                         "SIZE" to "Total size",
                     ).forEach { (sort, label) ->
                         DropdownMenuItem(
-                            text = {
-                                Text(
-                                    label + if (vm.folderSort == sort) {
-                                        if (vm.folderSortDescending) " ↓" else " ↑"
-                                    } else {
-                                        ""
-                                    },
-                                )
-                            },
+                            text = { Text(label + if (vm.folderSort == sort) { if (vm.folderSortDescending) " ↓" else " ↑" } else "") },
+                            leadingIcon = { Icon(Icons.Filled.Sort, contentDescription = null) },
                             onClick = {
                                 vm.selectFolderSort(sort)
-                                sortExpanded = false
+                                folderMenu = false
                             },
                         )
                     }
-                }
-            }
-            IconButton(onClick = vm::toggleFolderLayout) {
-                Icon(
-                    if (vm.folderListMode) Icons.Filled.GridView else Icons.Filled.ViewList,
-                    contentDescription = if (vm.folderListMode) "Show folder grid" else "Show folder list",
-                )
-            }
-            Box {
-                var folderMenu by remember { mutableStateOf(false) }
-                IconButton(onClick = { folderMenu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Folder options") }
-                DropdownMenu(expanded = folderMenu, onDismissRequest = { folderMenu = false }) {
+                    androidx.compose.material3.HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text(if (vm.folderListMode) "Show as grid" else "Show as list") },
+                        leadingIcon = { Icon(if (vm.folderListMode) Icons.Filled.GridView else Icons.Filled.ViewList, contentDescription = null) },
+                        onClick = {
+                            vm.toggleFolderLayout()
+                            folderMenu = false
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text(if (editFolders) "Finish organizing" else "Organize folders") },
                         onClick = {

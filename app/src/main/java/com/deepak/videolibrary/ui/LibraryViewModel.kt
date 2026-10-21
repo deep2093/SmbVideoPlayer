@@ -67,7 +67,21 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         private set
     val namespace = MutableStateFlow(connectionKey(settings))
     private val storageReady = MutableStateFlow(false)
-    var foldersTab by mutableIntStateOf(1)
+    // Which Folders tabs show, in order (0 Custom, 1 Virtual, 2 Original). At least one always shows.
+    private val sectionPrefs = app.getSharedPreferences("folder_sections", android.content.Context.MODE_PRIVATE)
+    var folderSections by mutableStateOf(FolderSections.parse(sectionPrefs.getString("order", null)))
+        private set
+    fun updateFolderSections(sections: List<Int>) {
+        if (sections.isEmpty()) return
+        val current = folderSections.getOrNull(foldersTab)
+        folderSections = sections
+        sectionPrefs.edit().putString("order", sections.joinToString(",")).apply()
+        // Stay on the same tab if it is still shown.
+        foldersTab = sections.indexOf(current).takeIf { it >= 0 } ?: 0
+    }
+
+    /** The open Folders page (an index into [folderSections]); starts on Virtual folders when it is shown. */
+    var foldersTab by mutableIntStateOf(folderSections.indexOf(1).takeIf { it >= 0 } ?: 0)
 
     /** Page state kept while the app is open (open Settings sections, scroll positions). */
     val ui = UiSession()
@@ -549,22 +563,24 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         clearSelection()
         notice = "Deleting ${paths.size} ${if (paths.size == 1) "video" else "videos"}."
     }
+    /** What Select all takes in Files: every listed folder and video (other files and hidden items are left out). */
+    fun explorerSelectable(): List<Pair<String, SmbEntry>> {
+        val all = if (explorerQuery.isNotBlank()) {
+            explorerHits.map { it.path to it.entry }
+        } else {
+            explorerEntries.map { listOf(explorerPath, it.name).filter(String::isNotBlank).joinToString("/") to it }
+        }
+        val hiddenPaths = hiddenItems.value.filter { it.kind == "DIRECTORY" || it.kind == "FILE" }.map { it.target.trim('/') }.toSet()
+        return all.filter { (path, entry) ->
+            (entry.isDirectory || isPlayable(entry)) &&
+                !com.deepak.videolibrary.files.ExplorerHiding.shouldHide(path, entry.name, hideSystemFolders, hiddenPaths)
+        }
+    }
     fun selectAll(mode: String) {
         viewModelScope.launch {
             selectionScope = mode
             if (mode == "explorer") {
-                // Everything listed: folders and videos (other files are left out).
-                val listed = if (explorerQuery.isNotBlank()) {
-                    explorerHits.map { it.path to it.entry }
-                } else {
-                    explorerEntries.map { listOf(explorerPath, it.name).filter(String::isNotBlank).joinToString("/") to it }
-                }.let { all ->
-                    val hiddenPaths = hiddenItems.value.filter { it.kind == "DIRECTORY" || it.kind == "FILE" }.map { it.target.trim('/') }.toSet()
-                    all.filter { (path, entry) ->
-                        (entry.isDirectory || isPlayable(entry)) &&
-                            !com.deepak.videolibrary.files.ExplorerHiding.shouldHide(path, entry.name, hideSystemFolders, hiddenPaths)
-                    }
-                }
+                val listed = explorerSelectable()
                 selectedPaths = listed.map { it.first }.toSet()
                 selectedDirectories = listed.filter { it.second.isDirectory }.map { it.first }.toSet()
                 return@launch
@@ -716,6 +732,38 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         ownRevision.value++
     }
 
+    /**
+     * Single videos ticked in "Add drive folders": they are grouped like virtual folders (by the naming rule, so
+     * "Tom Cruise - movie" goes with Tom Cruise) and each group becomes a Custom folder card of that name. A group
+     * whose name matches an existing own folder is added to it.
+     */
+    fun addFilesAsOwnFolders(paths: Collection<String>) {
+        if (paths.isEmpty()) return
+        viewModelScope.launch {
+            val videos = indexedVideos(paths.map { it.trim('/') })
+            val rule = groupingRule
+            val groups = paths.map { it.trim('/') }.groupBy { path ->
+                videos[path]?.groupKey?.takeIf { it.isNotBlank() && it != com.deepak.videolibrary.scan.GroupKey.FALLBACK }
+                    ?: com.deepak.videolibrary.scan.GroupKey.fromFileName(path.substringAfterLast('/'), rule)
+            }
+            editOwn { list ->
+                var result = list
+                groups.forEach { (key, files) ->
+                    val name = key.split(' ').joinToString(" ") { w -> w.replaceFirstChar { it.titlecase(java.util.Locale.ROOT) } }
+                    val existing = result.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                    result = if (existing != null) {
+                        result.map { if (it.id == existing.id) it.copy(files = (it.files + files).distinct()) else it }
+                    } else {
+                        val clean = cleanFolderName(name) ?: return@forEach
+                        result + OwnFolder(java.util.UUID.randomUUID().toString(), clean, files = files.distinct())
+                    }
+                }
+                result
+            }
+            notice = "${paths.size} ${if (paths.size == 1) "video" else "videos"} added to Custom folders in ${groups.size} ${if (groups.size == 1) "folder" else "folders"}."
+        }
+    }
+
     /** Creates an empty own folder and returns its id, or null when the name is not usable. */
     fun createOwnFolder(name: String): String? {
         val clean = cleanFolderName(name) ?: return null
@@ -827,7 +875,12 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
                 if (recursive.isNotEmpty()) folderCollections.add(recursive, true, namespace.value)
                 if (direct.isNotEmpty()) folderCollections.add(direct, false, namespace.value)
                 onDone()
-                if (recursive.isNotEmpty() || direct.isNotEmpty()) {
+                // Only scan when a chosen folder has nothing indexed yet. A refresh rewrites the library while the
+                // new folder is being browsed, which made its page jump about for a few seconds.
+                val unindexed = withContext(Dispatchers.IO) {
+                    roots.any { root -> stateDao.count(LibraryQueries.count(LibraryScope(namespace.value, sourcePath = root, includeSubfolders = true))).first() == 0 }
+                }
+                if (unindexed) {
                     ScanWorker.enqueue(getApplication(), ScanMode.REFRESH, afterCurrent = true, libraryId = services.libraryId)
                 }
             } catch (e: CancellationException) {

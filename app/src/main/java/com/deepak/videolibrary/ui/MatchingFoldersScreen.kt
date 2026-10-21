@@ -68,6 +68,7 @@ internal fun MatchingFoldersScreen(
             val chosenMatch = folders.map { it.folder }.filter { "match:" + it.id in selection.keys }
             FolderSelectionBar(
                 count = selection.keys.size,
+                total = shownOwn.size + folders.size,
                 onClose = { vm.ui.endSelection(selectPage) },
                 onSelectAll = { vm.ui.selectAllFolders(selectPage, shownOwn.map { "own:" + it.id } + folders.map { "match:" + it.folder.id }) },
                 onDownload = {
@@ -316,6 +317,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
         if (selection != null) {
             FolderSelectionBar(
                 count = selection.keys.size,
+                total = allKeys.size,
                 onClose = { vm.ui.endSelection(selectPage) },
                 onSelectAll = { vm.ui.selectAllFolders(selectPage, allKeys) },
                 onDownload = {
@@ -607,7 +609,7 @@ private fun MatchingFolderCard(
                 menu = false
                 vm.stageMatchingFolder(folder, false)
             })
-            DropdownMenuItem(text = { Text(stringResource(R.string.ui_paste_9db2f69)) }, enabled = vm.explorerClipboard != null, onClick = {
+            if (vm.explorerClipboard != null) DropdownMenuItem(text = { Text(stringResource(R.string.ui_paste_9db2f69)) }, onClick = {
                 menu = false
                 vm.pasteDestination = vm.settings.rootPath
             })

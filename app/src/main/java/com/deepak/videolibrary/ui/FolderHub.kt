@@ -9,11 +9,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Deselect
+import androidx.compose.animation.togetherWith
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.AlertDialog
@@ -66,8 +71,9 @@ internal fun HubTopBar(content: @Composable () -> Unit) {
 /** The hub's top line: the bar of [page], or just the title and the download button when the page has none. */
 @Composable
 internal fun HubBarLine(bars: Map<Int, @Composable () -> Unit>, page: Int, title: String, modifier: Modifier = Modifier) {
-    Crossfade(targetState = page, animationSpec = tween(180), modifier = modifier.fillMaxWidth(), label = "hub_bar") { shown ->
-        val bar = bars[shown]
+    // A fixed height, so switching tabs never moves the tabs or the page up or down.
+    Box(modifier.fillMaxWidth().height(HUB_LINE_HEIGHT), contentAlignment = Alignment.CenterStart) {
+        val bar = bars[page]
         CompositionLocalProvider(LocalHubTitle provides title) {
             if (bar != null) {
                 bar()
@@ -81,6 +87,8 @@ internal fun HubBarLine(bars: Map<Int, @Composable () -> Unit>, page: Int, title
         }
     }
 }
+
+private val HUB_LINE_HEIGHT = 56.dp
 
 @Composable
 internal fun rememberHubBars(): MutableMap<Int, @Composable () -> Unit> = remember { mutableStateMapOf<Int, @Composable () -> Unit>() }
@@ -143,6 +151,7 @@ internal fun UiSession.endSelection(page: String) {
 @Composable
 internal fun FolderSelectionBar(
     count: Int,
+    total: Int,
     onClose: () -> Unit,
     onSelectAll: () -> Unit,
     onDownload: () -> Unit,
@@ -154,7 +163,8 @@ internal fun FolderSelectionBar(
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "Stop selecting") }
         Text("$count selected", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1)
-        SelectionActions(onSelectAll, onDownload, onHide, onRemove?.let { { confirmRemove = true } })
+        SelectAllToggle(allSelected = total in 1..count, onSelectAll = onSelectAll, onDeselectAll = onClose)
+        SelectionActions(onDownload, onHide, onRemove?.let { { confirmRemove = true } })
     }
     if (confirmRemove && onRemove != null) {
         AlertDialog(
@@ -173,8 +183,7 @@ internal fun FolderSelectionBar(
 }
 
 @Composable
-private fun RowScope.SelectionActions(onSelectAll: () -> Unit, onDownload: () -> Unit, onHide: (() -> Unit)?, onRemove: (() -> Unit)?) {
-    IconAction(Icons.Filled.SelectAll, "Select all folders", onClick = onSelectAll)
+private fun RowScope.SelectionActions(onDownload: () -> Unit, onHide: (() -> Unit)?, onRemove: (() -> Unit)?) {
     IconAction(Icons.Filled.Download, "Download selected folders", onClick = onDownload)
     if (onHide != null) IconAction(Icons.Filled.VisibilityOff, "Hide selected folders from this page", onClick = onHide)
     if (onRemove != null) IconAction(Icons.Filled.DeleteOutline, "Remove selected folders from this page", onClick = onRemove)
@@ -211,4 +220,76 @@ internal suspend fun androidx.compose.foundation.lazy.grid.LazyGridState.glideTo
 internal suspend fun androidx.compose.foundation.lazy.LazyListState.glideToTop() {
     if (firstVisibleItemIndex > 24) scrollToItem(12)
     animateScrollToItem(0)
+}
+
+
+/**
+ * One button for Select all and Unselect all: it shows Select all until everything is ticked, then turns into
+ * Unselect all. The icon flips with a short scale-and-fade so the change of job is visible.
+ */
+@Composable
+internal fun SelectAllToggle(allSelected: Boolean, onSelectAll: () -> Unit, onDeselectAll: () -> Unit) {
+    val label = if (allSelected) "Unselect all" else "Select all"
+    IconButton(onClick = { if (allSelected) onDeselectAll() else onSelectAll() }) {
+        androidx.compose.animation.AnimatedContent(
+            targetState = allSelected,
+            transitionSpec = {
+                (androidx.compose.animation.fadeIn(tween(180)) + androidx.compose.animation.scaleIn(tween(220), initialScale = 0.6f)) togetherWith
+                    (androidx.compose.animation.fadeOut(tween(120)) + androidx.compose.animation.scaleOut(tween(160), targetScale = 0.6f))
+            },
+            label = "select_all_toggle",
+        ) { all ->
+            Icon(if (all) Icons.Filled.Deselect else Icons.Filled.SelectAll, contentDescription = label)
+        }
+    }
+}
+
+
+/* ---------- Choosing and ordering the Folders tabs ---------- */
+
+/** Visible Folders tabs in order, stored as "0,1,2" (0 Custom, 1 Virtual, 2 Original). */
+object FolderSections {
+    val ALL = listOf(0, 1, 2)
+
+    fun parse(text: String?): List<Int> {
+        val parsed = text.orEmpty().split(',').mapNotNull { it.trim().toIntOrNull() }.filter { it in ALL }.distinct()
+        return parsed.ifEmpty { ALL }
+    }
+
+    /** All three in display order: shown ones first in their order, then hidden ones. */
+    fun arranged(shown: List<Int>): List<Int> = shown + ALL.filterNot { it in shown }
+}
+
+/**
+ * Settings › Appearance: which Folders tabs show and in what order. Untick a tab to hide it (one always stays);
+ * the arrows move a tab left or right.
+ */
+@Composable
+internal fun FolderTabsSetting(vm: LibraryViewModel) {
+    val shown = vm.folderSections
+    val rows = FolderSections.arranged(shown)
+    Text("Folders tabs", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Choose which tabs Folders shows and their order. At least one stays on.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    rows.forEach { section ->
+        val on = section in shown
+        val at = shown.indexOf(section)
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.Checkbox(
+                checked = on,
+                enabled = !on || shown.size > 1,
+                onCheckedChange = { tick -> vm.updateFolderSections(if (tick) shown + section else shown - section) },
+            )
+            Text(vm.sectionName(section), modifier = Modifier.weight(1f), color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+            IconButton(enabled = on && at > 0, onClick = {
+                vm.updateFolderSections(shown.toMutableList().apply { add(at - 1, removeAt(at)) })
+            }) { Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Move ${vm.sectionName(section)} earlier") }
+            IconButton(enabled = on && at in 0 until shown.lastIndex, onClick = {
+                vm.updateFolderSections(shown.toMutableList().apply { add(at + 1, removeAt(at)) })
+            }) { Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Move ${vm.sectionName(section)} later") }
+        }
+    }
 }

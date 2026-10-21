@@ -155,9 +155,13 @@ try:
     click('Folders')
     click('Original folders');find('Movies');screenshot('originals')
     click('Videos');click(NAME,long=True)
-    # Holding a video selects it; the header shows icon-only Select all, Unselect all and Delete.
-    find('Select all');find('Unselect all');find('Delete selected')
-    click('Select all')
+    # Holding a video selects it; the header shows one Select all / Unselect all button and Delete.
+    find('Delete selected')
+    # With every video already ticked the same button reads Unselect all.
+    try:
+        click('Select all')
+    except AssertionError:
+        find('Unselect all')
     # The Videos view can include the same SMB fixture in multiple library
     # sections. Select all operates on the visible library selection, so do not
     # assume that exactly one item is indexed at this point.

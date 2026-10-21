@@ -471,8 +471,8 @@ private fun VideoSelectionHeader(vm: LibraryViewModel, modifier: Modifier = Modi
             maxLines = 1,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = { vm.selectAll("videos") }) { Icon(Icons.Filled.SelectAll, contentDescription = "Select all") }
-        IconButton(onClick = vm::clearSelection) { Icon(Icons.Filled.Deselect, contentDescription = "Unselect all") }
+        val results by vm.videoResultsCount.collectAsStateWithLifecycle()
+        SelectAllToggle(allSelected = results in 1..count, onSelectAll = { vm.selectAll("videos") }, onDeselectAll = vm::clearSelection)
         IconButton(onClick = {
             vm.downloadFiles(vm.selectedPaths)
             vm.clearSelection()
@@ -489,7 +489,7 @@ private fun VideoSelectionHeader(vm: LibraryViewModel, modifier: Modifier = Modi
                     more = false
                     vm.stageSelected(false)
                 })
-                DropdownMenuItem(text = { Text(stringResource(R.string.ui_paste_9db2f69)) }, enabled = vm.explorerClipboard != null, onClick = {
+                if (vm.explorerClipboard != null) DropdownMenuItem(text = { Text(stringResource(R.string.ui_paste_9db2f69)) }, onClick = {
                     more = false
                     vm.pasteDestination = vm.settings.rootPath
                 })

@@ -2,6 +2,7 @@ package com.deepak.videolibrary.artwork
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsRulesTest {
@@ -64,6 +65,15 @@ class SettingsRulesTest {
         val right = CoverCrop.rect(1000, 2000, 3f / 4f, 1f, 0f, zoom = 2f)
         assertEquals(CropWindow(0, 0, 500, 666), left)
         assertEquals(CropWindow(500, 0, 500, 666), right)
+    }
+
+    @Test fun sliderMiddleIsNoZoomAndZoomOutReachesPastTheEdges() {
+        assertEquals(1f, CoverCrop.zoomForSlider(0.5f), 0.0001f)
+        assertEquals(CoverCrop.MIN_ZOOM, CoverCrop.zoomForSlider(0f), 0.0001f)
+        assertEquals(CoverCrop.MAX_ZOOM, CoverCrop.zoomForSlider(1f), 0.0001f)
+        val out = CoverCrop.rect(1000, 2000, 3f / 4f, 0.5f, 0.5f, zoom = 0.5f)
+        assertTrue(CoverCrop.overflows(out, 1000, 2000))
+        assertFalse(CoverCrop.overflows(CoverCrop.rect(1000, 2000, 3f / 4f, 0.5f, 0.5f), 1000, 2000))
     }
 
     @Test fun keysMapToScopes() {

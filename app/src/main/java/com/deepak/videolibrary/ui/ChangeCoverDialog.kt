@@ -48,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -78,6 +79,7 @@ internal data class CoverTarget(val key: String, val title: String, val label: S
 private enum class CoverTab(val label: String) {
     AUTO("Auto frame"),
     COLLAGE("Folder collage"),
+    PHOTOS("Photo collage"),
     INTERNET("StashDB"),
     GOOGLE("Google Images"),
     IMAGE("From this phone"),
@@ -114,6 +116,19 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
     var pending by remember { mutableStateOf<Bitmap?>(null) }
     var pendingCandidate by remember { mutableStateOf<PerformerCandidate?>(null) }
     val choices = remember(target.label) { nameChoices(target.label) }
+    // Pictures gathered for a photo collage (up to four), and whether the next picture picked goes there.
+    val collage = remember { androidx.compose.runtime.mutableStateListOf<Bitmap>() }
+    var collecting by remember { mutableStateOf(false) }
+    fun takePicture(bitmap: Bitmap, candidate: PerformerCandidate?) {
+        if (collecting) {
+            if (collage.size < com.deepak.videolibrary.artwork.PhotoCollage.MAX_PHOTOS) collage.add(bitmap)
+            collecting = false
+            tab = CoverTab.PHOTOS
+        } else {
+            pending = bitmap
+            pendingCandidate = candidate
+        }
+    }
 
     // Suggestions already found in the background for this item are shown straight away.
     androidx.compose.runtime.LaunchedEffect(target.key) {
@@ -126,8 +141,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
         error = null
         scope.launch {
             try {
-                pending = if (fromWeb) vm.pictureFromWeb(url) else vm.downloadPortrait(url)
-                pendingCandidate = candidate
+                takePicture(if (fromWeb) vm.pictureFromWeb(url) else vm.downloadPortrait(url), candidate)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ProviderException) {
@@ -148,9 +162,23 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
             if (bitmap == null) {
                 error = "That file could not be read as a picture."
             } else {
-                pending = bitmap
-                pendingCandidate = null
+                takePicture(bitmap, null)
             }
+        }
+    }
+    // Several pictures from this phone at once, for a photo collage.
+    val multiPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(com.deepak.videolibrary.artwork.PhotoCollage.MAX_PHOTOS),
+    ) { uris: List<Uri> ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        busy = true
+        error = null
+        scope.launch {
+            val room = com.deepak.videolibrary.artwork.PhotoCollage.MAX_PHOTOS - collage.size
+            val read = withContext(Dispatchers.IO) { uris.take(room).mapNotNull { decodePhoneImage(context, it) } }
+            collage.addAll(read)
+            busy = false
+            if (read.size < minOf(room, uris.size)) error = "Some pictures could not be read."
         }
     }
 
@@ -203,10 +231,37 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                 } else {
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         tabs.forEach { t ->
-                            FilterChip(selected = tab == t, onClick = { tab = t; error = null }, label = { Text(t.label) })
+                            FilterChip(selected = tab == t, onClick = { tab = t; error = null; collecting = false }, label = { Text(t.label) })
+                        }
+                    }
+                    if (collecting && (tab == CoverTab.INTERNET || tab == CoverTab.GOOGLE)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "Choosing photo ${collage.size + 1} of ${com.deepak.videolibrary.artwork.PhotoCollage.MAX_PHOTOS} for the collage",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { collecting = false; tab = CoverTab.PHOTOS }) { Text("Back") }
                         }
                     }
                     when (tab) {
+                        CoverTab.PHOTOS -> PhotoCollageTab(
+                            pictures = collage,
+                            enabled = !busy,
+                            onRemove = { collage.removeAt(it) },
+                            onFromPhone = {
+                                multiPicker.launch(
+                                    androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                )
+                            },
+                            onFromStashDb = { collecting = true; tab = CoverTab.INTERNET },
+                            onFromGoogle = { collecting = true; tab = CoverTab.GOOGLE },
+                            onMake = {
+                                pending = com.deepak.videolibrary.artwork.PhotoCollage.compose(collage.toList())
+                                pendingCandidate = null
+                            },
+                        )
                         CoverTab.AUTO -> {
                             if (target.isFolder) {
                                 Text("Use the frame of the first video in this folder.", style = MaterialTheme.typography.bodyMedium)
@@ -404,10 +459,12 @@ internal fun RemoteThumb(vm: LibraryViewModel, url: String?, modifier: Modifier)
 private fun PositionStep(image: Bitmap, saving: Boolean, onCancel: () -> Unit, onApply: (Float, Float, Float) -> Unit) {
     var fx by remember { mutableFloatStateOf(0.5f) }
     var fy by remember { mutableFloatStateOf(0.25f) }
-    var zoom by remember { mutableFloatStateOf(1f) }
+    // The zoom slider starts in the middle (1x): left zooms out (blurred borders fill the gaps), right zooms in.
+    var zoomPosition by remember { mutableFloatStateOf(0.5f) }
+    val zoom = CoverCrop.zoomForSlider(zoomPosition)
     val bitmap = remember(image) { image.asImageBitmap() }
     // A tall photo already fills a card's width, so sideways movement needs a little zoom first.
-    val sideRoom = image.width.toFloat() / image.height > CoverCrop.TALL_ASPECT || zoom > 1.01f
+    val sideRoom = image.width.toFloat() / image.height > CoverCrop.TALL_ASPECT || kotlin.math.abs(zoom - 1f) > 0.01f
     Text("Position the picture", style = MaterialTheme.typography.titleMedium)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
         Column(Modifier.weight(2.2f)) {
@@ -424,10 +481,14 @@ private fun PositionStep(image: Bitmap, saving: Boolean, onCancel: () -> Unit, o
     Text("Left / right", style = MaterialTheme.typography.labelMedium)
     Slider(value = fx, onValueChange = { fx = it }, enabled = !saving)
     if (!sideRoom) {
-        Text("This picture already fills the card's width. Zoom in a little to move it left or right.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("This picture already fills the card's width. Zoom in or out a little to move it left or right.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     Text("Zoom", style = MaterialTheme.typography.labelMedium)
-    Slider(value = zoom, onValueChange = { zoom = it }, valueRange = 1f..CoverCrop.MAX_ZOOM, enabled = !saving)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Out", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Slider(value = zoomPosition, onValueChange = { zoomPosition = it }, enabled = !saving, modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
+        Text("In", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         TextButton(onClick = onCancel, enabled = !saving) { Text("Back") }
         Button(onClick = { onApply(fx, fy, zoom) }, enabled = !saving) { Text("Use this cover") }
@@ -438,17 +499,26 @@ private fun PositionStep(image: Bitmap, saving: Boolean, onCancel: () -> Unit, o
 private fun CropPreview(bitmap: ImageBitmap, aspect: Float, fx: Float, fy: Float, zoom: Float, label: String) {
     // Drawn from the exact window that will be saved, so the preview always matches the result.
     val window = CoverCrop.rect(bitmap.width, bitmap.height, aspect, fx, fy, zoom)
-    androidx.compose.foundation.Canvas(
-        Modifier.fillMaxWidth().aspectRatio(aspect).clip(RoundedCornerShape(14.dp)).background(Color.Black)
-            .semantics { contentDescription = label },
-    ) {
-        drawImage(
-            bitmap,
-            srcOffset = androidx.compose.ui.unit.IntOffset(window.left, window.top),
-            srcSize = androidx.compose.ui.unit.IntSize(window.width, window.height),
-            dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()),
-            filterQuality = androidx.compose.ui.graphics.FilterQuality.Medium,
-        )
+    val zoomedOut = CoverCrop.overflows(window, bitmap.width, bitmap.height)
+    Box(Modifier.fillMaxWidth().aspectRatio(aspect).clip(RoundedCornerShape(14.dp)).background(Color.Black).semantics { contentDescription = label }) {
+        if (zoomedOut) {
+            // Zoomed out: the saved cover fills the edges with a blurred copy; show the same here.
+            Image(
+                bitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().blur(24.dp).background(Color.Black.copy(alpha = 0.35f)),
+            )
+        }
+        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+            val scale = size.width / window.width
+            drawImage(
+                bitmap,
+                dstOffset = androidx.compose.ui.unit.IntOffset((-window.left * scale).toInt(), (-window.top * scale).toInt()),
+                dstSize = androidx.compose.ui.unit.IntSize((bitmap.width * scale).toInt(), (bitmap.height * scale).toInt()),
+                filterQuality = androidx.compose.ui.graphics.FilterQuality.Medium,
+            )
+        }
     }
 }
 
@@ -474,4 +544,64 @@ private fun decodePhoneImage(context: android.content.Context, uri: Uri): Bitmap
 internal fun rememberArtworkEnabled(vm: LibraryViewModel): Boolean {
     val settings by vm.artworkSettings.collectAsStateWithLifecycle()
     return settings.enabled
+}
+
+
+/**
+ * Photo collage: up to four pictures (from this phone, StashDB or Google Images) joined into one cover. Two or
+ * more make a collage; one picture is simply used as it is.
+ */
+@Composable
+private fun PhotoCollageTab(
+    pictures: List<Bitmap>,
+    enabled: Boolean,
+    onRemove: (Int) -> Unit,
+    onFromPhone: () -> Unit,
+    onFromStashDb: () -> Unit,
+    onFromGoogle: () -> Unit,
+    onMake: () -> Unit,
+) {
+    val max = com.deepak.videolibrary.artwork.PhotoCollage.MAX_PHOTOS
+    Text(
+        "Pick up to $max pictures to join into one cover: 2 side by side, 3 as one large and two small, 4 as a grid.",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        repeat(max) { index ->
+            val picture = pictures.getOrNull(index)
+            Box(
+                Modifier.weight(1f).aspectRatio(3f / 4f).clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (picture != null) {
+                    val image = remember(picture) { picture.asImageBitmap() }
+                    Image(image, contentDescription = "Collage picture ${index + 1}", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                    androidx.compose.material3.IconButton(
+                        onClick = { onRemove(index) },
+                        enabled = enabled,
+                        modifier = Modifier.align(Alignment.TopEnd).size(32.dp),
+                    ) {
+                        androidx.compose.material3.Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Remove picture ${index + 1}",
+                            tint = Color.White,
+                            modifier = Modifier.background(Color.Black.copy(alpha = 0.45f), androidx.compose.foundation.shape.CircleShape).padding(2.dp),
+                        )
+                    }
+                } else {
+                    Text("${index + 1}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+    val full = pictures.size >= max
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = onFromPhone, enabled = enabled && !full) { Text("From this phone") }
+        OutlinedButton(onClick = onFromStashDb, enabled = enabled && !full) { Text("From StashDB") }
+        OutlinedButton(onClick = onFromGoogle, enabled = enabled && !full) { Text("From Google Images") }
+    }
+    Button(onClick = onMake, enabled = enabled && pictures.isNotEmpty()) {
+        Text(if (pictures.size >= 2) "Make collage (${pictures.size})" else "Use this picture")
+    }
 }

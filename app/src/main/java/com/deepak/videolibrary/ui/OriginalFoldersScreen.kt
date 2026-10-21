@@ -74,6 +74,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
         if (selection != null) {
             FolderSelectionBar(
                 count = selection.keys.size,
+                total = children.size,
                 onClose = { vm.ui.endSelection(selectPage) },
                 onSelectAll = { vm.ui.selectAllFolders(selectPage, children.map { it.path }) },
                 onDownload = {

@@ -1,5 +1,6 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -139,9 +140,22 @@ internal fun DrivePicker(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("${entries.size} here", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                         TextButton(onClick = ::tickAllHere, enabled = !busy && !loading) {
-                            Icon(if (allTicked) Icons.Filled.Deselect else Icons.Filled.SelectAll, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text(if (allTicked) "Unselect all" else "Select all")
+                            // One button for both jobs; it flips with a short scale-and-fade when its job changes.
+                            androidx.compose.animation.AnimatedContent(
+                                targetState = allTicked,
+                                transitionSpec = {
+                                    (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) +
+                                        androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(220), initialScale = 0.7f))
+                                        .togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)))
+                                },
+                                label = "picker_select_all",
+                            ) { all ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(if (all) Icons.Filled.Deselect else Icons.Filled.SelectAll, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.size(6.dp))
+                                    Text(if (all) "Unselect all" else "Select all")
+                                }
+                            }
                         }
                     }
                 }
@@ -223,14 +237,15 @@ internal fun SourceFolderPicker(vm: LibraryViewModel, existing: List<com.deepak.
     DrivePicker(
         vm = vm,
         title = "Choose drive folders",
-        explanation = "Tick a folder to add it with everything inside; its sub-folders each get their own card. Untick a folder to take it off Custom folders. Files on your drive are not changed.",
+        explanation = "Tick a folder to add it with everything inside; its sub-folders each get their own card. Tick single videos to add them too: they are grouped by name into folders (Tom Cruise - movie goes into Tom Cruise). Untick a folder to take it off Custom folders. Files on your drive are not changed.",
         confirmLabel = if (saving) "Saving…" else "Done",
-        withFiles = false,
+        withFiles = true,
         initialFolders = added,
         marked = added,
         busy = saving,
         onDismiss = onClose,
-    ) { folders, _ ->
+    ) { folders, files ->
+        vm.addFilesAsOwnFolders(files)
         val covered = { p: String -> folders.any { isWithinFolder(p, it) } }
         val remove = existing.filter { f -> f.sourcePath != null && !covered(f.sourcePath.trim('/')) }
         val chosen = folders - added

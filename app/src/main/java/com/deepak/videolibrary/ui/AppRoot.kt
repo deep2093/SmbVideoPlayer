@@ -21,7 +21,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
+import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -67,6 +69,7 @@ private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icon
 private const val SETTINGS_TAB = 3
 private const val NOTICE_MS = 8_000L
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun AppRoot(vm: LibraryViewModel = viewModel()) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -199,7 +202,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     }
     val nextSection: () -> Unit = {
         when {
-            tab == 0 && vm.foldersTab < 2 -> Unit
+            tab == 0 && vm.foldersTab < vm.folderSections.lastIndex -> Unit
             tab < TAB_LABELS.lastIndex -> selectSection(tab + 1)
             else -> Unit
         }
@@ -209,7 +212,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
             tab == 0 -> Unit
             tab == 1 && folderDetails -> selectSection(0) // Back to the folder list it was opened from.
             tab == 1 -> {
-                vm.foldersTab = 2
+                vm.foldersTab = vm.folderSections.lastIndex
                 selectSection(0)
             }
             else -> selectSection(tab - 1)
@@ -220,6 +223,9 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val tabletLayout = maxWidth >= 700.dp
         Scaffold(
+            // The player hides the system bars; using their size even while hidden keeps the library from
+            // jumping when it comes back after a video (most visible on tablets in landscape).
+            contentWindowInsets = androidx.compose.foundation.layout.WindowInsets.systemBarsIgnoringVisibility,
             bottomBar = {
                 if (!tabletLayout && !floating) {
                     NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp) {
@@ -337,7 +343,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         tab,
                         TAB_LABELS,
                         TAB_ICONS,
-                        Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 12.dp),
+                        Modifier.align(androidx.compose.ui.Alignment.BottomCenter).windowInsetsPadding(androidx.compose.foundation.layout.WindowInsets.navigationBarsIgnoringVisibility).padding(bottom = 12.dp),
                         hazeState = if (glassTheme) hazeState else null,
                         onSelect = onTabTapped,
                     )

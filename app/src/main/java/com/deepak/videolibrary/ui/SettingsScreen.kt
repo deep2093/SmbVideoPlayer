@@ -392,6 +392,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
                         "Artwork" -> ArtworkSettingsSection(vm)
                         "Appearance" -> {
                             ThemeSettings()
+                            FolderTabsSetting(vm)
                             Text(stringResource(R.string.ui_navigation_position_9c04a08), style = MaterialTheme.typography.titleMedium)
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                 RadioButton(selected = vm.navigationPosition == "SIDEBAR", onClick = { vm.updateNavigationPosition("SIDEBAR") })

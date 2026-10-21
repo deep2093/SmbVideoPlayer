@@ -112,7 +112,7 @@ internal fun FileActionsMenu(
             dismiss()
             if (virtual) vm.stageGroup(path, false) else vm.stageExplorer(path, directory, false)
         })
-        DropdownMenuItem(text = { Text(stringResource(R.string.ui_paste_9db2f69)) }, enabled = vm.explorerClipboard != null, onClick = {
+        if (vm.explorerClipboard != null) DropdownMenuItem(text = { Text(stringResource(R.string.ui_paste_9db2f69)) }, onClick = {
             dismiss()
             vm.pasteDestination =
                 if (virtual) {
@@ -366,14 +366,19 @@ private fun SelectionBar(vm: LibraryViewModel) {
     Column(Modifier.fillMaxWidth().padding(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${vm.selectedPaths.size} selected", Modifier.weight(1f))
-            TextButton(onClick = { vm.selectAll(vm.selectionScope) }) { Text(stringResource(R.string.ui_select_all_913afff)) }
+            val total = if (vm.selectionScope == "explorer") vm.explorerSelectable().size else 0
+            SelectAllToggle(
+                allSelected = total in 1..vm.selectedPaths.size,
+                onSelectAll = { vm.selectAll(vm.selectionScope) },
+                onDeselectAll = vm::clearSelection,
+            )
             TextButton(onClick = vm::clearSelection) { Text(stringResource(R.string.ui_done_e9b450d)) }
         }
         Row {
             TextButton(onClick = vm::downloadSelected) { Text("Download") }
             TextButton(onClick = { vm.stageSelected(true) }) { Text(stringResource(R.string.ui_cut_38d13bd)) }
             TextButton(onClick = { vm.stageSelected(false) }) { Text(stringResource(R.string.ui_copy_af74f7c)) }
-            TextButton(enabled = vm.explorerClipboard != null, onClick = { vm.pasteDestination = vm.settings.rootPath }) { Text(stringResource(R.string.ui_paste_9db2f69)) }
+            if (vm.explorerClipboard != null) TextButton(onClick = { vm.pasteDestination = vm.settings.rootPath }) { Text(stringResource(R.string.ui_paste_9db2f69)) }
             TextButton(onClick = { merge = true }) { Text(stringResource(R.string.ui_merge_into_56f0e1a)) }
         }
     }
