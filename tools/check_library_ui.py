@@ -89,8 +89,12 @@ def open_section(name, probe):
     click(name)
     scroll_to(probe)
 
-def click(label,long=False):
+def click(label,long=False,last=False):
     node=find(label)
+    if last:
+        # The same video can sit in Continue watching (top) and in the main list (below): use the lowest one.
+        matches=[n for n in tree().iter('node') if label in n.get('text','').splitlines() or n.get('content-desc')==label]
+        node=max(matches,key=lambda n:int(re.findall(r'\d+',n.attrib['bounds'])[1]))
     x1,y1,x2,y2=map(int,re.findall(r'\d+',node.attrib['bounds']))
     x,y=(x1+x2)//2,(y1+y2)//2
     if long:
@@ -155,7 +159,7 @@ try:
     click('Folders')
     click('Original folders');find('Movies');screenshot('originals')
     # Holding a video opens its menu (the same as folders); Select starts selecting.
-    click('Videos');click(NAME,long=True);click('Select')
+    click('Videos');click(NAME,long=True,last=True);click('Select')
     # Holding a video selects it; the header shows one Select all / Unselect all button and Delete.
     find('Delete selected')
     # With every video already ticked the same button reads Unselect all.
