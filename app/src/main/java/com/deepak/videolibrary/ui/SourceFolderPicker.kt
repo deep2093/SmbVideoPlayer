@@ -237,7 +237,7 @@ internal fun SourceFolderPicker(vm: LibraryViewModel, existing: List<com.deepak.
     DrivePicker(
         vm = vm,
         title = "Choose drive folders",
-        explanation = "Tick a folder to add it with everything inside; its sub-folders each get their own card. Tick single videos to add them too: they are grouped by name into folders (Tom Cruise - movie goes into Tom Cruise). Untick a folder to take it off Custom folders. Files on your drive are not changed.",
+        explanation = "Tick a folder to add it with everything inside; its sub-folders each get their own card. Tick single videos to add them too: they get a card named after the folder they are in. Untick a folder to take it off Custom folders. Files on your drive are not changed.",
         confirmLabel = if (saving) "Saving…" else "Done",
         withFiles = true,
         initialFolders = added,

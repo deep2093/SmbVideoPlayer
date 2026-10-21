@@ -733,35 +733,31 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
 
     /**
-     * Single videos ticked in "Add drive folders": they are grouped like virtual folders (by the naming rule, so
-     * "Tom Cruise - movie" goes with Tom Cruise) and each group becomes a Custom folder card of that name. A group
-     * whose name matches an existing own folder is added to it.
+     * Single videos ticked in "Add drive folders" stay with the folder they are in: videos from Folder 1 make (or
+     * join) a "Folder 1" card. Nothing is grouped across folders, so no video shows up twice. A card already made
+     * this way for the same drive folder is reused.
      */
     fun addFilesAsOwnFolders(paths: Collection<String>) {
         if (paths.isEmpty()) return
-        viewModelScope.launch {
-            val videos = indexedVideos(paths.map { it.trim('/') })
-            val rule = groupingRule
-            val groups = paths.map { it.trim('/') }.groupBy { path ->
-                videos[path]?.groupKey?.takeIf { it.isNotBlank() && it != com.deepak.videolibrary.scan.GroupKey.FALLBACK }
-                    ?: com.deepak.videolibrary.scan.GroupKey.fromFileName(path.substringAfterLast('/'), rule)
-            }
-            editOwn { list ->
-                var result = list
-                groups.forEach { (key, files) ->
-                    val name = key.split(' ').joinToString(" ") { w -> w.replaceFirstChar { it.titlecase(java.util.Locale.ROOT) } }
-                    val existing = result.firstOrNull { it.name.equals(name, ignoreCase = true) }
-                    result = if (existing != null) {
-                        result.map { if (it.id == existing.id) it.copy(files = (it.files + files).distinct()) else it }
-                    } else {
-                        val clean = cleanFolderName(name) ?: return@forEach
-                        result + OwnFolder(java.util.UUID.randomUUID().toString(), clean, files = files.distinct())
-                    }
+        val byFolder = paths.map { it.trim('/') }.filter { it.isNotEmpty() }.distinct().groupBy { it.substringBeforeLast('/', "") }
+        editOwn { list ->
+            var result = list
+            byFolder.forEach { (parent, files) ->
+                // Reuse a card that holds only single videos from this same drive folder.
+                val existing = result.firstOrNull { own ->
+                    own.folders.isEmpty() && own.files.isNotEmpty() && own.files.all { it.substringBeforeLast('/', "") == parent }
                 }
-                result
+                result = if (existing != null) {
+                    result.map { if (it.id == existing.id) it.copy(files = (it.files + files).distinct()) else it }
+                } else {
+                    val label = if (parent.isEmpty()) settings.share.ifBlank { "Share root" } else originalDisplayName(parent)
+                    val clean = cleanFolderName(label) ?: return@forEach
+                    result + OwnFolder(java.util.UUID.randomUUID().toString(), clean, files = files)
+                }
             }
-            notice = "${paths.size} ${if (paths.size == 1) "video" else "videos"} added to Custom folders in ${groups.size} ${if (groups.size == 1) "folder" else "folders"}."
+            result
         }
+        notice = "${paths.size} ${if (paths.size == 1) "video" else "videos"} added to Custom folders."
     }
 
     /** Creates an empty own folder and returns its id, or null when the name is not usable. */
