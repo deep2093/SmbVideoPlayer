@@ -26,7 +26,7 @@ adb('logcat','-c')
 adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
 find('Virtual folders')
 click('Settings');click('Appearance');find('Theme: Dark grey')
-click('File Explorer');click('Movies');find('Tom Cruise - Fixture.mp4')
+click('Files');click('Movies');find('Tom Cruise - Fixture.mp4')
 Path('preview/device-optimized.png').write_bytes(adb('exec-out','screencap','-p'))
 log=adb('logcat','-d').decode(errors='replace')
 assert 'FATAL EXCEPTION' not in log,log[-6000:]
