@@ -116,6 +116,8 @@ try:
     find('Connection');find('Playback');find('Library');find('Diagnostics')
     screenshot('settings-categories')
     click('Connection');find('Server address');find('Share name');click('Advanced connection options');find('Domain (optional)');find('Require SMB encryption')
+    # The new Artwork section adds a row, so fold Connection away before opening the next section.
+    click('Connection')
     click('Playback');find('Player gestures')
     click('Appearance')
     current='Dark grey'
