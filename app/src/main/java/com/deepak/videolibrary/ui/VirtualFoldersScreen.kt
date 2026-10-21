@@ -319,7 +319,10 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
     // A subfolder that disappears (renamed, taken out, emptied by a rescan) returns to the list.
     LaunchedEffect(current == null, openGroup) { if (openGroup != null && current == null) openGroup = null }
     val shownVideos = current?.videos.orEmpty()
-    val gridState = remember(set.id, openGroup) { LazyGridState() }
+    // The list of subfolders keeps its scroll position while one of them is open.
+    val listState = remember(set.id) { LazyGridState() }
+    val innerState = remember(set.id, openGroup) { LazyGridState() }
+    val gridState = if (openGroup == null) listState else innerState
     ScrollTopOnRequest(vm, gridState)
     LaunchedEffect(openGroup) { vm.ui.endSelection(selectPage) }
     fun toggle(key: String) = vm.ui.toggleFolder(selectPage, key)
