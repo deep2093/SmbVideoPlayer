@@ -61,7 +61,7 @@ internal fun MatchingFoldersScreen(
     BackHandler(enabled = selection != null) { vm.ui.endSelection(selectPage) }
     LaunchedEffect(active) { if (!active) vm.ui.endSelection(selectPage) }
     ScrollTopOnRequest(vm, gridState, active)
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN)) {
         HubTopBar {
         if (selection != null) {
             val chosenOwn = own.filter { "own:" + it.id in selection.keys }
@@ -131,8 +131,8 @@ internal fun MatchingFoldersScreen(
                 state = gridState,
                 modifier = Modifier.fillMaxSize(),
                 columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
+                verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(top = 16.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
             ) {
                 if (folders.isEmpty() && shownOwn.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
@@ -238,7 +238,6 @@ private fun OwnFolderCard(vm: LibraryViewModel, folder: OwnFolder, aspect: Float
             },
             onLongPress = { if (selected != null) { vm.ui.toggleFolder(SelectionPages.CUSTOM, "own:" + folder.id) } else { menu = true } },
             onRename = { rename = true },
-            onOptions = { menu = true },
             selected = selected,
         )
         DropdownMenu(menu, { menu = false }) {
@@ -313,7 +312,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
     } else {
         folder.folders.map { "dir:$it" } + if (grouped) groups.keys.map { "group:$it" } else files.map { "file:" + it.relativePath }
     }
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN)) {
         if (selection != null) {
             FolderSelectionBar(
                 count = selection.keys.size,
@@ -375,8 +374,8 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
             state = gridState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
             columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
+            verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
             contentPadding = PaddingValues(top = 8.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
         ) {
             if (openGroup == null) {
@@ -459,7 +458,6 @@ private fun FileGroupCard(
             listMode = vm.folderListMode,
             onClick = { if (selected != null) onSelect() else onOpen() },
             onLongPress = { if (selected != null) { onSelect() } else { menu = true } },
-            onOptions = { menu = true },
             selected = selected,
         )
         DropdownMenu(menu, { menu = false }) {
@@ -513,7 +511,6 @@ private fun DriveFolderCard(
             },
             onLongPress = { if (selected != null) { onSelect() } else { menu = true } },
             onRename = { rename = true },
-            onOptions = { menu = true },
             selected = selected,
         )
         DropdownMenu(menu, { menu = false }) {
@@ -573,7 +570,6 @@ private fun MatchingFolderCard(
             onClick = { if (selected != null) vm.ui.toggleFolder(SelectionPages.CUSTOM, selectKey) else open() },
             onLongPress = { if (selected != null) { vm.ui.toggleFolder(SelectionPages.CUSTOM, selectKey) } else { menu = true } },
             onRename = ::startRename,
-            onOptions = { menu = true },
             selected = selected,
         )
         if (changeCover) {

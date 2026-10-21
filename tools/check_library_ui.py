@@ -154,7 +154,8 @@ try:
     print('PASS: five theme choices apply live and persist across restart')
     click('Folders')
     click('Original folders');find('Movies');screenshot('originals')
-    click('Videos');click(NAME,long=True)
+    # Holding a video opens its menu (the same as folders); Select starts selecting.
+    click('Videos');click(NAME,long=True);click('Select')
     # Holding a video selects it; the header shows one Select all / Unselect all button and Delete.
     find('Delete selected')
     # With every video already ticked the same button reads Unselect all.
@@ -183,7 +184,7 @@ try:
         time.sleep(1)
     assert target.read_bytes()==(Path('/tmp/videolibrary-fixtures/Movies')/NAME).read_bytes()
     print('PASS: Select all in Videos -> shared Copy -> Paste from Original folders')
-    click('Videos');click('Options for '+NAME);click('Remove / Hide')
+    click('Videos');click(NAME,long=True);click('Remove / Hide')
     click('Files');click('Movies');screenshot('hidden-in-explorer')
     assert gone(NAME), 'A hidden video must not be listed in Files'
     click('Settings');open_section('Library','Unhide files and folders');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
@@ -192,7 +193,7 @@ try:
     print('PASS: hidden video is left out of Files and can be restored in Settings')
     click('Folders');click('Custom folders');click('Add custom folder');click('Create filename collection')
     enter_text('Cruise');click('Create');find('Cruise')
-    click('Cruise');click(NAME,long=True);click('Select all');find('2 selected');click('Done')
+    click('Cruise');click(NAME,long=True);click('Select');click('Select all');find('2 selected');click('Done')
     print('PASS: automatic custom folder matches filenames and supports Select all')
     click('Folders');click('Custom folders');click('Add custom folder');click('Add drive folders')
     click('Choose folder Movies');click('Done');find('Movies')

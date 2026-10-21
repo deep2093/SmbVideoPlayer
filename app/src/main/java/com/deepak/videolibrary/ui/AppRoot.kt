@@ -68,6 +68,7 @@ private val TAB_LABELS = listOf("Folders", "Videos", "Files", "Settings")
 private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Settings)
 private const val SETTINGS_TAB = 3
 private const val NOTICE_MS = 8_000L
+private const val SECTION_SLIDE_MS = 360L
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -104,6 +105,20 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
             vm.consumeExplorerNavigation()
         }
     }
+    // Leaving an opened folder: switch section first and clear the folder only after the slide, so the page
+    // sliding out keeps showing that folder instead of flashing the full Videos list.
+    val leaveFolderTo: (Int) -> Unit = { target ->
+        vm.downloadsOpen = false
+        tab = target
+        appScope.launch {
+            kotlinx.coroutines.delay(SECTION_SLIDE_MS)
+            if (tab != 1) {
+                folderDetails = false
+                vm.groupFilter.value = null
+                vm.matchFolderFilter.value = null
+            }
+        }
+    }
     var closing by remember { mutableStateOf(false) }
     // Closing fades the player out first; the real teardown happens when that animation ends.
     val closePlayer: () -> Unit = { if (!closing) closing = true }
@@ -114,12 +129,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                 tab = SETTINGS_TAB
                 returnToThumbnails = false
             }
-            folderDetails -> {
-                folderDetails = false
-                vm.groupFilter.value = null
-                vm.matchFolderFilter.value = null
-                tab = 0
-            }
+            folderDetails -> leaveFolderTo(0)
             else -> {
                 tab = 0
                 vm.groupFilter.value = null
@@ -171,7 +181,9 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     // a tap when already at the top goes back to all videos (as tapping Videos always did).
     val onTabTapped: (Int) -> Unit = { index ->
         val reselect = index == tab && !vm.downloadsOpen
-        if (!reselect) {
+        if (!reselect && folderDetails && tab == 1) {
+            leaveFolderTo(index)
+        } else if (!reselect) {
             vm.downloadsOpen = false
             tab = index
             folderDetails = false
@@ -194,6 +206,10 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     val floating = vm.navigationPosition == "FLOATING"
     // Swiping between sections follows the order Custom, Virtual, Original folders, Videos, Files, Settings. Inside Folders the tab pager moves between its three pages itself.
     val selectSection: (Int) -> Unit = { index ->
+        if (folderDetails && tab == 1) {
+            leaveFolderTo(index)
+            return@selectSection
+        }
         vm.downloadsOpen = false
         tab = index
         folderDetails = false
@@ -315,14 +331,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                         playQueue = queue
                                     },
                                     onBackToFolders = if (folderDetails) {
-                                        (
-                                            {
-                                                folderDetails = false
-                                                vm.groupFilter.value = null
-                                                vm.matchFolderFilter.value = null
-                                                tab = 0
-                                            }
-                                        )
+                                        ({ leaveFolderTo(0) })
                                     } else {
                                         null
                                     },

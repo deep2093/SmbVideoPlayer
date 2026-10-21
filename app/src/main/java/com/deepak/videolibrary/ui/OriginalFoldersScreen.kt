@@ -17,6 +17,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -69,7 +71,8 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
     LaunchedEffect(active, path) { if (!active) vm.ui.endSelection(selectPage) }
     LaunchedEffect(path) { vm.ui.endSelection(selectPage) }
     ScrollTopOnRequest(vm, gridState, active)
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+    val header = rememberCollapsingHeader()
+    Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN).nestedScroll(header.connection)) {
         HubTopBar {
         if (selection != null) {
             FolderSelectionBar(
@@ -100,6 +103,8 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             IconAction(Icons.Filled.Refresh, stringResource(R.string.ui_refresh_index_2b7da4d), onClick = { vm.startScan(ScanMode.REFRESH) })
         }
         }
+        // The path line and the count slide away while scrolling down and come back on any scroll up.
+        CollapsingHeader(header, resetKey = path) {
         // At the top level the path line only said "Share root"; it appears once you are inside a folder.
         if (path != root) BreadcrumbBar(
             crumbs = breadcrumbs(path, root),
@@ -115,12 +120,9 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             modifier = Modifier.padding(bottom = 8.dp),
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("$count videos including subfolders", Modifier.weight(1f))
-            TextButton(
-                enabled =
-                    count > 0,
-                onClick = { vm.playLibrary("originals", onPlay = onPlay) },
-            ) { Text(stringResource(R.string.ui_play_all_ebb2ffd)) }
+            Text("$count videos including subfolders", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0, onClick = { vm.playLibrary("originals", onPlay = onPlay) })
+        }
         }
         FastScrollBox(
             state = gridState,
@@ -150,8 +152,8 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
         } else LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Fixed(if (vm.folderListMode)1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
+            verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
             contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
             modifier = Modifier.fillMaxSize().testTag("original-folder-grid"),
         ) {

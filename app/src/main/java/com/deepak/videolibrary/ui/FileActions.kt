@@ -61,16 +61,17 @@ internal fun FileActionsMenu(
                 onPlayFromStart()
             })
         }
-        if (onChangeThumbnail != null) {
-            DropdownMenuItem(text = { Text("Change thumbnail") }, onClick = {
-                dismiss()
-                onChangeThumbnail()
-            })
-        }
+        // Same order as the folder menus: cover, then Select, Download, Cut, Copy, Paste, Rename, Delete, Details, Hide.
         if (onChangeCover != null) {
             DropdownMenuItem(text = { Text("Change cover") }, onClick = {
                 dismiss()
                 onChangeCover()
+            })
+        }
+        if (onChangeThumbnail != null) {
+            DropdownMenuItem(text = { Text("Change thumbnail") }, onClick = {
+                dismiss()
+                onChangeThumbnail()
             })
         }
         if (onSelect != null) {
@@ -84,10 +85,6 @@ internal fun FileActionsMenu(
             DropdownMenuItem(text = { Text(stringResource(R.string.ui_select_8598222)) }, onClick = {
                 dismiss()
                 vm.toggleSelected(path, selectionScope)
-            })
-            DropdownMenuItem(text = { Text(stringResource(R.string.ui_select_all_913afff)) }, onClick = {
-                dismiss()
-                vm.selectAll(selectionScope)
             })
         }
         if (virtual) {

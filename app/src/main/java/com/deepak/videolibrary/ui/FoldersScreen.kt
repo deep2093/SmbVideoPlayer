@@ -105,13 +105,24 @@ internal fun FoldersHub(
         if (showBrand) {
             HubBarLine(bars, pager.currentPage, APP_NAME, Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp))
         }
-        if (sections.size > 1) androidx.compose.material3.TabRow(
+        androidx.compose.material3.TabRow(
             selectedTabIndex = pager.currentPage.coerceIn(0, sections.lastIndex),
             containerColor = MaterialTheme.colorScheme.background,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
             sections.forEachIndexed { index, section ->
-                HubTab(vm.sectionName(section), pager.currentPage == index, onClick = { selectTab(index) }, onRename = { renaming = section })
+                // Holding a tab: rename it, hide it (one tab always stays), or bring back a hidden one.
+                HubTab(vm.sectionName(section), pager.currentPage == index, onClick = { selectTab(index) }) { dismiss ->
+                    DropdownMenuItem(text = { Text("Rename") }, onClick = { dismiss(); renaming = section })
+                    DropdownMenuItem(
+                        text = { Text("Hide this tab") },
+                        enabled = sections.size > 1,
+                        onClick = { dismiss(); vm.updateFolderSections(sections - section) },
+                    )
+                    FolderSections.ALL.filterNot { it in sections }.forEach { hidden ->
+                        DropdownMenuItem(text = { Text("Show ${vm.sectionName(hidden)}") }, onClick = { dismiss(); vm.updateFolderSections(sections + hidden) })
+                    }
+                }
             }
         }
         HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { page ->
@@ -172,7 +183,7 @@ fun FoldersScreen(
     androidx.activity.compose.BackHandler(enabled = selection != null) { vm.ui.endSelection(selectPage) }
     LaunchedEffect(active) { if (!active) vm.ui.endSelection(selectPage) }
     ScrollTopOnRequest(vm, gridState, active)
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN)) {
         HubTopBar {
         if (selection != null) {
             FolderSelectionBar(
@@ -271,8 +282,8 @@ fun FoldersScreen(
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(if (vm.folderListMode) 1 else columns),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
+                verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
                 modifier = Modifier.fillMaxSize().testTag("virtual-folder-grid"),
             ) {

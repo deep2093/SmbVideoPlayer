@@ -39,6 +39,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -96,13 +98,20 @@ internal fun rememberHubBars(): MutableMap<Int, @Composable () -> Unit> = rememb
 /** One of the Folders tabs, whose name can be held to rename it. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun HubTab(title: String, selected: Boolean, onClick: () -> Unit, onRename: () -> Unit) {
+internal fun HubTab(
+    title: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    menuItems: @Composable androidx.compose.foundation.layout.ColumnScope.(dismiss: () -> Unit) -> Unit,
+) {
+    var menu by remember { mutableStateOf(false) }
     Box(
         Modifier.fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onRename, onLongClickLabel = "Rename $title")
+            .combinedClickable(onClick = onClick, onLongClick = { menu = true }, onLongClickLabel = "Options for $title")
             .padding(vertical = 14.dp, horizontal = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
+        androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) { menuItems { menu = false } }
         Text(
             title,
             maxLines = 1,
@@ -293,3 +302,40 @@ internal fun FolderTabsSetting(vm: LibraryViewModel) {
         }
     }
 }
+
+/* ---------- A header that slides away while scrolling down ---------- */
+
+/** State of a [CollapsingHeader]: how far it is pushed up, and the scroll hook that moves it. */
+internal class CollapsingHeaderState {
+    var height by androidx.compose.runtime.mutableFloatStateOf(0f)
+    var offset by androidx.compose.runtime.mutableFloatStateOf(0f)
+
+    /** Scrolling down first pushes the header away; scrolling up (anywhere in the list) brings it back. */
+    val connection = object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+        override fun onPreScroll(available: androidx.compose.ui.geometry.Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): androidx.compose.ui.geometry.Offset {
+            val target = (offset + available.y).coerceIn(-height, 0f)
+            val used = target - offset
+            offset = target
+            return androidx.compose.ui.geometry.Offset(0f, used)
+        }
+    }
+}
+
+@Composable
+internal fun rememberCollapsingHeader(): CollapsingHeaderState = remember { CollapsingHeaderState() }
+
+/** Lays out [content] with the part pushed away cut off, so the list below rises into the space. */
+@Composable
+internal fun CollapsingHeader(state: CollapsingHeaderState, resetKey: Any?, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    androidx.compose.runtime.LaunchedEffect(resetKey) { state.offset = 0f }
+    androidx.compose.foundation.layout.Column(
+        Modifier.fillMaxWidth().clipToBounds().layout { measurable, constraints ->
+            val placeable = measurable.measure(constraints.copy(minHeight = 0, maxHeight = androidx.compose.ui.unit.Constraints.Infinity))
+            state.height = placeable.height.toFloat()
+            val shown = (placeable.height + state.offset).toInt().coerceIn(0, placeable.height)
+            layout(placeable.width, shown) { placeable.place(0, state.offset.toInt()) }
+        },
+        content = content,
+    )
+}
+

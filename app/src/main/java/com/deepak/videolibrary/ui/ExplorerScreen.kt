@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -183,9 +184,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${playQueue.size} ${if (searching) "matching" else "playable"} videos", modifier = Modifier.weight(1f))
-            TextButton(enabled = playQueue.isNotEmpty(), onClick = { playQueue.firstOrNull()?.let { onPlay(it, playQueue) } }) {
-                Text(if (vm.explorerSearching) "Play found so far" else "Play all")
-            }
+            IconAction(Icons.Filled.PlayArrow, if (vm.explorerSearching) "Play found so far" else "Play all", enabled = playQueue.isNotEmpty(), onClick = { playQueue.firstOrNull()?.let { onPlay(it, playQueue) } })
         }
         if (vm.explorerSearching) LinearProgressIndicator(Modifier.fillMaxWidth())
         vm.explorerSearchMessage?.takeIf { searching }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -211,8 +210,8 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(libraryColumns(vm.videoGridPreset, floatingPadding(vm))),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
+                verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
@@ -260,7 +259,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                             } else {
                                 Modifier
                             },
-                        ).combinedClickable(onClick = { open(hit) }, onLongClick = { menu = true }),
+                        ).combinedClickable(onClick = { open(hit) }, onLongClick = { menu = true }, onLongClickLabel = "Options for ${entry.name}"),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     val playable = isPlayable(entry)
@@ -288,9 +287,6 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                         }
                     }
                     Box {
-                        IconButton(
-                            onClick = { menu = true },
-                        ) { Icon(Icons.Filled.MoreVert, contentDescription = "Options for ${entry.name}") }
                         FileActionsMenu(
                             menu,
                             { menu = false },
@@ -352,7 +348,7 @@ private fun ExplorerGridCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (focused) Modifier.semantics { contentDescription = "Target file: ${entry.name}" } else Modifier)
-                .combinedClickable(onClick = onOpen, onLongClick = { menu = true }),
+                .combinedClickable(onClick = onOpen, onLongClick = { menu = true }, onLongClickLabel = "Options for ${entry.name}"),
         ) {
             Column {
                 Box(
@@ -392,7 +388,6 @@ private fun ExplorerGridCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Options for ${entry.name}") }
                 }
             }
         }

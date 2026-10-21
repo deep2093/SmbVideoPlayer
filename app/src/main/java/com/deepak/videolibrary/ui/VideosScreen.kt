@@ -99,7 +99,7 @@ fun VideosScreen(
     // Scroll to top only when the filter changes while visible; returning from the player or
     // another tab keeps the previous position.
     ScrollToTopOnChange(Triple(query, group, matchFolder?.id), gridState)
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN)) {
         if (vm.selectedPaths.isNotEmpty() && vm.selectionScope == "videos") {
             VideoSelectionHeader(vm, Modifier.padding(top = 8.dp))
         } else SearchableTopBar(
@@ -113,8 +113,13 @@ fun VideosScreen(
             navigation = if (selectedGroup != null) {
                 {
                     IconButton(onClick = {
-                        if (onBackToFolders != null) onBackToFolders() else vm.groupFilter.value = null
-                        vm.matchFolderFilter.value = null
+                        // Going back to Folders clears the folder after the slide (see AppRoot), not now.
+                        if (onBackToFolders != null) {
+                            onBackToFolders()
+                        } else {
+                            vm.groupFilter.value = null
+                            vm.matchFolderFilter.value = null
+                        }
                     }) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back to folders") }
                 }
             } else {
@@ -161,8 +166,8 @@ fun VideosScreen(
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(if (vm.videoListMode) 1 else columns),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
+                verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
@@ -197,7 +202,7 @@ fun VideosScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = { vm.playLibrary("videos", onPlay = onPlay) }, enabled = count > 0) { Text(stringResource(R.string.ui_play_all_ebb2ffd)) }
+                        IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0, onClick = { vm.playLibrary("videos", onPlay = onPlay) })
                     }
                 }
                 if (videos.loadState.refresh is androidx.paging.LoadState.Loading) {
@@ -357,22 +362,21 @@ internal fun VideoCard(
                     vm.toggleSelected(video.relativePath, selectionScope)
                 })
             }
-            Column(Modifier.weight(1f).padding(start = if (listMode) 12.dp else 0.dp, top = if (listMode) 0.dp else 8.dp)) {
+            // Compact caption: the name on one line and the size, in small type, so the picture gets the room.
+            // The bottom padding keeps the size clear of the card's rounded corner.
+            Column(Modifier.weight(1f).padding(start = if (listMode) 12.dp else 4.dp, end = 4.dp, top = if (listMode) 0.dp else 5.dp, bottom = if (listMode) 0.dp else 6.dp)) {
                 Text(
                     video.name,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium),
-                    minLines = if (listMode) 1 else 2,
-                    maxLines = 2,
+                    style = CardTitleStyle(),
+                    maxLines = if (listMode) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     Formatter.formatShortFileSize(context, video.size),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = CardDetailStyle(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                 )
-            }
-            IconButton(onClick = { menuOpen = true }) {
-                Icon(Icons.Filled.MoreVert, contentDescription = "Options for ${video.name}")
             }
         }
     }
@@ -381,9 +385,14 @@ internal fun VideoCard(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).combinedClickable(onClick = {
                 if (vm.selectedPaths.isNotEmpty())vm.toggleSelected(video.relativePath, selectionScope) else onClick()
             }, onLongClick = {
-                // In Videos, holding a video selects it; elsewhere it opens the options menu as before.
-                if (selectionScope == "videos") vm.toggleSelected(video.relativePath, selectionScope) else menuOpen = true
-            }),
+                // Holding a video opens its menu, the same as folders (Select is in the menu). While selecting,
+                // holding ticks it like a tap.
+                if (vm.selectedPaths.isNotEmpty()) {
+                    vm.toggleSelected(video.relativePath, selectionScope)
+                } else {
+                    menuOpen = true
+                }
+            }, onLongClickLabel = "Options for ${video.name}"),
         ) {
             if (listMode) {
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {

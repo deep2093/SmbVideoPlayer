@@ -36,6 +36,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.deepak.videolibrary.artwork.ArtworkRepository
 import com.deepak.videolibrary.artwork.CoverCrop
 import java.io.File
@@ -59,7 +60,6 @@ internal fun FolderTile(
     modifier: Modifier = Modifier,
     listMode: Boolean = false,
     onRename: (() -> Unit)? = null,
-    onOptions: (() -> Unit)? = null,
     selected: Boolean? = null,
 ) {
     val tall = aspect < 1f
@@ -89,26 +89,20 @@ internal fun FolderTile(
             }
         }
     }
+    // A slim caption (same type as video cards) so the picture takes most of the card.
     val caption: @Composable () -> Unit = {
-        Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = if (onOptions == null) 12.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 8.dp, top = 5.dp, bottom = 6.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).onGloballyPositioned { name = it }) {
-                Text(
-                    title,
-                    minLines = if (listMode) 1 else 2,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, style = CardTitleStyle(), maxLines = if (listMode) 2 else 1, overflow = TextOverflow.Ellipsis)
+                Text(detail, style = CardDetailStyle(), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (selected != null) {
                 Icon(
                     if (selected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
                     contentDescription = if (selected) "Selected" else "Not selected",
                     tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 12.dp).size(24.dp),
+                    modifier = Modifier.padding(start = 6.dp).size(20.dp),
                 )
-            } else if (onOptions != null) {
-                IconButton(onClick = onOptions) { Icon(Icons.Filled.MoreVert, contentDescription = "Options for $title") }
             }
         }
     }
@@ -170,3 +164,21 @@ internal fun RenameDialog(title: String, current: String, hint: String, onDismis
 
 /** Aspect used when no page setting applies. */
 internal const val DEFAULT_CARD_ASPECT = CoverCrop.CARD_ASPECT
+
+
+/** Card name text, shared by video and folder cards so every grid reads the same (2 sizes under body text). */
+@Composable
+internal fun CardTitleStyle() = MaterialTheme.typography.bodyMedium.copy(
+    fontSize = 12.sp,
+    lineHeight = 15.sp,
+    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+)
+
+/** Card detail line (size, number of videos). */
+@Composable
+internal fun CardDetailStyle() = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 13.sp)
+
+/** Grid spacing shared by every folder and video grid: slim margins and gaps so the pictures get the room. */
+internal val PAGE_MARGIN = 10.dp
+internal val GRID_GAP = 8.dp
+internal val GRID_ROW_GAP = 12.dp
