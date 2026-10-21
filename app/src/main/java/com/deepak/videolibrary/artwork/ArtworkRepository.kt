@@ -188,6 +188,41 @@ class ArtworkRepository(
         return removed
     }
 
+    /** Keys equal to [prefix] or below it as a path (`original:a` covers `original:a/b`). */
+    private fun keysUnder(prefix: String): List<String> = rows.keys.filter { it == prefix || it.startsWith("$prefix/") }
+
+    /**
+     * Follows a rename or move made in the app: the stored cover of [from] (and, for SMB folders, of its sub-folders)
+     * moves to [to]. A manual cover already stored at the destination wins.
+     */
+    suspend fun move(from: String, to: String) {
+        if (from == to) return
+        var changed = false
+        withContext(Dispatchers.IO) {
+            writeLock.withLock {
+                for (old in keysUnder(from)) {
+                    val row = rows.remove(old) ?: continue
+                    val newKey = to + old.removePrefix(from)
+                    dao.delete(old)
+                    changed = true
+                    val existing = rows[newKey]
+                    if (existing != null && existing.manual) {
+                        row.imageName?.let { deleteImage(it) }
+                        continue
+                    }
+                    existing?.imageName?.let { deleteImage(it) }
+                    val moved = row.copy(key = newKey)
+                    dao.upsert(ArtworkRow.of(moved))
+                    rows[newKey] = moved
+                }
+            }
+        }
+        if (changed) changes.value++
+    }
+
+    /** Removes the stored cover of [prefix] and, for SMB folders, of everything below it. */
+    suspend fun clearUnder(prefix: String): Int = clear(keysUnder(prefix))
+
     /** Removes only automatically fetched portraits (manual choices are kept). */
     suspend fun clearFetchedPortraits(): Int {
         val keys = rows.values.filter { !it.manual && it.imageName != null }.map { it.key }

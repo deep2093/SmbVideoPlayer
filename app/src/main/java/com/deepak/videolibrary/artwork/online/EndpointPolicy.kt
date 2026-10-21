@@ -14,6 +14,10 @@ object EndpointPolicy {
         return "https".equals(uri.scheme, ignoreCase = true) && uri.userInfo == null && !uri.host.isNullOrBlank() && uri.fragment == null
     }
 
+    /** Hosts of the given custom addresses (lower case), whose images may be downloaded even on a local network. */
+    fun hostsOf(endpoints: Collection<String>): Set<String> =
+        endpoints.mapNotNull { runCatching { URI(it.trim()).host?.lowercase() }.getOrNull() }.toSet()
+
     /** The address without a trailing slash, or null when it is not acceptable. */
     fun normalize(url: String?): String? = url?.trim()?.trimEnd('/')?.takeIf { isAllowed(it) }
 }

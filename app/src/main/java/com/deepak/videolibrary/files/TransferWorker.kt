@@ -141,6 +141,13 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
                                     state.moveHidden(key, source, destination)
                                     state.moveSourceFolders(key, source, destination)
                                     state.journalPhase(operationId, "DONE")
+                                }.also {
+                                    // Covers chosen for this folder (and its sub-folders) follow the rename or move.
+                                    services.artwork.ensureLoaded()
+                                    services.artwork.move(
+                                        com.deepak.videolibrary.artwork.ArtworkKeys.originalFolder(source),
+                                        com.deepak.videolibrary.artwork.ArtworkKeys.originalFolder(destination),
+                                    )
                                 }
                                 "DELETE" -> {
                                     val rows = state.under(source)
@@ -150,6 +157,9 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
                                     }
                                     rows.forEach { ThumbStore.thumbFile(services.artworkContext, it.id).delete() }
                                     com.deepak.videolibrary.thumbs.CustomThumbs.forget(services.artworkContext, rows.map { it.id })
+                                    services.artwork.ensureLoaded()
+                                    services.artwork.clear(rows.map { com.deepak.videolibrary.artwork.ArtworkKeys.video(it.id) })
+                                    services.artwork.clearUnder(com.deepak.videolibrary.artwork.ArtworkKeys.originalFolder(source))
                                 }
                             }
                         }

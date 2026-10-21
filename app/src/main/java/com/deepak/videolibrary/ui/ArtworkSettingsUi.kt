@@ -147,6 +147,8 @@ internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
     OutlinedButton(onClick = vm::fetchPortraitsNow, enabled = s.enabled && s.adultConsent && (s.portraitsOnFolders || s.portraitsOnVideos), modifier = Modifier.fillMaxWidth()) {
         Text("Fetch performer portraits now")
     }
+    val note = remember(settings) { vm.artworkBackgroundNote() }
+    if (note != null) Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     OutlinedButton(onClick = vm::clearFetchedPortraits, enabled = s.enabled, modifier = Modifier.fillMaxWidth()) { Text("Clear automatically fetched portraits") }
     Text(
         "Pictures you chose yourself are kept. Source videos on your server are never changed.",

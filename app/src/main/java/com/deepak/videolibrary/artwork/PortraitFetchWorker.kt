@@ -12,6 +12,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.deepak.videolibrary.ServiceLocator
 import com.deepak.videolibrary.artwork.online.ProviderFailure
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import java.util.concurrent.TimeUnit
 
@@ -32,20 +33,38 @@ class PortraitFetchWorker(context: Context, params: WorkerParameters) : Coroutin
         if (!settings.enabled || !settings.adultConsent) return Result.success()
         if (!forced && !settings.autoFetchOnScan) return Result.success()
 
-        val targets = FolderTargets.collect(services, settings, forced)
+        // A run that was stopped and restarted (time limit, rate limit) continues where it left off: items already
+        // looked up since the run was requested are skipped.
+        val since = inputData.getLong("since", 0L)
+        val targets = FolderTargets.collect(services, settings, forced, since)
         if (targets.isEmpty()) return Result.success()
         val fetcher = services.portraitFetcher
+        var applied = 0
+        var unclear = 0
         for ((identity, label) in targets) {
-            when (val outcome = fetcher.autoFetch(identity, label)) {
-                is PortraitFetcher.Outcome.Failed -> return when (outcome.failure) {
-                    ProviderFailure.RATE_LIMITED, ProviderFailure.NETWORK, ProviderFailure.BLOCKED_BY_SETTINGS -> Result.retry()
-                    else -> Result.failure()
+            val outcome = try {
+                fetcher.autoFetch(identity, label)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                PortraitFetcher.Outcome.ItemError
+            }
+            when (outcome) {
+                is PortraitFetcher.Outcome.Failed -> {
+                    repo.preferences.lastBackgroundNote = "Stopped: ${outcome.failure.message}"
+                    return when (outcome.failure) {
+                        ProviderFailure.RATE_LIMITED, ProviderFailure.NETWORK, ProviderFailure.BLOCKED_BY_SETTINGS -> Result.retry()
+                        else -> Result.failure()
+                    }
                 }
+                PortraitFetcher.Outcome.Applied -> applied++
+                PortraitFetcher.Outcome.Ambiguous -> unclear++
                 else -> Unit
             }
             // Gentle pace: well under any provider's rate limit, and cancellable between lookups.
             delay(PACE_MS)
         }
+        repo.preferences.lastBackgroundNote = "Last lookup: $applied applied" + if (unclear > 0) ", $unclear need you to choose (Change cover)." else "."
         return Result.success()
     }
 
@@ -56,7 +75,7 @@ class PortraitFetchWorker(context: Context, params: WorkerParameters) : Coroutin
         fun enqueue(context: Context, libraryId: String, force: Boolean = false) {
             val settings = ServiceLocator.get(context).artwork.settings.value
             val request = OneTimeWorkRequestBuilder<PortraitFetchWorker>()
-                .setInputData(workDataOf("libraryId" to libraryId, "force" to force))
+                .setInputData(workDataOf("libraryId" to libraryId, "force" to force, "since" to System.currentTimeMillis()))
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(if (settings.allowMetered) NetworkType.CONNECTED else NetworkType.UNMETERED)
@@ -64,7 +83,7 @@ class PortraitFetchWorker(context: Context, params: WorkerParameters) : Coroutin
                 )
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork("$UNIQUE:$libraryId", ExistingWorkPolicy.KEEP, request)
+            WorkManager.getInstance(context).enqueueUniqueWork("$UNIQUE:$libraryId", if (force) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP, request)
         }
 
         fun cancel(context: Context, libraryId: String) {
@@ -75,7 +94,7 @@ class PortraitFetchWorker(context: Context, params: WorkerParameters) : Coroutin
 
 /** The folders a background run may look up: those with no stored result yet (all of them when forced). */
 internal object FolderTargets {
-    suspend fun collect(services: ServiceLocator, settings: ArtworkSettings, forced: Boolean): List<Pair<String, String>> {
+    suspend fun collect(services: ServiceLocator, settings: ArtworkSettings, forced: Boolean, since: Long): List<Pair<String, String>> {
         val repo = services.artwork
         val dao = services.db.dao()
         val out = LinkedHashMap<String, String>()
@@ -86,7 +105,10 @@ internal object FolderTargets {
             if (!wanted) return
             val row = repo.row(identity)
             if (row?.manual == true) return
-            if (!forced && row != null) return
+            // Already has a portrait: never downloaded again. Earlier "no match" / "unclear" results are only
+            // retried when the user asks for a lookup from Settings.
+            if (row?.imageName != null) return
+            if (row != null && (!forced || row.updatedAt >= since)) return
             out[identity] = label
         }
         dao.allGroupNames().forEach { consider(ArtworkKeys.virtualFolder(it), it) }

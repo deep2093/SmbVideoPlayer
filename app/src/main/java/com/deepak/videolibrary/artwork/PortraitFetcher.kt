@@ -25,6 +25,11 @@ class PortraitFetcher(
         object Ambiguous : Outcome()
         object NoMatch : Outcome()
         object Skipped : Outcome()
+
+        /** Something went wrong with this one item only (an unreadable picture, a bad response); carry on. */
+        object ItemError : Outcome()
+
+        /** A problem that affects every lookup (key rejected, rate limit, offline): stop the run. */
         data class Failed(val failure: ProviderFailure) : Outcome()
     }
 
@@ -50,34 +55,12 @@ class PortraitFetcher(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ProviderException) {
-                // Unauthorised / rate limited / offline: stop the whole run rather than hammering the service.
-                return Outcome.Failed(e.failure)
+                if (isFatal(e.failure)) return Outcome.Failed(e.failure)
+                // This provider answered with something unreadable for this name: try the next one.
+                continue
             }
             when (val result = AutoMatch.evaluate(query, candidates)) {
-                is AutoMatch.Result.Match -> {
-                    val bitmap = try {
-                        ArtworkHttp.downloadImage(result.candidate.imageUrl!!, DOWNLOAD_WIDTH)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: ProviderException) {
-                        return Outcome.Failed(e.failure)
-                    }
-                    try {
-                        repository.saveImage(
-                            key = identity,
-                            mode = ArtworkMode.PORTRAIT,
-                            image = bitmap,
-                            manual = false,
-                            providerId = result.candidate.providerId,
-                            performerId = result.candidate.performerId,
-                            performerName = result.candidate.name,
-                            focusY = 0.25f,
-                        )
-                    } finally {
-                        bitmap.recycle()
-                    }
-                    return Outcome.Applied
-                }
+                is AutoMatch.Result.Match -> return apply(identity, result.candidate)
                 AutoMatch.Result.Ambiguous -> {
                     repository.recordLookup(identity, ArtworkOverride.STATUS_AMBIGUOUS)
                     return Outcome.Ambiguous
@@ -88,6 +71,41 @@ class PortraitFetcher(
         repository.recordLookup(identity, ArtworkOverride.STATUS_NO_MATCH)
         return Outcome.NoMatch
     }
+
+    private suspend fun apply(identity: String, candidate: PerformerCandidate): Outcome {
+        val url = candidate.imageUrl ?: return Outcome.ItemError.also { repository.recordLookup(identity, ArtworkOverride.STATUS_ERROR) }
+        val bitmap = try {
+            ArtworkHttp.downloadImage(url, DOWNLOAD_WIDTH, com.deepak.videolibrary.artwork.online.EndpointPolicy.hostsOf(repository.settings.value.customEndpoints.values))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ProviderException) {
+            if (isFatal(e.failure)) return Outcome.Failed(e.failure)
+            repository.recordLookup(identity, ArtworkOverride.STATUS_ERROR)
+            return Outcome.ItemError
+        }
+        try {
+            repository.saveImage(
+                key = identity,
+                mode = ArtworkMode.PORTRAIT,
+                image = bitmap,
+                manual = false,
+                providerId = candidate.providerId,
+                performerId = candidate.performerId,
+                performerName = candidate.name,
+                focusY = 0.25f,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Storage problem: leave the item for a later run.
+            return Outcome.ItemError
+        } finally {
+            bitmap.recycle()
+        }
+        return Outcome.Applied
+    }
+
+    private fun isFatal(failure: ProviderFailure) = failure != ProviderFailure.BAD_RESPONSE
 
     private companion object {
         const val DOWNLOAD_WIDTH = 1280

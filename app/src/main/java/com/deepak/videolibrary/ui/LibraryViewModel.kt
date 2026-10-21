@@ -279,7 +279,11 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         stateDao.renameMatch(folder.id, clean)
         coverRevision++
     }
-    fun deleteMatchingFolder(folder: MatchFolderEntity) = organize { stateDao.deleteMatch(folder.id) }
+    fun deleteMatchingFolder(folder: MatchFolderEntity) = organize {
+        stateDao.deleteMatch(folder.id)
+        services.artwork.ensureLoaded()
+        services.artwork.clear(listOf(com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(folder.id)))
+    }
     fun hideMatchingFolder(
         folder: MatchFolderEntity,
     ) {
@@ -612,11 +616,17 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         val clean = cleanFolderName(to) ?: return@organize
         if (from.equals(clean, ignoreCase = true)) return@organize
         moveVisibleGroupAssignments(from, clean)
+        // The folder's chosen cover follows the new name.
+        services.artwork.ensureLoaded()
+        services.artwork.move(com.deepak.videolibrary.artwork.ArtworkKeys.virtualFolder(from), com.deepak.videolibrary.artwork.ArtworkKeys.virtualFolder(clean))
     }
     fun mergeFolders(from: String, into: String) = organize {
         if (from == into) return@organize
         val target = cleanFolderName(into) ?: return@organize
         moveVisibleGroupAssignments(from, target)
+        // The merged-away folder no longer exists; the destination keeps its own cover.
+        services.artwork.ensureLoaded()
+        services.artwork.clear(listOf(com.deepak.videolibrary.artwork.ArtworkKeys.virtualFolder(from)))
     }
 
     fun assignVideo(id: Long, folder: String) = organize {
@@ -732,6 +742,9 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
 
     fun providerHasKey(providerId: String) = services.providerKeys.has(providerId)
 
+    /** What the last background portrait lookup did, for Settings. */
+    fun artworkBackgroundNote(): String? = services.artwork.preferences.lastBackgroundNote
+
     fun saveProviderKey(providerId: String, key: String): Boolean {
         val saved = services.providerKeys.save(providerId, key)
         providerKeyRevision.value++
@@ -756,7 +769,15 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
 
     /** Downloads a candidate picture (bounded, HTTPS only). Throws ProviderException with a readable reason. */
-    suspend fun downloadPortrait(url: String, maxWidth: Int = 1280) = com.deepak.videolibrary.artwork.online.ArtworkHttp.downloadImage(url, maxWidth)
+    suspend fun downloadPortrait(url: String, maxWidth: Int = 1280): android.graphics.Bitmap {
+        val settings = artworkSettings.value
+        if (!com.deepak.videolibrary.artwork.online.NetworkPolicy.allowed(getApplication(), settings)) {
+            throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.BLOCKED_BY_SETTINGS)
+        }
+        return com.deepak.videolibrary.artwork.online.ArtworkHttp.downloadImage(
+            url, maxWidth, com.deepak.videolibrary.artwork.online.EndpointPolicy.hostsOf(settings.customEndpoints.values),
+        )
+    }
 
     suspend fun applyCoverImage(
         key: String,

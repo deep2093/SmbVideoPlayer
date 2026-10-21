@@ -66,6 +66,6 @@ class ThePornDbProvider : PerformerProvider {
 
         /** The first address the app is willing to download. */
         private fun firstUrl(vararg candidates: String?): String? =
-            candidates.firstOrNull { !it.isNullOrBlank() && it != "null" && ImageUrlPolicy.isAllowed(it) }
+            candidates.firstOrNull { ImageUrlPolicy.looksUsable(it) }
     }
 }

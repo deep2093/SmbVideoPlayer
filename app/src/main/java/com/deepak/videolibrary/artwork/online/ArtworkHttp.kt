@@ -28,9 +28,9 @@ internal object ArtworkHttp {
      * Downloads an image and returns it decoded, at most [maxWidth] wide. Rejects non-HTTPS addresses, oversized
      * downloads, absurd dimensions and files that are not images.
      */
-    suspend fun downloadImage(url: String, maxWidth: Int): Bitmap {
-        if (!ImageUrlPolicy.isAllowed(url)) throw ProviderException(ProviderFailure.BAD_RESPONSE)
-        val bytes = request("GET", url, mapOf("Accept" to "image/*"), null, ImageUrlPolicy.MAX_IMAGE_BYTES, followHttpsRedirects = true)
+    suspend fun downloadImage(url: String, maxWidth: Int, trustedHosts: Set<String> = emptySet()): Bitmap {
+        if (!ImageUrlPolicy.isAllowed(url, trustedHosts)) throw ProviderException(ProviderFailure.BAD_RESPONSE)
+        val bytes = request("GET", url, mapOf("Accept" to "image/*"), null, ImageUrlPolicy.MAX_IMAGE_BYTES, followHttpsRedirects = true, trustedHosts = trustedHosts)
         return withContext(Dispatchers.Default) { decode(bytes, maxWidth) ?: throw ProviderException(ProviderFailure.BAD_RESPONSE) }
     }
 
@@ -52,6 +52,7 @@ internal object ArtworkHttp {
         body: ByteArray?,
         maxBytes: Long,
         followHttpsRedirects: Boolean = false,
+        trustedHosts: Set<String> = emptySet(),
     ): ByteArray = withContext(Dispatchers.IO) {
         var target = url
         var redirects = 0
@@ -94,7 +95,7 @@ internal object ArtworkHttp {
                     code in 300..399 && followHttpsRedirects && redirects < 3 -> {
                         val next = connection.getHeaderField("Location") ?: throw ProviderException(ProviderFailure.BAD_RESPONSE)
                         val resolved = URL(URL(target), next).toString()
-                        if (!ImageUrlPolicy.isAllowed(resolved)) throw ProviderException(ProviderFailure.BAD_RESPONSE)
+                        if (!ImageUrlPolicy.isAllowed(resolved, trustedHosts)) throw ProviderException(ProviderFailure.BAD_RESPONSE)
                         target = resolved
                         redirects++
                     }

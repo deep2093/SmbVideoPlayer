@@ -108,8 +108,10 @@ jobs:
         run: python3 tools/log_schema_manifest.py
       - name: Android lint
         run: |
-          ./gradlew lintDebug --stacktrace || {
-            cat app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+          ./gradlew lintDebug --stacktrace > lint.log 2>&1 || {
+            report=app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt
+            { grep -E ': Error: ' "$report" 2>/dev/null; grep -E '^e: |What went wrong' -A1 lint.log; } | grep -v '^--$' | head -40 | sed -e 's#/home/runner/work/[^/]*/[^/]*/##' | while IFS= read -r line; do echo "::error::${line}"; done
+            cat "$report" 2>/dev/null || tail -40 lint.log
             exit 1
           }
       - uses: actions/upload-artifact@v4

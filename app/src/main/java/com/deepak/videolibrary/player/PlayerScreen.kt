@@ -202,8 +202,12 @@ fun PlayerScreen(
         val controller = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
         val behavior = controller?.systemBarsBehavior
         controller?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        // Light icons over the black video, even in a light app theme; the theme's choice comes back on close.
+        val lightBars = controller?.isAppearanceLightStatusBars
+        controller?.isAppearanceLightStatusBars = false
         controller?.hide(WindowInsetsCompat.Type.systemBars())
         onDispose {
+            if (lightBars != null) controller?.isAppearanceLightStatusBars = lightBars
             controller?.show(WindowInsetsCompat.Type.systemBars())
             if (behavior != null)controller?.systemBarsBehavior = behavior
             if (window != null &&

@@ -67,7 +67,7 @@ class StashDbProvider : PerformerProvider {
             for (i in 0 until images.length()) {
                 val image = images.optJSONObject(i) ?: continue
                 val url = image.optString("url")
-                if (!ImageUrlPolicy.isAllowed(url)) continue
+                if (!ImageUrlPolicy.looksUsable(url)) continue
                 val w = image.optInt("width")
                 val h = image.optInt("height")
                 val score = (if (h >= w && w > 0) 1_000_000_000L else 0L) + minOf(w.toLong() * h, 999_999_999L)

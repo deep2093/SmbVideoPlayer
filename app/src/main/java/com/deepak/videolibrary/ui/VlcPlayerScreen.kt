@@ -369,9 +369,13 @@ internal fun VlcPlayerScreen(
         val window = activity?.window
         val before = window?.attributes?.screenBrightness
         val controller = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
+        // Light icons over the black video, even in a light app theme; the theme's choice comes back on close.
+        val lightBars = controller?.isAppearanceLightStatusBars
+        controller?.isAppearanceLightStatusBars = false
         controller?.hide(WindowInsetsCompat.Type.systemBars())
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (lightBars != null) controller?.isAppearanceLightStatusBars = lightBars
             controller?.show(WindowInsetsCompat.Type.systemBars())
             if (window !=
                 null &&

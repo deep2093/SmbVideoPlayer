@@ -76,8 +76,9 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
             val file = ThumbStore.coverSourceFile(context, id)
             "$id-${file.lastModified()}-${file.length()}"
         }
-        val tag = if (first) "f" else if (grid) "c${picks.size}" else "e"
-        val target = File(dir, "${prefix}_${tag}_$fingerprint.jpg")
+        // Existing covers keep their old file names; the new looks get a letter so they never collide.
+        val tag = if (first) "f_" else if (grid) "c${picks.size}_" else ""
+        val target = File(dir, "${prefix}_$tag$fingerprint.jpg")
         if (target.exists()) return target
 
         val bitmaps = picks.mapNotNull { id ->
@@ -92,14 +93,16 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
             val paint = Paint(Paint.FILTER_BITMAP_FLAG)
             val half = (WIDTH - GAP) / 2
             if (grid && bitmaps.size >= 4) {
-                // Even grid: 2 columns for four tiles, 3 columns for five or six.
+                // Grid: 2 columns for four tiles, 3 for five or six. A shorter last row stretches its tiles so
+                // the picture has no empty gap.
                 val cols = if (bitmaps.size == 4) 2 else 3
                 val rows = (bitmaps.size + cols - 1) / cols
-                val cellW = (WIDTH - GAP * (cols - 1)) / cols
                 val cellH = (HEIGHT - GAP * (rows - 1)) / rows
                 bitmaps.forEachIndexed { i, bmp ->
-                    val col = i % cols
                     val row = i / cols
+                    val col = i % cols
+                    val inRow = minOf(cols, bitmaps.size - row * cols)
+                    val cellW = (WIDTH - GAP * (inRow - 1)) / inRow
                     val left = col * (cellW + GAP)
                     val top = row * (cellH + GAP)
                     draw(canvas, bmp, Rect(left, top, left + cellW, top + cellH), paint)

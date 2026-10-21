@@ -12,6 +12,13 @@ class ArtworkPreferences(context: Context, libraryId: String) {
     private val state = MutableStateFlow(read())
     val settings: StateFlow<ArtworkSettings> = state.asStateFlow()
 
+    /** A short note about the last background lookup (shown in Settings), or null. Never holds keys or paths. */
+    var lastBackgroundNote: String?
+        get() = prefs.getString("last_background_note", null)
+        set(value) {
+            prefs.edit().putString("last_background_note", value).apply()
+        }
+
     @Synchronized
     fun update(change: (ArtworkSettings) -> ArtworkSettings) {
         val next = sanitize(change(state.value))

@@ -83,6 +83,7 @@ private enum class CoverTab(val label: String) {
  * Change cover: tabbed sources (auto frame, internet performer, folder collage, image from this phone, reset), a search
  * field prefilled with the cleaned name, a candidate list, and a crop-position step before anything is saved.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPickFrame: (() -> Unit)?, onDismiss: () -> Unit) {
     val context = LocalContext.current
