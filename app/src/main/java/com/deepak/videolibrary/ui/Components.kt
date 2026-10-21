@@ -185,9 +185,10 @@ fun SearchableTopBar(
         } else {
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
                 navigation?.invoke()
+                val hubTitle = LocalHubTitle.current
                 Text(
-                    title,
-                    style = MaterialTheme.typography.titleLarge,
+                    hubTitle ?: title,
+                    style = if (hubTitle != null) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.titleLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),

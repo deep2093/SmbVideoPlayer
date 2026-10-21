@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -30,6 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.deepak.videolibrary.artwork.ArtworkRepository
@@ -39,7 +43,9 @@ import java.io.File
 /**
  * One folder card, shared by every folder list so they look and behave the same: cover in the page's card shape,
  * name and a short detail line, an options button. Tapping opens the folder; holding the card opens [onLongPress]
- * (its options); holding the NAME renames it when [onRename] is given.
+ * (its options); holding the NAME (or its detail line) renames it when [onRename] is given.
+ *
+ * In selection mode ([selected] is not null) a tap ticks or unticks the card instead.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -54,8 +60,20 @@ internal fun FolderTile(
     listMode: Boolean = false,
     onRename: (() -> Unit)? = null,
     onOptions: (() -> Unit)? = null,
+    selected: Boolean? = null,
 ) {
     val tall = aspect < 1f
+    // Where the finger went down, and where the name sits, both in the card's own coordinates. One gesture
+    // handler for the whole card decides on long-press whether the name was held (rename) or the rest (options).
+    var downAt by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Unspecified) }
+    var card by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    var name by remember { mutableStateOf<androidx.compose.ui.layout.LayoutCoordinates?>(null) }
+    fun heldName(): Boolean {
+        val c = card ?: return false
+        val n = name ?: return false
+        if (!c.isAttached || !n.isAttached || !downAt.isFinite) return false
+        return c.localBoundingBoxOf(n).inflate(6f).contains(downAt)
+    }
     val shown = remember(cover, tall) { ArtworkRepository.forShape(cover, tall) }
     val artwork: @Composable () -> Unit = {
         Box(
@@ -73,26 +91,47 @@ internal fun FolderTile(
     }
     val caption: @Composable () -> Unit = {
         Row(Modifier.padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = if (onOptions == null) 12.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f).onGloballyPositioned { name = it }) {
                 Text(
                     title,
                     minLines = if (listMode) 1 else 2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = if (onRename != null) {
-                        Modifier.combinedClickable(onClick = onClick, onLongClick = onRename, onLongClickLabel = "Rename")
-                    } else {
-                        Modifier
-                    },
                 )
                 Text(detail, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (onOptions != null) IconButton(onClick = onOptions) { Icon(Icons.Filled.MoreVert, contentDescription = "Options for $title") }
+            if (selected != null) {
+                Icon(
+                    if (selected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                    contentDescription = if (selected) "Selected" else "Not selected",
+                    tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp).size(24.dp),
+                )
+            } else if (onOptions != null) {
+                IconButton(onClick = onOptions) { Icon(Icons.Filled.MoreVert, contentDescription = "Options for $title") }
+            }
         }
     }
     Column(
-        modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surface)
-            .combinedClickable(onClick = onClick, onLongClick = onLongPress),
+        modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium)
+            .background(if (selected == true) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+            .onGloballyPositioned { card = it }
+            .pointerInput(Unit) {
+                // Watches where each press starts without taking the touch away from the click handling below.
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                        if (event.type == androidx.compose.ui.input.pointer.PointerEventType.Press) {
+                            downAt = event.changes.first().position
+                        }
+                    }
+                }
+            }
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = { if (onRename != null && selected == null && heldName()) onRename() else onLongPress() },
+                onLongClickLabel = if (onRename != null) "Rename or options" else "Options",
+            ),
     ) {
         if (listMode) {
             Row(verticalAlignment = Alignment.CenterVertically) {

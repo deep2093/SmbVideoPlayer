@@ -43,4 +43,14 @@ class GroupKeyTest {
         assertEquals(GroupKey.FALLBACK, GroupKey.fromFileName("[1080p].mkv"))
         assertEquals(GroupKey.FALLBACK, GroupKey.fromFileName("---.mp4"))
     }
+
+    @Test fun twoWordRuleOnlyAppliesWithoutDelimiters() {
+        val rule = GroupingRule.COMMA_HYPHEN_OR_TWO_WORDS
+        assertEquals("tom cruise", GroupKey.fromFileName("Tom Cruise movie.mp4", rule))
+        assertEquals("tom cruise", GroupKey.fromFileName("Tom Cruise Top Gun Maverick 2.mkv", rule))
+        assertEquals("tom cruise top gun", GroupKey.fromFileName("Tom Cruise Top Gun - Maverick.mkv", rule))
+        assertEquals("avatar", GroupKey.fromFileName("Avatar.mkv", rule))
+        // The default rule is unchanged.
+        assertEquals("tom cruise movie", GroupKey.fromFileName("Tom Cruise movie.mp4"))
+    }
 }

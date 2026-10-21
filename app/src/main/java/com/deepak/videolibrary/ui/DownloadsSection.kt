@@ -4,6 +4,8 @@ import android.app.DownloadManager
 import android.content.Intent
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +25,8 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -49,6 +53,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,8 +116,7 @@ internal fun IconAction(
 }
 
 /**
- * The Downloads page, opened from the download button: an overall bar and speed for what is still running, then
- * each file with its own bar and speed. Files go to Download/Video Library, keeping folder names.
+ * The Downloads page, opened from the download button: each file with its own bar and speed. Files go to Download/Video Library, keeping folder names.
  */
 @Composable
 internal fun DownloadsPage(vm: LibraryViewModel, onClose: () -> Unit) {
@@ -129,11 +133,10 @@ internal fun DownloadsPage(vm: LibraryViewModel, onClose: () -> Unit) {
         }
     }
     val running = items.filter { it.status == DownloadItem.RUNNING }
-    val measuredAt = remember(items, tick) {
+    remember(items, tick) {
         val now = System.currentTimeMillis()
         running.forEach { speed.record(it.id, it.bytesDone, now) }
         speed.keepOnly(running.map { it.id }.toSet())
-        now
     }
     val active = items.filter { it.active }
     val completed = items.count { it.status == DownloadItem.DONE }
@@ -151,33 +154,14 @@ internal fun DownloadsPage(vm: LibraryViewModel, onClose: () -> Unit) {
                 runCatching { context.startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             })
         }
-        ParallelDownloadsSetting(vm, Modifier.padding(vertical = 8.dp))
-        if (active.isNotEmpty()) {
-            val total = active.sumOf { maxOf(it.size, it.bytesDone) }
-            val done = active.sumOf { it.bytesDone }
-            val overallSpeed = if (measuredAt > 0) running.sumOf { speed.bytesPerSecond(it.id) } else 0.0
+        ParallelDownloadsSetting(vm, Modifier.padding(vertical = 4.dp))
+        val waiting = active.count { it.libraryId != vm.currentLibraryId }
+        if (waiting > 0) {
             Text(
-                buildString {
-                    append("${active.size} ${if (active.size == 1) "file" else "files"} left")
-                    if (total > 0) append(" · ${Formatter.formatShortFileSize(context, done)} of ${Formatter.formatShortFileSize(context, total)}")
-                    if (running.isNotEmpty()) append(" · ${DownloadSpeed.format(overallSpeed)}")
-                },
-                style = MaterialTheme.typography.bodyMedium,
+                "$waiting ${if (waiting == 1) "file belongs" else "files belong"} to another saved server and will continue when you switch back to it.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            LinearProgressIndicator(
-                progress = { if (total > 0) (done.toDouble() / total).toFloat().coerceIn(0f, 1f) else 0f },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            )
-            val waiting = active.count { it.libraryId != vm.currentLibraryId }
-            if (waiting > 0) {
-                Text(
-                    "$waiting ${if (waiting == 1) "file belongs" else "files belong"} to another saved server and will continue when you switch back to it.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else if (items.isNotEmpty()) {
-            Text("All downloads finished.", style = MaterialTheme.typography.bodyMedium)
         }
         if (items.isEmpty()) {
             Text(
@@ -200,24 +184,56 @@ internal fun DownloadsPage(vm: LibraryViewModel, onClose: () -> Unit) {
     }
 }
 
-/** "Files at a time": 1 to 4 (1 by default). A new choice applies to the next file that starts. */
+/**
+ * "Simultaneous downloads": 1 to 4 (1 by default), shown as one compact line with the current number. Tapping it
+ * opens the choices; picking one closes them again. A new choice applies to the next file that starts.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ParallelDownloadsSetting(vm: LibraryViewModel, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Files at a time", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        SingleChoiceSegmentedButtonRow(Modifier.widthIn(max = 240.dp)) {
-            val options = (DownloadPrefs.MIN_PARALLEL..DownloadPrefs.MAX_PARALLEL).toList()
-            options.forEachIndexed { index, value ->
-                SegmentedButton(
-                    selected = vm.downloadParallel == value,
-                    onClick = { vm.updateDownloadParallel(value) },
-                    shape = SegmentedButtonDefaults.itemShape(index, options.size),
-                    icon = {},
-                ) { Text(value.toString()) }
+    var open by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    Column(modifier.fillMaxWidth().animateContentSize()) {
+        Row(
+            Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { open = !open }.padding(vertical = 8.dp, horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Simultaneous downloads", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(vm.downloadParallel.toString(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Icon(
+                if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (open) "Hide choices" else "Change simultaneous downloads",
+                modifier = Modifier.padding(start = 4.dp).size(20.dp),
+            )
+        }
+        if (open) {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp)) {
+                val options = (DownloadPrefs.MIN_PARALLEL..DownloadPrefs.MAX_PARALLEL).toList()
+                options.forEachIndexed { index, value ->
+                    SegmentedButton(
+                        selected = vm.downloadParallel == value,
+                        onClick = {
+                            vm.updateDownloadParallel(value)
+                            open = false
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                        icon = {},
+                    ) { Text(value.toString()) }
+                }
             }
         }
     }
+}
+
+/** A plain left-to-right progress bar: filled part, then the track, with no gap or end dot. */
+@Composable
+internal fun FillBar(progress: Float, modifier: Modifier = Modifier) {
+    LinearProgressIndicator(
+        progress = { progress.coerceIn(0f, 1f) },
+        modifier = modifier.height(4.dp),
+        strokeCap = androidx.compose.ui.graphics.StrokeCap.Round,
+        gapSize = 0.dp,
+        drawStopIndicator = {},
+    )
 }
 
 @Composable
@@ -246,7 +262,7 @@ private fun DownloadRow(vm: LibraryViewModel, item: DownloadItem, bytesPerSecond
                 overflow = TextOverflow.Ellipsis,
             )
             if (item.status == DownloadItem.RUNNING || (item.status == DownloadItem.QUEUED && item.bytesDone > 0)) {
-                LinearProgressIndicator(progress = { item.fraction }, modifier = Modifier.fillMaxWidth())
+                FillBar(item.fraction, Modifier.fillMaxWidth())
             }
             Text(
                 status,

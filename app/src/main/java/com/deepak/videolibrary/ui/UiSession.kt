@@ -21,6 +21,12 @@ class UiSession {
     /** Settings scroll position in pixels. */
     var settingsScroll = 0
 
+    /** Folders being selected on a folder page, or null. */
+    var folderSelection by mutableStateOf<FolderSelection?>(null)
+
+    /** Goes up by one each time the current section's button is tapped again: the page in view jumps to its top. */
+    var scrollTopRequest by mutableStateOf(0)
+
     fun flag(key: String, default: Boolean = false): Boolean = flags[key] ?: default
 
     fun setFlag(key: String, value: Boolean) {

@@ -95,8 +95,32 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // The system splash (the app icon) stays up until the library is open, at most a couple of seconds.
+    @Volatile private var libraryOpened = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splash = androidx.core.splashscreen.SplashScreen.installSplashScreen(this)
         super.onCreate(savedInstanceState)
+        val splashStarted = android.os.SystemClock.uptimeMillis()
+        splash.setKeepOnScreenCondition { !libraryOpened && android.os.SystemClock.uptimeMillis() - splashStarted < SPLASH_MAX_MS }
+        // The icon shrinks and fades into the opening animation, which starts on the same colour.
+        splash.setOnExitAnimationListener { provider ->
+            val icon = runCatching { provider.iconView }.getOrNull()
+            val finish = {
+                provider.remove()
+                com.deepak.videolibrary.ui.LaunchIntroState.splashGone = true
+            }
+            if (icon == null) {
+                finish()
+            } else {
+                icon.animate()
+                    .scaleX(0.55f).scaleY(0.55f).alpha(0f)
+                    .setDuration(260)
+                    .setInterpolator(android.view.animation.AccelerateInterpolator(1.4f))
+                    .withEndAction { finish() }
+                    .start()
+            }
+        }
         // The app uses dark surfaces even when Android itself is in light mode.
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -116,6 +140,8 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             VideoLibraryTheme {
+              com.deepak.videolibrary.ui.LaunchIntro { reveal ->
+              Box(with(com.deepak.videolibrary.ui.LaunchIntroState) { Modifier.fillMaxSize().introReveal(reveal) }) {
                 val libraryRevision by com.deepak.videolibrary.settings.SettingsStore.revision.collectAsState()
                 var ready by remember(libraryRevision) { mutableStateOf(false) }
                 var failed by remember { mutableStateOf(false) }
@@ -134,6 +160,8 @@ class MainActivity : ComponentActivity() {
                         throw e
                     } catch (_: Exception) {
                         failed = true
+                    } finally {
+                        libraryOpened = true
                     }
                 }
                 if (ready) {
@@ -153,7 +181,13 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+              }
+              }
             }
         }
+    }
+
+    private companion object {
+        const val SPLASH_MAX_MS = 2_500L
     }
 }

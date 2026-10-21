@@ -190,10 +190,7 @@ internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel) {
                         ScanStat("Failed", thumbsFailed.toString(), Modifier.weight(1f), warn = visibleFailures.isNotEmpty())
                     }
                     if (busy && thumbsPending > 0) {
-                        LinearProgressIndicator(
-                            progress = { thumbsDone.toFloat() / all.coerceAtLeast(1) },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        FillBar(thumbsDone.toFloat() / all.coerceAtLeast(1), Modifier.fillMaxWidth())
                     }
                     HorizontalDivider()
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

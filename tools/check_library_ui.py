@@ -133,7 +133,9 @@ try:
     assert not any('Choose source folders' in label for label in labels)
     print('PASS: Virtual folders restored automatically without a source picker')
     click('Settings')
-    find('Connection');find('Playback');find('Library');find('Diagnostics')
+    find('Connection');find('Playback');find('Library')
+    # Diagnostics is the last section; it may sit below the fold on a phone.
+    scroll_to('Diagnostics');scroll_to('Connection',up=True)
     screenshot('settings-categories')
     click('Connection');find('Server address');find('Share name');click('Advanced connection options');find('Domain (optional)');find('Require SMB encryption')
     # The new Artwork section adds a row, so fold Connection away before opening the next section.

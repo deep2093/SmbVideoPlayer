@@ -79,6 +79,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
         sortExplorerHits(listed, vm.explorerSort, vm.explorerSortDescending)
     }
     val gridState = rememberLazyGridState()
+    OnScrollTopRequest(vm) { if (vm.explorerGridMode) gridState.glideToTop() else listState.glideToTop() }
     // Thumbnails for the grid come from the library index (only looked up while the grid is shown).
     val indexed by produceState(emptyMap<String, VideoEntity>(), vm.explorerGridMode, shown.map { it.path }) {
         value = if (vm.explorerGridMode) vm.indexedVideos(shown.filter { isPlayable(it.entry) }.map { it.path }) else emptyMap()

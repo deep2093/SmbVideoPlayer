@@ -813,6 +813,14 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     // ---- Display names of original folders (only in this app; the drive keeps its names) ----
     private val folderNames = FolderNameStore(app)
 
+    /** Names of the three Folders tabs (Custom, Virtual, Original); the user can rename them by holding the tab. */
+    fun sectionName(index: Int): String = folderNames.get(namespace.value, SECTION_KEYS[index]) ?: SECTION_DEFAULTS[index]
+
+    fun renameSection(index: Int, name: String) {
+        val clean = name.trim().takeIf { it.isNotEmpty() && it != SECTION_DEFAULTS[index] }
+        folderNames.set(namespace.value, SECTION_KEYS[index], clean)
+    }
+
     fun originalDisplayName(path: String): String = folderNames.get(namespace.value, path) ?: originalFolderLabel(path)
 
     /** Sets (or with a blank name, removes) the name shown for an original folder. */
@@ -1563,3 +1571,7 @@ private const val MAX_OWN_FILES = 500
 
 /** A single folder download adds at most this many files, so a mistaken tap on the share root stays manageable. */
 private const val MAX_DOWNLOAD_FILES = 5000
+
+/** Stored-name keys of the Folders tabs (never valid drive paths) and their default names. */
+private val SECTION_KEYS = listOf("::section:custom", "::section:virtual", "::section:original")
+internal val SECTION_DEFAULTS = listOf("Custom folders", "Virtual folders", "Original folders")

@@ -40,6 +40,7 @@ internal fun FileActionsMenu(
     selectionScope: String = "videos",
     onChangeThumbnail: (() -> Unit)? = null,
     onChangeCover: (() -> Unit)? = null,
+    onSelect: (() -> Unit)? = null,
 ) {
     var rename by remember(path) { mutableStateOf(false) }
     var delete by remember(path) { mutableStateOf(false) }
@@ -70,6 +71,13 @@ internal fun FileActionsMenu(
             DropdownMenuItem(text = { Text("Change cover") }, onClick = {
                 dismiss()
                 onChangeCover()
+            })
+        }
+        if (onSelect != null) {
+            // Folders: start selecting folders on this page, with this one ticked.
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_select_8598222)) }, onClick = {
+                dismiss()
+                onSelect()
             })
         }
         if (!directory && !virtual) {

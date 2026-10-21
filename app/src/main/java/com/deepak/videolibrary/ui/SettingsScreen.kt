@@ -106,16 +106,16 @@ private fun GridPresetSetting(label: String, selected: String, onSelect: (String
 private class SettingsSection(val id: String, val title: String, val description: String)
 
 private val SETTINGS_SECTIONS = listOf(
-    // Alphabetical.
+    // Alphabetical, with Diagnostics last.
     SettingsSection("Appearance", "Appearance", "Theme, navigation and grid layout"),
     SettingsSection("Artwork", "Artwork", "Covers, collages and performer pictures"),
     SettingsSection("Connection", "Connection", "Server, account and saved password"),
-    SettingsSection("Diagnostics", "Diagnostics", "Playback reports and troubleshooting"),
-    SettingsSection("Downloads", "Downloads", "How many files download at a time"),
+    SettingsSection("Downloads", "Downloads", "Simultaneous downloads"),
     SettingsSection("Library", "Library", "Hidden files and folders, grouping, backup"),
     SettingsSection("Playback", "Playback", "Brightness and volume gestures"),
     SettingsSection("Sync", "Sync & thumbnails", "Library scan, automatic sync and thumbnails"),
     SettingsSection("VPN", "VPN", "WireGuard for remote access to your server"),
+    SettingsSection("Diagnostics", "Diagnostics", "Playback reports and troubleshooting"),
 )
 
 /** One settings group: a card whose content drops down in place when the header is tapped. */
@@ -225,6 +225,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
 
     val scroll = remember { androidx.compose.foundation.ScrollState(vm.ui.settingsScroll) }
     androidx.compose.runtime.DisposableEffect(scroll) { onDispose { vm.ui.settingsScroll = scroll.value } }
+    OnScrollTopRequest(vm) { scroll.animateScrollTo(0) }
     var layoutExpanded by vm.ui.flagState("settings.layout")
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
         Column(
@@ -459,6 +460,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
                                         com.deepak.videolibrary.scan.GroupingRule.COMMA_OR_HYPHEN -> "Before comma or hyphen"
                                         com.deepak.videolibrary.scan.GroupingRule.COMMA_ONLY -> "Before comma"
                                         com.deepak.videolibrary.scan.GroupingRule.FULL_NAME -> "Full cleaned filename"
+                                        com.deepak.videolibrary.scan.GroupingRule.COMMA_HYPHEN_OR_TWO_WORDS -> "Before comma or hyphen, otherwise the first two words"
                                     }
                                     Row(
                                         Modifier.fillMaxWidth().selectable(selected = vm.groupingRule == rule, role = Role.RadioButton, onClick = { vm.updateGrouping(rule) }),

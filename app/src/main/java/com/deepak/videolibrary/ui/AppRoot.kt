@@ -164,6 +164,30 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         }
         return
     }
+    // Tapping the section you are already in takes its page back to the top. Inside an opened folder on Videos,
+    // a tap when already at the top goes back to all videos (as tapping Videos always did).
+    val onTabTapped: (Int) -> Unit = { index ->
+        val reselect = index == tab && !vm.downloadsOpen
+        if (!reselect) {
+            vm.downloadsOpen = false
+            tab = index
+            folderDetails = false
+            vm.groupFilter.value = null
+            vm.matchFolderFilter.value = null
+        } else if (index == 1) {
+            val state = if (folderDetails) folderVideosScrollState else videosScrollState
+            val atTop = state.firstVisibleItemIndex == 0 && state.firstVisibleItemScrollOffset == 0
+            if (folderDetails && atTop) {
+                folderDetails = false
+                vm.groupFilter.value = null
+                vm.matchFolderFilter.value = null
+            } else {
+                appScope.launch { state.glideToTop() }
+            }
+        } else {
+            vm.ui.scrollTopRequest++
+        }
+    }
     val floating = vm.navigationPosition == "FLOATING"
     // Swiping between sections follows the order Custom, Virtual, Original folders, Videos, Files, Settings. Inside Folders the tab pager moves between its three pages itself.
     val selectSection: (Int) -> Unit = { index ->
@@ -208,13 +232,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                     indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 ),
-                                onClick = {
-                                    vm.downloadsOpen = false
-                                    tab = index
-                                    folderDetails = false
-                                    vm.groupFilter.value = null
-                                    vm.matchFolderFilter.value = null
-                                },
+                                onClick = { onTabTapped(index) },
                                 icon = { Icon(TAB_ICONS[index], contentDescription = label) },
                                 label = { Text(label, maxLines = 1, style = MaterialTheme.typography.labelSmall) },
                             )
@@ -230,13 +248,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         .then(if (glassTheme && floating) Modifier.hazeSource(hazeState) else Modifier),
                 ) {
                     if (tabletLayout && !floating) {
-                        LibrarySidebar(selected = tab, labels = TAB_LABELS, icons = TAB_ICONS, modifier = Modifier.width(SIDEBAR_WIDTH).fillMaxHeight()) { index ->
-                            vm.downloadsOpen = false
-                            tab = index
-                            folderDetails = false
-                            vm.groupFilter.value = null
-                            vm.matchFolderFilter.value = null
-                        }
+                        LibrarySidebar(selected = tab, labels = TAB_LABELS, icons = TAB_ICONS, modifier = Modifier.width(SIDEBAR_WIDTH).fillMaxHeight(), onSelect = onTabTapped)
                     }
                     Column(Modifier.weight(1f).fillMaxHeight()) {
                         Column(Modifier.animateContentSize(tween(260, easing = FastOutSlowInEasing))) {
@@ -327,14 +339,8 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         TAB_ICONS,
                         Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 12.dp),
                         hazeState = if (glassTheme) hazeState else null,
-                    ) { index ->
-                        vm.downloadsOpen = false
-                        tab =
-                            index
-                        folderDetails = false
-                        vm.groupFilter.value = null
-                        vm.matchFolderFilter.value = null
-                    }
+                        onSelect = onTabTapped,
+                    )
                 }
             }
         }

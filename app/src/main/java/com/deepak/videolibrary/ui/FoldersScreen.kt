@@ -87,21 +87,28 @@ internal fun FoldersHub(
         focusManager.clearFocus()
         keyboard?.hide()
     }
+    val bars = rememberHubBars()
+    var renaming by remember { mutableStateOf<Int?>(null) }
+    // Tapping the open tab again scrolls its page to the top (the same as tapping Folders again).
+    fun selectTab(index: Int) {
+        if (pager.currentPage == index) {
+            vm.ui.scrollTopRequest++
+        } else {
+            scope.launch { pager.animateScrollToPage(index) }
+        }
+    }
     Column(Modifier.fillMaxSize()) {
-        if (showBrand) Text(
-            "Video Library",
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 16.dp),
-        )
+        // On phones the page buttons sit on the "Video Library" line; on tablets each page keeps its own title row.
+        if (showBrand) {
+            HubBarLine(bars, pager.currentPage, "Video Library", Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp))
+        }
         androidx.compose.material3.TabRow(
             selectedTabIndex = pager.currentPage,
             containerColor = MaterialTheme.colorScheme.background,
             contentColor = MaterialTheme.colorScheme.onSurface,
         ) {
-            listOf("Custom folders", "Virtual folders", "Original folders").forEachIndexed { index, title ->
-                androidx.compose.material3.Tab(selected = pager.currentPage == index, onClick = {
-                    scope.launch { pager.animateScrollToPage(index) }
-                }, text = { Text(title, maxLines = 1, style = MaterialTheme.typography.labelMedium) })
+            (0..2).forEach { index ->
+                HubTab(vm.sectionName(index), pager.currentPage == index, onClick = { selectTab(index) }, onRename = { renaming = index })
             }
         }
         HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { page ->
@@ -109,13 +116,24 @@ internal fun FoldersHub(
             // The pager would answer by sliding to a neighbouring tab, so the request stops at the page.
             Box(Modifier.fillMaxSize().stopBringIntoViewPropagation()) {
                 val active = pager.currentPage == page
-                when (page) {
-                    0 -> MatchingFoldersScreen(vm, customGridState, onOpenGroup, onPlay, active = active)
-                    1 -> FoldersScreen(vm, gridState, onOpenGroup, onPlay, onOpenSettings, active = active)
-                    else -> OriginalFoldersScreen(vm, onPlay, active = active)
+                val slot = remember(page, showBrand) { if (showBrand) HubBarSlot(bars, page) else null }
+                androidx.compose.runtime.CompositionLocalProvider(LocalHubBarSlot provides slot) {
+                    when (page) {
+                        0 -> MatchingFoldersScreen(vm, customGridState, onOpenGroup, onPlay, active = active)
+                        1 -> FoldersScreen(vm, gridState, onOpenGroup, onPlay, onOpenSettings, active = active)
+                        else -> OriginalFoldersScreen(vm, onPlay, active = active)
+                    }
                 }
             }
         }
+    }
+    renaming?.let { index ->
+        RenameDialog(
+            title = "Rename tab",
+            current = vm.sectionName(index),
+            hint = "Shown on the tab and at the top of the page. Leave it as \"${SECTION_DEFAULTS[index]}\" to keep the usual name.",
+            onDismiss = { renaming = null },
+        ) { vm.renameSection(index, it) }
     }
 }
 
@@ -145,9 +163,31 @@ fun FoldersScreen(
             searchExpanded = false
         }
     }
+    val selectPage = SelectionPages.VIRTUAL
+    val selection = vm.ui.selectionOn(selectPage)
+    androidx.activity.compose.BackHandler(enabled = selection != null) { vm.ui.endSelection(selectPage) }
+    LaunchedEffect(active) { if (!active) vm.ui.endSelection(selectPage) }
+    ScrollTopOnRequest(vm, gridState, active)
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        HubTopBar {
+        if (selection != null) {
+            FolderSelectionBar(
+                count = selection.keys.size,
+                onClose = { vm.ui.endSelection(selectPage) },
+                onSelectAll = { vm.ui.selectAllFolders(selectPage, shownGroups.map { it.groupKey }) },
+                onDownload = {
+                    selection.keys.forEach(vm::downloadVirtualFolder)
+                    vm.ui.endSelection(selectPage)
+                },
+                onHide = {
+                    selection.keys.forEach(vm::hideGroup)
+                    vm.ui.endSelection(selectPage)
+                },
+                onRemove = null,
+            )
+        } else
         SearchableTopBar(
-            title = stringResource(R.string.ui_folders_19adc47),
+            title = vm.sectionName(1),
             searching = searchExpanded,
             onSearchingChange = { searchExpanded = it },
             query = folderQuery,
@@ -213,6 +253,7 @@ fun FoldersScreen(
                     })
                 }
             }
+        }
         }
         Spacer(Modifier.height(12.dp))
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -288,7 +329,11 @@ fun FoldersScreen(
                 }
                 gridItems(shownGroups, key = { it.groupKey }, contentType = { "folder" }) { row ->
                     Column {
-                        FolderCard(vm, row, aspect, listMode = vm.folderListMode) {
+                        FolderCard(vm, row, aspect, listMode = vm.folderListMode, selected = vm.ui.tick(selectPage, row.groupKey)) {
+                            if (vm.ui.selectionOn(selectPage) != null) {
+                                vm.ui.toggleFolder(selectPage, row.groupKey)
+                                return@FolderCard
+                            }
                             vm.matchFolderFilter.value = null
                             vm.groupFilter.value = row.groupKey
                             vm.query.value = ""
@@ -361,6 +406,7 @@ private fun FolderCard(
     aspect: Float,
     modifier: Modifier = Modifier,
     listMode: Boolean = false,
+    selected: Boolean? = null,
     onClick: () -> Unit,
 ) {
     var actions by remember(row.groupKey) { mutableStateOf(false) }
@@ -378,13 +424,15 @@ private fun FolderCard(
             aspect = aspect,
             listMode = listMode,
             onClick = onClick,
-            onLongPress = { actions = true },
+            onLongPress = { if (selected != null) { onClick() } else { actions = true } },
             onRename = { rename = true },
+            selected = selected,
         )
         FileActionsMenu(actions, {
             actions = false
         }, vm, row.groupKey, directory = true, virtual = true, details = "${row.groupKey}\n${row.count} videos\nVirtual library folder",
-            onChangeCover = if (artworkOn) ({ changeCover = true }) else null)
+            onChangeCover = if (artworkOn) ({ changeCover = true }) else null,
+            onSelect = { vm.ui.toggleFolder(SelectionPages.VIRTUAL, row.groupKey) })
         if (changeCover) {
             ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.virtualFolder(row.groupKey), row.groupKey, row.groupKey), null) { changeCover = false }
         }

@@ -55,9 +55,39 @@ internal fun MatchingFoldersScreen(
             search = false
         }
     }
+    val selectPage = SelectionPages.CUSTOM
+    val selection = vm.ui.selectionOn(selectPage)
+    BackHandler(enabled = selection != null) { vm.ui.endSelection(selectPage) }
+    LaunchedEffect(active) { if (!active) vm.ui.endSelection(selectPage) }
+    ScrollTopOnRequest(vm, gridState, active)
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        HubTopBar {
+        if (selection != null) {
+            val chosenOwn = own.filter { "own:" + it.id in selection.keys }
+            val chosenMatch = folders.map { it.folder }.filter { "match:" + it.id in selection.keys }
+            FolderSelectionBar(
+                count = selection.keys.size,
+                onClose = { vm.ui.endSelection(selectPage) },
+                onSelectAll = { vm.ui.selectAllFolders(selectPage, shownOwn.map { "own:" + it.id } + folders.map { "match:" + it.folder.id }) },
+                onDownload = {
+                    chosenOwn.forEach(vm::downloadOwnFolder)
+                    chosenMatch.forEach(vm::downloadMatchingFolder)
+                    vm.ui.endSelection(selectPage)
+                },
+                // Folders you made yourself are removed rather than hidden.
+                onHide = if (chosenOwn.isEmpty()) ({
+                    chosenMatch.forEach(vm::hideMatchingFolder)
+                    vm.ui.endSelection(selectPage)
+                }) else null,
+                onRemove = {
+                    chosenOwn.forEach { vm.deleteOwnFolder(it.id) }
+                    chosenMatch.forEach(vm::deleteMatchingFolder)
+                    vm.ui.endSelection(selectPage)
+                },
+            )
+        } else
         SearchableTopBar(
-            title = stringResource(R.string.ui_custom_folders_097a811),
+            title = vm.sectionName(0),
             searching = search,
             onSearchingChange = { search = it },
             query = query,
@@ -86,6 +116,7 @@ internal fun MatchingFoldersScreen(
                 }
             }
         }
+        }
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         FastScrollBox(
             state = gridState,
@@ -111,8 +142,8 @@ internal fun MatchingFoldersScreen(
                         )
                     }
                 }
-                items(shownOwn, key = { "own:" + it.id }) { folder -> OwnFolderCard(vm, folder, aspect) }
-                items(folders, key = { it.folder.id }) { row -> MatchingFolderCard(vm, row, aspect, onOpen, onPlay) }
+                items(shownOwn, key = { "own:" + it.id }) { folder -> OwnFolderCard(vm, folder, aspect, vm.ui.tick(selectPage, "own:" + folder.id)) }
+                items(folders, key = { it.folder.id }) { row -> MatchingFolderCard(vm, row, aspect, onOpen, onPlay, vm.ui.tick(selectPage, "match:" + row.folder.id)) }
             }
         }
     }
@@ -176,7 +207,7 @@ internal fun OwnFolderContentsPicker(vm: LibraryViewModel, folder: OwnFolder, on
 }
 
 @Composable
-private fun OwnFolderCard(vm: LibraryViewModel, folder: OwnFolder, aspect: Float) {
+private fun OwnFolderCard(vm: LibraryViewModel, folder: OwnFolder, aspect: Float, selected: Boolean?) {
     val countFlow = remember(folder) { vm.ownFolderCount(folder) }
     val count by countFlow.collectAsStateWithLifecycle(initialValue = 0)
     val key = vm.coverKey("own:${folder.id}:${folder.folders.hashCode()}:${folder.files.hashCode()}", count, count)
@@ -196,13 +227,21 @@ private fun OwnFolderCard(vm: LibraryViewModel, folder: OwnFolder, aspect: Float
             cover = cover,
             aspect = aspect,
             listMode = vm.folderListMode,
-            onClick = { if (parts == 0) edit = true else vm.openOwnFolderId = folder.id },
-            onLongPress = { menu = true },
+            onClick = {
+                when {
+                    selected != null -> vm.ui.toggleFolder(SelectionPages.CUSTOM, "own:" + folder.id)
+                    parts == 0 -> { edit = true }
+                    else -> { vm.openOwnFolderId = folder.id }
+                }
+            },
+            onLongPress = { if (selected != null) { vm.ui.toggleFolder(SelectionPages.CUSTOM, "own:" + folder.id) } else { menu = true } },
             onRename = { rename = true },
             onOptions = { menu = true },
+            selected = selected,
         )
         DropdownMenu(menu, { menu = false }) {
             DropdownMenuItem(text = { Text("Open") }, onClick = { menu = false; vm.openOwnFolderId = folder.id })
+            DropdownMenuItem(text = { Text("Select") }, onClick = { menu = false; vm.ui.toggleFolder(SelectionPages.CUSTOM, "own:" + folder.id) })
             DropdownMenuItem(text = { Text("Choose folders and files") }, onClick = { menu = false; edit = true })
             if (artworkOn) DropdownMenuItem(text = { Text("Change cover") }, onClick = { menu = false; changeCover = true })
             DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; vm.downloadOwnFolder(folder) })
@@ -243,7 +282,8 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
             IconAction(Icons.Default.Edit, "Choose folders and files", onClick = { edit = true })
             IconAction(Icons.Default.PlayArrow, "Play all", enabled = !folder.isEmpty, onClick = { vm.playLibrary("own:${folder.id}", onPlay = onPlay) })
             CardShapeButton(vm, page)
-            LocalTopBarEnd.current()
+            // On phones the download button is already on the "Video Library" line above.
+            if (LocalHubBarSlot.current == null) LocalTopBarEnd.current()
         }
         if (folder.isEmpty) {
             Column(Modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -305,8 +345,10 @@ private fun MatchingFolderCard(
     aspect: Float,
     onOpen: () -> Unit,
     onPlay: (VideoEntity, List<VideoEntity>) -> Unit,
+    selected: Boolean?,
 ) {
     val folder = row.folder
+    val selectKey = "match:" + folder.id
     val key = vm.coverKey("match:${folder.id}:${folder.term}", row.count, row.thumbsDone, row.lastModified)
     var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
     LaunchedEffect(key) { cover = vm.matchingCover(folder, key) }
@@ -332,10 +374,11 @@ private fun MatchingFolderCard(
             cover = cover,
             aspect = aspect,
             listMode = vm.folderListMode,
-            onClick = ::open,
-            onLongPress = { menu = true },
+            onClick = { if (selected != null) vm.ui.toggleFolder(SelectionPages.CUSTOM, selectKey) else open() },
+            onLongPress = { if (selected != null) { vm.ui.toggleFolder(SelectionPages.CUSTOM, selectKey) } else { menu = true } },
             onRename = ::startRename,
             onOptions = { menu = true },
+            selected = selected,
         )
         if (changeCover) {
             ChangeCoverDialog(vm, CoverTarget(ArtworkKeys.matchFolder(folder.id), folder.name, folder.name, null), null) { changeCover = false }
@@ -358,10 +401,9 @@ private fun MatchingFolderCard(
                 vm.query.value = ""
                 vm.playLibrary("videos", onPlay = onPlay)
             })
-            DropdownMenuItem(text = { Text(stringResource(R.string.ui_select_all_913afff)) }, onClick = {
+            DropdownMenuItem(text = { Text(stringResource(R.string.ui_select_8598222)) }, onClick = {
                 menu = false
-                open()
-                vm.selectAll("videos")
+                vm.ui.toggleFolder(SelectionPages.CUSTOM, selectKey)
             })
             DropdownMenuItem(text = { Text(stringResource(R.string.ui_cut_38d13bd)) }, onClick = {
                 menu = false
