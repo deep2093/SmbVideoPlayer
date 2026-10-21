@@ -79,7 +79,7 @@ class FolderNavigationTest {
             val before=rule.onNodeWithText("Folder040",useUnmergedTree=true).fetchSemanticsNode().boundsInRoot.top
             rule.onNodeWithText("Folder040").performClick()
             rule.waitUntil(15000) { vm.originalListing.value.path.endsWith("Folder040") && rule.onAllNodesWithText("A.mp4").fetchSemanticsNodes().isNotEmpty() }
-            rule.onNodeWithContentDescription("Go to",substring=true).performClick() // breadcrumb Home replaces the old "← Up" button
+            rule.onNodeWithContentDescription("Back").performClick() // the folder bar has a back arrow
             rule.waitUntil(15000) { vm.originalListing.value.path==root && rule.onAllNodesWithText("Folder040").fetchSemanticsNodes().isNotEmpty() }
             rule.waitForIdle()
             rule.onNodeWithText("Folder040").assertIsDisplayed()
