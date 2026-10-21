@@ -44,6 +44,18 @@ data class LibraryTheme(
     val menu: Color = Color.Unspecified,
     /** Light themes use dark text and a light colour scheme. */
     val light: Boolean = false,
+    /** Adaptive themes: the wallpaper takes its colours from the covers on screen. */
+    val adaptive: AdaptiveStyle? = null,
+)
+
+/** The look shared by the adaptive themes: smoky dark glass over a wallpaper made from the covers on screen. */
+private fun adaptiveTheme(id: String, label: String, style: AdaptiveStyle) = LibraryTheme(
+    id, label, Color.Transparent, Color(0x33000000), Color(0x26FFFFFF), Color(0xFFFFD27A),
+    glass = true,
+    wallpaper = style.fallback,
+    glassTint = Color(0xA6101016),
+    menu = Color(0xFF1B1B24),
+    adaptive = style,
 )
 
 val libraryThemes = listOf(
@@ -77,6 +89,23 @@ val libraryThemes = listOf(
         glassTint = Color(0x99FFFBF0),
         menu = Color(0xFFFFFBF1),
         light = true,
+    ),
+    // Adaptive: the background follows the colours of what is on screen and eases between them. All keep the
+    // colours dark enough for white text.
+    adaptiveTheme(
+        "ADAPTIVE_GLOW", "Adaptive Glow",
+        AdaptiveStyle(listOf(0.34f, 0.24f, 0.14f), 0.35f, 0.75f, glow = 0.35f, scrim = 0.25f,
+            fallback = listOf(Color(0xFF3A2A5A), Color(0xFF1E3A4A), Color(0xFF241A30))),
+    ),
+    adaptiveTheme(
+        "ADAPTIVE_MIDNIGHT", "Adaptive Midnight",
+        AdaptiveStyle(listOf(0.20f, 0.13f, 0.08f), 0.25f, 0.55f, glow = 0.22f, scrim = 0.35f,
+            fallback = listOf(Color(0xFF1C2333), Color(0xFF14202A), Color(0xFF15131C))),
+    ),
+    adaptiveTheme(
+        "ADAPTIVE_VIVID", "Adaptive Vivid",
+        AdaptiveStyle(listOf(0.46f, 0.32f, 0.18f), 0.5f, 0.9f, glow = 0.45f, scrim = 0.38f,
+            fallback = listOf(Color(0xFF6A2C5C), Color(0xFF1F4F6E), Color(0xFF3A1E40))),
     ),
 )
 
@@ -268,7 +297,11 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         ),
         content = {
             CompositionLocalProvider(LocalLibraryTheme provides theme) {
-                if (theme.glass) {
+                val adaptive = theme.adaptive
+                if (adaptive != null) {
+                    val colors = rememberAdaptiveColors(adaptive)
+                    Box(Modifier.fillMaxSize().drawBehind { drawAdaptiveWallpaper(colors.map { it.value }, adaptive) }) { content() }
+                } else if (theme.glass) {
                     Box(Modifier.fillMaxSize().drawBehind { drawGlassWallpaper(theme) }) { content() }
                 } else {
                     content()

@@ -56,6 +56,14 @@ fun FileImage(file: File?, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         val img = image
+        // Adaptive themes colour the background from the pictures on screen: each shown picture lends its colour.
+        if (img != null && file != null && LocalLibraryTheme.current.adaptive != null) {
+            val color by produceState(CoverColors.cached(file.path), file.path, img) { value = CoverColors.of(file.path, img) }
+            androidx.compose.runtime.DisposableEffect(color) {
+                val token = color?.let(ScreenColors::add)
+                onDispose { token?.let(ScreenColors::remove) }
+            }
+        }
         if (img != null) {
             Image(
                 bitmap = img,
