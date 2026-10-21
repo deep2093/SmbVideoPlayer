@@ -127,3 +127,6 @@ object VirtualGroups {
         return groups.sortedWith(if (descending) order.reversed() else order)
     }
 }
+
+/** What a Virtual folder page shows: its videos and the subfolders built from them. [loaded] is false until the first result. */
+data class VirtualContent(val videos: List<VideoEntity>, val groups: List<VirtualGroup>, val loaded: Boolean)

@@ -1019,6 +1019,12 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     fun virtualSetVideos(set: VirtualSet): Flow<List<VideoEntity>> =
         if (set.isEmpty) flowOf(emptyList()) else stateDao.videosFlow(LibraryQueries.videos(virtualSetScope(set)))
 
+    // The last page shown for each Virtual folder, so reopening it is instant (refreshed in the background).
+    private val virtualContentCache = HashMap<String, Pair<VirtualSet, VirtualContent>>()
+    fun cachedVirtualContent(set: VirtualSet): VirtualContent =
+        virtualContentCache[set.id]?.takeIf { it.first == set }?.second ?: VirtualContent(emptyList(), emptyList(), loaded = false)
+    fun rememberVirtualContent(set: VirtualSet, content: VirtualContent) { virtualContentCache[set.id] = set to content }
+
     fun virtualSetCount(set: VirtualSet): Flow<Int> =
         if (set.isEmpty) flowOf(0) else stateDao.count(LibraryQueries.count(virtualSetScope(set)))
 

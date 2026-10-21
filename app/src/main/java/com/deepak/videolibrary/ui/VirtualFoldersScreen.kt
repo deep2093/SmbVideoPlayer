@@ -1,6 +1,15 @@
 package com.deepak.videolibrary.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,10 +59,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.deepak.videolibrary.data.VideoEntity
+import com.deepak.videolibrary.data.VirtualContent
 import com.deepak.videolibrary.data.VirtualGroup
 import com.deepak.videolibrary.data.VirtualGroups
 import com.deepak.videolibrary.data.VirtualSet
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.withContext
 
 /**
  * Virtual folders: folders you make and name yourself ("Hollywood Movies"). Each reads the drive folders you choose
@@ -67,11 +81,40 @@ internal fun VirtualFoldersScreen(
     active: Boolean = true,
 ) {
     val sets by vm.virtualSets.collectAsStateWithLifecycle()
-    val opened = sets.firstOrNull { it.id == vm.openVirtualSetId }
-    if (opened != null) {
-        VirtualSetPage(vm, opened, onPlay)
-        return
+    val openId = vm.openVirtualSetId?.takeIf { id -> sets.any { it.id == id } }
+    // Opening and closing a folder slides and fades like the other folder pages.
+    AnimatedContent(
+        targetState = openId,
+        transitionSpec = { folderSlide(forward = targetState != null) },
+        label = "virtual_folder_open",
+    ) { id ->
+        val opened = sets.firstOrNull { it.id == id }
+        if (opened != null) {
+            VirtualSetPage(vm, opened, onPlay)
+        } else {
+            VirtualSetList(vm, sets, gridState, onOpenSettings, active)
+        }
     }
+}
+
+/** The same slide-and-fade as the other folder pages: forward when opening, back when closing. */
+private fun folderSlide(forward: Boolean): ContentTransform =
+    (
+        slideInHorizontally(tween(320, easing = FastOutSlowInEasing)) { width -> if (forward) width / 5 else -width / 5 } +
+            fadeIn(tween(260, delayMillis = 40))
+        ) togetherWith (
+        slideOutHorizontally(tween(320, easing = FastOutSlowInEasing)) { width -> if (forward) -width / 5 else width / 5 } +
+            fadeOut(tween(160))
+        )
+
+@Composable
+private fun VirtualSetList(
+    vm: LibraryViewModel,
+    sets: List<VirtualSet>,
+    gridState: LazyGridState,
+    onOpenSettings: () -> Unit,
+    active: Boolean,
+) {
     var query by vm::folderSearch
     var search by remember { mutableStateOf(query.isNotBlank()) }
     var naming by remember { mutableStateOf(false) }
@@ -309,23 +352,31 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
         }
     }
     var edit by remember { mutableStateOf(false) }
-    val videosFlow = remember(set.folders) { vm.virtualSetVideos(set) }
-    val videos by videosFlow.collectAsStateWithLifecycle(initialValue = emptyList())
-    val groups = remember(set, videos, vm.folderSort, vm.folderSortDescending) {
-        VirtualGroups.sorted(VirtualGroups.build(set, videos), vm.folderSort, vm.folderSortDescending)
+    // Grouping thousands of videos runs off the main thread, and the last result is shown at once when the folder is
+    // opened again, so opening, closing and scrolling stay smooth while scans and thumbnails update the index.
+    val content by produceState(vm.cachedVirtualContent(set), set, vm.folderSort, vm.folderSortDescending) {
+        val sort = vm.folderSort
+        val descending = vm.folderSortDescending
+        vm.virtualSetVideos(set).conflate().collect { list ->
+            val built = withContext(Dispatchers.Default) {
+                VirtualContent(list, VirtualGroups.sorted(VirtualGroups.build(set, list), sort, descending), loaded = true)
+            }
+            value = built
+            vm.rememberVirtualContent(set, built)
+        }
     }
+    val videos = content.videos
+    val groups = content.groups
     val current = groups.firstOrNull { it.identity == openGroup }
     // Subfolder cards and the videos inside a subfolder each keep their own card shape (portrait or landscape).
-    val page = if (current == null) Pages.virtualSet(set.id) else Pages.virtualSetVideos(set.id)
-    val aspect = cardAspect(vm, page)
+    val page = if (openGroup == null) Pages.virtualSet(set.id) else Pages.virtualSetVideos(set.id)
     // A subfolder that disappears (renamed, taken out, emptied by a rescan) returns to the list.
-    LaunchedEffect(current == null, openGroup) { if (openGroup != null && current == null) openGroup = null }
+    LaunchedEffect(content.loaded, current == null, openGroup) { if (content.loaded && openGroup != null && current == null) openGroup = null }
     val shownVideos = current?.videos.orEmpty()
-    // The list of subfolders keeps its scroll position while one of them is open.
-    val listState = remember(set.id) { LazyGridState() }
-    val innerState = remember(set.id, openGroup) { LazyGridState() }
-    val gridState = if (openGroup == null) listState else innerState
-    ScrollTopOnRequest(vm, gridState)
+    // Each view keeps its own scroll position; the list of subfolders is where it was after closing one.
+    val states = remember(set.id) { HashMap<String, LazyGridState>() }
+    fun stateFor(id: String?): LazyGridState = states.getOrPut(id ?: "") { LazyGridState() }
+    ScrollTopOnRequest(vm, stateFor(openGroup))
     LaunchedEffect(openGroup) { vm.ui.endSelection(selectPage) }
     fun toggle(key: String) = vm.ui.toggleFolder(selectPage, key)
     fun videosOf(keys: Set<String>): List<VideoEntity> = keys.flatMap { key ->
@@ -394,7 +445,7 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
                 Text("Choose the drive folders and videos this virtual folder reads.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(onClick = { edit = true }) { Text("Choose folders and files") }
             }
-        } else if (groups.isEmpty()) {
+        } else if (content.loaded && groups.isEmpty()) {
             Column(Modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Looking for videos…", style = MaterialTheme.typography.titleMedium)
                 Text(
@@ -404,45 +455,56 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
                 Button(onClick = { vm.rescanVirtual() }) { Text("Scan now") }
             }
         }
-        LazyVerticalGrid(
-            state = gridState,
-            modifier = Modifier.weight(1f).fillMaxWidth().testTag("virtual-subfolder-grid"),
-            columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
-            horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
-            verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
-            contentPadding = PaddingValues(top = 8.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
-        ) {
-            if (current == null) {
-                items(groups, key = { "group:" + it.identity }, contentType = { "group" }) { group ->
-                    VirtualGroupCard(
-                        vm, set, group, aspect,
-                        selected = vm.ui.tick(selectPage, "group:" + group.identity),
-                        onOpen = { openGroup = group.identity },
-                        onSelect = { toggle("group:" + group.identity) },
-                    )
-                }
-            } else {
-                items(shownVideos, key = { "file:" + it.relativePath }) { video ->
-                    val ticked = vm.ui.tick(selectPage, "file:" + video.relativePath)
-                    Box {
-                        VideoCard(
-                            video,
-                            onClick = { if (ticked != null) toggle("file:" + video.relativePath) else onPlay(video, shownVideos) },
-                            vm = vm,
-                            listMode = vm.folderListMode,
-                            selectionScope = "own",
-                            aspect = aspect,
+        // Opening a subfolder slides in, and closing it slides back to the list where it was.
+        AnimatedContent(
+            targetState = openGroup,
+            transitionSpec = { folderSlide(forward = targetState != null) },
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            label = "virtual_subfolder_open",
+        ) { groupId ->
+            val shown = groups.firstOrNull { it.identity == groupId }
+            val inside = shown?.videos.orEmpty()
+            val aspect = cardAspect(vm, if (groupId == null) Pages.virtualSet(set.id) else Pages.virtualSetVideos(set.id))
+            LazyVerticalGrid(
+                state = stateFor(groupId),
+                modifier = Modifier.fillMaxSize().testTag(if (groupId == null) "virtual-subfolder-grid" else "virtual-subfolder-videos"),
+                columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
+                horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
+                verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
+                contentPadding = PaddingValues(top = 8.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
+            ) {
+                if (groupId == null) {
+                    items(groups, key = { "group:" + it.identity }, contentType = { "group" }) { group ->
+                        VirtualGroupCard(
+                            vm, set, group, aspect,
+                            selected = vm.ui.tick(selectPage, "group:" + group.identity),
+                            onOpen = { openGroup = group.identity },
+                            onSelect = { toggle("group:" + group.identity) },
                         )
-                        if (ticked != null) SelectionBadge(ticked, Modifier.align(Alignment.TopEnd).padding(8.dp))
+                    }
+                } else {
+                    items(inside, key = { "file:" + it.relativePath }, contentType = { "video" }) { video ->
+                        val ticked = vm.ui.tick(selectPage, "file:" + video.relativePath)
+                        Box {
+                            VideoCard(
+                                video,
+                                onClick = { if (ticked != null) toggle("file:" + video.relativePath) else onPlay(video, inside) },
+                                vm = vm,
+                                listMode = vm.folderListMode,
+                                selectionScope = "own",
+                                aspect = aspect,
+                            )
+                            if (ticked != null) SelectionBadge(ticked, Modifier.align(Alignment.TopEnd).padding(8.dp))
+                        }
                     }
                 }
-            }
-            if (groups.isNotEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
-                    ListTotal(
-                        if (current == null) "${groups.size} ${if (groups.size == 1) "folder" else "folders"} · ${videos.size} videos"
-                        else "${shownVideos.size} ${if (shownVideos.size == 1) "video" else "videos"}",
-                    )
+                if (groups.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
+                        ListTotal(
+                            if (groupId == null) "${groups.size} ${if (groups.size == 1) "folder" else "folders"} · ${videos.size} videos"
+                            else "${inside.size} ${if (inside.size == 1) "video" else "videos"}",
+                        )
+                    }
                 }
             }
         }
