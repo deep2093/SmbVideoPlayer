@@ -104,7 +104,10 @@ internal fun FoldersHub(
     // The app-name line and the tabs slide away while a page scrolls down and come back on any scroll up.
     val hubHeader = rememberCollapsingHeader()
     Column(Modifier.fillMaxSize().nestedScroll(hubHeader.connection)) {
-        CollapsingHeader(hubHeader, resetKey = pager.currentPage) {
+        // Inside an Original sub-folder that page shows its own ← title line, like an opened folder elsewhere.
+        val root = vm.settings.rootPath.trim('/')
+        val insideOriginal = sections.getOrNull(pager.currentPage) == 2 && vm.originalPath.trim('/').let { it != root && isWithinFolder(it, root) }
+        if (!insideOriginal) CollapsingHeader(hubHeader, resetKey = pager.currentPage) {
         // On phones the page buttons sit on the app-name line; on tablets each page keeps its own title row.
         if (showBrand) {
             HubBarLine(bars, pager.currentPage, APP_NAME, Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp))

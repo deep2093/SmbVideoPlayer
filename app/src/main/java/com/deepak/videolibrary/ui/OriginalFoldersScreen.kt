@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -71,8 +72,11 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
     LaunchedEffect(active, path) { if (!active) vm.ui.endSelection(selectPage) }
     LaunchedEffect(path) { vm.ui.endSelection(selectPage) }
     ScrollTopOnRequest(vm, gridState, active)
-    Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN)) {
-        HubTopBar {
+    // Inside a sub-folder the page looks like an opened Custom or Virtual folder: ← and the folder's name at the
+    // top (the app-name line and tabs step aside), sliding away while scrolling down.
+    val inside = path != root
+    val header = rememberCollapsingHeader()
+    val bar: @Composable () -> Unit = {
         if (selection != null) {
             FolderSelectionBar(
                 count = selection.keys.size,
@@ -91,7 +95,12 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             )
         } else
         SearchableTopBar(
-            title = vm.sectionName(2),
+            title = if (inside) vm.originalDisplayName(path) else vm.sectionName(2),
+            navigation = if (inside) {
+                { IconButton(onClick = ::up) { Icon(Icons.Filled.ArrowBack, contentDescription = "Back") } }
+            } else {
+                null
+            },
             searching = searchExpanded,
             onSearchingChange = { searchExpanded = it },
             query = query,
@@ -102,6 +111,12 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             CardShapeButton(vm, Pages.original(path))
             IconAction(Icons.Filled.Refresh, stringResource(R.string.ui_refresh_index_2b7da4d), onClick = { vm.startScan(ScanMode.REFRESH) })
         }
+    }
+    Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN).then(if (inside) Modifier.nestedScroll(header.connection) else Modifier)) {
+        if (inside) {
+            CollapsingHeader(header, resetKey = path) { bar() }
+        } else {
+            HubTopBar(bar)
         }
         FastScrollBox(
             state = gridState,
