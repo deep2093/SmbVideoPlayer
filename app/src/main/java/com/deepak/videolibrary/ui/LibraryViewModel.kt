@@ -896,6 +896,163 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
 
+    // ---- Virtual folders: folders you make and name, filled with chosen drive folders; the subfolders are generated ----
+    private val virtualStore get() = services.virtualSets
+    private val virtualRevision = MutableStateFlow(0)
+    val virtualSets: StateFlow<List<VirtualSet>> = combine(namespace, virtualRevision) { key, _ ->
+        withContext(Dispatchers.IO) { virtualStore.load(key) }.sortedBy { it.name.lowercase(java.util.Locale.ROOT) }
+    }.state(emptyList())
+
+    /** The Virtual folder whose page is open, or null for the list. */
+    var openVirtualSetId by mutableStateOf<String?>(null)
+
+    private fun editVirtual(change: (List<VirtualSet>) -> List<VirtualSet>) {
+        val key = namespace.value
+        virtualStore.save(key, change(virtualStore.load(key)))
+        virtualRevision.value++
+    }
+
+    /** Creates an empty Virtual folder and returns its id, or null when the name is not usable. */
+    fun createVirtualSet(name: String): String? {
+        val clean = cleanFolderName(name) ?: return null
+        val id = java.util.UUID.randomUUID().toString()
+        editVirtual { it + VirtualSet(id, clean) }
+        return id
+    }
+
+    fun renameVirtualSet(id: String, name: String) {
+        val clean = cleanFolderName(name) ?: return
+        editVirtual { list -> list.map { if (it.id == id) it.copy(name = clean) else it } }
+    }
+
+    /** Removes the folder from the app only. Nothing on the drive is touched. */
+    fun deleteVirtualSet(id: String) {
+        editVirtual { list -> list.filterNot { it.id == id } }
+        if (openVirtualSetId == id) openVirtualSetId = null
+        viewModelScope.launch {
+            services.artwork.ensureLoaded()
+            services.artwork.clear(services.artwork.keysStartingWith(virtualSetKey(id)))
+            coverRevision++
+        }
+    }
+
+    /**
+     * Replaces the drive folders a Virtual folder reads. Folders that were not indexed yet are scanned straight
+     * away; the subfolders are generated from what the scan finds.
+     */
+    fun setVirtualSetFolders(id: String, folders: Collection<String>) {
+        val clean = folders.map { it.trim('/') }.distinct().sorted()
+            .let { list -> list.filter { path -> list.none { other -> other != path && (other.isEmpty() || path.startsWith("$other/")) } } }
+            .take(VirtualSetStore.MAX_FOLDERS)
+        if (folders.size > VirtualSetStore.MAX_FOLDERS) notice = "A Virtual folder can read up to ${VirtualSetStore.MAX_FOLDERS} drive folders; the rest were left out."
+        editVirtual { list -> list.map { if (it.id == id) it.copy(folders = clean) else it } }
+        coverRevision++
+        scanVirtualFoldersIfNeeded(clean)
+    }
+
+    /** A manual refresh of the folders this Virtual folder reads (it scans the whole library like Refresh library). */
+    fun rescanVirtual() {
+        startScan(ScanMode.REFRESH)
+        notice = "Scanning your Virtual folders…"
+    }
+
+    private fun scanVirtualFoldersIfNeeded(folders: List<String>) {
+        if (folders.isEmpty()) return
+        viewModelScope.launch {
+            val unindexed = withContext(Dispatchers.IO) {
+                folders.any { root ->
+                    stateDao.count(LibraryQueries.count(LibraryScope(namespace.value, sourcePath = root, includeSubfolders = true))).first() == 0
+                }
+            }
+            if (unindexed) ScanWorker.enqueue(getApplication(), ScanMode.REFRESH, afterCurrent = true, libraryId = services.libraryId)
+        }
+    }
+
+    fun renameVirtualSubfolder(setId: String, identity: String, name: String) {
+        val clean = cleanFolderName(name)?.let(com.deepak.videolibrary.scan.VirtualNames::display) ?: return
+        val names = com.deepak.videolibrary.scan.VirtualNames
+        editVirtual { list ->
+            list.map { set ->
+                if (set.id != setId) {
+                    set
+                } else {
+                    // A folder already renamed keeps its original name as the key, so rename every entry that points at it.
+                    val had = set.renames.any { names.identity(it.value) == identity }
+                    val next = if (had) set.renames.mapValues { (_, v) -> if (names.identity(v) == identity) clean else v } else set.renames + (identity to clean)
+                    set.copy(renames = next.filterNot { (k, v) -> k == names.identity(v) })
+                }
+            }
+        }
+        // The cover chosen for the folder follows its new name.
+        viewModelScope.launch {
+            services.artwork.ensureLoaded()
+            services.artwork.move(virtualSubKey(setId, identity), virtualSubKey(setId, names.identity(clean)))
+            coverRevision++
+        }
+    }
+
+    /** Takes a generated subfolder out of this Virtual folder (the videos stay in the library and in other subfolders). */
+    fun hideVirtualSubfolders(setId: String, identities: Collection<String>) {
+        editVirtual { list -> list.map { if (it.id == setId) it.copy(hidden = it.hidden + identities) else it } }
+        coverRevision++
+    }
+
+    /** Brings back every subfolder taken out of this Virtual folder. */
+    fun restoreVirtualSubfolders(setId: String) {
+        editVirtual { list -> list.map { if (it.id == setId) it.copy(hidden = emptySet()) else it } }
+        coverRevision++
+    }
+
+    fun virtualSetKey(id: String) = com.deepak.videolibrary.artwork.ArtworkKeys.virtualSet(id)
+    fun virtualSubKey(setId: String, identity: String) = com.deepak.videolibrary.artwork.ArtworkKeys.virtualSub(setId, identity)
+
+    private fun virtualSetScope(set: VirtualSet) =
+        LibraryScope(namespace.value, members = FolderMembers(set.folders, emptyList()), sort = "NAME")
+
+    /** Every indexed video inside the drive folders of [set], kept up to date as scans find more. */
+    fun virtualSetVideos(set: VirtualSet): Flow<List<VideoEntity>> =
+        if (set.folders.isEmpty()) flowOf(emptyList()) else stateDao.videosFlow(LibraryQueries.videos(virtualSetScope(set)))
+
+    fun virtualSetCount(set: VirtualSet): Flow<Int> =
+        if (set.folders.isEmpty()) flowOf(0) else stateDao.count(LibraryQueries.count(virtualSetScope(set)))
+
+    suspend fun virtualSetCover(set: VirtualSet, key: String): File? =
+        artwork.cover(virtualSetKey(set.id), key, virtualSetScope(set))
+
+    suspend fun virtualSubCover(setId: String, identity: String, videos: List<VideoEntity>, key: String): File? =
+        artwork.cover(
+            virtualSubKey(setId, identity), key,
+            LibraryScope(namespace.value, members = FolderMembers(emptyList(), videos.map { it.relativePath }.take(COVER_SAMPLE)), sort = "NAME"),
+        )
+
+    /** Cuts or copies the videos of a generated subfolder; Paste then asks for a destination on the drive. */
+    fun stageVideos(videos: List<VideoEntity>, cut: Boolean) {
+        clipboardBatch = videos.map { Triple(it.relativePath, false, cut) }
+        explorerClipboard = clipboardBatch.firstOrNull()
+        notice = "${videos.size} videos ${if (cut) "cut" else "copied"}. Choose Paste to select a destination."
+    }
+
+    /** Saves every video of a Virtual folder to this device, in a folder of its name. */
+    fun downloadVirtualSet(set: VirtualSet) {
+        viewModelScope.launch {
+            val rows = withContext(Dispatchers.IO) { stateDao.videoList(LibraryQueries.videos(virtualSetScope(set))) }
+            queueDownloads(
+                rows.map { downloadItem(it.relativePath, com.deepak.videolibrary.downloads.DownloadPaths.cleanFolder(set.name), it.size) },
+                set.name,
+            )
+        }
+    }
+
+    /** Saves every video of the chosen subfolders (or of the whole Virtual folder) to this device, in a folder of its name. */
+    fun downloadVirtualGroup(title: String, videos: List<VideoEntity>) {
+        viewModelScope.launch {
+            queueDownloads(
+                videos.map { downloadItem(it.relativePath, com.deepak.videolibrary.downloads.DownloadPaths.cleanFolder(title), it.size) },
+                title,
+            )
+        }
+    }
+
     // ---- Display names of original folders (only in this app; the drive keeps its names) ----
     private val folderNames = FolderNameStore(app)
 
@@ -1655,6 +1812,9 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
 /** Limits for own folders, so the library query stays within SQLite's parameter limit. */
 private const val MAX_OWN_FOLDERS = 100
 private const val MAX_OWN_FILES = 500
+
+/** A cover is built from a few thumbnails, so a long subfolder is sampled to stay within SQLite's parameter limit. */
+private const val COVER_SAMPLE = 300
 
 /** A single folder download adds at most this many files, so a mistaken tap on the share root stays manageable. */
 private const val MAX_DOWNLOAD_FILES = 5000

@@ -132,10 +132,16 @@ try:
         else:
             time.sleep(1)
     find('Virtual folders');find('Original folders')
-    click('Virtual folders');find('Favourites')
+    click('Virtual folders');find('New virtual folder')
     labels=[n.get('text','') for n in tree().iter('node')]
     assert not any('Choose source folders' in label for label in labels)
-    print('PASS: Virtual folders restored automatically without a source picker')
+    # Make a virtual folder by hand, give it a drive folder, and its subfolders are made from the file names.
+    click('New virtual folder');enter_text('Hollywood');click('Rename')
+    click('Choose folder Movies');click('Done')
+    find('Hollywood');click('Hollywood');find('Tom Cruise')
+    adb('shell','input','keyevent','4')  # Back from the virtual folder to the list.
+    find('Hollywood')
+    print('PASS: a virtual folder reads its chosen drive folder and generates the Tom Cruise subfolder')
     click('Settings')
     find('Connection');find('Playback');find('Library')
     # Diagnostics is the last section; it may sit below the fold on a phone.

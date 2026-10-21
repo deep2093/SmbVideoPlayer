@@ -66,7 +66,12 @@ private fun isSkipped(name: String): Boolean =
  * Prepares scan sessions and runs them. The directory queue lives in the database, so a scan that
  * is killed at any moment can continue from where it stopped.
  */
-class ScanRepository(private val db: LibraryDatabase, private val owners: android.content.SharedPreferences? = null) {
+class ScanRepository(
+    private val db: LibraryDatabase,
+    private val owners: android.content.SharedPreferences? = null,
+    /** Drive folders chosen for Virtual folders (given the server key); they are scanned even outside the library root. */
+    private val extraRoots: (String) -> List<String> = { emptyList() },
+) {
     val scanMutex = kotlinx.coroutines.sync.Mutex()
 
     private val dao = db.dao()
@@ -116,7 +121,7 @@ class ScanRepository(private val db: LibraryDatabase, private val owners: androi
                     ScanSessionEntity(mode = mode.name, status = ScanStatus.RUNNING, startedAt = now),
                 )
                 val key = profile.host.trim().lowercase(java.util.Locale.ROOT) + "/" + profile.share.trim().lowercase(java.util.Locale.ROOT)
-                val roots = (listOf(profile.rootPath) + db.libraryState().savedCollections(key).mapNotNull { it.sourcePath }).distinct()
+                val roots = (listOf(profile.rootPath) + db.libraryState().savedCollections(key).mapNotNull { it.sourcePath } + extraRoots(key)).distinct()
                 val minimalRoots = roots.filter { candidate -> roots.none { other -> other != candidate && (other.isEmpty() || candidate.startsWith("$other/")) } }
                 dao.insertPending(minimalRoots.map { PendingDirEntity(it) })
                 dao.getSession(id)

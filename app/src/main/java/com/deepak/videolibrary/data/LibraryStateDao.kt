@@ -35,6 +35,10 @@ abstract class LibraryStateDao {
 
     @RawQuery abstract suspend fun videoList(query: SupportSQLiteQuery): List<VideoEntity>
 
+    /** The same list, kept up to date while scans and thumbnail jobs change the index. */
+    @RawQuery(observedEntities = [VideoEntity::class, HiddenItem::class])
+    abstract fun videosFlow(query: SupportSQLiteQuery): Flow<List<VideoEntity>>
+
     @RawQuery(observedEntities = [VideoEntity::class, HiddenItem::class, CustomFolderEntity::class])
     abstract fun folders(query: SupportSQLiteQuery): Flow<List<FolderSummary>>
 

@@ -239,6 +239,9 @@ class ArtworkRepository(
     /** Removes the stored cover of [prefix] and, for SMB folders, of everything below it. */
     suspend fun clearUnder(prefix: String): Int = clear(keysUnder(prefix))
 
+    /** Keys of [prefix] itself and of the keys written as "[prefix]:…" (a Virtual folder and its subfolders). */
+    fun keysStartingWith(prefix: String): List<String> = rows.keys.filter { it == prefix || it.startsWith("$prefix:") }
+
     // ---- Suggestions waiting for the user ----
 
     /** Folders with suggestions to choose from (newest information from the database). */

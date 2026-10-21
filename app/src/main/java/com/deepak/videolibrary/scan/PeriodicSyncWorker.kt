@@ -69,6 +69,24 @@ class PeriodicSyncWorker(context: Context, params: WorkerParameters) : Coroutine
     companion object {
         const val DIAGNOSTICS = "periodic_sync_diagnostics"
         private const val UNIQUE = "library_periodic_sync"
+        private const val PREFS = "automatic_sync"
+        private const val KEY_ENABLED = "enabled"
+
+        /** The automatic rescan is on unless the user switched it off in Settings > Sync. */
+        fun isEnabled(context: Context): Boolean =
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, true)
+
+        /** Remembers the choice and starts or stops the schedule right away. */
+        fun setEnabled(context: Context, enabled: Boolean) {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, enabled).apply()
+            if (enabled) schedule(context.applicationContext) else WorkManager.getInstance(context.applicationContext).cancelUniqueWork(UNIQUE)
+        }
+
+        /** Schedules the rescan when it is switched on and makes sure it is off when it is not. */
+        fun ensureScheduled(context: Context) {
+            if (isEnabled(context)) schedule(context) else WorkManager.getInstance(context.applicationContext).cancelUniqueWork(UNIQUE)
+        }
+
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<PeriodicSyncWorker>(12, TimeUnit.HOURS)
                 .setConstraints(

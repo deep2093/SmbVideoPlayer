@@ -19,7 +19,8 @@ class ServiceLocator internal constructor(context: Context, val libraryId: Strin
     val db: LibraryDatabase = Room.databaseBuilder(context, LibraryDatabase::class.java,
         if (legacy) "library.db" else "library-$libraryId.db")
         .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
-    val scanRepository = ScanRepository(db, context.getSharedPreferences("scan-owners-$libraryId", Context.MODE_PRIVATE))
+    val virtualSets = VirtualSetStore(context)
+    val scanRepository = ScanRepository(db, context.getSharedPreferences("scan-owners-$libraryId", Context.MODE_PRIVATE)) { key -> virtualSets.load(key).flatMap { it.folders } }
     val thumbnails = ThumbnailGenerator(artworkContext, db)
     val covers = CoverBuilder(artworkContext, db)
 

@@ -356,8 +356,28 @@ private fun AutomaticSyncSummary() {
             else -> "Not run yet"
         }
     }
+    var enabled by remember(context) { mutableStateOf(com.deepak.videolibrary.scan.PeriodicSyncWorker.isEnabled(context)) }
     ScanSection("Automatic sync") {
-        Text(stringResource(R.string.ui_runs_about_every_12_hours_when_your_server_8ce90d9),
+        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text(
+                "Rescan automatically",
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+            )
+            androidx.compose.material3.Switch(
+                checked = enabled,
+                onCheckedChange = {
+                    enabled = it
+                    com.deepak.videolibrary.scan.PeriodicSyncWorker.setEnabled(context, it)
+                },
+            )
+        }
+        Text(
+            if (enabled) {
+                "Runs about every 12 hours when your server can be reached, and also reads the drive folders of your Virtual folders. Your own changes (names, folders you took out, covers) are kept. Use Refresh library to scan right now."
+            } else {
+                "Off. The library only changes when you use Refresh library or choose new folders."
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

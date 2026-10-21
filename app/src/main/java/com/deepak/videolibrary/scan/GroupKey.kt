@@ -48,3 +48,44 @@ object GroupKey {
         return if (s.isBlank()) FALLBACK else s.lowercase(Locale.ROOT)
     }
 }
+
+/**
+ * The names a video is filed under inside a Virtual folder. Read the file name from the left and stop at the first
+ * hyphen; every comma-separated name before it gets its own subfolder, and the same video appears in each of them
+ * ("tom cruise, brad pitt - movie.mp4" -> Tom Cruise, Brad Pitt). A name with neither a hyphen nor a comma uses its
+ * first two words. Display only: nothing on the drive is renamed, copied or moved.
+ */
+object VirtualNames {
+    private val leadingTag = Regex("^\\s*(\\[[^\\]]*\\]|\\([^)]*\\))")
+    private val spaces = Regex("\\s+")
+    private val trailingNumber = Regex("\\s+(?:part\\s*)?\\d+$", RegexOption.IGNORE_CASE)
+
+    /** Same-folder test: names that differ only by capitalisation or spacing are one folder. */
+    fun identity(name: String): String = name.trim().replace(spaces, " ").lowercase(Locale.ROOT)
+
+    /** "tom cruise" and "TOM CRUISE" both become "Tom Cruise". */
+    fun display(name: String): String = name.trim().replace(spaces, " ").split(' ')
+        .joinToString(" ") { word -> word.lowercase(Locale.ROOT).replaceFirstChar { it.titlecase(Locale.ROOT) } }
+
+    fun of(fileName: String): List<String> {
+        var s = fileName.substringBeforeLast('.', fileName).trim()
+        while (true) {
+            val tag = leadingTag.find(s) ?: break
+            s = s.substring(tag.range.last + 1).trimStart()
+        }
+        val hyphen = s.indexOf('-')
+        val head = if (hyphen >= 0) s.substring(0, hyphen) else s
+        var parts = head.split(',').map(::clean).filter(String::isNotBlank)
+        if (hyphen < 0 && parts.size <= 1) {
+            parts = parts.map { it.split(' ').filter(String::isNotBlank).take(2).joinToString(" ") }
+        }
+        val seen = HashSet<String>()
+        val names = parts.map(::display).filter { seen.add(identity(it)) }
+        return names.ifEmpty { listOf(GroupKey.FALLBACK) }
+    }
+
+    private fun clean(part: String): String = part.trim().trimStart { !it.isLetterOrDigit() }
+        .replace(spaces, " ")
+        .replace(trailingNumber, "")
+        .trim(' ', '-', '_', '.', ',', ';', ':')
+}

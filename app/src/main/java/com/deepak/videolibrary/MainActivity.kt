@@ -154,7 +154,7 @@ class MainActivity : ComponentActivity() {
                             val services = ServiceLocator.get(applicationContext)
                             services.db.openHelper.writableDatabase
                             services.settings.load()
-                            PeriodicSyncWorker.schedule(applicationContext)
+                            PeriodicSyncWorker.ensureScheduled(applicationContext)
                         }
                         ready = true
                     } catch (e: kotlinx.coroutines.CancellationException) {

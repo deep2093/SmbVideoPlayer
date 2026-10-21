@@ -32,6 +32,7 @@ object Pages {
     fun virtualFolder(name: String) = "in-virtual:$name"
     fun customFolder(id: Long) = "in-custom:$id"
     fun ownFolder(id: String) = "in-own:$id"
+    fun virtualSet(id: String) = "in-vset:$id"
     fun drivePick(path: String) = "in-drive:$path"
     fun explorer(path: String) = "explorer:$path"
 }

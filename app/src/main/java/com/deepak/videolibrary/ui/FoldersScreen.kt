@@ -143,7 +143,7 @@ internal fun FoldersHub(
                     when (sections.getOrNull(page)) {
                         null -> Unit
                         0 -> MatchingFoldersScreen(vm, customGridState, onOpenGroup, onPlay, active = active)
-                        1 -> FoldersScreen(vm, gridState, onOpenGroup, onPlay, onOpenSettings, active = active)
+                        1 -> VirtualFoldersScreen(vm, gridState, onPlay, onOpenSettings, active = active)
                         2 -> OriginalFoldersScreen(vm, onPlay, active = active)
                     }
                 }

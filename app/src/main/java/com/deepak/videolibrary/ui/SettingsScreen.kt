@@ -457,26 +457,6 @@ fun SettingsScreen(vm: LibraryViewModel) {
                         }
                         "Library" -> {
                             LibraryBackupActions(vm)
-                            var showGrouping by vm.ui.flagState("settings.grouping")
-                            TextButton(onClick = { showGrouping = !showGrouping }) { Text(stringResource(R.string.ui_automatic_virtual_folder_grouping_2cca974)) }
-                            if (showGrouping) {
-                                Text(stringResource(R.string.ui_changing_this_refreshes_automatic_groups_m_fdbe674), style = MaterialTheme.typography.bodySmall)
-                                com.deepak.videolibrary.scan.GroupingRule.entries.forEach { rule ->
-                                    val label = when (rule) {
-                                        com.deepak.videolibrary.scan.GroupingRule.COMMA_OR_HYPHEN -> "Before comma or hyphen"
-                                        com.deepak.videolibrary.scan.GroupingRule.COMMA_ONLY -> "Before comma"
-                                        com.deepak.videolibrary.scan.GroupingRule.FULL_NAME -> "Full cleaned filename"
-                                        com.deepak.videolibrary.scan.GroupingRule.COMMA_HYPHEN_OR_TWO_WORDS -> "Before comma or hyphen, otherwise the first two words"
-                                    }
-                                    Row(
-                                        Modifier.fillMaxWidth().selectable(selected = vm.groupingRule == rule, role = Role.RadioButton, onClick = { vm.updateGrouping(rule) }),
-                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                                    ) {
-                                        RadioButton(vm.groupingRule == rule, onClick = null)
-                                        Text(label, modifier = Modifier.padding(start = 8.dp))
-                                    }
-                                }
-                            }
                             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("Hide system folders in Files")

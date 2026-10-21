@@ -21,7 +21,7 @@ import java.util.UUID
 
 class FolderNavigationTest {
     @get:Rule val rule = createComposeRule()
-    @Test fun openingAndClosingRealVirtualFolderRestoresVisibleCard() = runBlocking {
+    @Test fun openingAndClosingGeneratedVirtualSubfolderRestoresVisibleCard() = runBlocking {
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Application
         val services = ServiceLocator(app,"navigation-test-${UUID.randomUUID()}",SettingsStore(app))
         val owner = object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() }
@@ -30,22 +30,26 @@ class FolderNavigationTest {
         })[LibraryViewModel::class.java]
         val visible = mutableStateOf(true)
         try {
+            // "Person000 Test.mp4" has no hyphen and no comma, so its folder is its first two words.
             repeat(80) { i ->
-                services.db.dao().insertVideo(VideoEntity(relativePath="Test/$i.mp4",name="$i.mp4",parentDir="Test",size=1,modified=1,groupKey="scroll %03d".format(i),lastSeenSession=1,addedAt=1))
+                services.db.dao().insertVideo(VideoEntity(relativePath="Test/Person%03d Test.mp4".format(i),name="Person%03d Test.mp4".format(i),parentDir="Test",size=1,modified=1,groupKey="x",lastSeenSession=1,addedAt=1))
             }
+            val id = vm.createVirtualSet("Movies")!!
+            vm.setVirtualSetFolders(id, listOf("Test"))
+            vm.openVirtualSetId = id
             rule.setContent { if(visible.value) MaterialTheme { AppRoot(vm) } }
-            rule.waitUntil(15000) { rule.onAllNodesWithTag("virtual-folder-grid").fetchSemanticsNodes().isNotEmpty() && vm.groups.value.size == 80 }
-            rule.onNodeWithTag("virtual-folder-grid").performScrollToIndex(40)
+            rule.waitUntil(15000) { rule.onAllNodesWithTag("virtual-subfolder-grid").fetchSemanticsNodes().isNotEmpty() && rule.onAllNodesWithText("Person000 Test").fetchSemanticsNodes().isNotEmpty() }
+            rule.onNodeWithTag("virtual-subfolder-grid").performScrollToIndex(40)
             rule.waitForIdle()
-            val grid = rule.onNodeWithTag("virtual-folder-grid").fetchSemanticsNode().boundsInRoot
-            val matches = SemanticsMatcher("scroll folder title") { node -> node.config.getOrNull(SemanticsProperties.Text)?.any { it.text.startsWith("Scroll ") } == true }
+            val grid = rule.onNodeWithTag("virtual-subfolder-grid").fetchSemanticsNode().boundsInRoot
+            val matches = SemanticsMatcher("person folder title") { node -> node.config.getOrNull(SemanticsProperties.Text)?.any { it.text.startsWith("Person") } == true }
             val card = rule.onAllNodes(matches,useUnmergedTree=true).fetchSemanticsNodes()
                 .filter { it.boundsInRoot.top >= grid.top && it.boundsInRoot.bottom <= grid.bottom }
                 .minWith(compareBy({it.boundsInRoot.top},{it.boundsInRoot.left}))
             val title = card.config[SemanticsProperties.Text].first().text
             val top = card.boundsInRoot.top
             rule.onNodeWithText(title).performClick()
-            rule.onNodeWithContentDescription("Back to folders").assertExists().performClick()
+            rule.onNodeWithContentDescription("Back to Movies").assertExists().performClick()
             rule.waitForIdle()
             rule.onNodeWithText(title).assertIsDisplayed()
             val restored = rule.onNodeWithText(title,useUnmergedTree=true).fetchSemanticsNode().boundsInRoot.top

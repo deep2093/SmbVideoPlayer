@@ -112,6 +112,18 @@ internal object FolderTargets {
         dao.allGroupNames().forEach { consider(ArtworkKeys.virtualFolder(it), it) }
         dao.allMatchFolders().forEach { consider(ArtworkKeys.matchFolder(it.id), it.name) }
         dao.allParentDirs().forEach { consider(ArtworkKeys.originalFolder(it), it.substringAfterLast('/')) }
+        // The subfolders generated inside the user's Virtual folders are named after people too.
+        val saved = services.settings.load()
+        val serverKey = saved.host.trim().lowercase(java.util.Locale.ROOT) + "/" + saved.share.trim().lowercase(java.util.Locale.ROOT)
+        for (set in services.virtualSets.load(serverKey)) {
+            if (set.folders.isEmpty()) continue
+            val videos = services.db.libraryState().videoList(
+                com.deepak.videolibrary.data.LibraryQueries.videos(
+                    com.deepak.videolibrary.data.LibraryScope(serverKey, members = com.deepak.videolibrary.data.FolderMembers(set.folders, emptyList())),
+                ),
+            )
+            com.deepak.videolibrary.data.VirtualGroups.build(set, videos).forEach { consider(ArtworkKeys.virtualSub(set.id, it.identity), it.title) }
+        }
         return out.entries.map { it.key to it.value }
     }
 }

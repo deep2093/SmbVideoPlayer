@@ -55,6 +55,10 @@ object ArtworkKeys {
     fun matchFolder(id: Long) = "match:$id"
     fun originalFolder(path: String) = "original:$path"
 
+    /** A Virtual folder (made by the user) and one of its generated subfolders. */
+    fun virtualSet(id: String) = "vset:$id"
+    fun virtualSub(setId: String, identity: String) = "vset:$setId:$identity"
+
     fun scopeOf(key: String): ArtworkScope = when {
         key.startsWith("video:") -> ArtworkScope.VIDEO
         key.startsWith("original:") -> ArtworkScope.SMB_FOLDER
