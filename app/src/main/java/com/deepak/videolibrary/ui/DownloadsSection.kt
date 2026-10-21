@@ -133,10 +133,12 @@ internal fun DownloadsPage(vm: LibraryViewModel, onClose: () -> Unit) {
         }
     }
     val running = items.filter { it.status == DownloadItem.RUNNING }
-    remember(items, tick) {
+    // Recorded while composing so each row reads an up-to-date speed; the result is when it was measured.
+    val measuredAt = remember(items, tick) {
         val now = System.currentTimeMillis()
         running.forEach { speed.record(it.id, it.bytesDone, now) }
         speed.keepOnly(running.map { it.id }.toSet())
+        now
     }
     val active = items.filter { it.active }
     val completed = items.count { it.status == DownloadItem.DONE }
@@ -177,7 +179,7 @@ internal fun DownloadsPage(vm: LibraryViewModel, onClose: () -> Unit) {
             contentPadding = PaddingValues(top = 8.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
         ) {
             items(items, key = { it.id }) { item ->
-                DownloadRow(vm, item, if (item.status == DownloadItem.RUNNING) speed.bytesPerSecond(item.id) else null)
+                DownloadRow(vm, item, if (item.status == DownloadItem.RUNNING && measuredAt > 0) speed.bytesPerSecond(item.id) else null)
                 HorizontalDivider()
             }
         }
