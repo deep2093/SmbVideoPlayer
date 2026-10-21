@@ -195,7 +195,7 @@ private fun OriginalFolderCard(vm: LibraryViewModel, folder: DirectorySummary, o
         }, vm, folder.path, directory = true, details = "${folder.path}\n${folder.count} visible indexed videos\nOriginal SMB folder",
             onChangeCover = if (artworkOn) ({ changeCover = true }) else null)
         if (changeCover) {
-            ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.originalFolder(folder.path), originalFolderLabel(folder.path), folder.path.substringAfterLast('/'), null)) { changeCover = false }
+            ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.originalFolder(folder.path), originalFolderLabel(folder.path), folder.path.substringAfterLast('/'), null), null) { changeCover = false }
         }
     }
 }

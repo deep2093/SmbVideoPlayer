@@ -163,7 +163,7 @@ private fun MatchingFolderCard(
             }
         }
         if (changeCover) {
-            ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(folder.id), folder.name, folder.name, null)) { changeCover = false }
+            ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(folder.id), folder.name, folder.name, null), null) { changeCover = false }
         }
         DropdownMenu(menu, { menu = false }) {
             if (artworkOn) {
