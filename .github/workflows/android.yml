@@ -136,9 +136,9 @@ jobs:
       - name: Build update APK and verify stable signing
         run: |
           mkdir -p preview
-          cp app/build/outputs/apk/debug/app-debug.apk preview/base.apk
+          cp app/build/outputs/apk/debug/app-universal-debug.apk preview/base.apk
           ./gradlew assembleDebug -PpreviewVersionCode=$((1000 + GITHUB_RUN_NUMBER * 2 + 1)) --stacktrace
-          cp app/build/outputs/apk/debug/app-debug.apk preview/update.apk
+          cp app/build/outputs/apk/debug/app-universal-debug.apk preview/update.apk
           bash tools/check_preview_signing.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -154,15 +154,20 @@ jobs:
         run: |
           ./gradlew :app:assembleOptimized :app:assembleProfile :benchmarks:assembleOptimized -PpreviewVersionCode=$((1000 + GITHUB_RUN_NUMBER * 2 + 1)) --stacktrace
           mkdir -p optimized
-          cp app/build/outputs/apk/optimized/app-optimized.apk optimized/update.apk
+          cp app/build/outputs/apk/optimized/app-universal-optimized.apk optimized/update.apk
+          # The download for phones and tablets: 64-bit ARM only, same signing so it updates the installed app.
+          cp app/build/outputs/apk/optimized/app-arm64-v8a-optimized.apk optimized/Veyra-arm64.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs optimized/Veyra-arm64.apk | grep 'Signer #1 certificate SHA-256 digest:' > optimized/arm64-cert.txt
+          diff -u preview/update-cert.txt optimized/arm64-cert.txt
+          mkdir -p profile-out && cp app/build/outputs/apk/profile/app-universal-profile.apk profile-out/app-profile.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs optimized/update.apk > optimized/signing.txt
           grep 'Signer #1 certificate SHA-256 digest:' optimized/signing.txt > optimized/cert.txt
           diff -u preview/update-cert.txt optimized/cert.txt
       - name: Report APK size by part
         run: |
-          total=$(stat -c %s optimized/update.apk)
-          echo "::notice title=APK size::optimized APK $((total / 1048576)) MB"
-          unzip -lv optimized/update.apk | awk 'NR>3 && $8 != "" { split($8, p, "/"); key = (p[1] == "lib") ? "lib/" p[2] : (p[1] ~ /\.dex$/ ? "dex" : p[1]); size[key] += $3 } END { for (k in size) printf "%s %d\n", k, size[k] / 1048576 }' | sort -k2 -n -r | head -8 | while read part mb; do echo "::notice title=APK part::$part ${mb} MB (stored)"; done
+          total=$(stat -c %s optimized/Veyra-arm64.apk)
+          echo "::notice title=APK size::Veyra-arm64.apk $((total / 1048576)) MB (universal test APK $(( $(stat -c %s optimized/update.apk) / 1048576 )) MB)"
+          unzip -lv optimized/Veyra-arm64.apk | awk 'NR>3 && $8 != "" { split($8, p, "/"); key = (p[1] == "lib") ? "lib/" p[2] : (p[1] ~ /\.dex$/ ? "dex" : p[1]); size[key] += $3 } END { for (k in size) printf "%s %d\n", k, size[k] / 1048576 }' | sort -k2 -n -r | head -8 | while read part mb; do echo "::notice title=APK part::$part ${mb} MB (stored)"; done
       - uses: actions/upload-artifact@v4
         with:
           name: VideoLibrary-optimized-preview-apk
@@ -170,8 +175,13 @@ jobs:
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
+          name: Veyra-arm64-apk
+          path: optimized/Veyra-arm64.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
           name: Profile-source-apk
-          path: app/build/outputs/apk/profile/app-profile.apk
+          path: profile-out/app-profile.apk
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
