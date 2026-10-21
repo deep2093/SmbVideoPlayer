@@ -42,6 +42,8 @@ data class LibraryTheme(
     /** Glass themes: tint laid over the blurred content behind floating bars, and the opaque menu colour. */
     val glassTint: Color = Color.Transparent,
     val menu: Color = Color.Unspecified,
+    /** Light themes use dark text and a light colour scheme. */
+    val light: Boolean = false,
 )
 
 val libraryThemes = listOf(
@@ -60,20 +62,21 @@ val libraryThemes = listOf(
         glassTint = Color(0x8C14112E),
         menu = Color(0xFF1E1E44),
     ),
-    // Apple-style Liquid Glass: vivid blue wallpaper with soft light, clear glass that blurs what is behind
-    // it, a bright specular edge and floating capsule controls.
+    // Apple-style Liquid Glass on a creamy white wallpaper: warm ivory with soft light, clear frosted glass that
+    // blurs what is behind it, a fine specular edge and floating capsule controls. Text is dark.
     LibraryTheme(
-        "LIQUID_GLASS", "Liquid Glass", Color.Transparent, Color(0x1FFFFFFF), Color(0x29FFFFFF), Color(0xFF64D2FF),
+        "LIQUID_GLASS", "Liquid Glass", Color.Transparent, Color(0x80FFFFFF), Color(0xB3FFFFFF), Color(0xFF0A6CD6),
         glass = true,
-        wallpaper = listOf(Color(0xFF041A4D), Color(0xFF0A3E9E), Color(0xFF0B6FA8), Color(0xFF07325F)),
+        wallpaper = listOf(Color(0xFFFFFCF3), Color(0xFFFAF3E3), Color(0xFFFFF8EA), Color(0xFFF4EBD8)),
         glows = listOf(
-            WallpaperGlow(0.9f, 0.05f, 0.75f, Color(0x6649D3F5)),
-            WallpaperGlow(0.05f, 0.55f, 0.7f, Color(0x553F6BFF)),
-            WallpaperGlow(0.6f, 1.0f, 0.8f, Color(0x4D1FC8C8)),
-            WallpaperGlow(0.35f, 0.25f, 0.45f, Color(0x1AFFFFFF)),
+            WallpaperGlow(0.9f, 0.05f, 0.7f, Color(0x40FFD9A8)),
+            WallpaperGlow(0.05f, 0.6f, 0.7f, Color(0x33BFDDF7)),
+            WallpaperGlow(0.6f, 1.0f, 0.8f, Color(0x33F6C9C9)),
+            WallpaperGlow(0.35f, 0.25f, 0.45f, Color(0x66FFFFFF)),
         ),
-        glassTint = Color(0x80082456),
-        menu = Color(0xFF12306A),
+        glassTint = Color(0x99FFFBF0),
+        menu = Color(0xFFFFFBF1),
+        light = true,
     ),
 )
 
@@ -111,7 +114,20 @@ internal fun DrawScope.drawGlassWallpaper(theme: LibraryTheme) {
 @Composable
 fun Modifier.themedOutline(shape: Shape, emphasised: Boolean = false): Modifier {
     val theme = LocalLibraryTheme.current
-    return if (theme.glass) {
+    return if (theme.glass && theme.light) {
+        // On a light wallpaper a white rim vanishes, so the edge is a fine warm-grey line with a bright glint.
+        val edge = Color(0xFF5B4A2E)
+        this.border(
+            1.dp,
+            Brush.linearGradient(
+                0f to Color.White.copy(alpha = 0.95f),
+                0.35f to edge.copy(alpha = if (emphasised) 0.32f else 0.2f),
+                0.7f to edge.copy(alpha = if (emphasised) 0.26f else 0.14f),
+                1f to Color.White.copy(alpha = 0.8f),
+            ),
+            shape,
+        )
+    } else if (theme.glass) {
         this.border(
             1.dp,
             Brush.linearGradient(
@@ -149,7 +165,43 @@ private fun rememberThemeChoice(): State<String> {
 fun VideoLibraryTheme(content: @Composable () -> Unit) {
     val choice by rememberThemeChoice()
     val theme = libraryThemes.first { it.id == choice }
-    val colors = darkColorScheme(
+    val ink = Color(0xFF1F1B13)
+    val colors = if (theme.light) lightColorScheme(
+        primary = ink,
+        onPrimary = Color.White,
+        primaryContainer = theme.card,
+        onPrimaryContainer = ink,
+        secondary = ink,
+        onSecondary = Color.White,
+        secondaryContainer = theme.card,
+        onSecondaryContainer = ink,
+        tertiary = theme.accent,
+        onTertiary = Color.White,
+        tertiaryContainer = theme.card,
+        onTertiaryContainer = ink,
+        background = Color(0xFFFFFBF1),
+        onBackground = ink,
+        surface = theme.surface,
+        onSurface = ink,
+        surfaceVariant = theme.card,
+        onSurfaceVariant = Color(0xFF4F4A3E),
+        surfaceTint = Color.Transparent,
+        outline = Color(0xFF6B6455),
+        outlineVariant = Color(0x335B4A2E),
+        error = Color(0xFFC62828),
+        onError = Color.White,
+        errorContainer = Color(0xFFFFDAD6),
+        onErrorContainer = Color(0xFF410002),
+        inverseSurface = ink,
+        inverseOnSurface = Color.White,
+        inversePrimary = theme.accent,
+        // Menus and dialogs float above the content, so they stay opaque for legibility.
+        surfaceContainer = theme.menu,
+        surfaceContainerLow = Color(0xFFFFFBF1),
+        surfaceContainerHigh = theme.menu,
+        surfaceContainerHighest = theme.menu,
+        surfaceContainerLowest = Color(0xFFFFFBF1),
+    ) else darkColorScheme(
         primary = Color(0xFFF5F5F5),
         onPrimary = Color(0xFF101010),
         primaryContainer = theme.card,
@@ -185,6 +237,14 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         surfaceContainerHighest = if (theme.glass) theme.menu else theme.card,
         surfaceContainerLowest = theme.background,
     )
+    // Dark status-bar icons on a light theme (the player sets its own bars while playing).
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = (view.context as? android.app.Activity)?.window
+            if (window != null) androidx.core.view.WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = theme.light
+        }
+    }
     MaterialTheme(
         colorScheme = colors,
         typography = Typography(

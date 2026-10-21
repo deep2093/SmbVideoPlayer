@@ -325,7 +325,8 @@ private fun ScanStat(label: String, value: String, modifier: Modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             // Glass themes: a darker inset keeps white numbers and labels readable on the frosted card.
             .background(
-                if (LocalLibraryTheme.current.glass) Color.Black.copy(alpha = 0.24f)
+                if (LocalLibraryTheme.current.light) Color.White.copy(alpha = 0.7f)
+                else if (LocalLibraryTheme.current.glass) Color.Black.copy(alpha = 0.24f)
                 else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
             )
             .padding(horizontal = 12.dp, vertical = 10.dp),

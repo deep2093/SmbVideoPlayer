@@ -43,7 +43,7 @@ internal fun FloatingLibraryNavigation(
     val glass = theme.glass
     val shape = if (glass) RoundedCornerShape(percent = 50) else RoundedCornerShape(16.dp)
     val surface = Modifier
-        .then(if (glass) Modifier.shadow(20.dp, shape, ambientColor = Color.Black, spotColor = Color.Black) else Modifier)
+        .then(if (glass) Modifier.shadow(20.dp, shape, ambientColor = Color.Black.copy(alpha = if (theme.light) 0.35f else 1f), spotColor = Color.Black.copy(alpha = if (theme.light) 0.35f else 1f)) else Modifier)
         .clip(shape)
         .then(
             if (glass && hazeState != null) {
@@ -51,7 +51,7 @@ internal fun FloatingLibraryNavigation(
                     state = hazeState,
                     style = HazeStyle(
                         backgroundColor = theme.menu,
-                        tints = listOf(HazeTint(theme.glassTint), HazeTint(Color.White.copy(alpha = 0.06f))),
+                        tints = listOf(HazeTint(theme.glassTint), HazeTint(Color.White.copy(alpha = if (theme.light) 0.2f else 0.06f))),
                         blurRadius = 26.dp,
                         noiseFactor = 0.04f,
                         // Android 10 and 11 cannot blur: fall back to a stronger tint.
@@ -73,7 +73,7 @@ internal fun FloatingLibraryNavigation(
         labels.forEachIndexed { index, label ->
             val isSelected = selected == index
             val lens by animateColorAsState(
-                if (glass && isSelected) Color.White.copy(alpha = 0.2f) else Color.Transparent,
+                if (glass && isSelected) (if (theme.light) Color(0xFF5B4A2E).copy(alpha = 0.12f) else Color.White.copy(alpha = 0.2f)) else Color.Transparent,
                 animationSpec = tween(220),
                 label = "nav_lens",
             )
@@ -88,6 +88,7 @@ internal fun FloatingLibraryNavigation(
                 val ink = when {
                     isSelected && glass -> theme.accent
                     isSelected -> MaterialTheme.colorScheme.onSurface
+                    glass && theme.light -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
                     glass -> Color.White.copy(alpha = 0.88f)
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 }
