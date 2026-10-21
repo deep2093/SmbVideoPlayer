@@ -214,19 +214,20 @@ private fun VirtualMenu(vm: LibraryViewModel, showSort: Boolean, extra: @Composa
     }
 }
 
-/** Choosing the drive folders a Virtual folder reads. Folders include everything inside them. */
+/** Choosing the drive folders and single videos a Virtual folder reads. Folders include everything inside them. */
 @Composable
 internal fun VirtualFolderPicker(vm: LibraryViewModel, set: VirtualSet, onClose: () -> Unit) {
     DrivePicker(
         vm = vm,
-        title = "Choose folders for ${set.name}",
-        explanation = "Tick the drive folders this virtual folder reads (everything inside them is included). Its subfolders are made from the names in the file names. Untick to take a folder out. Files on your drive are not changed.",
+        title = "Choose for ${set.name}",
+        explanation = "Tick drive folders (everything inside them is included) and single videos. They are sorted into subfolders by the names in the file names. Untick to take something out. Files on your drive are not changed.",
         confirmLabel = "Done",
-        withFiles = false,
+        withFiles = true,
         initialFolders = set.folders.toSet(),
+        initialFiles = set.files.toSet(),
         onDismiss = onClose,
-    ) { folders, _ ->
-        vm.setVirtualSetFolders(set.id, folders)
+    ) { folders, files ->
+        vm.setVirtualSetMembers(set.id, folders, files)
         onClose()
     }
 }
@@ -248,7 +249,7 @@ private fun VirtualSetCard(vm: LibraryViewModel, set: VirtualSet, aspect: Float,
     Box {
         FolderTile(
             title = set.name,
-            detail = if (set.isEmpty) "Empty · tap to choose folders" else "$count videos",
+            detail = if (set.isEmpty) "Empty · tap to choose" else "$count videos",
             cover = cover,
             aspect = aspect,
             listMode = vm.folderListMode,
@@ -266,7 +267,7 @@ private fun VirtualSetCard(vm: LibraryViewModel, set: VirtualSet, aspect: Float,
         DropdownMenu(menu, { menu = false }) {
             DropdownMenuItem(text = { Text("Open") }, onClick = { menu = false; vm.openVirtualSetId = set.id })
             DropdownMenuItem(text = { Text("Select") }, onClick = { menu = false; vm.ui.toggleFolder(selectPage, set.id) })
-            DropdownMenuItem(text = { Text("Choose folders") }, onClick = { menu = false; edit = true })
+            DropdownMenuItem(text = { Text("Choose folders and files") }, onClick = { menu = false; edit = true })
             DropdownMenuItem(text = { Text("Scan now") }, onClick = { menu = false; vm.rescanVirtual() })
             if (artworkOn) DropdownMenuItem(text = { Text("Change cover") }, onClick = { menu = false; changeCover = true })
             DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; vm.downloadVirtualSet(set) })
@@ -307,8 +308,6 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
             else -> vm.openVirtualSetId = null
         }
     }
-    val page = Pages.virtualSet(set.id)
-    val aspect = cardAspect(vm, page)
     var edit by remember { mutableStateOf(false) }
     val videosFlow = remember(set.folders) { vm.virtualSetVideos(set) }
     val videos by videosFlow.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -316,6 +315,9 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
         VirtualGroups.sorted(VirtualGroups.build(set, videos), vm.folderSort, vm.folderSortDescending)
     }
     val current = groups.firstOrNull { it.identity == openGroup }
+    // Subfolder cards and the videos inside a subfolder each keep their own card shape (portrait or landscape).
+    val page = if (current == null) Pages.virtualSet(set.id) else Pages.virtualSetVideos(set.id)
+    val aspect = cardAspect(vm, page)
     // A subfolder that disappears (renamed, taken out, emptied by a rescan) returns to the list.
     LaunchedEffect(current == null, openGroup) { if (openGroup != null && current == null) openGroup = null }
     val shownVideos = current?.videos.orEmpty()
@@ -365,7 +367,7 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
                     modifier = Modifier.weight(1f),
                 )
                 if (current == null) {
-                    IconAction(Icons.Default.Edit, "Choose folders", onClick = { edit = true })
+                    IconAction(Icons.Default.Edit, "Choose folders and files", onClick = { edit = true })
                     IconAction(Icons.Default.Refresh, "Scan now", onClick = { vm.rescanVirtual() })
                     if (set.hidden.isNotEmpty()) {
                         IconAction(Icons.Default.Visibility, "Show folders you took out", onClick = { vm.restoreVirtualSubfolders(set.id) })
@@ -389,8 +391,8 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
         if (set.isEmpty) {
             Column(Modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
-                Text("Choose the drive folders this virtual folder reads.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Button(onClick = { edit = true }) { Text("Choose folders") }
+                Text("Choose the drive folders and videos this virtual folder reads.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button(onClick = { edit = true }) { Text("Choose folders and files") }
             }
         } else if (groups.isEmpty()) {
             Column(Modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

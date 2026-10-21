@@ -937,17 +937,23 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
 
     /**
-     * Replaces the drive folders a Virtual folder reads. Folders that were not indexed yet are scanned straight
-     * away; the subfolders are generated from what the scan finds.
+     * Replaces the drive folders and single videos a Virtual folder reads. Anything not indexed yet is scanned
+     * straight away; the subfolders are generated from what the scan finds.
      */
-    fun setVirtualSetFolders(id: String, folders: Collection<String>) {
+    fun setVirtualSetMembers(id: String, folders: Collection<String>, files: Collection<String>) {
         val clean = folders.map { it.trim('/') }.distinct().sorted()
             .let { list -> list.filter { path -> list.none { other -> other != path && (other.isEmpty() || path.startsWith("$other/")) } } }
             .take(VirtualSetStore.MAX_FOLDERS)
-        if (folders.size > VirtualSetStore.MAX_FOLDERS) notice = "A Virtual folder can read up to ${VirtualSetStore.MAX_FOLDERS} drive folders; the rest were left out."
-        editVirtual { list -> list.map { if (it.id == id) it.copy(folders = clean) else it } }
+        // A video inside a chosen folder is already included.
+        val cleanFiles = files.map { it.trim('/') }.filter { it.isNotEmpty() }.distinct()
+            .filterNot { file -> clean.any { dir -> dir.isEmpty() || file.startsWith("$dir/") } }
+            .sorted().take(VirtualSetStore.MAX_FILES)
+        if (folders.size > VirtualSetStore.MAX_FOLDERS || files.size > VirtualSetStore.MAX_FILES) {
+            notice = "A Virtual folder can read up to ${VirtualSetStore.MAX_FOLDERS} drive folders and ${VirtualSetStore.MAX_FILES} single videos; the rest were left out."
+        }
+        editVirtual { list -> list.map { if (it.id == id) it.copy(folders = clean, files = cleanFiles) else it } }
         coverRevision++
-        scanVirtualFoldersIfNeeded(clean)
+        scanVirtualMembersIfNeeded(clean, cleanFiles)
     }
 
     /** A manual refresh of the folders this Virtual folder reads (it scans the whole library like Refresh library). */
@@ -956,13 +962,13 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         notice = "Scanning your Virtual folders…"
     }
 
-    private fun scanVirtualFoldersIfNeeded(folders: List<String>) {
-        if (folders.isEmpty()) return
+    private fun scanVirtualMembersIfNeeded(folders: List<String>, files: List<String>) {
+        if (folders.isEmpty() && files.isEmpty()) return
         viewModelScope.launch {
             val unindexed = withContext(Dispatchers.IO) {
                 folders.any { root ->
                     stateDao.count(LibraryQueries.count(LibraryScope(namespace.value, sourcePath = root, includeSubfolders = true))).first() == 0
-                }
+                } || (files.isNotEmpty() && indexedVideos(files).size < files.size)
             }
             if (unindexed) ScanWorker.enqueue(getApplication(), ScanMode.REFRESH, afterCurrent = true, libraryId = services.libraryId)
         }
@@ -1007,14 +1013,14 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     fun virtualSubKey(setId: String, identity: String) = com.deepak.videolibrary.artwork.ArtworkKeys.virtualSub(setId, identity)
 
     private fun virtualSetScope(set: VirtualSet) =
-        LibraryScope(namespace.value, members = FolderMembers(set.folders, emptyList()), sort = "NAME")
+        LibraryScope(namespace.value, members = set.members(), sort = "NAME")
 
     /** Every indexed video inside the drive folders of [set], kept up to date as scans find more. */
     fun virtualSetVideos(set: VirtualSet): Flow<List<VideoEntity>> =
-        if (set.folders.isEmpty()) flowOf(emptyList()) else stateDao.videosFlow(LibraryQueries.videos(virtualSetScope(set)))
+        if (set.isEmpty) flowOf(emptyList()) else stateDao.videosFlow(LibraryQueries.videos(virtualSetScope(set)))
 
     fun virtualSetCount(set: VirtualSet): Flow<Int> =
-        if (set.folders.isEmpty()) flowOf(0) else stateDao.count(LibraryQueries.count(virtualSetScope(set)))
+        if (set.isEmpty) flowOf(0) else stateDao.count(LibraryQueries.count(virtualSetScope(set)))
 
     suspend fun virtualSetCover(set: VirtualSet, key: String): File? =
         artwork.cover(virtualSetKey(set.id), key, virtualSetScope(set))

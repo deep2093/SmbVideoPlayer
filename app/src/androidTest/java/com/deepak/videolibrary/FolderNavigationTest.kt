@@ -35,7 +35,7 @@ class FolderNavigationTest {
                 services.db.dao().insertVideo(VideoEntity(relativePath="Test/Person%03d Test.mp4".format(i),name="Person%03d Test.mp4".format(i),parentDir="Test",size=1,modified=1,groupKey="x",lastSeenSession=1,addedAt=1))
             }
             val id = vm.createVirtualSet("Movies")!!
-            vm.setVirtualSetFolders(id, listOf("Test"))
+            vm.setVirtualSetMembers(id, listOf("Test"), emptyList())
             vm.openVirtualSetId = id
             rule.setContent { if(visible.value) MaterialTheme { AppRoot(vm) } }
             rule.waitUntil(15000) { rule.onAllNodesWithTag("virtual-subfolder-grid").fetchSemanticsNodes().isNotEmpty() && rule.onAllNodesWithText("Person000 Test").fetchSemanticsNodes().isNotEmpty() }

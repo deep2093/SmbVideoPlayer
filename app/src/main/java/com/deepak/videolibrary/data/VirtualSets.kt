@@ -17,8 +17,13 @@ data class VirtualSet(
     val folders: List<String> = emptyList(),
     val renames: Map<String, String> = emptyMap(),
     val hidden: Set<String> = emptySet(),
+    /** Single videos chosen on their own; they are filed into the name subfolders like everything else. */
+    val files: List<String> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = folders.isEmpty()
+    val isEmpty: Boolean get() = folders.isEmpty() && files.isEmpty()
+
+    /** Everything the set reads, for the library queries. */
+    fun members(): FolderMembers = FolderMembers(folders, files)
 }
 
 /** The Virtual folders of each server, kept as JSON in a small preferences file. */
@@ -35,6 +40,7 @@ class VirtualSetStore(context: Context) {
 
     companion object {
         const val MAX_FOLDERS = 100
+        const val MAX_FILES = 500
 
         internal fun encode(sets: List<VirtualSet>): String = JSONArray().apply {
             sets.forEach { s ->
@@ -44,7 +50,8 @@ class VirtualSetStore(context: Context) {
                         .put("name", s.name)
                         .put("folders", JSONArray(s.folders))
                         .put("renames", JSONObject().apply { s.renames.forEach { (k, v) -> put(k, v) } })
-                        .put("hidden", JSONArray(s.hidden.toList())),
+                        .put("hidden", JSONArray(s.hidden.toList()))
+                        .put("files", JSONArray(s.files)),
                 )
             }
         }.toString()
@@ -59,7 +66,10 @@ class VirtualSetStore(context: Context) {
                     val name = o.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
                     val renames = LinkedHashMap<String, String>()
                     o.optJSONObject("renames")?.let { r -> r.keys().forEach { k -> r.optString(k).takeIf { it.isNotBlank() }?.let { renames[k] = it } } }
-                    VirtualSet(id, name, strings(o.optJSONArray("folders")), renames, strings(o.optJSONArray("hidden")).toSet())
+                    VirtualSet(
+                        id, name, strings(o.optJSONArray("folders")), renames, strings(o.optJSONArray("hidden")).toSet(),
+                        strings(o.optJSONArray("files")).filter { it.isNotEmpty() },
+                    )
                 }
             } catch (e: Exception) {
                 emptyList()

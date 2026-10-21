@@ -116,10 +116,10 @@ internal object FolderTargets {
         val saved = services.settings.load()
         val serverKey = saved.host.trim().lowercase(java.util.Locale.ROOT) + "/" + saved.share.trim().lowercase(java.util.Locale.ROOT)
         for (set in services.virtualSets.load(serverKey)) {
-            if (set.folders.isEmpty()) continue
+            if (set.isEmpty) continue
             val videos = services.db.libraryState().videoList(
                 com.deepak.videolibrary.data.LibraryQueries.videos(
-                    com.deepak.videolibrary.data.LibraryScope(serverKey, members = com.deepak.videolibrary.data.FolderMembers(set.folders, emptyList())),
+                    com.deepak.videolibrary.data.LibraryScope(serverKey, members = set.members()),
                 ),
             )
             com.deepak.videolibrary.data.VirtualGroups.build(set, videos).forEach { consider(ArtworkKeys.virtualSub(set.id, it.identity), it.title) }

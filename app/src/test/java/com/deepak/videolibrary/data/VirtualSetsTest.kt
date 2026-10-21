@@ -48,7 +48,7 @@ class VirtualSetsTest {
     }
 
     @Test fun storeKeepsEverythingThroughJson() {
-        val original = listOf(VirtualSet("a", "Hollywood", listOf("Movies/Action", ""), mapOf("tom cruise" to "Tommy"), setOf("brad pitt")), VirtualSet("b", "Empty"))
+        val original = listOf(VirtualSet("a", "Hollywood", listOf("Movies/Action", ""), mapOf("tom cruise" to "Tommy"), setOf("brad pitt"), listOf("Downloads/Tom Cruise - x.mp4")), VirtualSet("b", "Empty"))
         val back = VirtualSetStore.decode(VirtualSetStore.encode(original))
         assertEquals(original, back)
         assertTrue(VirtualSetStore.decode("not json").isEmpty())
