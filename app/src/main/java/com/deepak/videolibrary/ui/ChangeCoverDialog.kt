@@ -317,7 +317,7 @@ private fun SearchField(value: String, onChange: (String) -> Unit, choices: List
         maxLines = 3,
         shape = RoundedCornerShape(20.dp),
         trailingIcon = if (value.isNotEmpty()) {
-            { androidx.compose.material3.IconButton(onClick = { onChange("") }) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.Close, contentDescription = "Clear") } }
+            { androidx.compose.material3.IconButton(onClick = { onChange("") }) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.Clear, contentDescription = "Clear") } }
         } else {
             null
         },
