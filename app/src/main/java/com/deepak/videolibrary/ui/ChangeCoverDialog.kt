@@ -39,6 +39,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -113,6 +114,9 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
     var oneOff by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<PerformerCandidate>?>(null) }
     var photosOf by remember { mutableStateOf<PerformerCandidate?>(null) }
+    // StashDB answers a few matches at a time: this page of matches, and whether another page may exist.
+    var resultPage by remember { mutableIntStateOf(1) }
+    var moreResults by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<Bitmap?>(null) }
     var pendingCandidate by remember { mutableStateOf<PerformerCandidate?>(null) }
     val choices = remember(target.label) { nameChoices(target.label) }
@@ -295,19 +299,25 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                     PhotoChoice(vm, photos, enabled = !busy, onBack = { photosOf = null }) { url -> load(photos, url) }
                                 } else {
                                     SearchField(query, { query = it }, choices, label = "Performer name")
-                                    Button(enabled = query.isNotBlank() && !busy, onClick = {
+                                    // Asks for one page of matches. [next] adds the following page below the ones already shown.
+                                    fun runSearch(next: Boolean) {
                                         busy = true
                                         error = null
-                                        results = null
+                                        val page = if (next) resultPage + 1 else 1
+                                        if (!next) results = null
                                         scope.launch {
                                             try {
-                                                when (val outcome = vm.searchPerformers(query.trim())) {
+                                                when (val outcome = vm.searchPerformers(query.trim(), page)) {
                                                     is SearchOutcome.Failed -> {
                                                         error = outcome.failure.message
                                                     }
                                                     is SearchOutcome.Found -> {
-                                                        results = outcome.candidates
-                                                        if (outcome.candidates.isEmpty()) {
+                                                        val shown = if (next) results.orEmpty() else emptyList()
+                                                        val seen = shown.map { it.providerId + ":" + it.performerId }.toSet()
+                                                        results = shown + outcome.candidates.filter { (it.providerId + ":" + it.performerId) !in seen }
+                                                        resultPage = page
+                                                        moreResults = outcome.candidates.size >= com.deepak.videolibrary.artwork.online.PerformerProvider.PAGE_SIZE
+                                                        if (results.isNullOrEmpty()) {
                                                             error = outcome.failures.firstOrNull()?.let { "${it.first}: ${it.second.message}" } ?: "No matches. Try a different spelling, or the Google Images tab."
                                                         }
                                                     }
@@ -318,7 +328,8 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                                 busy = false
                                             }
                                         }
-                                    }) { Text("Search") }
+                                    }
+                                    Button(enabled = query.isNotBlank() && !busy, onClick = { runSearch(next = false) }) { Text("Search") }
                                     results?.forEach { candidate ->
                                         CandidateRow(vm, candidate, enabled = !busy) {
                                             val url = candidate.imageUrl
@@ -329,6 +340,11 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                             } else {
                                                 error = "This match has no picture."
                                             }
+                                        }
+                                    }
+                                    if (moreResults && !results.isNullOrEmpty()) {
+                                        OutlinedButton(enabled = !busy, onClick = { runSearch(next = true) }, modifier = Modifier.fillMaxWidth()) {
+                                            Text("More results (page ${resultPage + 1})")
                                         }
                                     }
                                 }
@@ -391,14 +407,20 @@ private fun SearchField(value: String, onChange: (String) -> Unit, choices: List
     }
 }
 
-/** Every photo the service has for one performer; tap one to use it. */
+/** Photos shown per page of a performer's pictures. */
+private const val PHOTOS_PER_PAGE = 12
+
+/** Every photo the service has for one performer, a page at a time; tap one to use it. */
 @Composable
 private fun PhotoChoice(vm: LibraryViewModel, candidate: PerformerCandidate, enabled: Boolean, onBack: () -> Unit, onChoose: (String) -> Unit) {
+    val pages = ((candidate.images.size + PHOTOS_PER_PAGE - 1) / PHOTOS_PER_PAGE).coerceAtLeast(1)
+    var page by remember(candidate.performerId) { mutableIntStateOf(0) }
+    val current = page.coerceIn(0, pages - 1)
     Row(verticalAlignment = Alignment.CenterVertically) {
         TextButton(onClick = onBack) { Text("‹ Results") }
         Text("${candidate.name} · ${candidate.images.size} photos", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
-    candidate.images.chunked(3).forEach { row ->
+    candidate.images.drop(current * PHOTOS_PER_PAGE).take(PHOTOS_PER_PAGE).chunked(3).forEach { row ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             row.forEach { url ->
                 Box(
@@ -409,6 +431,13 @@ private fun PhotoChoice(vm: LibraryViewModel, candidate: PerformerCandidate, ena
                 }
             }
             repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+        }
+    }
+    if (pages > 1) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+            TextButton(enabled = current > 0, onClick = { page = current - 1 }) { Text("‹ Previous") }
+            Text("Page ${current + 1} of $pages", style = MaterialTheme.typography.labelLarge)
+            TextButton(enabled = current < pages - 1, onClick = { page = current + 1 }) { Text("Next ›") }
         }
     }
 }

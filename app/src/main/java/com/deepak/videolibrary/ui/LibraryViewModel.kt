@@ -1176,12 +1176,12 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     /** The search term for this item, following the naming switches in Settings > Artwork. */
     fun artworkSearchTerm(key: String, label: String) = artworkSettings.value.searchTerm(com.deepak.videolibrary.artwork.ArtworkKeys.scopeOf(key), label)
 
-    suspend fun searchPerformers(query: String): com.deepak.videolibrary.artwork.online.SearchOutcome {
+    suspend fun searchPerformers(query: String, page: Int = 1): com.deepak.videolibrary.artwork.online.SearchOutcome {
         val settings = artworkSettings.value
         if (!com.deepak.videolibrary.artwork.online.NetworkPolicy.allowed(getApplication(), settings)) {
             return com.deepak.videolibrary.artwork.online.SearchOutcome.Failed(com.deepak.videolibrary.artwork.online.ProviderFailure.BLOCKED_BY_SETTINGS)
         }
-        return services.performerSearch.search(query, settings)
+        return services.performerSearch.search(query, settings, page)
     }
 
     /** Downloads a candidate picture (bounded, HTTPS only). Throws ProviderException with a readable reason. */

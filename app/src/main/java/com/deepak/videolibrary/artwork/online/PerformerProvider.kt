@@ -30,6 +30,11 @@ interface PerformerProvider {
     val id: String
     val displayName: String
 
-    /** Searches by name. Throws [ProviderException] with a clear reason on failure. */
-    suspend fun search(query: String, apiKey: String, endpoint: String? = null): List<PerformerCandidate>
+    /** Searches by name; [page] starts at 1 and gives the next [PAGE_SIZE] matches. Throws [ProviderException] with a clear reason on failure. */
+    suspend fun search(query: String, apiKey: String, endpoint: String? = null, page: Int = 1): List<PerformerCandidate>
+
+    companion object {
+        /** Matches asked for per page; a page with fewer than this many is the last one. */
+        const val PAGE_SIZE = 10
+    }
 }

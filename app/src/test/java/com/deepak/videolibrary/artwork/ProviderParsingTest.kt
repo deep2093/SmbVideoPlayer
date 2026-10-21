@@ -33,4 +33,14 @@ class ProviderParsingTest {
             assertEquals(ProviderFailure.UNAUTHORIZED, e.failure)
         }
     }
+
+    @Test fun stashDbOffersEveryPhotoNotJustTheFirstTwelve() {
+        val images = (1..40).joinToString(",") { """{"url":"https://cdn.example.com/p$it.jpg","width":800,"height":1200}""" }
+        val json = """{"data":{"queryPerformers":{"performers":[{"id":"x","name":"Jane Doe","images":[$images]}]}}}"""
+        val list = StashDbProvider.parse(json)
+        assertEquals(40, list.single().images.size)
+        // Equal sizes keep the service's own order.
+        assertEquals("https://cdn.example.com/p1.jpg", list.single().images.first())
+        assertEquals("https://cdn.example.com/p40.jpg", list.single().images.last())
+    }
 }

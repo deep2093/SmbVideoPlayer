@@ -11,11 +11,11 @@ class StashDbProvider : PerformerProvider {
     override val id = ProviderIds.STASH_DB
     override val displayName = "StashDB"
 
-    override suspend fun search(query: String, apiKey: String, endpoint: String?): List<PerformerCandidate> {
+    override suspend fun search(query: String, apiKey: String, endpoint: String?, page: Int): List<PerformerCandidate> {
         if (apiKey.isBlank()) throw ProviderException(ProviderFailure.NO_KEY)
         val payload = JSONObject()
             .put("query", QUERY)
-            .put("variables", JSONObject().put("names", query))
+            .put("variables", JSONObject().put("names", query).put("page", page.coerceAtLeast(1)).put("perPage", PerformerProvider.PAGE_SIZE))
             .toString()
         val body = ArtworkHttp.postJson(EndpointPolicy.normalize(endpoint) ?: ENDPOINT, mapOf("ApiKey" to apiKey, "Accept" to "application/json"), payload)
         return parse(body)
@@ -24,7 +24,7 @@ class StashDbProvider : PerformerProvider {
     companion object {
         private const val ENDPOINT = "https://stashdb.org/graphql"
         private const val QUERY =
-            "query Search(\$names: String!) { queryPerformers(input: {names: \$names, page: 1, per_page: 10}) " +
+            "query Search(\$names: String!, \$page: Int!, \$perPage: Int!) { queryPerformers(input: {names: \$names, page: \$page, per_page: \$perPage}) " +
                 "{ performers { id name disambiguation images { url width height } } } }"
 
         internal fun parse(body: String): List<PerformerCandidate> {
@@ -64,7 +64,7 @@ class StashDbProvider : PerformerProvider {
         /** The best image: portrait-shaped first (faces suit portrait covers), otherwise the largest usable one. */
         internal fun bestImage(item: JSONObject): String? = rankedImages(item).firstOrNull()
 
-        /** Every usable image, portrait-shaped and larger ones first, without duplicates (at most [MAX_PHOTOS]). */
+        /** Every usable image, portrait-shaped and larger ones first, without duplicates (at most [MAX_PHOTOS], which is far more than a profile has). */
         internal fun rankedImages(item: JSONObject): List<String> {
             val images = item.optJSONArray("images") ?: return emptyList()
             val scored = ArrayList<Pair<String, Long>>()
@@ -81,6 +81,7 @@ class StashDbProvider : PerformerProvider {
             return scored.sortedByDescending { it.second }.map { it.first }.distinct().take(MAX_PHOTOS)
         }
 
-        const val MAX_PHOTOS = 12
+        /** Every picture of a profile is offered (the dialog shows them a page at a time); this only guards against absurd responses. */
+        const val MAX_PHOTOS = 300
     }
 }

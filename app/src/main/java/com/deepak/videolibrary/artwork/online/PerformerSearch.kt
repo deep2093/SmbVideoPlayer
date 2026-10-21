@@ -23,7 +23,7 @@ class PerformerSearch(
         return provider.search(query, key, settings.customEndpoints[provider.id])
     }
 
-    suspend fun search(query: String, settings: ArtworkSettings): SearchOutcome {
+    suspend fun search(query: String, settings: ArtworkSettings, page: Int = 1): SearchOutcome {
         val active = configured(settings)
         if (active.isEmpty()) return SearchOutcome.Failed(ProviderFailure.NO_KEY)
         val found = ArrayList<PerformerCandidate>()
@@ -35,7 +35,7 @@ class PerformerSearch(
                 continue
             }
             try {
-                found += provider.search(query, key, settings.customEndpoints[provider.id])
+                found += provider.search(query, key, settings.customEndpoints[provider.id], page)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ProviderException) {
