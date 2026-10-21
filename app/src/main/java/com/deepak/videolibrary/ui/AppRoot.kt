@@ -208,13 +208,13 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     val selectSection: (Int) -> Unit = { index ->
         if (folderDetails && tab == 1) {
             leaveFolderTo(index)
-            return@selectSection
+        } else {
+            vm.downloadsOpen = false
+            tab = index
+            folderDetails = false
+            vm.groupFilter.value = null
+            vm.matchFolderFilter.value = null
         }
-        vm.downloadsOpen = false
-        tab = index
-        folderDetails = false
-        vm.groupFilter.value = null
-        vm.matchFolderFilter.value = null
     }
     val nextSection: () -> Unit = {
         when {
