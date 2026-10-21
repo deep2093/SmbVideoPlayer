@@ -5,6 +5,8 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -317,7 +319,7 @@ private fun SearchField(value: String, onChange: (String) -> Unit, choices: List
         maxLines = 3,
         shape = RoundedCornerShape(20.dp),
         trailingIcon = if (value.isNotEmpty()) {
-            { androidx.compose.material3.IconButton(onClick = { onChange("") }) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.Clear, contentDescription = "Clear") } }
+            { androidx.compose.material3.IconButton(onClick = { onChange("") }) { androidx.compose.material3.Icon(Icons.Filled.Close, contentDescription = "Clear") } }
         } else {
             null
         },
