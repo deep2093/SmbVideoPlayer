@@ -283,7 +283,6 @@ internal fun ThemeSettings() {
     val context = LocalContext.current
     val choice by rememberThemeChoice()
     var expanded by remember { mutableStateOf(false) }
-    Text(stringResource(R.string.ui_appearance_41def7a), style = MaterialTheme.typography.titleMedium)
     Box {
         OutlinedButton(onClick = {
             expanded = true

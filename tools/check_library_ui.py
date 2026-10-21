@@ -221,7 +221,7 @@ try:
     # Put many live, unindexed files before the failed video in the real listing.
     for i in range(80):
         (target.parent/f'A{i:03}.txt').write_text('fixture')
-    click('Settings');open_section('Sync & thumbnails','View failed thumbnails');click('View failed thumbnails');scroll_to(NAME);click(NAME);click('Open folder in File Explorer')
+    click('Settings');open_section('Artwork & thumbnails','View failed thumbnails');click('View failed thumbnails');scroll_to(NAME);click(NAME);click('Open folder in File Explorer')
     find('Target file: '+NAME);screenshot('exact-file-jump')
     labels=[n.get('text','') for n in tree().iter('node')]
     assert 'A000.txt' not in labels, 'Shortcut must scroll beyond the first page'

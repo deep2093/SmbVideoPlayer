@@ -60,7 +60,7 @@ import com.deepak.videolibrary.scan.ScanStatus
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel) {
+internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel, scan: Boolean = true, thumbnails: Boolean = true) {
     val session by vm.session.collectAsStateWithLifecycle()
     val pending by vm.pendingDirs.collectAsStateWithLifecycle()
     val errors by vm.errors.collectAsStateWithLifecycle()
@@ -84,12 +84,12 @@ internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel) {
         confirmButton={TextButton(onClick={session?.let { vm.confirmEmptyLibrary(it.id) };confirmEmpty=false}){Text("Remove entries")}},
         dismissButton={TextButton(onClick={confirmEmpty=false}){Text("Keep index")}},
     )
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             // ---- Automatic sync ----
-            AutomaticSyncSummary()
+            if (scan) AutomaticSyncSummary()
 
             // ---- Library scan: status, numbers, actions ----
-            run {
+            if (scan) run {
                 ScanSection("Library scan") {
                     val s = session
                     if (s == null) {
@@ -164,7 +164,7 @@ internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel) {
             }
 
             // ---- Scan errors ----
-            if (errors.isNotEmpty()) {
+            if (scan && errors.isNotEmpty()) {
                 TextButton(onClick = { showErrors = !showErrors }) { Text(if (showErrors) "Hide scan errors" else "View scan errors (${errors.size})") }
                 if (showErrors) errors.take(MAX_SHOWN_ERRORS).forEach { e ->
                     Column(Modifier.padding(vertical = 2.dp)) {
@@ -181,7 +181,7 @@ internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel) {
             }
 
             // ---- Thumbnails ----
-            run {
+            if (thumbnails) run {
                 val all = thumbsDone + thumbsPending + thumbsFailed
                 ScanSection("Thumbnails") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -284,11 +284,11 @@ private fun prettyStatus(status: String) =
 internal fun ScanSection(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Card(
         Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
             content()
         }
     }

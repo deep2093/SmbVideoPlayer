@@ -236,6 +236,42 @@ class ArtworkRepository(
         if (changed) changes.value++
     }
 
+    /**
+     * Moves stored artwork from one exact key to another (each pair is from -> to). A manual cover already at the
+     * destination wins. Used to keep a folder's cover while it is deleted and to give it back when it is made again.
+     */
+    suspend fun moveExact(pairs: List<Pair<String, String>>) {
+        if (pairs.isEmpty()) return
+        var changed = false
+        withContext(Dispatchers.IO) {
+            writeLock.withLock {
+                for ((from, to) in pairs) {
+                    if (from == to) continue
+                    val row = rows.remove(from) ?: continue
+                    dao.delete(from)
+                    dao.deleteCandidates(listOf(from))
+                    changed = true
+                    val existing = rows[to]
+                    if (existing != null && existing.manual) {
+                        row.imageName?.let { deleteImage(it) }
+                        continue
+                    }
+                    existing?.imageName?.let { deleteImage(it) }
+                    val moved = row.copy(key = to)
+                    dao.upsert(ArtworkRow.of(moved))
+                    rows[to] = moved
+                }
+            }
+        }
+        if (changed) changes.value++
+    }
+
+    /** Every stored key (for keeping covers of removed items). */
+    fun allKeys(): Set<String> = rows.keys.toSet()
+
+    /** Removes every stored cover choice, crop and fetched portrait, kept ones included. Thumbnails are not touched. */
+    suspend fun clearAll(): Int = clear(rows.keys.toList())
+
     /** Removes the stored cover of [prefix] and, for SMB folders, of everything below it. */
     suspend fun clearUnder(prefix: String): Int = clear(keysUnder(prefix))
 
@@ -295,9 +331,11 @@ class ArtworkRepository(
 
     fun hasStoredData(key: String): Boolean = rows.containsKey(key)
 
-    /** Drops rows and images for videos that no longer exist. */
-    suspend fun pruneVideos(liveIds: Set<Long>) {
-        val stale = rows.keys.filter { it.startsWith("video:") && (it.removePrefix("video:").toLongOrNull() ?: -1L) !in liveIds }
+    /** Drops rows and images for videos that no longer exist, except those in [keep] (kept for when they come back). */
+    suspend fun pruneVideos(liveIds: Set<Long>, keep: Set<Long> = emptySet()) {
+        val stale = rows.keys.filter {
+            it.startsWith("video:") && (it.removePrefix("video:").toLongOrNull() ?: -1L).let { id -> id !in liveIds && id !in keep }
+        }
         clear(stale)
     }
 

@@ -85,6 +85,9 @@ data class PlaybackStateEntity(
     val updatedAt: Long = 0,
 )
 
+/** A video's id and its path inside the share. */
+data class VideoIdPath(val id: Long, val relativePath: String)
+
 data class FolderSummary(val groupKey: String, val count: Int, val thumbsDone: Int, val totalSize: Long, val lastModified: Long)
 data class DirectorySummary(val path: String, val count: Int, val thumbsDone: Int)
 

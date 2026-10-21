@@ -17,6 +17,9 @@ interface LibraryDao {
     @Query("SELECT id FROM videos")
     suspend fun allVideoIds(): List<Long>
 
+    @Query("SELECT id, relativePath FROM videos")
+    suspend fun allIdPaths(): List<VideoIdPath>
+
     /** Indexed rows for a set of exact paths (used to show thumbnails in File Explorer's grid). */
     @Query("SELECT * FROM videos WHERE relativePath IN (:paths)")
     suspend fun videosByPaths(paths: List<String>): List<VideoEntity>

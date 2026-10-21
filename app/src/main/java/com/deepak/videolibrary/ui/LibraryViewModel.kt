@@ -306,6 +306,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         val clean =
             cleanFolderName(name) ?: return@organize
         stateDao.createMatch(MatchFolderEntity(connectionKey = namespace.value, name = clean, term = clean))
+        restoreSavedMatchCovers()
     }
     fun renameMatchingFolder(folder: MatchFolderEntity, name: String) = organize {
         val clean =
@@ -315,8 +316,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
     fun deleteMatchingFolder(folder: MatchFolderEntity) = organize {
         stateDao.deleteMatch(folder.id)
-        services.artwork.ensureLoaded()
-        services.artwork.clear(listOf(com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(folder.id)))
+        keepCover(com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(folder.id), savedCoverKey("match", folder.name))
     }
     fun hideMatchingFolder(
         folder: MatchFolderEntity,
@@ -725,6 +725,35 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
 
+    // ---- Covers of folders you delete are kept under the folder's name and given back if you make it again ----
+    private fun savedCoverKey(kind: String, name: String) = "saved:$kind:" + name.trim().lowercase(java.util.Locale.ROOT)
+
+    /** Moves the cover of [key] (and of keys written as "[key]:…", a Virtual folder's subfolders) to [saved]. */
+    private suspend fun keepCover(key: String, saved: String) {
+        services.artwork.ensureLoaded()
+        services.artwork.moveExact(services.artwork.keysStartingWith(key).map { it to saved + it.removePrefix(key) })
+    }
+
+    /** Gives back covers kept by [keepCover]. */
+    private suspend fun restoreCover(saved: String, key: String) {
+        services.artwork.ensureLoaded()
+        val pairs = services.artwork.keysStartingWith(saved).map { it to key + it.removePrefix(saved) }
+        if (pairs.isNotEmpty()) {
+            services.artwork.moveExact(pairs)
+            coverRevision++
+        }
+    }
+
+    /** Custom folders added again (by name) get back the covers they had. */
+    private suspend fun restoreSavedMatchCovers() {
+        services.artwork.ensureLoaded()
+        val folders = withContext(Dispatchers.IO) { stateDao.savedCollections(namespace.value) }
+        folders.forEach { folder ->
+            val key = com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(folder.id)
+            if (!services.artwork.hasStoredData(key)) restoreCover(savedCoverKey("match", folder.name), key)
+        }
+    }
+
     // ---- Own custom folders (named by the user, filled with chosen drive folders and files) ----
     private val ownStore = OwnFolderStore(app)
     private val ownRevision = MutableStateFlow(0)
@@ -774,6 +803,8 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         val clean = cleanFolderName(name) ?: return null
         val id = java.util.UUID.randomUUID().toString()
         editOwn { it + OwnFolder(id, clean) }
+        // A folder made again with an earlier name gets back the cover it had.
+        viewModelScope.launch { restoreCover(savedCoverKey("own", clean), ownFolderKey(id)) }
         return id
     }
 
@@ -783,12 +814,11 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
 
     fun deleteOwnFolder(id: String) {
+        val name = ownStore.load(namespace.value).firstOrNull { it.id == id }?.name
         editOwn { list -> list.filterNot { it.id == id } }
         if (openOwnFolderId == id) openOwnFolderId = null
-        viewModelScope.launch {
-            services.artwork.ensureLoaded()
-            services.artwork.clear(listOf(ownFolderKey(id)))
-        }
+        // The cover is kept, so a folder made again with this name gets it back.
+        if (name != null) viewModelScope.launch { keepCover(ownFolderKey(id), savedCoverKey("own", name)) }
     }
 
     /** Replaces what an own folder shows. Folders include everything inside them. */
@@ -874,11 +904,11 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
                 }
                 remove.forEach { folder ->
                     stateDao.deleteMatch(folder.id)
-                    services.artwork.ensureLoaded()
-                    services.artwork.clear(listOf(com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(folder.id)))
+                    keepCover(com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(folder.id), savedCoverKey("match", folder.name))
                 }
                 if (recursive.isNotEmpty()) folderCollections.add(recursive, true, namespace.value)
                 if (direct.isNotEmpty()) folderCollections.add(direct, false, namespace.value)
+                restoreSavedMatchCovers()
                 onDone()
                 // Only scan when a chosen folder has nothing indexed yet. A refresh rewrites the library while the
                 // new folder is being browsed, which made its page jump about for a few seconds.
@@ -917,6 +947,8 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         val clean = cleanFolderName(name) ?: return null
         val id = java.util.UUID.randomUUID().toString()
         editVirtual { it + VirtualSet(id, clean) }
+        // A folder made again with an earlier name gets back its cover and its subfolders' covers.
+        viewModelScope.launch { restoreCover(savedCoverKey("vset", clean), virtualSetKey(id)) }
         return id
     }
 
@@ -927,11 +959,12 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
 
     /** Removes the folder from the app only. Nothing on the drive is touched. */
     fun deleteVirtualSet(id: String) {
+        val name = virtualStore.load(namespace.value).firstOrNull { it.id == id }?.name
         editVirtual { list -> list.filterNot { it.id == id } }
         if (openVirtualSetId == id) openVirtualSetId = null
-        viewModelScope.launch {
-            services.artwork.ensureLoaded()
-            services.artwork.clear(services.artwork.keysStartingWith(virtualSetKey(id)))
+        // Covers are kept, so a folder made again with this name gets them back.
+        if (name != null) viewModelScope.launch {
+            keepCover(virtualSetKey(id), savedCoverKey("vset", name))
             coverRevision++
         }
     }
@@ -1104,13 +1137,10 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         private set(value) { artwork.revision = value }
     // ---- Custom thumbnails ----
     init {
-        // Load the custom-thumbnail index off the main thread and drop files of videos that no longer exist.
+        // Load the custom-thumbnail index off the main thread. Choices of videos that left the library are kept
+        // (and given back if the same file returns); only ones that can never come back are removed.
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                com.deepak.videolibrary.thumbs.CustomThumbs.preload(services.artworkContext)
-                val live = dao.allVideoIds().toSet()
-                if (live.isNotEmpty()) com.deepak.videolibrary.thumbs.CustomThumbs.prune(services.artworkContext, live)
-            }
+            runCatching { com.deepak.videolibrary.thumbs.KeptArtwork.reconcile(getApplication(), services) }
         }
     }
 
@@ -1150,13 +1180,6 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             services.artwork.ensureLoaded()
             // Rebuild folder covers whenever settings or stored artwork change.
             services.artwork.revision.collect { artwork.invalidate() }
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                services.artwork.ensureLoaded()
-                val live = dao.allVideoIds().toSet()
-                if (live.isNotEmpty()) services.artwork.pruneVideos(live)
-            }
         }
     }
 
@@ -1321,6 +1344,27 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
 
     fun skipPortrait(key: String) {
         viewModelScope.launch { services.artwork.skipSuggestions(key) }
+    }
+
+    /** Removes every cover, crop and portrait (kept ones too); thumbnails picked for videos stay. */
+    fun resetAllArtwork() {
+        viewModelScope.launch {
+            services.artwork.ensureLoaded()
+            val n = services.artwork.clearAll()
+            artwork.invalidate()
+            coverRevision++
+            notice = if (n > 0) "Artwork reset ($n removed)." else "No artwork to reset."
+        }
+    }
+
+    /** Removes every thumbnail picked for a video, so the automatic ones show again; covers stay. */
+    fun resetAllCustomThumbnails() {
+        viewModelScope.launch {
+            val n = withContext(Dispatchers.IO) { com.deepak.videolibrary.thumbs.CustomThumbs.forgetAll(services.artworkContext) }
+            artwork.invalidate()
+            coverRevision++
+            notice = if (n > 0) "$n thumbnails reset." else "No thumbnails to reset."
+        }
     }
 
     fun clearFetchedPortraits() {
@@ -1605,6 +1649,20 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             .map { infos ->
                 infos.any { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
             }.state(false)
+
+    init {
+        // After every scan, videos that came back get their chosen thumbnails and covers again.
+        viewModelScope.launch {
+            var wasActive = false
+            scanActive.collect { active ->
+                if (wasActive && !active) {
+                    withContext(Dispatchers.IO) { runCatching { com.deepak.videolibrary.thumbs.KeptArtwork.reconcile(getApplication(), services) } }
+                    coverRevision++
+                }
+                wasActive = active
+            }
+        }
+    }
 
     var notice by mutableStateOf<String?>(null)
         private set

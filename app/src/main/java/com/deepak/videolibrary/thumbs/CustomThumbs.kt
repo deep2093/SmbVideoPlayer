@@ -128,10 +128,40 @@ object CustomThumbs {
         if (any) changes.value++
     }
 
-    /** Deletes custom thumbnails whose video is no longer in the library. Blocking. */
+    /** Deletes custom thumbnails whose video is no longer in the library, except those in [keep]. Blocking. */
     @Synchronized
-    fun prune(context: Context, liveIds: Set<Long>) {
-        val stale = index(context).keys.filter { it !in liveIds }
+    fun prune(context: Context, liveIds: Set<Long>, keep: Set<Long> = emptySet()) {
+        val stale = index(context).keys.filter { it !in liveIds && it !in keep }
         if (stale.isNotEmpty()) forget(context, stale)
+    }
+
+    /** Video ids that have a custom thumbnail. */
+    fun ids(context: Context): Set<Long> = index(context).keys.toSet()
+
+    /**
+     * Gives the custom thumbnail of [fromId] to [toId] (the same file came back into the library with a new id).
+     * A thumbnail already chosen for [toId] wins. Blocking.
+     */
+    @Synchronized
+    fun move(context: Context, fromId: Long, toId: Long): Boolean {
+        if (fromId == toId || toId <= 0) return false
+        val file = index(context)[fromId] ?: return false
+        if (index(context).containsKey(toId)) return false
+        val stamp = parse(file.name)?.second ?: System.currentTimeMillis()
+        val target = File(dir(context), "${toId}_$stamp.jpg")
+        if (!file.renameTo(target)) return false
+        index(context).remove(fromId)
+        index(context)[toId] = target
+        ImageMemoryCache.remove(file.path)
+        changes.value++
+        return true
+    }
+
+    /** Removes every custom thumbnail. Blocking. */
+    @Synchronized
+    fun forgetAll(context: Context): Int {
+        val all = index(context).keys.toList()
+        forget(context, all)
+        return all.size
     }
 }

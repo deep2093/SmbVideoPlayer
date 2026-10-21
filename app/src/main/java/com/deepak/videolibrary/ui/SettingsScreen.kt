@@ -44,6 +44,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
@@ -107,16 +108,14 @@ private fun GridPresetSetting(label: String, selected: String, onSelect: (String
 private class SettingsSection(val id: String, val title: String, val description: String)
 
 private val SETTINGS_SECTIONS = listOf(
-    // Alphabetical, with Diagnostics last.
-    SettingsSection("Appearance", "Appearance", "Theme, navigation and grid layout"),
-    SettingsSection("Artwork", "Artwork", "Covers, collages and performer pictures"),
-    SettingsSection("Connection", "Connection", "Server, account and saved password"),
-    SettingsSection("Downloads", "Downloads", "Simultaneous downloads"),
-    SettingsSection("Library", "Library", "Hidden files and folders, grouping, backup"),
-    SettingsSection("Playback", "Playback", "Brightness and volume gestures"),
-    SettingsSection("Sync", "Sync & thumbnails", "Library scan, automatic sync and thumbnails"),
-    SettingsSection("VPN", "VPN", "WireGuard for remote access to your server"),
-    SettingsSection("Diagnostics", "Diagnostics", "Playback reports and troubleshooting"),
+    // In the order you need them: the server first, then the library, how it looks, and troubleshooting last.
+    SettingsSection("Connection", "Connection", "Server, share and account"),
+    SettingsSection("Library", "Library", "Scanning, automatic sync, hidden items, backup"),
+    SettingsSection("Artwork", "Artwork & thumbnails", "Covers, portraits, thumbnails and resets"),
+    SettingsSection("Appearance", "Appearance", "Theme, tabs, navigation and grid"),
+    SettingsSection("Playback", "Playback", "Player gestures"),
+    SettingsSection("VPN", "VPN", "WireGuard for remote access"),
+    SettingsSection("Diagnostics", "Diagnostics", "Reports and troubleshooting"),
 )
 
 /** One settings group: a card whose content drops down in place when the header is tapped. */
@@ -133,7 +132,7 @@ private fun SettingsAccordion(
         animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "settings_chevron",
     )
-    val cardShape = RoundedCornerShape(22.dp)
+    val cardShape = RoundedCornerShape(18.dp)
     Card(
         modifier = Modifier.fillMaxWidth().themedOutline(cardShape),
         shape = cardShape,
@@ -147,7 +146,7 @@ private fun SettingsAccordion(
                         role = Role.Button,
                         onClickLabel = if (expanded) "Collapse $title" else "Expand $title",
                         onClick = onToggle,
-                    ).padding(horizontal = 16.dp, vertical = 14.dp),
+                    ).padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
@@ -156,6 +155,8 @@ private fun SettingsAccordion(
                         description,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                     )
                 }
                 Icon(
@@ -171,7 +172,7 @@ private fun SettingsAccordion(
                 exit = shrinkVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) + fadeOut(tween(150)),
             ) {
                 Column(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     content = content,
                 )
@@ -234,8 +235,8 @@ fun SettingsScreen(vm: LibraryViewModel) {
       Column(Modifier.widthIn(max = 920.dp).fillMaxSize()) {
         CollapsingHeader(header, resetKey = Unit) {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                // No download button here: Settings is only about settings.
                 Text("Settings", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-                LocalTopBarEnd.current()
             }
         }
         Column(
@@ -244,9 +245,9 @@ fun SettingsScreen(vm: LibraryViewModel) {
                 .imePadding()
                 .verticalScroll(
                     scroll,
-                ).padding(16.dp)
+                ).padding(horizontal = 12.dp, vertical = 12.dp)
                 .padding(bottom = if (floatingPadding(vm)) 100.dp else 0.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             SETTINGS_SECTIONS.forEach { entry ->
                 SettingsAccordion(
@@ -385,16 +386,11 @@ fun SettingsScreen(vm: LibraryViewModel) {
                             }
                         }
                         "VPN" -> VpnSettings()
-                        "Downloads" -> {
-                            ParallelDownloadsSetting(vm)
-                            Text(
-                                "1 is the default. More files at once use more of your server and network, and some drives slow down with several readers. A new choice applies to the next file that starts.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        "Artwork" -> {
+                            ArtworkSettingsSection(vm)
+                            SyncAndThumbnailsSettings(vm, scan = false, thumbnails = true)
+                            ResetChoicesSetting(vm)
                         }
-                        "Sync" -> SyncAndThumbnailsSettings(vm)
-                        "Artwork" -> ArtworkSettingsSection(vm)
                         "Appearance" -> {
                             ThemeSettings()
                             FolderTabsSetting(vm)
@@ -456,6 +452,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
                             }
                         }
                         "Library" -> {
+                            SyncAndThumbnailsSettings(vm, scan = true, thumbnails = false)
                             LibraryBackupActions(vm)
                             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
@@ -477,5 +474,47 @@ fun SettingsScreen(vm: LibraryViewModel) {
             }
         }
       }
+    }
+}
+
+/**
+ * Resets of what you chose by hand, kept apart: covers and portraits (artwork), and thumbnails you picked for
+ * videos. Each asks first. Nothing on your drive changes.
+ */
+@Composable
+private fun ResetChoicesSetting(vm: LibraryViewModel) {
+    var confirm by remember { mutableStateOf<String?>(null) }
+    ScanSection("Reset your choices") {
+        Text(
+            "Covers, portraits and thumbnails you chose stay saved, even for folders and videos you hide, take out or delete, and come back when they return. Reset them here.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { confirm = "artwork" }, modifier = Modifier.weight(1f)) { Text("Reset artwork") }
+            OutlinedButton(onClick = { confirm = "thumbnails" }, modifier = Modifier.weight(1f)) { Text("Reset thumbnails") }
+        }
+    }
+    confirm?.let { what ->
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text(if (what == "artwork") "Reset all artwork?" else "Reset all thumbnails?") },
+            text = {
+                Text(
+                    if (what == "artwork") {
+                        "Every cover, crop and portrait you chose or the app found is removed, including saved ones. Folders and videos go back to their automatic covers. Thumbnails you picked for videos are kept."
+                    } else {
+                        "Every thumbnail you picked for a video is removed, and the automatic thumbnail shows again. Covers and portraits are kept."
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (what == "artwork") vm.resetAllArtwork() else vm.resetAllCustomThumbnails()
+                    confirm = null
+                }) { Text("Reset") }
+            },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+        )
     }
 }
