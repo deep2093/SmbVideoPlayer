@@ -88,6 +88,14 @@ internal fun FileActionsMenu(
                 merge = true
             })
         }
+        DropdownMenuItem(text = { Text("Download") }, onClick = {
+            dismiss()
+            when {
+                virtual -> vm.downloadVirtualFolder(path)
+                directory -> vm.downloadDirectory(path)
+                else -> vm.downloadFiles(listOf(path))
+            }
+        })
         DropdownMenuItem(text = { Text(stringResource(R.string.ui_cut_38d13bd)) }, onClick = {
             dismiss()
             if (virtual) vm.stageGroup(path, true) else vm.stageExplorer(path, directory, true)
@@ -339,6 +347,7 @@ private fun SelectionBar(vm: LibraryViewModel) {
             TextButton(onClick = vm::clearSelection) { Text(stringResource(R.string.ui_done_e9b450d)) }
         }
         Row {
+            TextButton(onClick = { vm.downloadFiles(vm.selectedPaths); vm.clearSelection() }) { Text("Download") }
             TextButton(onClick = { vm.stageSelected(true) }) { Text(stringResource(R.string.ui_cut_38d13bd)) }
             TextButton(onClick = { vm.stageSelected(false) }) { Text(stringResource(R.string.ui_copy_af74f7c)) }
             TextButton(enabled = vm.explorerClipboard != null, onClick = { vm.pasteDestination = vm.settings.rootPath }) { Text(stringResource(R.string.ui_paste_9db2f69)) }

@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -60,8 +61,8 @@ import kotlinx.coroutines.launch
 /** The tablet sidebar is always expanded, with labels, at a fixed width. */
 private val SIDEBAR_WIDTH = 204.dp
 
-private val TAB_LABELS = listOf("Folders", "Videos", "File Explorer", "Scan", "Settings")
-private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Sync, Icons.Filled.Settings)
+private val TAB_LABELS = listOf("Folders", "Videos", "File Explorer", "Downloads", "Settings")
+private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Download, Icons.Filled.Settings)
 
 @Composable
 fun AppRoot(vm: LibraryViewModel = viewModel()) {

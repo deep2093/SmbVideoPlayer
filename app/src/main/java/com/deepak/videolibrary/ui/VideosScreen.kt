@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.GridView
@@ -460,6 +461,10 @@ private fun VideoSelectionHeader(vm: LibraryViewModel, modifier: Modifier = Modi
         )
         IconButton(onClick = { vm.selectAll("videos") }) { Icon(Icons.Filled.SelectAll, contentDescription = "Select all") }
         IconButton(onClick = vm::clearSelection) { Icon(Icons.Filled.Deselect, contentDescription = "Unselect all") }
+        IconButton(onClick = {
+            vm.downloadFiles(vm.selectedPaths)
+            vm.clearSelection()
+        }) { Icon(Icons.Filled.Download, contentDescription = "Download selected") }
         IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, contentDescription = "Delete selected") }
         Box {
             IconButton(onClick = { more = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "More selection actions") }

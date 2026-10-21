@@ -113,7 +113,7 @@
     <string name="ui_save_collections_assignments_hidden_items__48ef66a" formatted="false">Save collections, assignments, hidden items and playback history. Passwords and videos are excluded. Scan your videos before restoring.</string>
     <string name="ui_save_efc007a" formatted="false">Save</string>
     <string name="ui_save_password_encrypted_with_the_android_k_b38c859" formatted="false">Save password (encrypted with the Android Keystore)</string>
-    <string name="ui_scan_sync_33eca10" formatted="false">Scan &amp; Sync</string>
+    <string name="ui_scan_sync_33eca10" formatted="false">Downloads &amp; Sync</string>
     <string name="ui_search_custom_folders_89257e5" formatted="false">Search custom folders</string>
     <string name="ui_search_filenames_50f3cf4" formatted="false">Search filenames</string>
     <string name="ui_search_folder_and_video_names_b2eeabc" formatted="false">Search folder and video names</string>

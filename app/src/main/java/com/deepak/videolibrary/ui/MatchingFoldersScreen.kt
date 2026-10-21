@@ -172,6 +172,10 @@ private fun MatchingFolderCard(
                     changeCover = true
                 })
             }
+            DropdownMenuItem(text = { Text("Download") }, onClick = {
+                menu = false
+                vm.downloadMatchingFolder(folder)
+            })
             DropdownMenuItem(text = { Text(stringResource(R.string.ui_play_all_ebb2ffd)) }, onClick = {
                 menu = false
                 vm.matchFolderFilter.value = folder

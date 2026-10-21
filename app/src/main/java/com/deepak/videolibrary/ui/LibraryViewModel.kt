@@ -865,6 +865,118 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
 
+    // ---- Downloads to this device ----
+    private val downloadDao = com.deepak.videolibrary.downloads.DownloadStore.dao(app)
+
+    /** Recent downloads, newest first, with live progress. */
+    val downloads: StateFlow<List<com.deepak.videolibrary.downloads.DownloadItem>> = downloadDao.observeRecent().state(emptyList())
+
+    /** The saved server this screen works with; downloads of other servers wait until it is selected again. */
+    val currentLibraryId: String get() = services.libraryId
+
+    private fun queueDownloads(items: List<com.deepak.videolibrary.downloads.DownloadItem>, what: String) {
+        if (items.isEmpty()) {
+            notice = "Nothing to download in $what."
+            return
+        }
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { items.chunked(500).forEach { downloadDao.insertAll(it) } }
+            com.deepak.videolibrary.downloads.DownloadWorker.enqueue(getApplication())
+            notice = "Downloading ${items.size} ${if (items.size == 1) "file" else "files"} to Download/${com.deepak.videolibrary.downloads.DownloadPaths.ROOT}. Progress is in Downloads."
+        }
+    }
+
+    private fun downloadItem(path: String, targetFolder: String, size: Long = 0) = com.deepak.videolibrary.downloads.DownloadItem(
+        libraryId = services.libraryId,
+        sourcePath = path.trim('/'),
+        name = path.trim('/').substringAfterLast('/'),
+        targetFolder = targetFolder,
+        size = size,
+    )
+
+    /** Single files or a selection of files (videos or File Explorer files). */
+    fun downloadFiles(paths: Collection<String>) {
+        viewModelScope.launch {
+            val known = withContext(Dispatchers.IO) { paths.toList().chunked(500).flatMap { dao.videosByPaths(it) } }.associateBy { it.relativePath }
+            queueDownloads(paths.distinct().map { downloadItem(it, "", known[it]?.size ?: 0L) }, "the selection")
+        }
+    }
+
+    /** A whole folder on the server, with everything inside it and its sub-folders. */
+    fun downloadDirectory(path: String) {
+        if (settingsStore.loadProfile() == null) {
+            notice = "Enter the server address and share name in Settings first."
+            return
+        }
+        notice = "Preparing download of ${path.substringAfterLast('/')}…"
+        viewModelScope.launch {
+            try {
+                val files = withContext(Dispatchers.IO) {
+                    SmbConnection(settingsStore.toProfile(settings)).use { conn ->
+                        conn.open()
+                        val found = ArrayList<com.deepak.videolibrary.smb.SmbEntry>()
+                        val paths = ArrayList<String>()
+                        val pending = ArrayDeque<Pair<String, Int>>()
+                        pending.add(path.trim('/') to 0)
+                        while (pending.isNotEmpty() && paths.size < MAX_DOWNLOAD_FILES) {
+                            val (dir, depth) = pending.removeFirst()
+                            for (entry in conn.list(dir)) {
+                                if (entry.isReparsePoint || entry.name.startsWith('.')) continue
+                                val child = if (dir.isEmpty()) entry.name else "$dir/${entry.name}"
+                                if (entry.isDirectory) {
+                                    if (depth < 32) pending.add(child to depth + 1)
+                                } else {
+                                    found += entry
+                                    paths += child
+                                    if (paths.size >= MAX_DOWNLOAD_FILES) break
+                                }
+                            }
+                        }
+                        paths.mapIndexed { i, p -> p to found[i].size }
+                    }
+                }
+                queueDownloads(
+                    files.map { (file, size) -> downloadItem(file, com.deepak.videolibrary.downloads.DownloadPaths.folderTarget(path, file), size) },
+                    path.substringAfterLast('/').ifEmpty { "this folder" },
+                )
+                if (files.size >= MAX_DOWNLOAD_FILES) notice = "Only the first $MAX_DOWNLOAD_FILES files were added. Download sub-folders separately for the rest."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                notice = "Could not read the folder: ${SmbErrors.describe(e)}"
+            }
+        }
+    }
+
+    /** A virtual folder: its videos, saved into a device folder with the same name. */
+    fun downloadVirtualFolder(name: String) {
+        viewModelScope.launch {
+            val rows = stateDao.videoList(LibraryQueries.videos(LibraryScope(namespace.value, group = name)))
+            queueDownloads(rows.map { downloadItem(it.relativePath, com.deepak.videolibrary.downloads.DownloadPaths.cleanFolder(name), it.size) }, name)
+        }
+    }
+
+    /** A custom (matching) folder: its videos, saved into a device folder with the same name. */
+    fun downloadMatchingFolder(folder: MatchFolderEntity) {
+        viewModelScope.launch {
+            val rows = stateDao.videoList(LibraryQueries.videos(LibraryScope(namespace.value, match = folder.takeIf { it.sourcePath == null }?.term, sourcePath = folder.sourcePath, includeSubfolders = folder.includeSubfolders)))
+            queueDownloads(rows.map { downloadItem(it.relativePath, com.deepak.videolibrary.downloads.DownloadPaths.cleanFolder(folder.name), it.size) }, folder.name)
+        }
+    }
+
+    fun cancelDownload(id: Long) { viewModelScope.launch { downloadDao.cancel(listOf(id)) } }
+    fun cancelAllDownloads() { viewModelScope.launch { downloadDao.cancelAll() } }
+    fun retryDownload(id: Long) {
+        viewModelScope.launch {
+            if (downloadDao.retry(id) > 0) com.deepak.videolibrary.downloads.DownloadWorker.enqueue(getApplication())
+        }
+    }
+    fun removeDownload(id: Long) { viewModelScope.launch { downloadDao.remove(id) } }
+    fun clearFinishedDownloads() { viewModelScope.launch { downloadDao.clearFinished() } }
+
+    /** Starts the queue again (after switching back to a server, or when it stopped on a network problem). */
+    fun resumeDownloads() = com.deepak.videolibrary.downloads.DownloadWorker.enqueue(getApplication())
+
     fun coverKey(name: String, count: Int, done: Int, modified: Long = 0) = artwork.key(name,count,done,modified)
     fun cachedCover(key: String): File? = artwork.cached(key)
     suspend fun coverFor(group: String, key: String): File? = artwork.cover("virtual:$group",key,LibraryScope(namespace.value,group=group))
@@ -1187,3 +1299,6 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
 }
+
+/** A single folder download adds at most this many files, so a mistaken tap on the share root stays manageable. */
+private const val MAX_DOWNLOAD_FILES = 5000

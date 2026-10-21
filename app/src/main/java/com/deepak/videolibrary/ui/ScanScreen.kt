@@ -109,6 +109,9 @@ fun ScanScreen(vm: LibraryViewModel) {
             // ---- Sections in alphabetical order: Automatic sync ----
             item { AutomaticSyncSummary() }
 
+            // ---- Downloads to this device ----
+            item { DownloadsSection(vm) }
+
             // ---- Library scan: status, numbers, actions ----
             item {
                 ScanSection("Library scan") {
@@ -304,7 +307,7 @@ private fun prettyStatus(status: String) =
 
 /** A titled card; every Scan section uses the same padding, spacing and colours. */
 @Composable
-private fun ScanSection(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+internal fun ScanSection(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
