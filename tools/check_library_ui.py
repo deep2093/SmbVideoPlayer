@@ -138,7 +138,9 @@ try:
     # Make a virtual folder by hand, give it a drive folder, and its subfolders are made from the file names.
     click('New virtual folder');enter_text('Hollywood');click('Rename')
     click('Choose folder Movies');click('Done')
-    find('Hollywood');click('Hollywood');find('Tom Cruise')
+    find('Hollywood');click('Hollywood')
+    # The chosen folder is scanned right away when nothing of it is indexed yet, so give the subfolder time to appear.
+    find('Tom Cruise',timeout=150)
     adb('shell','input','keyevent','4')  # Back from the virtual folder to the list.
     find('Hollywood')
     print('PASS: a virtual folder reads its chosen drive folder and generates the Tom Cruise subfolder')
