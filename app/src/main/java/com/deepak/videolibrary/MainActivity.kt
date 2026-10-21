@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.deepak.videolibrary.scan.PeriodicSyncWorker
 import com.deepak.videolibrary.vpn.AutoConnectOutcome
 import com.deepak.videolibrary.vpn.WireGuardManager
@@ -99,7 +100,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var libraryOpened = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        val splash = androidx.core.splashscreen.SplashScreen.installSplashScreen(this)
+        val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
         val splashStarted = android.os.SystemClock.uptimeMillis()
         splash.setKeepOnScreenCondition { !libraryOpened && android.os.SystemClock.uptimeMillis() - splashStarted < SPLASH_MAX_MS }

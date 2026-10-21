@@ -71,7 +71,7 @@ internal fun FolderTile(
     fun heldName(): Boolean {
         val c = card ?: return false
         val n = name ?: return false
-        if (!c.isAttached || !n.isAttached || !downAt.isFinite) return false
+        if (!c.isAttached || !n.isAttached || downAt == androidx.compose.ui.geometry.Offset.Unspecified) return false
         return c.localBoundingBoxOf(n).inflate(6f).contains(downAt)
     }
     val shown = remember(cover, tall) { ArtworkRepository.forShape(cover, tall) }
