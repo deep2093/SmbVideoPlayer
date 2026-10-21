@@ -11,6 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import com.deepak.videolibrary.artwork.online.PerformerCandidate
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -134,6 +136,8 @@ class ArtworkRepository(
                 val row = ArtworkOverride(key, mode, manual, name, providerId, performerId, performerName, ArtworkOverride.STATUS_OK, System.currentTimeMillis())
                 dao.upsert(ArtworkRow.of(row))
                 rows[key] = row
+                // A chosen picture settles any suggestions that were waiting for this item.
+                dao.deleteCandidates(listOf(key))
                 if (previous != null && previous != name) deleteImage(previous)
             }
         }
@@ -181,6 +185,7 @@ class ArtworkRepository(
                         }
                     }
                     dao.deleteAll(chunk)
+                    dao.deleteCandidates(chunk)
                 }
             }
         }
@@ -204,6 +209,7 @@ class ArtworkRepository(
                     val row = rows.remove(old) ?: continue
                     val newKey = to + old.removePrefix(from)
                     dao.delete(old)
+                    dao.deleteCandidates(listOf(old))
                     changed = true
                     val existing = rows[newKey]
                     if (existing != null && existing.manual) {
@@ -222,6 +228,46 @@ class ArtworkRepository(
 
     /** Removes the stored cover of [prefix] and, for SMB folders, of everything below it. */
     suspend fun clearUnder(prefix: String): Int = clear(keysUnder(prefix))
+
+    // ---- Suggestions waiting for the user ----
+
+    /** Folders with suggestions to choose from (newest information from the database). */
+    val reviewQueue: kotlinx.coroutines.flow.Flow<List<ArtworkOverride>> =
+        dao.observeReview().map { list -> list.map { it.toModel() } }
+
+    suspend fun suggestions(key: String): List<PerformerCandidate> = withContext(Dispatchers.IO) {
+        dao.candidates(key).map {
+            PerformerCandidate(it.providerId, it.providerName, it.performerId, it.name, it.disambiguation, it.imageUrl, it.previewUrl)
+        }
+    }
+
+    /**
+     * Keeps [candidates] for [key] so the user can pick one later, and marks the folder as waiting for review
+     * (or as having no match when the list is empty). Never replaces a manual choice.
+     */
+    suspend fun saveSuggestions(key: String, candidates: List<PerformerCandidate>) {
+        val existing = rows[key]
+        if (existing != null && existing.manual) return
+        withContext(Dispatchers.IO) {
+            dao.deleteCandidates(listOf(key))
+            val keep = candidates.filter { !it.imageUrl.isNullOrBlank() }.distinctBy { it.providerId to it.performerId }.take(MAX_SUGGESTIONS)
+            dao.insertCandidates(
+                keep.mapIndexed { i, c ->
+                    ArtworkCandidateRow(key, c.providerId, c.performerId, c.providerName, c.name, c.disambiguation, c.imageUrl, c.previewUrl, i)
+                },
+            )
+        }
+        val hasAny = candidates.any { !it.imageUrl.isNullOrBlank() }
+        recordLookup(key, if (hasAny) ArtworkOverride.STATUS_REVIEW else ArtworkOverride.STATUS_NO_MATCH)
+        changes.value++
+    }
+
+    /** The user skipped a folder in the review list: forget its suggestions and do not suggest again automatically. */
+    suspend fun skipSuggestions(key: String) {
+        withContext(Dispatchers.IO) { dao.deleteCandidates(listOf(key)) }
+        recordLookup(key, ArtworkOverride.STATUS_NO_MATCH)
+        changes.value++
+    }
 
     /** Removes only automatically fetched portraits (manual choices are kept). */
     suspend fun clearFetchedPortraits(): Int {
@@ -253,5 +299,6 @@ class ArtworkRepository(
 
     companion object {
         const val IMAGE_WIDTH = 640
+        const val MAX_SUGGESTIONS = 12
     }
 }

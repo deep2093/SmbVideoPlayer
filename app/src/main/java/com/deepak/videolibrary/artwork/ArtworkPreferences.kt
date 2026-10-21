@@ -49,9 +49,14 @@ class ArtworkPreferences(context: Context, libraryId: String) {
             disabledProviders = prefs.getStringSet("disabled_providers", emptySet())?.toSet() ?: emptySet(),
             videoUseFirstName = prefs.getBoolean("video_first_name", d.videoUseFirstName),
             folderUseWholeName = prefs.getBoolean("folder_whole_name", d.folderUseWholeName),
+            smbFolderSelection = selection("smb_selection"),
+            virtualFolderSelection = selection("virtual_selection"),
             customEndpoints = known.mapNotNull { id -> prefs.getString("endpoint_$id", null)?.takeIf { it.isNotBlank() }?.let { id to it } }.toMap(),
         )
     }
+
+    private fun selection(key: String): PortraitSelection =
+        runCatching { PortraitSelection.valueOf(prefs.getString(key, PortraitSelection.AUTOMATIC.name)!!) }.getOrDefault(PortraitSelection.AUTOMATIC)
 
     private fun write(s: ArtworkSettings) {
         prefs.edit()
@@ -70,6 +75,8 @@ class ArtworkPreferences(context: Context, libraryId: String) {
             .putStringSet("disabled_providers", s.disabledProviders)
             .putBoolean("video_first_name", s.videoUseFirstName)
             .putBoolean("folder_whole_name", s.folderUseWholeName)
+            .putString("smb_selection", s.smbFolderSelection.name)
+            .putString("virtual_selection", s.virtualFolderSelection.name)
             .also { e -> known.forEach { id -> if (s.customEndpoints[id].isNullOrBlank()) e.remove("endpoint_$id") else e.putString("endpoint_$id", s.customEndpoints[id]) } }
             .apply()
     }

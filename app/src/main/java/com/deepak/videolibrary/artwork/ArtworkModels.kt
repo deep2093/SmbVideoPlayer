@@ -41,6 +41,13 @@ enum class ArtworkMode(val label: String) {
     NONE("No cover"),
 }
 
+/** How internet portraits are chosen for a kind of folder. */
+enum class PortraitSelection(val label: String, val detail: String) {
+    AUTOMATIC("Automatic", "Applies a picture only when exactly one confident match is found; anything unclear waits for you in Review suggestions."),
+    MANUAL("Manual", "Finds suggestions in the background but applies nothing until you pick one in Review suggestions."),
+    CUSTOM("Custom", "Nothing is searched in the background. Covers change only when you search or choose an image yourself in Change cover."),
+}
+
 /** Identity strings. They match the ones the folder screens already use for covers. */
 object ArtworkKeys {
     fun video(id: Long) = "video:$id"
@@ -80,7 +87,17 @@ data class ArtworkSettings(
     val folderUseWholeName: Boolean = true,
     /** Optional own API address per provider (HTTPS), for self-hosted or mirrored services. */
     val customEndpoints: Map<String, String> = emptyMap(),
+    /** How portraits are chosen for SMB folders and for virtual (and custom) folders, independently. */
+    val smbFolderSelection: PortraitSelection = PortraitSelection.AUTOMATIC,
+    val virtualFolderSelection: PortraitSelection = PortraitSelection.AUTOMATIC,
 ) {
+    /** The portrait selection rule for a folder kind (videos follow their virtual folder). */
+    fun selectionFor(scope: ArtworkScope): PortraitSelection =
+        if (scope == ArtworkScope.SMB_FOLDER) smbFolderSelection else virtualFolderSelection
+
+    fun withSelection(scope: ArtworkScope, selection: PortraitSelection): ArtworkSettings =
+        if (scope == ArtworkScope.SMB_FOLDER) copy(smbFolderSelection = selection) else copy(virtualFolderSelection = selection)
+
     fun modeFor(scope: ArtworkScope): ArtworkMode = when (scope) {
         ArtworkScope.VIDEO -> videoMode
         ArtworkScope.SMB_FOLDER -> smbFolderMode
@@ -96,6 +113,18 @@ data class ArtworkSettings(
     /** Internet portraits may be used for this kind of item only when the user turned that on explicitly. */
     fun portraitsAllowedFor(scope: ArtworkScope): Boolean =
         adultConsent && if (scope == ArtworkScope.VIDEO) portraitsOnVideos else portraitsOnFolders
+
+    /**
+     * Whether portraits may be looked up for a folder of this kind: its own default is the portrait and portraits are
+     * on for folders, or (virtual folders) videos use portraits and inherit them from their folder. Never in Custom
+     * mode, where the user searches only by hand.
+     */
+    fun portraitLookupWanted(scope: ArtworkScope): Boolean {
+        if (!enabled || !scope.isFolder || selectionFor(scope) == PortraitSelection.CUSTOM) return false
+        val forFolder = portraitsAllowedFor(scope) && modeFor(scope) == ArtworkMode.PORTRAIT
+        val forVideos = scope == ArtworkScope.VIRTUAL_FOLDER && portraitsAllowedFor(ArtworkScope.VIDEO) && videoMode == ArtworkMode.PORTRAIT
+        return forFolder || forVideos
+    }
 
     fun enabledProviders(): List<String> = providerOrder.filter { it !in disabledProviders }
 
@@ -132,5 +161,8 @@ data class ArtworkOverride(
         const val STATUS_NO_MATCH = "NO_MATCH"
         const val STATUS_AMBIGUOUS = "AMBIGUOUS"
         const val STATUS_ERROR = "ERROR"
+
+        /** Suggestions were found and wait for the user to pick one. */
+        const val STATUS_REVIEW = "REVIEW"
     }
 }

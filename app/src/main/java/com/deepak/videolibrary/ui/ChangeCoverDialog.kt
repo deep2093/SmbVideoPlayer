@@ -100,6 +100,12 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
     var pending by remember { mutableStateOf<Bitmap?>(null) }
     var pendingCandidate by remember { mutableStateOf<PerformerCandidate?>(null) }
 
+    // Suggestions already found in the background for this item are shown straight away.
+    androidx.compose.runtime.LaunchedEffect(target.key) {
+        val saved = vm.portraitSuggestions(target.key)
+        if (saved.isNotEmpty() && results == null) results = saved
+    }
+
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         busy = true
@@ -277,7 +283,7 @@ private fun CandidateRow(vm: LibraryViewModel, candidate: PerformerCandidate, en
 
 /** A small picture loaded from an address (bounded, HTTPS only). Shows a plain box while loading or on failure. */
 @Composable
-private fun RemoteThumb(vm: LibraryViewModel, url: String?, modifier: Modifier) {
+internal fun RemoteThumb(vm: LibraryViewModel, url: String?, modifier: Modifier) {
     val image by produceState<ImageBitmap?>(null, url) {
         value = if (url == null) {
             null

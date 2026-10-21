@@ -820,8 +820,54 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             notice = "Turn on internet portraits first."
             return
         }
+        if (!settings.portraitLookupWanted(com.deepak.videolibrary.artwork.ArtworkScope.SMB_FOLDER) &&
+            !settings.portraitLookupWanted(com.deepak.videolibrary.artwork.ArtworkScope.VIRTUAL_FOLDER)
+        ) {
+            notice = "Nothing to look up: set a default cover to Internet performer portrait, and choose Automatic or Manual instead of Custom."
+            return
+        }
         com.deepak.videolibrary.artwork.PortraitFetchWorker.enqueue(getApplication(), services.libraryId, force = true)
         notice = "Looking up portraits in the background."
+    }
+
+    /** Folders with portrait suggestions waiting for the user. */
+    val portraitReview: StateFlow<List<com.deepak.videolibrary.artwork.ArtworkOverride>> = services.artwork.reviewQueue.state(emptyList())
+
+    suspend fun portraitSuggestions(key: String) = services.artwork.suggestions(key)
+
+    /** Readable names for review entries: custom folders are stored by number, so look their names up. */
+    suspend fun artworkLabels(keys: List<String>): Map<String, String> {
+        val custom = withContext(Dispatchers.IO) { dao.allMatchFolders() }.associate { com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(it.id) to it.name }
+        return keys.associateWith { key ->
+            custom[key] ?: com.deepak.videolibrary.artwork.ArtworkKeys.labelOf(key).let { if (key.startsWith("original:")) originalFolderLabel(it) else it }
+        }
+    }
+
+    /** Uses a suggestion as the folder's cover. Returns an error message, or null when it worked. */
+    suspend fun choosePortrait(key: String, candidate: com.deepak.videolibrary.artwork.online.PerformerCandidate): String? {
+        val url = candidate.imageUrl ?: return "This suggestion has no picture."
+        return try {
+            val bitmap = downloadPortrait(url)
+            try {
+                services.artwork.saveImage(
+                    key = key, mode = com.deepak.videolibrary.artwork.ArtworkMode.PORTRAIT, image = bitmap, manual = true,
+                    providerId = candidate.providerId, performerId = candidate.performerId, performerName = candidate.name, focusY = 0.25f,
+                )
+            } finally {
+                bitmap.recycle()
+            }
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) {
+            e.failure.message
+        } catch (e: Exception) {
+            "Couldn't save the picture. Check free space and try again."
+        }
+    }
+
+    fun skipPortrait(key: String) {
+        viewModelScope.launch { services.artwork.skipSuggestions(key) }
     }
 
     fun clearFetchedPortraits() {

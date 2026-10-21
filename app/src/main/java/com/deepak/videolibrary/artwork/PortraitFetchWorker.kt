@@ -58,13 +58,13 @@ class PortraitFetchWorker(context: Context, params: WorkerParameters) : Coroutin
                     }
                 }
                 PortraitFetcher.Outcome.Applied -> applied++
-                PortraitFetcher.Outcome.Ambiguous -> unclear++
+                PortraitFetcher.Outcome.Ambiguous, PortraitFetcher.Outcome.Suggested -> unclear++
                 else -> Unit
             }
             // Gentle pace: well under any provider's rate limit, and cancellable between lookups.
             delay(PACE_MS)
         }
-        repo.preferences.lastBackgroundNote = "Last lookup: $applied applied" + if (unclear > 0) ", $unclear need you to choose (Change cover)." else "."
+        repo.preferences.lastBackgroundNote = "Last lookup: $applied applied" + if (unclear > 0) ", $unclear waiting in Review suggestions." else "."
         return Result.success()
     }
 
@@ -100,9 +100,7 @@ internal object FolderTargets {
         val out = LinkedHashMap<String, String>()
         fun consider(identity: String, label: String) {
             val scope = ArtworkKeys.scopeOf(identity)
-            val wanted = settings.portraitsAllowedFor(scope) &&
-                (settings.modeFor(scope) == ArtworkMode.PORTRAIT || (scope == ArtworkScope.VIRTUAL_FOLDER && settings.modeFor(ArtworkScope.VIDEO) == ArtworkMode.PORTRAIT))
-            if (!wanted) return
+            if (!settings.portraitLookupWanted(scope)) return
             val row = repo.row(identity)
             if (row?.manual == true) return
             // Already has a portrait: never downloaded again. Earlier "no match" / "unclear" results are only

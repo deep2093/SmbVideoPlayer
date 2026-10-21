@@ -44,6 +44,34 @@ private fun ToggleRow(title: String, detail: String?, checked: Boolean, enabled:
     }
 }
 
+/** Automatic / Manual / Custom for one kind of folder, with the meaning of the current choice underneath. */
+@Composable
+private fun SelectionPicker(label: String, current: com.deepak.videolibrary.artwork.PortraitSelection, enabled: Boolean, onPick: (com.deepak.videolibrary.artwork.PortraitSelection) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    androidx.compose.foundation.layout.Box {
+        OutlinedButton(onClick = { open = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+            Text("$label: ${current.label}", maxLines = 1)
+        }
+        androidx.compose.material3.DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            com.deepak.videolibrary.artwork.PortraitSelection.entries.forEach { option ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(option.label + if (option == current) " ✓" else "")
+                            Text(option.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    onClick = {
+                        open = false
+                        onPick(option)
+                    },
+                )
+            }
+        }
+    }
+    Text(current.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
 /** A button that opens a menu of modes for one kind of item. */
 @Composable
 private fun ModePicker(label: String, scope: ArtworkScope, current: ArtworkMode, enabled: Boolean, onPick: (ArtworkMode) -> Unit) {
@@ -116,6 +144,26 @@ internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
         s.autoFetchOnScan,
         s.enabled && s.adultConsent && (s.portraitsOnFolders || s.portraitsOnVideos),
     ) { on -> vm.updateArtwork { it.copy(autoFetchOnScan = on) } }
+
+    Text("How portraits are chosen", style = MaterialTheme.typography.titleMedium)
+    SelectionPicker("SMB folders", s.smbFolderSelection, s.enabled && s.adultConsent) { sel ->
+        vm.updateArtwork { it.withSelection(ArtworkScope.SMB_FOLDER, sel) }
+    }
+    SelectionPicker("Virtual and custom folders", s.virtualFolderSelection, s.enabled && s.adultConsent) { sel ->
+        vm.updateArtwork { it.withSelection(ArtworkScope.VIRTUAL_FOLDER, sel) }
+    }
+    Text(
+        "Videos use the picture of their virtual folder. Automatic thumbnails are always kept: an item shows a portrait " +
+            "only where you allow it, and Reset in Change cover returns it to its automatic thumbnail.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    val review by vm.portraitReview.collectAsStateWithLifecycle()
+    var reviewOpen by remember { mutableStateOf(false) }
+    OutlinedButton(onClick = { reviewOpen = true }, enabled = s.enabled && review.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+        Text(if (review.isEmpty()) "Review suggestions (none waiting)" else "Review suggestions (${review.size})")
+    }
+    if (reviewOpen) ReviewPortraitsDialog(vm, onDismiss = { reviewOpen = false })
 
     Text("How names are searched", style = MaterialTheme.typography.titleMedium)
     ToggleRow(

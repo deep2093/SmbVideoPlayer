@@ -26,6 +26,9 @@ class PortraitFetcher(
         object NoMatch : Outcome()
         object Skipped : Outcome()
 
+        /** Suggestions were saved for the user to choose from. */
+        object Suggested : Outcome()
+
         /** Something went wrong with this one item only (an unreadable picture, a bad response); carry on. */
         object ItemError : Outcome()
 
@@ -36,7 +39,9 @@ class PortraitFetcher(
     suspend fun autoFetch(identity: String, label: String): Outcome {
         val settings = repository.settings.value
         val scope = ArtworkKeys.scopeOf(identity)
-        if (!settings.enabled || !settings.portraitsAllowedFor(scope)) return Outcome.Skipped
+        // Includes Custom mode, where the user searches or picks images themselves and nothing runs in the background.
+        if (!settings.portraitLookupWanted(scope)) return Outcome.Skipped
+        val selection = settings.selectionFor(scope)
         val existing = repository.row(identity)
         if (existing != null && existing.manual) return Outcome.Skipped
         if (!NetworkPolicy.allowed(context, settings)) return Outcome.Failed(ProviderFailure.BLOCKED_BY_SETTINGS)
@@ -49,6 +54,7 @@ class PortraitFetcher(
         val providers = search.configured(settings)
         if (providers.isEmpty()) return Outcome.Failed(ProviderFailure.NO_KEY)
 
+        val everything = ArrayList<PerformerCandidate>()
         for (provider in providers) {
             val candidates: List<PerformerCandidate> = try {
                 search.searchOne(provider, query, settings)
@@ -59,17 +65,23 @@ class PortraitFetcher(
                 // This provider answered with something unreadable for this name: try the next one.
                 continue
             }
-            when (val result = AutoMatch.evaluate(query, candidates)) {
-                is AutoMatch.Result.Match -> return apply(identity, result.candidate)
-                AutoMatch.Result.Ambiguous -> {
-                    repository.recordLookup(identity, ArtworkOverride.STATUS_AMBIGUOUS)
-                    return Outcome.Ambiguous
+            everything += candidates
+            if (selection == PortraitSelection.AUTOMATIC) {
+                when (val result = AutoMatch.evaluate(query, candidates)) {
+                    is AutoMatch.Result.Match -> return apply(identity, result.candidate)
+                    AutoMatch.Result.Ambiguous -> {
+                        // Several people fit: keep the suggestions so the user can choose.
+                        repository.saveSuggestions(identity, AutoMatch.ranked(query, candidates))
+                        return Outcome.Ambiguous
+                    }
+                    AutoMatch.Result.NoMatch -> Unit
                 }
-                AutoMatch.Result.NoMatch -> Unit
             }
         }
-        repository.recordLookup(identity, ArtworkOverride.STATUS_NO_MATCH)
-        return Outcome.NoMatch
+        // Manual mode (or no confident match): keep what was found for the user to pick from, best first.
+        val ranked = AutoMatch.ranked(query, everything)
+        repository.saveSuggestions(identity, ranked)
+        return if (ranked.any { !it.imageUrl.isNullOrBlank() }) Outcome.Suggested else Outcome.NoMatch
     }
 
     private suspend fun apply(identity: String, candidate: PerformerCandidate): Outcome {
