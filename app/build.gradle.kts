@@ -21,6 +21,12 @@ android {
             ?: (1000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0) * 2)
         versionName = "0.11.0"
         resValue("string", "app_name", "Veyra")
+        // Native code (the VLC player engine and WireGuard) only for processors that run this app: 64-bit and
+        // 32-bit ARM phones and tablets, and 64-bit Intel for emulators. 32-bit Intel (x86) is left out; no
+        // Android 10+ phone or tablet uses it, and it was a large share of the download.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
     }
 
     signingConfigs {

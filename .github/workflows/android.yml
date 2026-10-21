@@ -158,6 +158,11 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs optimized/update.apk > optimized/signing.txt
           grep 'Signer #1 certificate SHA-256 digest:' optimized/signing.txt > optimized/cert.txt
           diff -u preview/update-cert.txt optimized/cert.txt
+      - name: Report APK size by part
+        run: |
+          total=$(stat -c %s optimized/update.apk)
+          echo "::notice title=APK size::optimized APK $((total / 1048576)) MB"
+          unzip -lv optimized/update.apk | awk 'NR>3 && $8 != "" { split($8, p, "/"); key = (p[1] == "lib") ? "lib/" p[2] : (p[1] ~ /\.dex$/ ? "dex" : p[1]); size[key] += $3 } END { for (k in size) printf "%s %d\n", k, size[k] / 1048576 }' | sort -k2 -n -r | head -8 | while read part mb; do echo "::notice title=APK part::$part ${mb} MB (stored)"; done
       - uses: actions/upload-artifact@v4
         with:
           name: VideoLibrary-optimized-preview-apk
