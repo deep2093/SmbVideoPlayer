@@ -40,6 +40,9 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.ViewList
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.RemoveCircleOutline
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -99,9 +102,14 @@ fun VideosScreen(
     // Scroll to top only when the filter changes while visible; returning from the player or
     // another tab keeps the previous position.
     ScrollToTopOnChange(Triple(query, group, matchFolder?.id), gridState)
-    Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN)) {
+    // The whole top area slides away while scrolling down and comes back on any scroll up.
+    val header = rememberCollapsingHeader()
+    Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN).nestedScroll(header.connection)) {
+        CollapsingHeader(header, resetKey = page) {
         if (vm.selectedPaths.isNotEmpty() && vm.selectionScope == "videos") {
             VideoSelectionHeader(vm, Modifier.padding(top = 8.dp))
+        } else if (vm.selectedPaths.isNotEmpty() && vm.selectionScope == CONTINUE_SCOPE) {
+            ContinueSelectionHeader(vm, continueWatching.size, Modifier.padding(top = 8.dp))
         } else SearchableTopBar(
             title = selectedGroup ?: "Videos",
             searching = searchExpanded,
@@ -126,27 +134,21 @@ fun VideosScreen(
                 null
             },
         ) {
-            CardShapeButton(vm, page)
-            LibraryDisplayMenu(vm)
-        }
-        if (selectedGroup != null && matchFolder == null) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text(stringResource(R.string.ui_virtual_folder_2723d68),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = {
+            if (selectedGroup != null && matchFolder == null) {
+                IconAction(Icons.Filled.Add, "Add videos to this folder", onClick = {
                     videoSearch = ""
                     vm.findVideosToAdd(selectedGroup, "")
                     addDialog = true
-                }) { Text(stringResource(R.string.ui_add_109b936)) }
+                })
             }
+            IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0, onClick = { vm.playLibrary("videos", onPlay = onPlay) })
+            CardShapeButton(vm, page)
+            LibraryDisplayMenu(vm)
+        }
         }
         val columns = libraryColumns(vm.videoGridPreset, floatingPadding(vm))
         // Grid rows before the first video, so the fast scroller can map a position to a filename.
         val headerRows = (if (group == null && matchFolder == null && query.isEmpty() && continueWatching.isNotEmpty()) 1 else 0) +
-            1 +
             (if (videos.loadState.refresh is androidx.paging.LoadState.Loading) 1 else 0) +
             (if (videos.loadState.refresh is androidx.paging.LoadState.Error) 1 else 0) +
             (if (count == 0 && videos.loadState.refresh is androidx.paging.LoadState.NotLoading) 1 else 0)
@@ -188,21 +190,11 @@ fun VideosScreen(
                                         onRemoveFromContinue = {
                                             vm.hideContinue(video.relativePath)
                                         },
+                                        selectionScope = CONTINUE_SCOPE,
                                     )
                                 }
                             }
                         }
-                    }
-                }
-                item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
-                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                        Text(
-                            "$count videos · ${vm.videoSort.label}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
-                        )
-                        IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0, onClick = { vm.playLibrary("videos", onPlay = onPlay) })
                     }
                 }
                 if (videos.loadState.refresh is androidx.paging.LoadState.Loading) {
@@ -247,6 +239,8 @@ fun VideosScreen(
                         }, vm = vm, listMode = vm.videoListMode, aspect = aspect)
                     }
                 }
+                // The total sits at the end of the list.
+                if (count > 0) item(span = { GridItemSpan(maxLineSpan) }, key = "count") { ListTotal("$count videos · ${vm.videoSort.label}") }
             }
         }
     }
@@ -297,6 +291,9 @@ internal fun VideoCard(
     aspect: Float = com.deepak.videolibrary.artwork.CoverCrop.CARD_ASPECT,
 ) {
     var menuOpen by remember(video.relativePath) { mutableStateOf(false) }
+    // Selections are kept apart (Continue watching, the video list, a folder…): a card only ticks while its own
+    // list is being selected.
+    val selectingHere = vm.selectedPaths.isNotEmpty() && vm.selectionScope == selectionScope
     val context = LocalContext.current
     // Custom thumbnail first, then the automatic one; refreshed as soon as a custom thumbnail changes.
     val customRevision by com.deepak.videolibrary.thumbs.CustomThumbs.revision.collectAsStateWithLifecycle()
@@ -337,7 +334,7 @@ internal fun VideoCard(
                         ).padding(horizontal = 4.dp),
                 )
             }
-            if (onRemoveFromContinue != null && vm.selectedPaths.isEmpty()) {
+            if (onRemoveFromContinue != null && !selectingHere) {
                 androidx.compose.material3.FilledIconButton(
                     onClick = onClick,
                     modifier = Modifier.align(androidx.compose.ui.Alignment.Center).width(48.dp).height(48.dp),
@@ -357,7 +354,7 @@ internal fun VideoCard(
     }
     val caption: @Composable () -> Unit = {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            if (vm.selectedPaths.isNotEmpty()) {
+            if (selectingHere) {
                 Checkbox(checked = video.relativePath in vm.selectedPaths, onCheckedChange = {
                     vm.toggleSelected(video.relativePath, selectionScope)
                 })
@@ -383,11 +380,11 @@ internal fun VideoCard(
     Box(modifier) {
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).combinedClickable(onClick = {
-                if (vm.selectedPaths.isNotEmpty())vm.toggleSelected(video.relativePath, selectionScope) else onClick()
+                if (selectingHere) vm.toggleSelected(video.relativePath, selectionScope) else onClick()
             }, onLongClick = {
                 // Holding a video opens its menu, the same as folders (Select is in the menu). While selecting,
                 // holding ticks it like a tap.
-                if (vm.selectedPaths.isNotEmpty()) {
+                if (selectingHere) {
                     vm.toggleSelected(video.relativePath, selectionScope)
                 } else {
                     menuOpen = true
@@ -573,5 +570,24 @@ private fun VideoSelectionHeader(vm: LibraryViewModel, modifier: Modifier = Modi
             },
             dismissButton = { TextButton(onClick = { merge = false }) { Text(stringResource(R.string.ui_cancel_77dfd21)) } },
         )
+    }
+}
+
+
+/** Selection scope of the Continue watching row, kept apart from the video list. */
+internal const val CONTINUE_SCOPE = "continue"
+
+/** While Continue watching items are selected: Select all (that row only) and Remove from Continue watching. */
+@Composable
+private fun ContinueSelectionHeader(vm: LibraryViewModel, total: Int, modifier: Modifier = Modifier) {
+    val count = vm.selectedPaths.size
+    Row(modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        IconButton(onClick = vm::clearSelection) { Icon(Icons.Filled.Close, contentDescription = "Done") }
+        Text("$count selected", style = MaterialTheme.typography.titleMedium, maxLines = 1, modifier = Modifier.weight(1f))
+        SelectAllToggle(allSelected = total in 1..count, onSelectAll = { vm.selectAll(CONTINUE_SCOPE) }, onDeselectAll = vm::clearSelection)
+        IconAction(Icons.Filled.RemoveCircleOutline, "Remove from Continue watching", onClick = {
+            vm.selectedPaths.forEach { vm.hideContinue(it) }
+            vm.clearSelection()
+        })
     }
 }

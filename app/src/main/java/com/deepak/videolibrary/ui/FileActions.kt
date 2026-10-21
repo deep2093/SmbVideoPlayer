@@ -356,7 +356,7 @@ private fun PasteDestinationDialog(vm: LibraryViewModel) {
 @Composable
 private fun SelectionBar(vm: LibraryViewModel) {
     // Videos show their own icon header while selecting.
-    if (vm.selectedPaths.isEmpty() || vm.selectionScope == "videos") return
+    if (vm.selectedPaths.isEmpty() || vm.selectionScope == "videos" || vm.selectionScope == CONTINUE_SCOPE) return
     var merge by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     BackHandler { vm.clearSelection() }

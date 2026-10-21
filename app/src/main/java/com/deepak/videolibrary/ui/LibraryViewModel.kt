@@ -537,7 +537,11 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     var selectedDirectories by mutableStateOf<Set<String>>(emptySet())
         private set
     fun toggleSelected(path: String, mode: String = "videos", directory: Boolean = false) {
-        if (selectionScope != mode) selectedDirectories = emptySet()
+        // Starting to select in another list drops the old selection, so lists never mix.
+        if (selectionScope != mode) {
+            selectedDirectories = emptySet()
+            selectedPaths = emptySet()
+        }
         selectionScope = mode
         val removing = path in selectedPaths
         selectedPaths =
@@ -578,7 +582,12 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
     fun selectAll(mode: String) {
         viewModelScope.launch {
+            if (selectionScope != mode) selectedDirectories = emptySet()
             selectionScope = mode
+            if (mode == CONTINUE_SCOPE) {
+                selectedPaths = continuing.value.map { it.relativePath }.toSet()
+                return@launch
+            }
             if (mode == "explorer") {
                 val listed = explorerSelectable()
                 selectedPaths = listed.map { it.first }.toSet()

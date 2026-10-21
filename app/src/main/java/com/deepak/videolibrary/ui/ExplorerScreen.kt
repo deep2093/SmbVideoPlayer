@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -119,7 +120,10 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
     BackHandler(enabled = searching || vm.explorerPath.isNotEmpty()) {
         if (searching) vm.explorerQuery = "" else vm.browse(vm.explorerPath.substringBeforeLast('/', ""))
     }
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    // The top bar, path line and count slide away while scrolling down and come back on any scroll up.
+    val header = rememberCollapsingHeader()
+    Column(Modifier.fillMaxSize().padding(16.dp).nestedScroll(header.connection), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        CollapsingHeader(header, resetKey = vm.explorerPath) {
         SearchableTopBar(
             title = stringResource(R.string.ui_file_explorer_700869d),
             searching = searchExpanded,
@@ -171,6 +175,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
             onHome = { vm.browse("") },
             onSelect = { vm.browse(it) },
             enabled = !vm.explorerBusy,
+            modifier = Modifier.padding(vertical = 6.dp),
             trailing = {
                 IconButton(
                     onClick = {
@@ -185,6 +190,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${playQueue.size} ${if (searching) "matching" else "playable"} videos", modifier = Modifier.weight(1f))
             IconAction(Icons.Filled.PlayArrow, if (vm.explorerSearching) "Play found so far" else "Play all", enabled = playQueue.isNotEmpty(), onClick = { playQueue.firstOrNull()?.let { onPlay(it, playQueue) } })
+        }
         }
         if (vm.explorerSearching) LinearProgressIndicator(Modifier.fillMaxWidth())
         vm.explorerSearchMessage?.takeIf { searching }?.let { Text(it, color = MaterialTheme.colorScheme.error) }

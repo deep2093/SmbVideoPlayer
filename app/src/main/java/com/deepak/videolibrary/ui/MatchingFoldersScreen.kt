@@ -146,6 +146,8 @@ internal fun MatchingFoldersScreen(
                 }
                 items(shownOwn, key = { "own:" + it.id }) { folder -> OwnFolderCard(vm, folder, aspect, vm.ui.tick(selectPage, "own:" + folder.id)) }
                 items(folders, key = { it.folder.id }) { row -> MatchingFolderCard(vm, row, aspect, onOpen, onPlay, vm.ui.tick(selectPage, "match:" + row.folder.id)) }
+                val total = shownOwn.size + folders.size
+                if (total > 0) item(span = { GridItemSpan(maxLineSpan) }, key = "count") { ListTotal("$total ${if (total == 1) "folder" else "folders"}") }
             }
         }
     }
@@ -412,6 +414,16 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
                         )
                         if (ticked != null) SelectionBadge(ticked, Modifier.align(Alignment.TopEnd).padding(8.dp))
                     }
+                }
+            }
+            val dirs = if (openGroup == null) folder.folders.size else 0
+            val groupCards = if (openGroup == null && grouped) groups.size else 0
+            if (dirs + groupCards + (if (openGroup != null || !grouped) shownFiles.size else 0) > 0) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
+                    ListTotal(buildString {
+                        if (dirs + groupCards > 0) append("${dirs + groupCards} folders · ")
+                        append("${shownFiles.size} videos")
+                    })
                 }
             }
         }

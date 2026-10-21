@@ -53,6 +53,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextOverflow
@@ -100,7 +101,10 @@ internal fun FoldersHub(
             scope.launch { pager.animateScrollToPage(index) }
         }
     }
-    Column(Modifier.fillMaxSize()) {
+    // The app-name line and the tabs slide away while a page scrolls down and come back on any scroll up.
+    val hubHeader = rememberCollapsingHeader()
+    Column(Modifier.fillMaxSize().nestedScroll(hubHeader.connection)) {
+        CollapsingHeader(hubHeader, resetKey = pager.currentPage) {
         // On phones the page buttons sit on the app-name line; on tablets each page keeps its own title row.
         if (showBrand) {
             HubBarLine(bars, pager.currentPage, APP_NAME, Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp))
@@ -124,6 +128,7 @@ internal fun FoldersHub(
                     }
                 }
             }
+        }
         }
         HorizontalPager(state = pager, modifier = Modifier.weight(1f)) { page ->
             // A focused search field asks its ancestors to scroll it into view when the keyboard opens.
@@ -270,8 +275,8 @@ fun FoldersScreen(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             labelFor = if (vm.folderSort == "NAME") {
                 { index ->
-                    // Two header rows (continue watching, count), plus the empty message when there are no folders.
-                    val at = index - 2
+                    // Folders start at the first row; the total is at the end.
+                    val at = index
                     if (at in shownGroups.indices) sectionLetter(shownGroups[at].groupKey) else null
                 }
             } else {
@@ -287,44 +292,6 @@ fun FoldersScreen(
                 contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
                 modifier = Modifier.fillMaxSize().testTag("virtual-folder-grid"),
             ) {
-                item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
-                    Column {
-                        if (recentlyWatched.isNotEmpty() && folderQuery.isBlank()) {
-                            Text(stringResource(R.string.ui_continue_watching_b60506f),
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.padding(top = 8.dp, bottom = 10.dp),
-                            )
-                            androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                items(recentlyWatched, key = { it.id }) { video ->
-                                    Box(Modifier.width(280.dp)) {
-                                        VideoCard(
-                                            video,
-                                            onClick = { onPlay(video, listOf(video)) },
-                                            vm = vm,
-                                            onRemoveFromContinue = {
-                                                vm.hideContinue(video.relativePath)
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.height(14.dp))
-                        }
-                    }
-                }
-                item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
-                    Text(
-                        "${shownGroups.size} folders · " + when (vm.folderSort) {
-                            "COUNT" -> "Number of items"
-                            "DATE" -> "Latest by date"
-                            "SIZE" -> "Total size"
-                            else -> "Name"
-                        } + if (vm.folderSortDescending) " ↓" else " ↑",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 8.dp),
-                    )
-                }
                 if (shownGroups.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
@@ -366,6 +333,16 @@ fun FoldersScreen(
                             }
                         }
                     }
+                }
+                if (shownGroups.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
+                    ListTotal(
+                        "${shownGroups.size} folders · " + when (vm.folderSort) {
+                            "COUNT" -> "Number of items"
+                            "DATE" -> "Latest by date"
+                            "SIZE" -> "Total size"
+                            else -> "Name"
+                        } + if (vm.folderSortDescending) " ↓" else " ↑",
+                    )
                 }
             }
         }

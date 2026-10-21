@@ -71,8 +71,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
     LaunchedEffect(active, path) { if (!active) vm.ui.endSelection(selectPage) }
     LaunchedEffect(path) { vm.ui.endSelection(selectPage) }
     ScrollTopOnRequest(vm, gridState, active)
-    val header = rememberCollapsingHeader()
-    Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN).nestedScroll(header.connection)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN)) {
         HubTopBar {
         if (selection != null) {
             FolderSelectionBar(
@@ -99,29 +98,9 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             onQueryChange = { vm.originalQuery = it },
             placeholder = stringResource(R.string.ui_search_folder_and_video_names_b2eeabc),
         ) {
+            IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0, onClick = { vm.playLibrary("originals", onPlay = onPlay) })
             CardShapeButton(vm, Pages.original(path))
             IconAction(Icons.Filled.Refresh, stringResource(R.string.ui_refresh_index_2b7da4d), onClick = { vm.startScan(ScanMode.REFRESH) })
-        }
-        }
-        // The path line and the count slide away while scrolling down and come back on any scroll up.
-        CollapsingHeader(header, resetKey = path) {
-        // At the top level the path line only said "Share root"; it appears once you are inside a folder.
-        if (path != root) BreadcrumbBar(
-            crumbs = breadcrumbs(path, root),
-            onHome = {
-                vm.originalQuery = ""
-                vm.originalPath = root
-            },
-            onSelect = {
-                vm.originalQuery = ""
-                vm.originalPath = it
-            },
-            rootLabel = if (root.isEmpty()) "Share root" else root.substringAfterLast('/'),
-            modifier = Modifier.padding(bottom = 8.dp),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("$count videos including subfolders", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-            IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0, onClick = { vm.playLibrary("originals", onPlay = onPlay) })
         }
         }
         FastScrollBox(
@@ -188,8 +167,15 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                     }, vm = vm, listMode = vm.folderListMode, selectionScope = "originals", aspect = aspect)
                 } else {
                     if(vm.folderListMode) Box(Modifier.fillMaxWidth().height(68.dp))
-                    else Column { Box(Modifier.fillMaxWidth().aspectRatio(aspect)); Text("", minLines=2, maxLines=2, style=MaterialTheme.typography.bodyMedium); Text("",style=MaterialTheme.typography.labelSmall) }
+                    else Column { Box(Modifier.fillMaxWidth().aspectRatio(aspect)); Text("", maxLines=1, style=CardTitleStyle()); Text("",style=CardDetailStyle()) }
                 }
+            }
+            // The totals sit at the end of the list.
+            if (count > 0 || children.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
+                ListTotal(buildString {
+                    if (children.isNotEmpty()) append("${children.size} ${if (children.size == 1) "folder" else "folders"} · ")
+                    append("$count videos including subfolders")
+                })
             }
         }
         }

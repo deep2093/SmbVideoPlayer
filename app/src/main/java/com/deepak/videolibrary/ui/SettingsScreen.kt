@@ -57,6 +57,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
@@ -227,10 +228,18 @@ fun SettingsScreen(vm: LibraryViewModel) {
     androidx.compose.runtime.DisposableEffect(scroll) { onDispose { vm.ui.settingsScroll = scroll.value } }
     OnScrollTopRequest(vm) { scroll.animateScrollTo(0) }
     var layoutExpanded by vm.ui.flagState("settings.layout")
-    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
+    // The title line slides away while scrolling down and comes back on any scroll up.
+    val header = rememberCollapsingHeader()
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().nestedScroll(header.connection), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
+      Column(Modifier.widthIn(max = 920.dp).fillMaxSize()) {
+        CollapsingHeader(header, resetKey = Unit) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Settings", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                LocalTopBarEnd.current()
+            }
+        }
         Column(
             Modifier
-                .widthIn(max = 920.dp)
                 .fillMaxSize()
                 .imePadding()
                 .verticalScroll(
@@ -239,10 +248,6 @@ fun SettingsScreen(vm: LibraryViewModel) {
                 .padding(bottom = if (floatingPadding(vm)) 100.dp else 0.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("Settings", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-                LocalTopBarEnd.current()
-            }
             SETTINGS_SECTIONS.forEach { entry ->
                 SettingsAccordion(
                     title = entry.title,
@@ -491,5 +496,6 @@ fun SettingsScreen(vm: LibraryViewModel) {
                 }
             }
         }
+      }
     }
 }

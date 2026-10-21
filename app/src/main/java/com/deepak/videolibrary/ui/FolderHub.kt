@@ -339,3 +339,15 @@ internal fun CollapsingHeader(state: CollapsingHeaderState, resetKey: Any?, cont
     )
 }
 
+
+/** The total at the end of a list ("581 folders · Name ↑"). */
+@Composable
+internal fun ListTotal(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
+        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+    )
+}
