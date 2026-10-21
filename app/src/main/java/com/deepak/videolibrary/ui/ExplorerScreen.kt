@@ -99,7 +99,13 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
     val playQueue = shown.filter { isPlayable(it.entry) }.map { explorerVideo(it, emptyMap()) }.distinctBy { it.relativePath }
     DisposableEffect(Unit) { onDispose { vm.stopExplorerSearch() } }
     LaunchedEffect(vm.explorerQuery, vm.explorerPath) { vm.searchExplorer(vm.explorerQuery, vm.explorerPath) }
+    val selectingHere = vm.selectedPaths.isNotEmpty() && vm.selectionScope == "explorer"
     fun open(hit: ExplorerHit) {
+        // While selecting, a tap ticks or unticks the entry (folders too) instead of opening it.
+        if (selectingHere && (hit.entry.isDirectory || isPlayable(hit.entry))) {
+            vm.toggleSelected(hit.path, "explorer", directory = hit.entry.isDirectory)
+            return
+        }
         if (hit.entry.isDirectory) {
             vm.explorerQuery = ""
             vm.browse(hit.path)
@@ -212,15 +218,20 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
             ) {
                 items(shown.size, key = { shown[it].path }) { index ->
                     val hit = shown[index]
-                    ExplorerGridCard(
-                        vm = vm,
-                        hit = hit,
-                        indexed = indexed[hit.path],
-                        focused = hit.path == vm.explorerFocusPath,
-                        showFolder = searching,
-                        aspect = aspect,
-                        onOpen = { open(hit) },
-                    )
+                    Box {
+                        ExplorerGridCard(
+                            vm = vm,
+                            hit = hit,
+                            indexed = indexed[hit.path],
+                            focused = hit.path == vm.explorerFocusPath,
+                            showFolder = searching,
+                            aspect = aspect,
+                            onOpen = { open(hit) },
+                        )
+                        if (selectingHere && hit.entry.isDirectory) {
+                            SelectionBadge(hit.path in vm.selectedPaths, Modifier.align(Alignment.TopEnd).padding(8.dp))
+                        }
+                    }
                 }
             }
         } else LazyColumn(
@@ -237,7 +248,9 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                     Modifier
                         .fillMaxWidth()
                         .then(
-                            if (hit.path ==
+                            if (hit.path in vm.selectedPaths && selectingHere) {
+                                Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                            } else if (hit.path ==
                                 vm.explorerFocusPath
                             ) {
                                 Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)).semantics {
@@ -284,6 +297,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                             vm,
                             fullPath,
                             directory = entry.isDirectory,
+                            onSelect = if (entry.isDirectory) ({ vm.toggleSelected(fullPath, "explorer", directory = true) }) else null,
                             selectionScope = "explorer",
                             onPlay = if (playable)({ open(hit) })else null,
                             details = "${entry.name}\n$fullPath\n${entry.size} bytes",
@@ -386,6 +400,7 @@ private fun ExplorerGridCard(
             vm,
             hit.path,
             directory = entry.isDirectory,
+            onSelect = if (entry.isDirectory) ({ vm.toggleSelected(hit.path, "explorer", directory = true) }) else null,
             selectionScope = "explorer",
             onPlay = if (playable) onOpen else null,
             details = "${entry.name}\n${hit.path}\n${entry.size} bytes",

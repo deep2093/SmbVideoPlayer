@@ -4,6 +4,7 @@ import androidx.compose.ui.res.stringResource
 import com.deepak.videolibrary.R
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material.icons.Icons
@@ -267,23 +268,99 @@ private fun OwnFolderCard(vm: LibraryViewModel, folder: OwnFolder, aspect: Float
     }
 }
 
-/** The inside of an own folder: its drive folders as cards, then its single videos. */
+/**
+ * The inside of an own folder: its drive folders as cards, then its single videos. Single videos are grouped into
+ * virtual folders by the library's naming rule ("Tom Cruise - movie" goes into Tom Cruise) unless that is switched
+ * off with the button at the top, which lists them one by one as before.
+ *
+ * Holding a card offers Select: several folders, groups and videos can then be downloaded or taken out of this
+ * folder together.
+ */
 @Composable
 private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () -> Unit, onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
-    BackHandler { vm.openOwnFolderId = null }
+    var openGroup by remember(folder.id) { mutableStateOf<String?>(null) }
+    val selectPage = "select:own:" + folder.id
+    val selection = vm.ui.selectionOn(selectPage)
+    BackHandler {
+        when {
+            selection != null -> vm.ui.endSelection(selectPage)
+            openGroup != null -> openGroup = null
+            else -> vm.openOwnFolderId = null
+        }
+    }
     val page = Pages.ownFolder(folder.id)
     val aspect = cardAspect(vm, page)
     var edit by remember { mutableStateOf(false) }
     val files by produceState(emptyList<VideoEntity>(), folder) { value = vm.ownFolderFiles(folder) }
+    val grouped = vm.ownFolderGroupsFiles(folder.id)
+    val groups = remember(files) { files.groupBy { it.groupKey }.toSortedMap() }
+    val shownFiles = openGroup?.let { groups[it].orEmpty() } ?: files
+    val gridState = remember(folder.id, openGroup) { LazyGridState() }
+    ScrollTopOnRequest(vm, gridState)
+    LaunchedEffect(openGroup) { vm.ui.endSelection(selectPage) }
+    fun toggle(key: String) = vm.ui.toggleFolder(selectPage, key)
+    // Everything a selection key stands for, as videos to download or members to take out.
+    fun pathsOf(keys: Set<String>): List<String> = keys.flatMap { key ->
+        when {
+            key.startsWith("group:") -> groups[key.removePrefix("group:")].orEmpty().map { it.relativePath }
+            key.startsWith("file:") -> listOf(key.removePrefix("file:"))
+            else -> emptyList()
+        }
+    }
+    val allKeys = if (openGroup != null) {
+        shownFiles.map { "file:" + it.relativePath }
+    } else {
+        folder.folders.map { "dir:$it" } + if (grouped) groups.keys.map { "group:$it" } else files.map { "file:" + it.relativePath }
+    }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { vm.openOwnFolderId = null }) { Icon(Icons.Default.ArrowBack, contentDescription = "Back to Custom folders") }
-            Text(folder.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            IconAction(Icons.Default.Edit, "Choose folders and files", onClick = { edit = true })
-            IconAction(Icons.Default.PlayArrow, "Play all", enabled = !folder.isEmpty, onClick = { vm.playLibrary("own:${folder.id}", onPlay = onPlay) })
-            CardShapeButton(vm, page)
-            // On phones the download button is already on the "Video Library" line above.
-            if (LocalHubBarSlot.current == null) LocalTopBarEnd.current()
+        if (selection != null) {
+            FolderSelectionBar(
+                count = selection.keys.size,
+                onClose = { vm.ui.endSelection(selectPage) },
+                onSelectAll = { vm.ui.selectAllFolders(selectPage, allKeys) },
+                onDownload = {
+                    selection.keys.filter { it.startsWith("dir:") }.forEach { vm.downloadDirectory(it.removePrefix("dir:")) }
+                    pathsOf(selection.keys).takeIf { it.isNotEmpty() }?.let(vm::downloadFiles)
+                    vm.ui.endSelection(selectPage)
+                },
+                onHide = null,
+                onRemove = {
+                    val dirs = selection.keys.filter { it.startsWith("dir:") }.map { it.removePrefix("dir:") }.toSet()
+                    val gone = pathsOf(selection.keys).toSet()
+                    vm.setOwnFolderMembers(folder.id, folder.folders - dirs, folder.files - gone)
+                    vm.ui.endSelection(selectPage)
+                },
+                removeLabel = "Take out",
+            )
+        } else {
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { if (openGroup != null) openGroup = null else vm.openOwnFolderId = null }) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = if (openGroup != null) "Back to ${folder.name}" else "Back to Custom folders")
+                }
+                Text(
+                    openGroup?.let(::groupTitle) ?: folder.name,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (openGroup == null) {
+                    IconAction(Icons.Default.Edit, "Choose folders and files", onClick = { edit = true })
+                    if (files.isNotEmpty()) {
+                        IconAction(
+                            if (grouped) Icons.Default.ViewModule else Icons.Default.Topic,
+                            if (grouped) "Show single videos one by one" else "Group single videos into virtual folders",
+                            onClick = { vm.setOwnFolderGroupsFiles(folder.id, !grouped) },
+                        )
+                    }
+                    IconAction(Icons.Default.PlayArrow, "Play all", enabled = !folder.isEmpty, onClick = { vm.playLibrary("own:${folder.id}", onPlay = onPlay) })
+                } else {
+                    IconAction(Icons.Default.PlayArrow, "Play all", enabled = shownFiles.isNotEmpty(), onClick = { shownFiles.firstOrNull()?.let { onPlay(it, shownFiles) } })
+                }
+                CardShapeButton(vm, page)
+                // On phones the download button is already on the app-name line above.
+                if (LocalHubBarSlot.current == null) LocalTopBarEnd.current()
+            }
         }
         if (folder.isEmpty) {
             Column(Modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -293,44 +370,161 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
             }
         }
         LazyVerticalGrid(
+            state = gridState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
             columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
         ) {
-            items(folder.folders, key = { "dir:$it" }) { path -> DriveFolderCard(vm, path, aspect, onOpen) }
-            items(files, key = { "file:" + it.relativePath }) { video ->
-                VideoCard(video, onClick = { onPlay(video, files) }, vm = vm, listMode = vm.folderListMode, selectionScope = "own", aspect = aspect)
+            if (openGroup == null) {
+                items(folder.folders, key = { "dir:$it" }) { path ->
+                    DriveFolderCard(
+                        vm, path, aspect, onOpen,
+                        selected = vm.ui.tick(selectPage, "dir:$path"),
+                        onSelect = { toggle("dir:$path") },
+                        onTakeOut = { vm.setOwnFolderMembers(folder.id, folder.folders - path, folder.files) },
+                    )
+                }
+                if (grouped) {
+                    items(groups.keys.toList(), key = { "group:$it" }) { key ->
+                        FileGroupCard(
+                            vm, key, groups[key].orEmpty(), aspect,
+                            selected = vm.ui.tick(selectPage, "group:$key"),
+                            onOpen = { openGroup = key },
+                            onSelect = { toggle("group:$key") },
+                        )
+                    }
+                }
+            }
+            if (openGroup != null || !grouped) {
+                items(shownFiles, key = { "file:" + it.relativePath }) { video ->
+                    val ticked = vm.ui.tick(selectPage, "file:" + video.relativePath)
+                    Box {
+                        VideoCard(
+                            video,
+                            onClick = { if (ticked != null) toggle("file:" + video.relativePath) else onPlay(video, shownFiles) },
+                            vm = vm,
+                            listMode = vm.folderListMode,
+                            selectionScope = "own",
+                            aspect = aspect,
+                        )
+                        if (ticked != null) SelectionBadge(ticked, Modifier.align(Alignment.TopEnd).padding(8.dp))
+                    }
+                }
             }
         }
     }
     if (edit) OwnFolderContentsPicker(vm, folder) { edit = false }
 }
 
+private fun groupTitle(key: String) = key.split(' ').joinToString(" ") { word -> word.replaceFirstChar { it.titlecase(java.util.Locale.ROOT) } }
+
+/** A tick shown on a card while selecting. */
+@Composable
+internal fun SelectionBadge(selected: Boolean, modifier: Modifier = Modifier) {
+    Icon(
+        if (selected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+        contentDescription = if (selected) "Selected" else "Not selected",
+        tint = if (selected) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.White,
+        modifier = modifier.size(26.dp).background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape),
+    )
+}
+
+/** Single videos of an own folder that share a name, shown as one virtual folder. */
+@Composable
+private fun FileGroupCard(
+    vm: LibraryViewModel,
+    key: String,
+    videos: List<VideoEntity>,
+    aspect: Float,
+    selected: Boolean?,
+    onOpen: () -> Unit,
+    onSelect: () -> Unit,
+) {
+    val coverKey = vm.coverKey("group:$key", videos.size, videos.size)
+    var cover by remember(coverKey) { mutableStateOf(vm.cachedCover(coverKey)) }
+    LaunchedEffect(coverKey) { cover = vm.coverFor(key, coverKey) }
+    var menu by remember { mutableStateOf(false) }
+    var changeCover by remember { mutableStateOf(false) }
+    val artworkOn = rememberArtworkEnabled(vm)
+    Box {
+        FolderTile(
+            title = groupTitle(key),
+            detail = "${videos.size} ${if (videos.size == 1) "video" else "videos"}",
+            cover = cover,
+            aspect = aspect,
+            listMode = vm.folderListMode,
+            onClick = { if (selected != null) onSelect() else onOpen() },
+            onLongPress = { if (selected != null) { onSelect() } else { menu = true } },
+            onOptions = { menu = true },
+            selected = selected,
+        )
+        DropdownMenu(menu, { menu = false }) {
+            DropdownMenuItem(text = { Text("Open") }, onClick = { menu = false; onOpen() })
+            DropdownMenuItem(text = { Text("Select") }, onClick = { menu = false; onSelect() })
+            if (artworkOn) DropdownMenuItem(text = { Text("Change cover") }, onClick = { menu = false; changeCover = true })
+            DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; vm.downloadFiles(videos.map { it.relativePath }) })
+        }
+    }
+    if (changeCover) {
+        // Same cover as the library's virtual folder of this name.
+        ChangeCoverDialog(vm, CoverTarget(ArtworkKeys.virtualFolder(key), groupTitle(key), key), null) { changeCover = false }
+    }
+}
+
 /** A drive folder inside an own folder: opens as the list of its videos (with sub-folders). */
 @Composable
-private fun DriveFolderCard(vm: LibraryViewModel, path: String, aspect: Float, onOpen: () -> Unit) {
+private fun DriveFolderCard(
+    vm: LibraryViewModel,
+    path: String,
+    aspect: Float,
+    onOpen: () -> Unit,
+    selected: Boolean?,
+    onSelect: () -> Unit,
+    onTakeOut: () -> Unit,
+) {
     val countFlow = remember(path) { vm.driveFolderCount(path) }
     val count by countFlow.collectAsStateWithLifecycle(initialValue = 0)
     val key = vm.coverKey("original:$path", count, count)
     var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
     LaunchedEffect(key) { cover = vm.originalCover(path, key) }
     var rename by remember { mutableStateOf(false) }
+    var menu by remember { mutableStateOf(false) }
+    var changeCover by remember { mutableStateOf(false) }
+    val artworkOn = rememberArtworkEnabled(vm)
     val title = vm.originalDisplayName(path)
-    FolderTile(
-        title = title,
-        detail = "$count videos",
-        cover = cover,
-        aspect = aspect,
-        listMode = vm.folderListMode,
-        onClick = {
-            vm.openDriveFolder(path)
-            onOpen()
-        },
-        onLongPress = { rename = true },
-        onRename = { rename = true },
-    )
+    Box {
+        FolderTile(
+            title = title,
+            detail = "$count videos",
+            cover = cover,
+            aspect = aspect,
+            listMode = vm.folderListMode,
+            onClick = {
+                if (selected != null) {
+                    onSelect()
+                } else {
+                    vm.openDriveFolder(path)
+                    onOpen()
+                }
+            },
+            onLongPress = { if (selected != null) { onSelect() } else { menu = true } },
+            onRename = { rename = true },
+            onOptions = { menu = true },
+            selected = selected,
+        )
+        DropdownMenu(menu, { menu = false }) {
+            DropdownMenuItem(text = { Text("Select") }, onClick = { menu = false; onSelect() })
+            if (artworkOn) DropdownMenuItem(text = { Text("Change cover") }, onClick = { menu = false; changeCover = true })
+            DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; vm.downloadDirectory(path) })
+            DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; rename = true })
+            DropdownMenuItem(text = { Text("Take out of this folder") }, onClick = { menu = false; onTakeOut() })
+        }
+    }
+    if (changeCover) {
+        ChangeCoverDialog(vm, CoverTarget(ArtworkKeys.originalFolder(path), title, path.substringAfterLast('/'), null), null) { changeCover = false }
+    }
     if (rename) {
         RenameDialog("Rename folder", title, "Only the name shown in this app changes; the folder on your drive keeps its name.", { rename = false }) {
             vm.renameOriginalDisplay(path, it)

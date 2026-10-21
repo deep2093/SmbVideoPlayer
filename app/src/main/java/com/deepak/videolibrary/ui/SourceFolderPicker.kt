@@ -15,6 +15,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Deselect
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material3.Button
@@ -101,6 +103,21 @@ internal fun DrivePicker(
     fun toggleFile(item: String) {
         files = if (item in files) files - item else files + item
     }
+    // Ticking everything shown in this folder at once (or unticking it all again).
+    val shownItems = entries.map { child(it.name) to it.isDirectory }
+    val insideTicked = shownItems.isNotEmpty() && shownItems.all { (item, _) -> includedByParent(item) }
+    val allTicked = shownItems.isNotEmpty() && shownItems.all { (item, dir) -> includedByParent(item) || (if (dir) item in folders else item in files) }
+    fun tickAllHere() {
+        val dirs = shownItems.filter { it.second }.map { it.first }.toSet()
+        val singles = shownItems.filterNot { it.second }.map { it.first }.toSet()
+        if (allTicked) {
+            folders = folders - dirs
+            files = files - singles
+        } else {
+            folders = folders.filterNot { f -> dirs.any { d -> f != d && isWithinFolder(f, d) } }.toSet() + dirs
+            files = files.filterNot { f -> dirs.any { d -> isWithinFolder(f, d) } }.toSet() + singles
+        }
+    }
 
     Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
@@ -118,6 +135,16 @@ internal fun DrivePicker(
                     rootLabel = if (root.isEmpty()) vm.settings.share.ifBlank { "Share root" } else root.substringAfterLast('/'),
                     enabled = !busy,
                 )
+                if (entries.isNotEmpty() && !insideTicked) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("${entries.size} here", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        TextButton(onClick = ::tickAllHere, enabled = !busy && !loading) {
+                            Icon(if (allTicked) Icons.Filled.Deselect else Icons.Filled.SelectAll, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(6.dp))
+                            Text(if (allTicked) "Unselect all" else "Select all")
+                        }
+                    }
+                }
                 if (loading || busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 error?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)

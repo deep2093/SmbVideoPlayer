@@ -21,7 +21,7 @@ data class DownloadItem(
     /** Path inside the share (forward slashes). */
     val sourcePath: String,
     val name: String,
-    /** Sub-folder under Download/Video Library on the device ("" for the top level). */
+    /** Sub-folder under Download/Veyra on the device ("" for the top level). */
     val targetFolder: String,
     /** Size in bytes; 0 until known. */
     val size: Long = 0,

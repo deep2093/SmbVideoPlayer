@@ -20,7 +20,7 @@ android {
         versionCode = providers.gradleProperty("previewVersionCode").orNull?.toInt()
             ?: (1000 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0) * 2)
         versionName = "0.11.0"
-        resValue("string", "app_name", "Video Library")
+        resValue("string", "app_name", "Veyra")
     }
 
     signingConfigs {
@@ -53,7 +53,7 @@ android {
         debug {
             applicationIdSuffix = ".preview"
             versionNameSuffix = "-preview"
-            resValue("string", "app_name", "Video Library Preview")
+            resValue("string", "app_name", "Veyra Preview")
             signingConfig = signingConfigs.getByName("preview")
         }
         release {
@@ -69,7 +69,7 @@ android {
             initWith(getByName("release"))
             applicationIdSuffix = ".preview"
             versionNameSuffix = "-preview-profile"
-            resValue("string", "app_name", "Video Library Preview")
+            resValue("string", "app_name", "Veyra Preview")
             signingConfig = signingConfigs.getByName("preview")
             isDebuggable = false
             isMinifyEnabled = false
@@ -80,7 +80,7 @@ android {
             initWith(getByName("release"))
             applicationIdSuffix=".preview"
             versionNameSuffix="-preview-optimized"
-            resValue("string","app_name","Video Library Preview")
+            resValue("string","app_name","Veyra Preview")
             signingConfig=signingConfigs.getByName("preview")
             isDebuggable=false
             // Minification, resource shrinking and keep rules are inherited from release.

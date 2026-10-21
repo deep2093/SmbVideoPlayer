@@ -114,8 +114,8 @@ internal fun LibrarySidebar(
     onSelect: (Int) -> Unit,
 ) {
     Column(modifier.background(MaterialTheme.colorScheme.background).padding(16.dp)) {
-        Icon(Icons.Outlined.VideoLibrary, null, modifier = Modifier.padding(top = 12.dp, bottom = 12.dp).size(28.dp))
-        Text("Video Library", style = MaterialTheme.typography.titleMedium)
+        AppIconMark(40.dp, Modifier.padding(top = 12.dp, bottom = 12.dp))
+        Text(APP_NAME, style = MaterialTheme.typography.titleMedium)
         Text("SMB media", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(32.dp))
         labels.forEachIndexed { index, label ->

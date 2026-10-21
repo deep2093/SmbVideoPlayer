@@ -98,9 +98,9 @@ internal fun FoldersHub(
         }
     }
     Column(Modifier.fillMaxSize()) {
-        // On phones the page buttons sit on the "Video Library" line; on tablets each page keeps its own title row.
+        // On phones the page buttons sit on the app-name line; on tablets each page keeps its own title row.
         if (showBrand) {
-            HubBarLine(bars, pager.currentPage, "Video Library", Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp))
+            HubBarLine(bars, pager.currentPage, APP_NAME, Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp))
         }
         androidx.compose.material3.TabRow(
             selectedTabIndex = pager.currentPage,

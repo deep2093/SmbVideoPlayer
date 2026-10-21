@@ -56,6 +56,16 @@ class SettingsRulesTest {
         assertEquals(CropWindow(0, 0, 1600, 900), centred)
     }
 
+    @Test fun zoomGivesTallPhotosRoomToMoveSideways() {
+        // At zoom 1 a tall photo fills the 3:4 width, so left/right changes nothing.
+        assertEquals(CoverCrop.rect(1000, 2000, 3f / 4f, 0f, 0f), CoverCrop.rect(1000, 2000, 3f / 4f, 1f, 0f))
+        // Zoomed 2x the window is half as wide and can slide from the left edge to the right edge.
+        val left = CoverCrop.rect(1000, 2000, 3f / 4f, 0f, 0f, zoom = 2f)
+        val right = CoverCrop.rect(1000, 2000, 3f / 4f, 1f, 0f, zoom = 2f)
+        assertEquals(CropWindow(0, 0, 500, 666), left)
+        assertEquals(CropWindow(500, 0, 500, 666), right)
+    }
+
     @Test fun keysMapToScopes() {
         assertEquals(ArtworkScope.VIDEO, ArtworkKeys.scopeOf(ArtworkKeys.video(5)))
         assertEquals(ArtworkScope.SMB_FOLDER, ArtworkKeys.scopeOf(ArtworkKeys.originalFolder("a/b")))

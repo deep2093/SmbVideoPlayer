@@ -370,7 +370,7 @@ private fun SelectionBar(vm: LibraryViewModel) {
             TextButton(onClick = vm::clearSelection) { Text(stringResource(R.string.ui_done_e9b450d)) }
         }
         Row {
-            TextButton(onClick = { vm.downloadFiles(vm.selectedPaths); vm.clearSelection() }) { Text("Download") }
+            TextButton(onClick = vm::downloadSelected) { Text("Download") }
             TextButton(onClick = { vm.stageSelected(true) }) { Text(stringResource(R.string.ui_cut_38d13bd)) }
             TextButton(onClick = { vm.stageSelected(false) }) { Text(stringResource(R.string.ui_copy_af74f7c)) }
             TextButton(enabled = vm.explorerClipboard != null, onClick = { vm.pasteDestination = vm.settings.rootPath }) { Text(stringResource(R.string.ui_paste_9db2f69)) }

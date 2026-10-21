@@ -45,7 +45,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.BiasAlignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -174,7 +175,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                         image = chosen,
                         saving = busy,
                         onCancel = { pending?.recycle(); pending = null; pendingCandidate = null },
-                        onApply = { fx, fy ->
+                        onApply = { fx, fy, zoom ->
                             busy = true
                             scope.launch {
                                 try {
@@ -186,6 +187,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                         focusY = fy,
                                         candidate = candidate,
                                         focusX = fx,
+                                        zoom = zoom,
                                     )
                                     onDismiss()
                                 } catch (e: CancellationException) {
@@ -399,18 +401,21 @@ internal fun RemoteThumb(vm: LibraryViewModel, url: String?, modifier: Modifier)
  * visible part. Both shapes are saved, so a page can switch between them later.
  */
 @Composable
-private fun PositionStep(image: Bitmap, saving: Boolean, onCancel: () -> Unit, onApply: (Float, Float) -> Unit) {
+private fun PositionStep(image: Bitmap, saving: Boolean, onCancel: () -> Unit, onApply: (Float, Float, Float) -> Unit) {
     var fx by remember { mutableFloatStateOf(0.5f) }
     var fy by remember { mutableFloatStateOf(0.25f) }
+    var zoom by remember { mutableFloatStateOf(1f) }
     val bitmap = remember(image) { image.asImageBitmap() }
+    // A tall photo already fills a card's width, so sideways movement needs a little zoom first.
+    val sideRoom = image.width.toFloat() / image.height > CoverCrop.TALL_ASPECT || zoom > 1.01f
     Text("Position the picture", style = MaterialTheme.typography.titleMedium)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
         Column(Modifier.weight(2.2f)) {
-            CropPreview(bitmap, CoverCrop.CARD_ASPECT, fx, fy, "Landscape preview")
+            CropPreview(bitmap, CoverCrop.CARD_ASPECT, fx, fy, zoom, "Landscape preview")
             Text("Landscape", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Column(Modifier.weight(1f)) {
-            CropPreview(bitmap, CoverCrop.TALL_ASPECT, fx, fy, "Taller preview")
+            CropPreview(bitmap, CoverCrop.TALL_ASPECT, fx, fy, zoom, "Taller preview")
             Text("Taller 3:4", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -418,21 +423,31 @@ private fun PositionStep(image: Bitmap, saving: Boolean, onCancel: () -> Unit, o
     Slider(value = fy, onValueChange = { fy = it }, enabled = !saving)
     Text("Left / right", style = MaterialTheme.typography.labelMedium)
     Slider(value = fx, onValueChange = { fx = it }, enabled = !saving)
+    if (!sideRoom) {
+        Text("This picture already fills the card's width. Zoom in a little to move it left or right.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Text("Zoom", style = MaterialTheme.typography.labelMedium)
+    Slider(value = zoom, onValueChange = { zoom = it }, valueRange = 1f..CoverCrop.MAX_ZOOM, enabled = !saving)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         TextButton(onClick = onCancel, enabled = !saving) { Text("Back") }
-        Button(onClick = { onApply(fx, fy) }, enabled = !saving) { Text("Use this cover") }
+        Button(onClick = { onApply(fx, fy, zoom) }, enabled = !saving) { Text("Use this cover") }
     }
 }
 
 @Composable
-private fun CropPreview(bitmap: ImageBitmap, aspect: Float, fx: Float, fy: Float, label: String) {
-    Box(Modifier.fillMaxWidth().aspectRatio(aspect).clip(RoundedCornerShape(14.dp)).background(Color.Black)) {
-        Image(
+private fun CropPreview(bitmap: ImageBitmap, aspect: Float, fx: Float, fy: Float, zoom: Float, label: String) {
+    // Drawn from the exact window that will be saved, so the preview always matches the result.
+    val window = CoverCrop.rect(bitmap.width, bitmap.height, aspect, fx, fy, zoom)
+    androidx.compose.foundation.Canvas(
+        Modifier.fillMaxWidth().aspectRatio(aspect).clip(RoundedCornerShape(14.dp)).background(Color.Black)
+            .semantics { contentDescription = label },
+    ) {
+        drawImage(
             bitmap,
-            contentDescription = label,
-            contentScale = ContentScale.Crop,
-            alignment = BiasAlignment(fx * 2f - 1f, fy * 2f - 1f),
-            modifier = Modifier.fillMaxSize(),
+            srcOffset = androidx.compose.ui.unit.IntOffset(window.left, window.top),
+            srcSize = androidx.compose.ui.unit.IntSize(window.width, window.height),
+            dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()),
+            filterQuality = androidx.compose.ui.graphics.FilterQuality.Medium,
         )
     }
 }

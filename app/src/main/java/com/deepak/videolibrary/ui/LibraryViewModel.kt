@@ -519,18 +519,33 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         private set
     var selectionScope by mutableStateOf("videos")
         private set
-    fun toggleSelected(path: String, mode: String = "videos") {
+    /** Selected entries that are folders (Files can select folders as well as files). */
+    var selectedDirectories by mutableStateOf<Set<String>>(emptySet())
+        private set
+    fun toggleSelected(path: String, mode: String = "videos", directory: Boolean = false) {
+        if (selectionScope != mode) selectedDirectories = emptySet()
         selectionScope = mode
+        val removing = path in selectedPaths
         selectedPaths =
-            if (path in selectedPaths)selectedPaths - path else selectedPaths + path
+            if (removing)selectedPaths - path else selectedPaths + path
+        if (directory || removing) selectedDirectories = if (removing) selectedDirectories - path else selectedDirectories + path
     }
     fun clearSelection() {
         selectedPaths = emptySet()
+        selectedDirectories = emptySet()
+    }
+    /** Downloads the selection: folders with everything inside them, files one by one. */
+    fun downloadSelected() {
+        val dirs = selectedDirectories
+        dirs.forEach(::downloadDirectory)
+        (selectedPaths - dirs).takeIf { it.isNotEmpty() }?.let(::downloadFiles)
+        clearSelection()
     }
     /** Deletes the selected files from the server (queued like other file operations), then ends selection. */
     fun deleteSelected() {
         val paths = selectedPaths.toList()
-        paths.forEach { TransferWorker.enqueue(getApplication(), "DELETE", it, "", false, namespace.value, services.libraryId) }
+        val dirs = selectedDirectories
+        paths.forEach { TransferWorker.enqueue(getApplication(), "DELETE", it, "", it in dirs, namespace.value, services.libraryId) }
         clearSelection()
         notice = "Deleting ${paths.size} ${if (paths.size == 1) "video" else "videos"}."
     }
@@ -538,31 +553,35 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         viewModelScope.launch {
             selectionScope = mode
             if (mode == "explorer") {
-                selectedPaths = if (explorerQuery.isNotBlank()) {
-                    explorerHits.filter { isPlayable(it.entry) }.map { it.path }.toSet()
+                // Everything listed: folders and videos (other files are left out).
+                val listed = if (explorerQuery.isNotBlank()) {
+                    explorerHits.map { it.path to it.entry }
                 } else {
-                    explorerEntries
-                        .filter {
-                            isPlayable(
-                                it,
-                            )
-                        }.map { listOf(explorerPath, it.name).filter(String::isNotBlank).joinToString("/") }
-                        .toSet()
+                    explorerEntries.map { listOf(explorerPath, it.name).filter(String::isNotBlank).joinToString("/") to it }
+                }.let { all ->
+                    val hiddenPaths = hiddenItems.value.filter { it.kind == "DIRECTORY" || it.kind == "FILE" }.map { it.target.trim('/') }.toSet()
+                    all.filter { (path, entry) ->
+                        (entry.isDirectory || isPlayable(entry)) &&
+                            !com.deepak.videolibrary.files.ExplorerHiding.shouldHide(path, entry.name, hideSystemFolders, hiddenPaths)
+                    }
                 }
+                selectedPaths = listed.map { it.first }.toSet()
+                selectedDirectories = listed.filter { it.second.isDirectory }.map { it.first }.toSet()
                 return@launch
             }
+            selectedDirectories = emptySet()
             val scope = selectedScope(mode)
             selectedPaths = withContext(Dispatchers.IO) { stateDao.videoList(LibraryQueries.videos(scope)).map { it.relativePath }.toSet() }
         }
     }
     fun stageSelected(cut: Boolean) {
-        clipboardBatch = selectedPaths.map { Triple(it, false, cut) }
+        clipboardBatch = selectedPaths.map { Triple(it, it in selectedDirectories, cut) }
         explorerClipboard = clipboardBatch.firstOrNull()
         clearSelection()
     }
     fun mergeSelected(folder: String) {
         val target = cleanFolderName(folder) ?: return
-        val paths = selectedPaths.toList()
+        val paths = (selectedPaths - selectedDirectories).toList()
         viewModelScope.launch {
             services.db.withTransaction {
                 dao.createFolder(CustomFolderEntity(target))
@@ -734,6 +753,15 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
 
     fun ownFolderKey(id: String) = "own:$id"
+
+    // Whether an own folder shows its single videos grouped into virtual folders (on by default) or one by one.
+    private val ownGroupingPrefs = app.getSharedPreferences("own_folder_grouping", android.content.Context.MODE_PRIVATE)
+    private val ownGroupingChanged = androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
+    fun ownFolderGroupsFiles(id: String): Boolean = ownGroupingChanged[id] ?: ownGroupingPrefs.getBoolean(id, true)
+    fun setOwnFolderGroupsFiles(id: String, grouped: Boolean) {
+        ownGroupingChanged[id] = grouped
+        ownGroupingPrefs.edit().putBoolean(id, grouped).apply()
+    }
 
     fun ownFolderScope(folder: OwnFolder) = LibraryScope(namespace.value, members = folder.members(), sort = videoSort.name, descending = sortDescending)
 
@@ -983,11 +1011,12 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         focusY: Float,
         candidate: com.deepak.videolibrary.artwork.online.PerformerCandidate? = null,
         focusX: Float = 0.5f,
+        zoom: Float = 1f,
     ) {
         services.artwork.saveImage(
             key = key, mode = mode, image = image, manual = true,
             providerId = candidate?.providerId, performerId = candidate?.performerId, performerName = candidate?.name,
-            focusX = focusX, focusY = focusY,
+            focusX = focusX, focusY = focusY, zoom = zoom,
         )
         notice = "Cover updated."
     }

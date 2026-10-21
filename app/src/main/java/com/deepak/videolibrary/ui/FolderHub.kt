@@ -38,7 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /*
- * The Folders section shows the page buttons (search, card shape, add, download…) on the "Video Library" line
+ * The Folders section shows the page buttons (search, card shape, add, download…) on the "Veyra" line
  * instead of a second title row under the tabs. Each folder page hands its top bar to the hub, and the hub shows
  * the bar of the page that is in view.
  */
@@ -48,7 +48,7 @@ internal class HubBarSlot(val bars: MutableMap<Int, @Composable () -> Unit>, val
 
 internal val LocalHubBarSlot = compositionLocalOf<HubBarSlot?> { null }
 
-/** Title used by a top bar that sits on the hub line ("Video Library"), or null for the page's own title. */
+/** Title used by a top bar that sits on the hub line ("Veyra"), or null for the page's own title. */
 internal val LocalHubTitle = compositionLocalOf<String?> { null }
 
 /** A page's top bar: handed to the hub when there is one, otherwise drawn in place. */
@@ -73,6 +73,7 @@ internal fun HubBarLine(bars: Map<Int, @Composable () -> Unit>, page: Int, title
                 bar()
             } else {
                 Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AppIconMark(modifier = Modifier.padding(end = 10.dp))
                     Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f), maxLines = 1)
                     LocalTopBarEnd.current()
                 }

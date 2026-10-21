@@ -116,7 +116,7 @@ internal fun IconAction(
 }
 
 /**
- * The Downloads page, opened from the download button: each file with its own bar and speed. Files go to Download/Video Library, keeping folder names.
+ * The Downloads page, opened from the download button: each file with its own bar and speed. Files go to Download/Veyra, keeping folder names.
  */
 @Composable
 internal fun DownloadsPage(vm: LibraryViewModel, onClose: () -> Unit) {

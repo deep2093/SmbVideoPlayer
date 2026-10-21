@@ -3,7 +3,7 @@ package com.deepak.videolibrary.downloads
 /** Naming rules for files saved to the device. */
 object DownloadPaths {
     /** Everything the app downloads goes under this folder in the device's Download folder. */
-    const val ROOT = "Video Library"
+    const val ROOT = "Veyra"
 
     private val illegal = Regex("[\\\\/:*?\"<>|\\p{Cntrl}]")
 

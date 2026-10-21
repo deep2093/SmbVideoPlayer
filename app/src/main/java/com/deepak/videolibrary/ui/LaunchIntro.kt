@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -131,5 +132,31 @@ internal fun LaunchIntro(content: @Composable (reveal: () -> Float) -> Unit) {
                 }
             }
         }
+    }
+}
+
+/** The app name shown in the app's own headers. */
+internal const val APP_NAME = "Veyra"
+
+/** The launcher icon, drawn small inside the app (headers, sidebar): its background and foreground layers, round. */
+@Composable
+internal fun AppIconMark(size: androidx.compose.ui.unit.Dp = 30.dp, modifier: Modifier = Modifier) {
+    Box(modifier.size(size).clip(androidx.compose.foundation.shape.CircleShape)) {
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(com.deepak.videolibrary.R.drawable.ic_launcher_background),
+            contentDescription = null,
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
+        // The foreground layer keeps its art inside the middle two-thirds; enlarge it to fill the round mark.
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.res.painterResource(com.deepak.videolibrary.R.drawable.ic_launcher_foreground),
+            contentDescription = "$APP_NAME icon",
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                scaleX = 1.45f
+                scaleY = 1.45f
+            },
+        )
     }
 }

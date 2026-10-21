@@ -119,13 +119,14 @@ class ArtworkRepository(
         performerName: String? = null,
         focusX: Float = 0.5f,
         focusY: Float = 0.3f,
+        zoom: Float = 1f,
     ) {
         withContext(Dispatchers.IO) {
             writeLock.withLock {
                 val name = "${hash(key)}_${System.currentTimeMillis()}_${sequence.incrementAndGet()}.jpg"
                 val target = File(imageDir().apply { mkdirs() }, name)
                 // One picture per card shape (landscape 16:9 and taller 3:4), cut around the same focus point.
-                val cropped = CoverCrop.apply(image, CoverCrop.CARD_ASPECT, focusX, focusY, IMAGE_WIDTH)
+                val cropped = CoverCrop.apply(image, CoverCrop.CARD_ASPECT, focusX, focusY, IMAGE_WIDTH, zoom)
                 try {
                     ArtworkFiles.publish(target) { out ->
                         check(cropped.compress(Bitmap.CompressFormat.JPEG, 88, out)) { "Could not encode cover" }
@@ -133,7 +134,7 @@ class ArtworkRepository(
                 } finally {
                     if (cropped !== image) cropped.recycle()
                 }
-                val tall = CoverCrop.apply(image, CoverCrop.TALL_ASPECT, focusX, focusY, TALL_WIDTH)
+                val tall = CoverCrop.apply(image, CoverCrop.TALL_ASPECT, focusX, focusY, TALL_WIDTH, zoom)
                 try {
                     ArtworkFiles.publish(tallFile(target)) { out ->
                         check(tall.compress(Bitmap.CompressFormat.JPEG, 88, out)) { "Could not encode cover" }

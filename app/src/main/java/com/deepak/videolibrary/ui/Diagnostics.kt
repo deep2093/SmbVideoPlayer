@@ -84,7 +84,7 @@ object AppDiagnostics {
         }
         val entries = synchronized(lock) { events.toList() }
         return buildString {
-            appendLine("SMB Video Library diagnostics")
+            appendLine("Veyra diagnostics")
             appendLine("Generated: ${DateFormat.getDateTimeInstance().format(Date())}")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL} / Android ${Build.VERSION.RELEASE}")
             appendLine("Display reported refresh rate: $display Hz (not measured app FPS)")
@@ -143,7 +143,7 @@ fun DiagnosticsSettings() {
             Button(onClick = {
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "SMB Video Library diagnostics")
+                    putExtra(Intent.EXTRA_SUBJECT, "Veyra diagnostics")
                     putExtra(Intent.EXTRA_TEXT, report)
                 }
                 context.startActivity(Intent.createChooser(send, "Share diagnostics"))
