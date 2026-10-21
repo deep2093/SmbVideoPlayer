@@ -283,10 +283,13 @@ internal fun VideoCard(
     val context = LocalContext.current
     // Custom thumbnail first, then the automatic one; refreshed as soon as a custom thumbnail changes.
     val customRevision by com.deepak.videolibrary.thumbs.CustomThumbs.revision.collectAsStateWithLifecycle()
-    val thumb: File? = remember(video.id, video.thumbStatus, customRevision) {
-        ThumbStore.displayFile(vm.artworkContext, video.id, video.thumbStatus)
+    val artRevision by vm.artworkRevision.collectAsStateWithLifecycle()
+    val artworkOn = rememberArtworkEnabled(vm)
+    val thumb: File? = remember(video.id, video.thumbStatus, video.customGroup, video.groupKey, customRevision, artRevision) {
+        vm.videoArtwork(video)
     }
     var pickThumbnail by remember(video.relativePath) { mutableStateOf(false) }
+    var changeCover by remember(video.relativePath) { mutableStateOf(false) }
     val namespace by vm.namespace.collectAsStateWithLifecycle()
     val progressFlow = remember(video.relativePath, namespace) { vm.progressFlow(video.relativePath) }
     val progress by progressFlow.collectAsStateWithLifecycle(initialValue = null)
@@ -390,9 +393,18 @@ internal fun VideoCard(
             onRemoveContinue = onRemoveFromContinue,
             details = "${video.name}\n${Formatter.formatFileSize(context,video.size)}\n${vm.originalVideoLocation(video.relativePath)}",
             onChangeThumbnail = if (video.id > 0) ({ pickThumbnail = true }) else null,
+            onChangeCover = if (video.id > 0 && artworkOn) ({ changeCover = true }) else null,
         )
     }
     if (pickThumbnail) ThumbnailPicker(vm, video, onDismiss = { pickThumbnail = false })
+    if (changeCover) {
+        ChangeCoverDialog(
+            vm,
+            CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.video(video.id), video.name, video.name, video),
+            onPickFrame = { pickThumbnail = true },
+            onDismiss = { changeCover = false },
+        )
+    }
 }
 
 @Composable
@@ -432,6 +444,8 @@ internal fun LibraryDisplayMenu(vm: LibraryViewModel) {
 @Composable
 private fun VideoSelectionHeader(vm: LibraryViewModel, modifier: Modifier = Modifier) {
     var confirmDelete by remember { mutableStateOf(false) }
+    var bulk by remember { mutableStateOf<String?>(null) }
+    val artworkOn = rememberArtworkEnabled(vm)
     var more by remember { mutableStateOf(false) }
     var merge by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
@@ -467,10 +481,40 @@ private fun VideoSelectionHeader(vm: LibraryViewModel, modifier: Modifier = Modi
                     name = ""
                     merge = true
                 })
+                if (artworkOn) {
+                    DropdownMenuItem(text = { Text("Generate frames") }, onClick = { more = false; bulk = "frames" })
+                    DropdownMenuItem(text = { Text("Apply default cover") }, onClick = { more = false; bulk = "default" })
+                    DropdownMenuItem(text = { Text("Reset covers") }, onClick = { more = false; bulk = "reset" })
+                }
             }
         }
     }
     androidx.activity.compose.BackHandler { vm.clearSelection() }
+    bulk?.let { action ->
+        val what = when (action) {
+            "frames" -> "Generate new automatic frames for $count ${if (count == 1) "video" else "videos"}? This reads each video from your server again and may use network data."
+            "default" -> "Remove the cover overrides of $count ${if (count == 1) "video" else "videos"} so they follow the default? Hand-picked frames are kept."
+            else -> "Reset the covers and hand-picked frames of $count ${if (count == 1) "video" else "videos"}? Source files are not changed."
+        }
+        AlertDialog(
+            onDismissRequest = { bulk = null },
+            title = { Text("Artwork") },
+            text = { Text(what) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val paths = vm.selectedPaths.toList()
+                    bulk = null
+                    when (action) {
+                        "frames" -> vm.bulkGenerateFrames(paths)
+                        "default" -> vm.bulkApplyDefault(paths)
+                        else -> vm.bulkResetOverrides(paths)
+                    }
+                    vm.clearSelection()
+                }) { Text("Continue") }
+            },
+            dismissButton = { TextButton(onClick = { bulk = null }) { Text("Cancel") } },
+        )
+    }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },

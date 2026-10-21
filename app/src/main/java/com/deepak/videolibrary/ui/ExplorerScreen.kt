@@ -311,8 +311,9 @@ private fun ExplorerGridCard(
         }
         indexed != null -> {
             val customRevision by com.deepak.videolibrary.thumbs.CustomThumbs.revision.collectAsStateWithLifecycle()
-            remember(indexed.id, indexed.thumbStatus, customRevision) {
-                ThumbStore.displayFile(vm.artworkContext, indexed.id, indexed.thumbStatus)
+            val artRevision by vm.artworkRevision.collectAsStateWithLifecycle()
+            remember(indexed.id, indexed.thumbStatus, customRevision, artRevision) {
+                vm.videoArtwork(indexed)
             }
         }
         else -> null

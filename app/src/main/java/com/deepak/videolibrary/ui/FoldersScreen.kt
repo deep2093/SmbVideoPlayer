@@ -362,6 +362,8 @@ private fun FolderCard(
     onClick: () -> Unit,
 ) {
     var actions by remember(row.groupKey) { mutableStateOf(false) }
+    var changeCover by remember(row.groupKey) { mutableStateOf(false) }
+    val artworkOn = rememberArtworkEnabled(vm)
     val key = vm.coverKey("group:${row.groupKey}", row.count, row.thumbsDone, row.lastModified)
     var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
     LaunchedEffect(key) { cover = vm.coverFor(row.groupKey, key) }
@@ -401,6 +403,10 @@ private fun FolderCard(
         }
         FileActionsMenu(actions, {
             actions = false
-        }, vm, row.groupKey, directory = true, virtual = true, details = "${row.groupKey}\n${row.count} videos\nVirtual library folder")
+        }, vm, row.groupKey, directory = true, virtual = true, details = "${row.groupKey}\n${row.count} videos\nVirtual library folder",
+            onChangeCover = if (artworkOn) ({ changeCover = true }) else null)
+        if (changeCover) {
+            ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.virtualFolder(row.groupKey), row.groupKey, row.groupKey), null) { changeCover = false }
+        }
     }
 }

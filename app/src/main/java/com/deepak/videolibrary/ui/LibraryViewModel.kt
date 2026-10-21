@@ -701,6 +701,149 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
 
+    // ---- Artwork management (optional covers, performer portraits, overrides) ----
+    val artworkSettings: kotlinx.coroutines.flow.StateFlow<com.deepak.videolibrary.artwork.ArtworkSettings> get() = services.artwork.settings
+    val artworkRevision: kotlinx.coroutines.flow.StateFlow<Int> get() = services.artwork.revision
+    /** Bumps when a provider key is saved or removed, so settings screens refresh their "key saved" state. */
+    val providerKeyRevision = MutableStateFlow(0)
+
+    init {
+        viewModelScope.launch {
+            services.artwork.ensureLoaded()
+            // Rebuild folder covers whenever settings or stored artwork change.
+            services.artwork.revision.collect { artwork.invalidate() }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                services.artwork.ensureLoaded()
+                val live = dao.allVideoIds().toSet()
+                if (live.isNotEmpty()) services.artwork.pruneVideos(live)
+            }
+        }
+    }
+
+    /** The picture to show for a video under the current artwork settings (null = neutral placeholder). */
+    fun videoArtwork(video: VideoEntity): File? = services.artwork.videoFile(video)
+
+    fun updateArtwork(change: (com.deepak.videolibrary.artwork.ArtworkSettings) -> com.deepak.videolibrary.artwork.ArtworkSettings) {
+        services.artwork.preferences.update(change)
+        services.artwork.settingsChanged()
+    }
+
+    fun providerHasKey(providerId: String) = services.providerKeys.has(providerId)
+
+    fun saveProviderKey(providerId: String, key: String): Boolean {
+        val saved = services.providerKeys.save(providerId, key)
+        providerKeyRevision.value++
+        if (!saved) notice = "Could not save that key securely. Check it has no spaces and try again."
+        return saved
+    }
+
+    fun clearProviderKey(providerId: String) {
+        services.providerKeys.clear(providerId)
+        providerKeyRevision.value++
+    }
+
+    /** The search term for this item, following the naming switches in Settings > Artwork. */
+    fun artworkSearchTerm(key: String, label: String) = artworkSettings.value.searchTerm(com.deepak.videolibrary.artwork.ArtworkKeys.scopeOf(key), label)
+
+    suspend fun searchPerformers(query: String): com.deepak.videolibrary.artwork.online.SearchOutcome {
+        val settings = artworkSettings.value
+        if (!com.deepak.videolibrary.artwork.online.NetworkPolicy.allowed(getApplication(), settings)) {
+            return com.deepak.videolibrary.artwork.online.SearchOutcome.Failed(com.deepak.videolibrary.artwork.online.ProviderFailure.BLOCKED_BY_SETTINGS)
+        }
+        return services.performerSearch.search(query, settings)
+    }
+
+    /** Downloads a candidate picture (bounded, HTTPS only). Throws ProviderException with a readable reason. */
+    suspend fun downloadPortrait(url: String, maxWidth: Int = 1280) = com.deepak.videolibrary.artwork.online.ArtworkHttp.downloadImage(url, maxWidth)
+
+    suspend fun applyCoverImage(
+        key: String,
+        mode: com.deepak.videolibrary.artwork.ArtworkMode,
+        image: android.graphics.Bitmap,
+        focusY: Float,
+        candidate: com.deepak.videolibrary.artwork.online.PerformerCandidate? = null,
+        focusX: Float = 0.5f,
+    ) {
+        services.artwork.saveImage(
+            key = key, mode = mode, image = image, manual = true,
+            providerId = candidate?.providerId, performerId = candidate?.performerId, performerName = candidate?.name,
+            focusX = focusX, focusY = focusY,
+        )
+        notice = "Cover updated."
+    }
+
+    fun setCoverMode(key: String, mode: com.deepak.videolibrary.artwork.ArtworkMode) {
+        viewModelScope.launch {
+            services.artwork.setMode(key, mode)
+            notice = "Cover updated."
+        }
+    }
+
+    /** Back to the inherited default: removes the stored cover (and a hand-picked frame for a video). */
+    fun resetCover(key: String, video: VideoEntity? = null) {
+        viewModelScope.launch {
+            val removed = services.artwork.clear(listOf(key))
+            if (video != null) {
+                withContext(Dispatchers.IO) { com.deepak.videolibrary.thumbs.CustomThumbs.reset(services.artworkContext, video.id) }
+                artwork.invalidate()
+            }
+            notice = if (removed > 0 || video != null) "Cover reset to the default." else notice
+        }
+    }
+
+    fun fetchPortraitsNow() {
+        val settings = artworkSettings.value
+        if (!settings.enabled || !settings.adultConsent || !(settings.portraitsOnFolders || settings.portraitsOnVideos)) {
+            notice = "Turn on internet portraits first."
+            return
+        }
+        com.deepak.videolibrary.artwork.PortraitFetchWorker.enqueue(getApplication(), services.libraryId, force = true)
+        notice = "Looking up portraits in the background."
+    }
+
+    fun clearFetchedPortraits() {
+        viewModelScope.launch {
+            val n = services.artwork.clearFetchedPortraits()
+            notice = if (n > 0) "Removed $n fetched portraits." else "No fetched portraits to remove."
+        }
+    }
+
+    // Bulk actions on the selected videos.
+    private suspend fun selectedVideos(paths: Collection<String>): List<VideoEntity> =
+        withContext(Dispatchers.IO) { paths.toList().chunked(500).flatMap { dao.videosByPaths(it) } }
+
+    /** Regenerates the automatic frames of the selected videos. */
+    fun bulkGenerateFrames(paths: Collection<String>) {
+        viewModelScope.launch {
+            val n = withContext(Dispatchers.IO) { paths.toList().chunked(500).sumOf { dao.resetThumbsForPaths(it) } }
+            artwork.invalidate()
+            startThumbnails()
+            notice = "Regenerating $n frames."
+        }
+    }
+
+    /** Removes every cover override of the selected videos so they follow the default again (hand-picked frames stay). */
+    fun bulkApplyDefault(paths: Collection<String>) {
+        viewModelScope.launch {
+            val videos = selectedVideos(paths)
+            val n = services.artwork.clear(videos.map { com.deepak.videolibrary.artwork.ArtworkKeys.video(it.id) })
+            notice = "Default applied to ${videos.size} videos ($n overrides removed)."
+        }
+    }
+
+    /** Removes overrides and hand-picked frames of the selected videos. */
+    fun bulkResetOverrides(paths: Collection<String>) {
+        viewModelScope.launch {
+            val videos = selectedVideos(paths)
+            services.artwork.clear(videos.map { com.deepak.videolibrary.artwork.ArtworkKeys.video(it.id) })
+            withContext(Dispatchers.IO) { com.deepak.videolibrary.thumbs.CustomThumbs.forget(services.artworkContext, videos.map { it.id }) }
+            artwork.invalidate()
+            notice = "Reset ${videos.size} videos."
+        }
+    }
+
     fun coverKey(name: String, count: Int, done: Int, modified: Long = 0) = artwork.key(name,count,done,modified)
     fun cachedCover(key: String): File? = artwork.cached(key)
     suspend fun coverFor(group: String, key: String): File? = artwork.cover("virtual:$group",key,LibraryScope(namespace.value,group=group))

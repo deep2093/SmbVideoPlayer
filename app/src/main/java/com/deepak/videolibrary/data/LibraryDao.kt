@@ -120,6 +120,18 @@ interface LibraryDao {
     @Query("SELECT COUNT(*) FROM videos WHERE thumbStatus = :status")
     fun observeThumbCount(status: String): Flow<Int>
 
+    @Query("SELECT DISTINCT COALESCE(customGroup, groupKey) FROM videos UNION SELECT name FROM custom_folders")
+    suspend fun allGroupNames(): List<String>
+
+    @Query("SELECT DISTINCT parentDir FROM videos WHERE parentDir != ''")
+    suspend fun allParentDirs(): List<String>
+
+    @Query("SELECT * FROM match_folders")
+    suspend fun allMatchFolders(): List<MatchFolderEntity>
+
+    @Query("UPDATE videos SET thumbStatus = 'PENDING' WHERE relativePath IN (:paths)")
+    suspend fun resetThumbsForPaths(paths: List<String>): Int
+
     @Query("SELECT id FROM videos WHERE COALESCE(customGroup, groupKey) = :group AND thumbStatus = 'DONE' ORDER BY name COLLATE NOCASE")
     suspend fun doneIdsForGroup(group: String): List<Long>
 

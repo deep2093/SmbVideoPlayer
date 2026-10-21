@@ -108,6 +108,7 @@ private class SettingsSection(val id: String, val title: String, val description
 private val SETTINGS_SECTIONS = listOf(
     // Alphabetical.
     SettingsSection("Appearance", "Appearance", "Theme, navigation and grid layout"),
+    SettingsSection("Artwork", "Artwork", "Covers, collages and performer pictures"),
     SettingsSection("Connection", "Connection", "Server, account and saved password"),
     SettingsSection("Diagnostics", "Diagnostics", "Playback reports and troubleshooting"),
     SettingsSection("Library", "Library", "Hidden files and folders"),
@@ -372,6 +373,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
                             }
                         }
                         "VPN" -> VpnSettings()
+                        "Artwork" -> ArtworkSettingsSection(vm)
                         "Appearance" -> {
                             ThemeSettings()
                             Text(stringResource(R.string.ui_navigation_position_9c04a08), style = MaterialTheme.typography.titleMedium)

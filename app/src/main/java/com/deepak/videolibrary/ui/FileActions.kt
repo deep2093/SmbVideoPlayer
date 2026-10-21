@@ -39,6 +39,7 @@ internal fun FileActionsMenu(
     onRemoveContinue: (() -> Unit)? = null,
     selectionScope: String = "videos",
     onChangeThumbnail: (() -> Unit)? = null,
+    onChangeCover: (() -> Unit)? = null,
 ) {
     var rename by remember(path) { mutableStateOf(false) }
     var delete by remember(path) { mutableStateOf(false) }
@@ -63,6 +64,12 @@ internal fun FileActionsMenu(
             DropdownMenuItem(text = { Text("Change thumbnail") }, onClick = {
                 dismiss()
                 onChangeThumbnail()
+            })
+        }
+        if (onChangeCover != null) {
+            DropdownMenuItem(text = { Text("Change cover") }, onClick = {
+                dismiss()
+                onChangeCover()
             })
         }
         if (!directory && !virtual) {

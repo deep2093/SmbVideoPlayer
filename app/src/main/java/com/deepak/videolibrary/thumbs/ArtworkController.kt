@@ -12,14 +12,32 @@ import java.io.File
 internal class ArtworkController(private val services: ServiceLocator) {
     private val files = android.util.LruCache<String,File>(100)
     var revision by mutableIntStateOf(0)
-    fun key(name: String,count: Int,done: Int,modified: Long) = "${services.libraryId}:$name:$count:$done:$modified:$revision"
+    fun key(name: String,count: Int,done: Int,modified: Long) = "${services.libraryId}:$name:$count:$done:$modified:$revision:${services.artwork.revision.value}"
     fun cached(key: String): File? = files.get(key)?.takeIf { it.isFile }
     fun invalidate() { files.evictAll(); revision++ }
     suspend fun cover(identity: String, key: String, scope: LibraryScope): File? {
         cached(key)?.let { return it }
+        val art = services.artwork
+        val decision = art.decideFolder(identity)
+        when (decision.source) {
+            com.deepak.videolibrary.artwork.ArtworkSource.NONE -> return null
+            com.deepak.videolibrary.artwork.ArtworkSource.IMAGE ->
+                art.imageFile(decision.imageName)?.let { files.put(key, it); return it }
+            else -> Unit
+        }
+        val style = when (decision.source) {
+            com.deepak.videolibrary.artwork.ArtworkSource.FIRST_FRAME -> com.deepak.videolibrary.artwork.ArtworkMode.FIRST_FRAME
+            com.deepak.videolibrary.artwork.ArtworkSource.COLLAGE -> com.deepak.videolibrary.artwork.ArtworkMode.COLLAGE
+            else -> null
+        }
         return try {
             val ids = withContext(Dispatchers.IO) { services.db.libraryState().ids(LibraryQueries.coverIds(scope)) }
-            services.covers.buildOriginal(identity,ids)?.also { files.put(key,it) }
+            val built = if (style != null) {
+                services.covers.buildStyled(identity, ids, style, art.settings.value.collageTiles)
+            } else {
+                services.covers.buildOriginal(identity, ids)
+            }
+            built?.also { files.put(key,it) }
         } catch(e: CancellationException) { throw e } catch(_: Exception) { null }
     }
     suspend fun clear() = services.thumbnails.exclusive {

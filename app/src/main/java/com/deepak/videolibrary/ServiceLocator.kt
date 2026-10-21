@@ -23,6 +23,17 @@ class ServiceLocator internal constructor(context: Context, val libraryId: Strin
     val thumbnails = ThumbnailGenerator(artworkContext, db)
     val covers = CoverBuilder(artworkContext, db)
 
+    /** Cover-art choices (per library). Its own small database keeps the main library schema unchanged. */
+    private val artworkDb: com.deepak.videolibrary.artwork.ArtworkDatabase = Room.databaseBuilder(
+        context, com.deepak.videolibrary.artwork.ArtworkDatabase::class.java, "artwork-$libraryId.db",
+    ).build()
+    val providerKeys = com.deepak.videolibrary.artwork.online.ProviderKeys(context)
+    val artwork = com.deepak.videolibrary.artwork.ArtworkRepository(
+        artworkContext, artworkDb, com.deepak.videolibrary.artwork.ArtworkPreferences(context, libraryId),
+    )
+    val performerSearch = com.deepak.videolibrary.artwork.online.PerformerSearch.default(providerKeys)
+    val portraitFetcher = com.deepak.videolibrary.artwork.PortraitFetcher(context, artwork, performerSearch)
+
     companion object {
         private val instances = HashMap<String, ServiceLocator>()
         private var store: SettingsStore? = null

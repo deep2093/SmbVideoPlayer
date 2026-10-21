@@ -47,6 +47,11 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             if (!thumbs.await()) com.deepak.videolibrary.thumbs.ThumbnailWorker.enqueue(applicationContext, services.libraryId)
             ok
         }
+        // Optional: look up folder portraits after a scan, only if the user turned that on.
+        val art = services.artwork.settings.value
+        if (art.enabled && art.autoFetchOnScan) {
+            com.deepak.videolibrary.artwork.PortraitFetchWorker.enqueue(applicationContext, services.libraryId)
+        }
         return if (completed || services.db.dao().pendingCountNow() == 0) Result.success() else Result.retry()
     }
 

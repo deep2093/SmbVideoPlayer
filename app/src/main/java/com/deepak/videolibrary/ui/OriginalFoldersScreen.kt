@@ -168,6 +168,8 @@ private fun OriginalFolderCard(vm: LibraryViewModel, folder: DirectorySummary, o
     val key = vm.coverKey("original:${folder.path}", folder.count, folder.thumbsDone)
     var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
     var menu by remember(folder.path) { mutableStateOf(false) }
+    var changeCover by remember(folder.path) { mutableStateOf(false) }
+    val artworkOn = rememberArtworkEnabled(vm)
     val hidden by vm.hiddenItems.collectAsStateWithLifecycle()
     LaunchedEffect(key, hidden) { cover = vm.originalCover(folder.path, key) }
     Box {
@@ -190,6 +192,10 @@ private fun OriginalFolderCard(vm: LibraryViewModel, folder: DirectorySummary, o
         }
         FileActionsMenu(menu, {
             menu = false
-        }, vm, folder.path, directory = true, details = "${folder.path}\n${folder.count} visible indexed videos\nOriginal SMB folder")
+        }, vm, folder.path, directory = true, details = "${folder.path}\n${folder.count} visible indexed videos\nOriginal SMB folder",
+            onChangeCover = if (artworkOn) ({ changeCover = true }) else null)
+        if (changeCover) {
+            ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.originalFolder(folder.path), originalFolderLabel(folder.path), folder.path.substringAfterLast('/'), null)) { changeCover = false }
+        }
     }
 }

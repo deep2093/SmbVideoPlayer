@@ -42,12 +42,26 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
         lock("original:$path").withLock { withContext(Dispatchers.IO) { compose("original:$path", ids) } }
     }
 
-    private fun compose(group: String, ids: List<Long>): File? {
+    /** Cover for [identity] (any folder kind) in a chosen look: the first video's frame or a collage of [tiles] frames. */
+    suspend fun buildStyled(identity: String, ids: List<Long>, style: com.deepak.videolibrary.artwork.ArtworkMode, tiles: Int): File? = gate.withPermit {
+        lock(identity).withLock { withContext(Dispatchers.IO) { compose(identity, ids, style, tiles) } }
+    }
+
+    private fun compose(
+        group: String,
+        ids: List<Long>,
+        style: com.deepak.videolibrary.artwork.ArtworkMode = com.deepak.videolibrary.artwork.ArtworkMode.EXISTING,
+        tiles: Int = 4,
+    ): File? {
         if (ids.isEmpty()) return null
 
-        val picks = when (ids.size) {
-            1 -> listOf(ids[0])
-            2 -> ids
+        val first = style == com.deepak.videolibrary.artwork.ArtworkMode.FIRST_FRAME
+        val grid = style == com.deepak.videolibrary.artwork.ArtworkMode.COLLAGE
+        val picks = when {
+            first -> listOf(ids[0])
+            grid -> evenly(ids, tiles.coerceIn(2, 6))
+            ids.size == 1 -> listOf(ids[0])
+            ids.size == 2 -> ids
             else -> listOf(ids.first(), ids[ids.size / 2], ids.last())
         }
 
@@ -62,7 +76,8 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
             val file = ThumbStore.coverSourceFile(context, id)
             "$id-${file.lastModified()}-${file.length()}"
         }
-        val target = File(dir, "${prefix}_$fingerprint.jpg")
+        val tag = if (first) "f" else if (grid) "c${picks.size}" else "e"
+        val target = File(dir, "${prefix}_${tag}_$fingerprint.jpg")
         if (target.exists()) return target
 
         val bitmaps = picks.mapNotNull { id ->
@@ -76,7 +91,20 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
             canvas.drawColor(Color.BLACK)
             val paint = Paint(Paint.FILTER_BITMAP_FLAG)
             val half = (WIDTH - GAP) / 2
-            when (bitmaps.size) {
+            if (grid && bitmaps.size >= 4) {
+                // Even grid: 2 columns for four tiles, 3 columns for five or six.
+                val cols = if (bitmaps.size == 4) 2 else 3
+                val rows = (bitmaps.size + cols - 1) / cols
+                val cellW = (WIDTH - GAP * (cols - 1)) / cols
+                val cellH = (HEIGHT - GAP * (rows - 1)) / rows
+                bitmaps.forEachIndexed { i, bmp ->
+                    val col = i % cols
+                    val row = i / cols
+                    val left = col * (cellW + GAP)
+                    val top = row * (cellH + GAP)
+                    draw(canvas, bmp, Rect(left, top, left + cellW, top + cellH), paint)
+                }
+            } else when (bitmaps.size) {
                 1 -> draw(canvas, bitmaps[0], Rect(0, 0, WIDTH, HEIGHT), paint)
                 2 -> {
                     draw(canvas, bitmaps[0], Rect(0, 0, half, HEIGHT), paint)
@@ -99,6 +127,12 @@ class CoverBuilder(private val context: Context, db: LibraryDatabase) {
             out.recycle()
         }
         return target.takeIf { it.exists() }
+    }
+
+    /** [count] ids spread evenly across [ids] (all of them when there are fewer). */
+    private fun evenly(ids: List<Long>, count: Int): List<Long> {
+        if (ids.size <= count) return ids
+        return List(count) { i -> ids[(i.toLong() * (ids.size - 1) / (count - 1)).toInt()] }
     }
 
     /** Draws [bmp] into [dst], cropping from the centre so nothing is stretched. */

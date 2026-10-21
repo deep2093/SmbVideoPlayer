@@ -128,6 +128,8 @@ private fun MatchingFolderCard(
     var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
     LaunchedEffect(key) { cover = vm.matchingCover(folder, key) }
     var menu by remember { mutableStateOf(false) }
+    var changeCover by remember { mutableStateOf(false) }
+    val artworkOn = rememberArtworkEnabled(vm)
     var dialog by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     fun open() {
@@ -160,7 +162,16 @@ private fun MatchingFolderCard(
                 }
             }
         }
+        if (changeCover) {
+            ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(folder.id), folder.name, folder.name, null)) { changeCover = false }
+        }
         DropdownMenu(menu, { menu = false }) {
+            if (artworkOn) {
+                DropdownMenuItem(text = { Text("Change cover") }, onClick = {
+                    menu = false
+                    changeCover = true
+                })
+            }
             DropdownMenuItem(text = { Text(stringResource(R.string.ui_play_all_ebb2ffd)) }, onClick = {
                 menu = false
                 vm.matchFolderFilter.value = folder
