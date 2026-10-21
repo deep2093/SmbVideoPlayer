@@ -142,11 +142,6 @@ jobs:
           bash tools/check_preview_signing.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: VideoLibrary-preview-apk
-          path: preview/update.apk
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
           name: Preview-update-test-apks
           path: preview/*.apk
           if-no-files-found: error
@@ -170,6 +165,7 @@ jobs:
           unzip -lv optimized/Veyra-arm64.apk | awk 'NR>3 && $8 != "" { split($8, p, "/"); key = (p[1] == "lib") ? "lib/" p[2] : (p[1] ~ /\.dex$/ ? "dex" : p[1]); size[key] += $3 } END { for (k in size) printf "%s %d\n", k, size[k] / 1048576 }' | sort -k2 -n -r | head -8 | while read part mb; do echo "::notice title=APK part::$part ${mb} MB (stored)"; done
       - uses: actions/upload-artifact@v4
         with:
+          # Internal only: the emulator tests need the x86_64 build. Phones use Veyra-arm64-apk.
           name: VideoLibrary-optimized-preview-apk
           path: optimized/update.apk
           if-no-files-found: error
