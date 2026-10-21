@@ -16,6 +16,8 @@ data class LibraryScope(
     val match: String? = null,
     val sourcePath: String? = null,
     val includeSubfolders: Boolean = true,
+    /** An own custom folder: only videos inside these drive folders (with sub-folders) or these exact files. */
+    val members: FolderMembers? = null,
 )
 
 object LibraryQueries {
@@ -34,6 +36,22 @@ object LibraryQueries {
                 " AND (v.parentDir=? OR substr(v.parentDir,1,length(?)+1)=?||'/')" else " AND v.parentDir=?")
             if (s.includeSubfolders && path.isNotEmpty()) args.addAll(listOf(path, path, path))
             else if (!s.includeSubfolders) args.add(path)
+        }
+        s.members?.let { m ->
+            val parts = ArrayList<String>()
+            m.folders.forEach { path ->
+                if (path.isEmpty()) {
+                    parts += "1"
+                } else {
+                    parts += "(v.parentDir=? OR substr(v.parentDir,1,length(?)+1)=?||'/')"
+                    args.addAll(listOf(path, path, path))
+                }
+            }
+            m.files.forEach { path ->
+                parts += "v.relativePath=?"
+                args.add(path)
+            }
+            text.append(if (parts.isEmpty()) " AND 0" else " AND (" + parts.joinToString(" OR ") + ")")
         }
         if (s.match != null) {
             text.append(" AND instr(lower(v.name),lower(?))>0")

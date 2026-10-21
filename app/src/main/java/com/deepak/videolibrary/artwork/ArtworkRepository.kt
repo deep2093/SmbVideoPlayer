@@ -122,15 +122,24 @@ class ArtworkRepository(
     ) {
         withContext(Dispatchers.IO) {
             writeLock.withLock {
-                val cropped = CoverCrop.apply(image, CoverCrop.CARD_ASPECT, focusX, focusY, IMAGE_WIDTH)
                 val name = "${hash(key)}_${System.currentTimeMillis()}_${sequence.incrementAndGet()}.jpg"
                 val target = File(imageDir().apply { mkdirs() }, name)
+                // One picture per card shape (landscape 16:9 and taller 3:4), cut around the same focus point.
+                val cropped = CoverCrop.apply(image, CoverCrop.CARD_ASPECT, focusX, focusY, IMAGE_WIDTH)
                 try {
                     ArtworkFiles.publish(target) { out ->
                         check(cropped.compress(Bitmap.CompressFormat.JPEG, 88, out)) { "Could not encode cover" }
                     }
                 } finally {
                     if (cropped !== image) cropped.recycle()
+                }
+                val tall = CoverCrop.apply(image, CoverCrop.TALL_ASPECT, focusX, focusY, TALL_WIDTH)
+                try {
+                    ArtworkFiles.publish(tallFile(target)) { out ->
+                        check(tall.compress(Bitmap.CompressFormat.JPEG, 88, out)) { "Could not encode cover" }
+                    }
+                } finally {
+                    if (tall !== image) tall.recycle()
                 }
                 val previous = rows[key]?.imageName
                 val row = ArtworkOverride(key, mode, manual, name, providerId, performerId, performerName, ArtworkOverride.STATUS_OK, System.currentTimeMillis())
@@ -292,6 +301,9 @@ class ArtworkRepository(
         val file = File(imageDir(), name)
         file.delete()
         ImageMemoryCache.remove(file.path)
+        val tall = tallFile(file)
+        tall.delete()
+        ImageMemoryCache.remove(tall.path)
     }
 
     private fun hash(key: String): String =
@@ -299,6 +311,20 @@ class ArtworkRepository(
 
     companion object {
         const val IMAGE_WIDTH = 640
+        const val TALL_WIDTH = 480
         const val MAX_SUGGESTIONS = 12
+
+        /** The 3:4 version saved next to a chosen picture. */
+        fun tallFile(file: File): File = File(file.parentFile, file.nameWithoutExtension + "_t.jpg")
+
+        /**
+         * The picture to show on a card of the given shape: for taller cards the 3:4 version when one exists (chosen
+         * pictures have one); otherwise the picture itself, which the card crops from its centre.
+         */
+        fun forShape(file: File?, tall: Boolean): File? {
+            if (!tall || file == null) return file
+            val variant = tallFile(file)
+            return if (variant.isFile) variant else file
+        }
     }
 }

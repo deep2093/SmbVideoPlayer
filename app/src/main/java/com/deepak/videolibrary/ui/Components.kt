@@ -194,6 +194,7 @@ fun SearchableTopBar(
                 )
                 IconButton(onClick = { onSearchingChange(true) }) { Icon(Icons.Filled.Search, contentDescription = "Search") }
                 actions()
+                LocalTopBarEnd.current()
             }
         }
     }

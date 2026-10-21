@@ -32,12 +32,15 @@ class SettingsRulesTest {
     }
 
     @Test fun badEndpointsAndUnknownProvidersAreDropped() {
-        val s = ArtworkSettings(customEndpoints = mapOf(ProviderIds.STASH_DB to "http://x.example.com", ProviderIds.THE_PORN_DB to "https://api.example.org", "other" to "https://a.example.org"))
-        assertEquals(mapOf(ProviderIds.THE_PORN_DB to "https://api.example.org"), ArtworkPreferences.sanitize(s).customEndpoints)
+        val bad = ArtworkSettings(customEndpoints = mapOf(ProviderIds.STASH_DB to "http://x.example.com", "theporndb" to "https://api.example.org", "other" to "https://a.example.org"))
+        assertEquals(emptyMap<String, String>(), ArtworkPreferences.sanitize(bad).customEndpoints)
+        val good = ArtworkSettings(customEndpoints = mapOf(ProviderIds.STASH_DB to "https://stash.example.org/graphql"))
+        assertEquals(mapOf(ProviderIds.STASH_DB to "https://stash.example.org/graphql"), ArtworkPreferences.sanitize(good).customEndpoints)
     }
 
     @Test fun providerOrderAlwaysListsEveryProviderOnce() {
-        assertEquals(listOf(ProviderIds.STASH_DB, ProviderIds.THE_PORN_DB), ArtworkPreferences.sanitizeOrder(listOf(ProviderIds.STASH_DB, "junk", ProviderIds.STASH_DB)))
+        // ThePornDB was removed: an order saved by an older version keeps only StashDB.
+        assertEquals(listOf(ProviderIds.STASH_DB), ArtworkPreferences.sanitizeOrder(listOf("theporndb", "junk", ProviderIds.STASH_DB, ProviderIds.STASH_DB)))
     }
 
     @Test fun cropWindowKeepsTheRequestedPartAndAspect() {

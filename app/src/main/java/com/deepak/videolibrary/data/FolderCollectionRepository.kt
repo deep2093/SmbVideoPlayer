@@ -14,6 +14,17 @@ class FolderCollectionRepository(private val db: LibraryDatabase, private val pr
         val profile=profileProvider(); require(valid(path))
         SmbConnection(profile).use { connection -> connection.open(); visible(connection.list(path)) }
     }
+    /** Folders (and, with [withFiles], files) directly inside [path]: folders first, each sorted by name. */
+    suspend fun entries(path: String, withFiles: Boolean): List<SmbEntry> = withContext(Dispatchers.IO) {
+        val profile=profileProvider(); require(valid(path))
+        SmbConnection(profile).use { connection ->
+            connection.open()
+            val all = connection.list(path).filter { !it.isReparsePoint && !it.name.startsWith('.') }
+            val folders = all.filter { it.isDirectory }.sortedBy { it.name.lowercase(Locale.ROOT) }
+            val files = if (withFiles) all.filter { !it.isDirectory }.sortedBy { it.name.lowercase(Locale.ROOT) } else emptyList()
+            folders + files
+        }
+    }
     suspend fun descendants(path: String): Set<String> = withContext(Dispatchers.IO) {
         val profile=profileProvider(); require(valid(path))
         val selected=linkedSetOf<String>(); val pending=ArrayDeque<Pair<String,Int>>()

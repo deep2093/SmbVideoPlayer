@@ -79,7 +79,7 @@ data class ArtworkSettings(
     val wifiOnly: Boolean = true,
     val allowMetered: Boolean = false,
     val collageTiles: Int = 4,
-    val providerOrder: List<String> = listOf(ProviderIds.THE_PORN_DB, ProviderIds.STASH_DB),
+    val providerOrder: List<String> = listOf(ProviderIds.STASH_DB),
     val disabledProviders: Set<String> = emptySet(),
     /** Video file names: search with only the part before the first "," or "-". */
     val videoUseFirstName: Boolean = true,
@@ -139,8 +139,10 @@ data class ArtworkSettings(
 }
 
 object ProviderIds {
-    const val THE_PORN_DB = "theporndb"
     const val STASH_DB = "stashdb"
+
+    /** Removed provider (paid API). Only used to delete what an older version stored for it. */
+    internal const val RETIRED_THE_PORN_DB = "theporndb"
 }
 
 /** What is stored for one item. [manual] true means the user chose it by hand and it beats every default. */

@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -50,6 +51,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
         }
     }
     ScrollToTopOnChange(query, gridState)
+    val aspect = cardAspect(vm, Pages.original(path))
     LaunchedEffect(active) {
         if (!active && searchExpanded) {
             vm.originalQuery = ""
@@ -70,7 +72,8 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             onQueryChange = { vm.originalQuery = it },
             placeholder = stringResource(R.string.ui_search_folder_and_video_names_b2eeabc),
         ) {
-            TextButton(onClick = { vm.startScan(ScanMode.REFRESH) }) { Text(stringResource(R.string.ui_refresh_index_2b7da4d)) }
+            CardShapeButton(vm, Pages.original(path))
+            IconAction(Icons.Filled.Refresh, stringResource(R.string.ui_refresh_index_2b7da4d), onClick = { vm.startScan(ScanMode.REFRESH) })
         }
         BreadcrumbBar(
             crumbs = breadcrumbs(path, root),
@@ -100,7 +103,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                 { index ->
                     // Sub-folders first, then the videos of this folder.
                     when {
-                        index < children.size -> sectionLetter(originalFolderLabel(children[index].path))
+                        index < children.size -> sectionLetter(vm.originalDisplayName(children[index].path))
                         index - children.size < videos.itemCount -> videos.peek(index - children.size)?.name?.let(::sectionLetter)
                         else -> null
                     }
@@ -138,7 +141,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                 }
             }
             items(children, key = { "folder:${it.path}" }) { folder ->
-                OriginalFolderCard(vm, folder) {
+                OriginalFolderCard(vm, folder, aspect) {
                     vm.originalScroll.remove(folder.path)
                     vm.originalQuery =
                         ""
@@ -150,10 +153,10 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                 if(video != null) {
                     VideoCard(video, onClick = {
                         vm.playLibrary("originals", video, onPlay)
-                    }, vm = vm, listMode = vm.folderListMode, selectionScope = "originals")
+                    }, vm = vm, listMode = vm.folderListMode, selectionScope = "originals", aspect = aspect)
                 } else {
                     if(vm.folderListMode) Box(Modifier.fillMaxWidth().height(68.dp))
-                    else Column { Box(Modifier.fillMaxWidth().aspectRatio(16f/9f)); Text("", minLines=2, maxLines=2, style=MaterialTheme.typography.bodyMedium); Text("",style=MaterialTheme.typography.labelSmall) }
+                    else Column { Box(Modifier.fillMaxWidth().aspectRatio(aspect)); Text("", minLines=2, maxLines=2, style=MaterialTheme.typography.bodyMedium); Text("",style=MaterialTheme.typography.labelSmall) }
                 }
             }
         }
@@ -162,40 +165,39 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun OriginalFolderCard(vm: LibraryViewModel, folder: DirectorySummary, onClick: () -> Unit) {
+private fun OriginalFolderCard(vm: LibraryViewModel, folder: DirectorySummary, aspect: Float, onClick: () -> Unit) {
     val key = vm.coverKey("original:${folder.path}", folder.count, folder.thumbsDone)
     var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
     var menu by remember(folder.path) { mutableStateOf(false) }
     var changeCover by remember(folder.path) { mutableStateOf(false) }
+    var rename by remember(folder.path) { mutableStateOf(false) }
     val artworkOn = rememberArtworkEnabled(vm)
     val hidden by vm.hiddenItems.collectAsStateWithLifecycle()
     LaunchedEffect(key, hidden) { cover = vm.originalCover(folder.path, key) }
+    val title = vm.originalDisplayName(folder.path)
     Box {
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = { menu = true })) {
-            Column {
-                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f), contentAlignment = Alignment.Center) {
-                    if (cover !=
-                        null
-                    ) {
-                        FileImage(cover, Modifier.fillMaxSize())
-                    } else {
-                        Icon(Icons.Filled.Folder, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                Column(Modifier.padding(12.dp)) {
-                    Text(originalFolderLabel(folder.path), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("${folder.count} items", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
+        FolderTile(
+            title = title,
+            detail = "${folder.count} items",
+            cover = cover,
+            aspect = aspect,
+            listMode = vm.folderListMode,
+            onClick = onClick,
+            onLongPress = { menu = true },
+            onRename = { rename = true },
+        )
         FileActionsMenu(menu, {
             menu = false
         }, vm, folder.path, directory = true, details = "${folder.path}\n${folder.count} visible indexed videos\nOriginal SMB folder",
             onChangeCover = if (artworkOn) ({ changeCover = true }) else null)
         if (changeCover) {
-            ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.originalFolder(folder.path), originalFolderLabel(folder.path), folder.path.substringAfterLast('/'), null), null) { changeCover = false }
+            ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.originalFolder(folder.path), title, folder.path.substringAfterLast('/'), null), null) { changeCover = false }
+        }
+    }
+    if (rename) {
+        RenameDialog("Rename folder", title, "Only the name shown in this app changes; the folder on your drive keeps its name. To rename it on the drive, use Rename in the folder's menu.", { rename = false }) {
+            vm.renameOriginalDisplay(folder.path, it)
         }
     }
 }

@@ -61,8 +61,11 @@ import kotlinx.coroutines.launch
 /** The tablet sidebar is always expanded, with labels, at a fixed width. */
 private val SIDEBAR_WIDTH = 204.dp
 
-private val TAB_LABELS = listOf("Folders", "Videos", "File Explorer", "Downloads", "Settings")
-private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Download, Icons.Filled.Settings)
+// Downloads open from the download button at the top right of every page; scan and thumbnails live in Settings.
+private val TAB_LABELS = listOf("Folders", "Videos", "Files", "Settings")
+private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Settings)
+private const val SETTINGS_TAB = 3
+private const val NOTICE_MS = 8_000L
 
 @Composable
 fun AppRoot(vm: LibraryViewModel = viewModel()) {
@@ -81,6 +84,13 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         folderDetails = true
         tab = 1
     }
+    // Status notices are informational: they clear themselves after a while (a newer notice restarts the timer).
+    LaunchedEffect(vm.notice) {
+        if (vm.notice != null) {
+            kotlinx.coroutines.delay(NOTICE_MS)
+            vm.dismissNotice()
+        }
+    }
     var returnToThumbnails by remember { mutableStateOf(false) }
     LaunchedEffect(vm.explorerNavigationRequest) {
         vm.explorerNavigationRequest?.let { path ->
@@ -98,7 +108,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         when {
             playing != null -> closePlayer()
             tab == 2 && returnToThumbnails -> {
-                tab = 3
+                tab = SETTINGS_TAB
                 returnToThumbnails = false
             }
             folderDetails -> {
@@ -155,9 +165,9 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         return
     }
     val floating = vm.navigationPosition == "FLOATING"
-    // Swiping between sections follows the order Custom, Virtual, Original folders, Videos, File Explorer,
-    // Scan, Settings. Inside Folders the tab pager moves between its three pages itself.
+    // Swiping between sections follows the order Custom, Virtual, Original folders, Videos, Files, Settings. Inside Folders the tab pager moves between its three pages itself.
     val selectSection: (Int) -> Unit = { index ->
+        vm.downloadsOpen = false
         tab = index
         folderDetails = false
         vm.groupFilter.value = null
@@ -199,6 +209,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 ),
                                 onClick = {
+                                    vm.downloadsOpen = false
                                     tab = index
                                     folderDetails = false
                                     vm.groupFilter.value = null
@@ -220,6 +231,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                 ) {
                     if (tabletLayout && !floating) {
                         LibrarySidebar(selected = tab, labels = TAB_LABELS, icons = TAB_ICONS, modifier = Modifier.width(SIDEBAR_WIDTH).fillMaxHeight()) { index ->
+                            vm.downloadsOpen = false
                             tab = index
                             folderDetails = false
                             vm.groupFilter.value = null
@@ -230,19 +242,24 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         Column(Modifier.animateContentSize(tween(260, easing = FastOutSlowInEasing))) {
                         if (tab == 2 && returnToThumbnails) {
                             TextButton(onClick = {
-                                tab = 3
+                                tab = SETTINGS_TAB
                                 returnToThumbnails = false
                             }) { Text(stringResource(R.string.ui_thumbnail_failures_737d640)) }
                         }
                         VpnStatusBanner(Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                         FileClipboardBar(vm)
-                        vm.notice?.takeIf { tab != 3 }?.let { message ->
+                        vm.notice?.let { message ->
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                 Text(message, Modifier.weight(1f).padding(8.dp), color = MaterialTheme.colorScheme.onSurface)
                                 TextButton(onClick = vm::dismissNotice) { Text(stringResource(R.string.ui_dismiss_70afe9e)) }
                             }
                         }
                         }
+                        val downloadsButton: @Composable () -> Unit = { DownloadsButton(vm) }
+                        androidx.compose.runtime.CompositionLocalProvider(LocalTopBarEnd provides downloadsButton) {
+                        if (vm.downloadsOpen) {
+                            DownloadsPage(vm, onClose = { vm.downloadsOpen = false })
+                        } else
                         // Sections and folder pages slide in the direction of travel and fade, like VLC.
                         AnimatedContent(
                             targetState = tab,
@@ -267,7 +284,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                     playing =
                                         video
                                     playQueue = queue
-                                }, onOpenSettings = { tab = 4 }, showBrand = !tabletLayout || floating)
+                                }, onOpenSettings = { tab = SETTINGS_TAB }, showBrand = !tabletLayout || floating)
                                 1 -> VideosScreen(
                                     vm,
                                     gridState = if (folderDetails) folderVideosScrollState else videosScrollState,
@@ -297,9 +314,9 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                     playing = video
                                     playQueue = queue
                                 })
-                                3 -> ScanScreen(vm)
                                 else -> SettingsScreen(vm)
                             }
+                        }
                         }
                     }
                 }
@@ -311,6 +328,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         Modifier.align(androidx.compose.ui.Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 12.dp),
                         hazeState = if (glassTheme) hazeState else null,
                     ) { index ->
+                        vm.downloadsOpen = false
                         tab =
                             index
                         folderDetails = false

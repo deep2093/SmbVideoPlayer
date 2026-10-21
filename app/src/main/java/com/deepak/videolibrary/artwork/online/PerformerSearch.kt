@@ -47,6 +47,6 @@ class PerformerSearch(
     }
 
     companion object {
-        fun default(keys: ProviderKeys) = PerformerSearch(listOf(ThePornDbProvider(), StashDbProvider()), keys)
+        fun default(keys: ProviderKeys) = PerformerSearch(listOf(StashDbProvider()), keys)
     }
 }

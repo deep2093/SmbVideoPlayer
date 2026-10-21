@@ -63,13 +63,18 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
     val listState = rememberLazyListState()
     var searchExpanded by rememberSaveable { mutableStateOf(vm.explorerQuery.isNotBlank()) }
     val searching = vm.explorerQuery.isNotBlank()
-    val listed = if (searching) {
-        vm.explorerHits
-    } else {
-        vm.explorerEntries.map {
-            ExplorerHit(listOf(vm.explorerPath, it.name).filter { part -> part.isNotBlank() }.joinToString("/"), it)
+    // Hidden items (Hide in a menu) and, unless turned off in Settings, system folders are left out.
+    val hiddenItems by vm.hiddenItems.collectAsStateWithLifecycle()
+    val hiddenPaths = remember(hiddenItems) { hiddenItems.filter { it.kind == "DIRECTORY" || it.kind == "FILE" }.map { it.target.trim('/') }.toSet() }
+    val listed = (
+        if (searching) {
+            vm.explorerHits
+        } else {
+            vm.explorerEntries.map {
+                ExplorerHit(listOf(vm.explorerPath, it.name).filter { part -> part.isNotBlank() }.joinToString("/"), it)
+            }
         }
-    }
+        ).filterNot { com.deepak.videolibrary.files.ExplorerHiding.shouldHide(it.path, it.entry.name, vm.hideSystemFolders, hiddenPaths) }
     val shown = remember(listed, vm.explorerSort, vm.explorerSortDescending) {
         sortExplorerHits(listed, vm.explorerSort, vm.explorerSortDescending)
     }
@@ -145,6 +150,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                     }
                 }
             }
+            if (vm.explorerGridMode) CardShapeButton(vm, Pages.explorer(vm.explorerPath))
             IconButton(onClick = vm::toggleExplorerLayout) {
                 Icon(
                     if (vm.explorerGridMode) Icons.Filled.ViewList else Icons.Filled.GridView,
@@ -192,6 +198,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        val aspect = cardAspect(vm, Pages.explorer(vm.explorerPath))
         FolderTransition(vm.explorerPath, Modifier.weight(1f)) {
         if (vm.explorerGridMode) {
             LazyVerticalGrid(
@@ -210,6 +217,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                         indexed = indexed[hit.path],
                         focused = hit.path == vm.explorerFocusPath,
                         showFolder = searching,
+                        aspect = aspect,
                         onOpen = { open(hit) },
                     )
                 }
@@ -297,6 +305,7 @@ private fun ExplorerGridCard(
     indexed: VideoEntity?,
     focused: Boolean,
     showFolder: Boolean,
+    aspect: Float,
     onOpen: () -> Unit,
 ) {
     val entry = hit.entry
@@ -330,11 +339,12 @@ private fun ExplorerGridCard(
         ) {
             Column {
                 Box(
-                    Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
+                    Modifier.fillMaxWidth().aspectRatio(aspect).clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (image != null) {
-                        FileImage(image, Modifier.fillMaxSize())
+                    val shaped = remember(image, aspect) { com.deepak.videolibrary.artwork.ArtworkRepository.forShape(image, aspect < 1f) }
+                    if (shaped != null) {
+                        FileImage(shaped, Modifier.fillMaxSize())
                     } else {
                         Icon(
                             when {

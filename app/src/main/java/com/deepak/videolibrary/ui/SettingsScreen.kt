@@ -83,7 +83,7 @@ private fun GridPresetSetting(label: String, selected: String, onSelect: (String
                         Modifier
                             .weight(1f)
                             .heightIn(min = 48.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(14.dp))
                             .background(
                                 if (selected == option) {
                                     MaterialTheme.colorScheme.primaryContainer
@@ -111,8 +111,10 @@ private val SETTINGS_SECTIONS = listOf(
     SettingsSection("Artwork", "Artwork", "Covers, collages and performer pictures"),
     SettingsSection("Connection", "Connection", "Server, account and saved password"),
     SettingsSection("Diagnostics", "Diagnostics", "Playback reports and troubleshooting"),
-    SettingsSection("Library", "Library", "Hidden files and folders"),
+    SettingsSection("Downloads", "Downloads", "How many files download at a time"),
+    SettingsSection("Library", "Library", "Hidden files and folders, grouping, backup"),
     SettingsSection("Playback", "Playback", "Brightness and volume gestures"),
+    SettingsSection("Sync", "Sync & thumbnails", "Library scan, automatic sync and thumbnails"),
     SettingsSection("VPN", "VPN", "WireGuard for remote access to your server"),
 )
 
@@ -130,7 +132,7 @@ private fun SettingsAccordion(
         animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "settings_chevron",
     )
-    val cardShape = RoundedCornerShape(if (LocalLibraryTheme.current.glass) 22.dp else 16.dp)
+    val cardShape = RoundedCornerShape(22.dp)
     Card(
         modifier = Modifier.fillMaxWidth().themedOutline(cardShape),
         shape = cardShape,
@@ -180,11 +182,11 @@ private fun SettingsAccordion(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(vm: LibraryViewModel) {
-    // The open section, or null when everything is collapsed. One section is open at a time.
-    var section by rememberSaveable { mutableStateOf<String?>(null) }
-    var hiddenPage by rememberSaveable { mutableStateOf(false) }
-    if (hiddenPage) {
-        HiddenItemsScreen(vm) { hiddenPage = false }
+    // The open section (one at a time) and the scroll position are kept while the app is open, so coming back
+    // from another page shows Settings as you left it.
+    var section by vm.ui::settingsSection
+    if (vm.ui.flag("settings.hidden")) {
+        HiddenItemsScreen(vm) { vm.ui.setFlag("settings.hidden", false) }
         return
     }
 
@@ -197,7 +199,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
     var domain by remember { mutableStateOf(saved.domain) }
     var requireSigning by remember { mutableStateOf(saved.requireSigning) }
     var requireEncryption by remember { mutableStateOf(saved.requireEncryption) }
-    var advancedConnection by rememberSaveable { mutableStateOf(false) }
+    var advancedConnection by vm.ui.flagState("settings.advancedConnection")
     var savePassword by remember { mutableStateOf(saved.savePassword) }
     val context = LocalContext.current
     val gesturePrefs = remember(context) { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
@@ -221,8 +223,9 @@ fun SettingsScreen(vm: LibraryViewModel) {
         requireEncryption = requireEncryption,
     )
 
-    val scroll = rememberScrollState()
-    var layoutExpanded by rememberSaveable { mutableStateOf(false) }
+    val scroll = remember { androidx.compose.foundation.ScrollState(vm.ui.settingsScroll) }
+    androidx.compose.runtime.DisposableEffect(scroll) { onDispose { vm.ui.settingsScroll = scroll.value } }
+    var layoutExpanded by vm.ui.flagState("settings.layout")
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
         Column(
             Modifier
@@ -235,7 +238,10 @@ fun SettingsScreen(vm: LibraryViewModel) {
                 .padding(bottom = if (floatingPadding(vm)) 100.dp else 0.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Settings", style = MaterialTheme.typography.headlineMedium)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("Settings", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                LocalTopBarEnd.current()
+            }
             SETTINGS_SECTIONS.forEach { entry ->
                 SettingsAccordion(
                     title = entry.title,
@@ -373,6 +379,15 @@ fun SettingsScreen(vm: LibraryViewModel) {
                             }
                         }
                         "VPN" -> VpnSettings()
+                        "Downloads" -> {
+                            ParallelDownloadsSetting(vm)
+                            Text(
+                                "1 is the default. More files at once use more of your server and network, and some drives slow down with several readers. A new choice applies to the next file that starts.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        "Sync" -> SyncAndThumbnailsSettings(vm)
                         "Artwork" -> ArtworkSettingsSection(vm)
                         "Appearance" -> {
                             ThemeSettings()
@@ -384,7 +399,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
                                 TextButton(onClick = { vm.updateNavigationPosition("FLOATING") }) { Text(stringResource(R.string.ui_floating_bottom_bar_b162779)) }
                             }
                             Card(
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(14.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                             ) {
                                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -435,7 +450,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
                         }
                         "Library" -> {
                             LibraryBackupActions(vm)
-                            var showGrouping by rememberSaveable { mutableStateOf(false) }
+                            var showGrouping by vm.ui.flagState("settings.grouping")
                             TextButton(onClick = { showGrouping = !showGrouping }) { Text(stringResource(R.string.ui_automatic_virtual_folder_grouping_2cca974)) }
                             if (showGrouping) {
                                 Text(stringResource(R.string.ui_changing_this_refreshes_automatic_groups_m_fdbe674), style = MaterialTheme.typography.bodySmall)
@@ -454,7 +469,18 @@ fun SettingsScreen(vm: LibraryViewModel) {
                                     }
                                 }
                             }
-                            OutlinedButton(onClick = { hiddenPage = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Hide system folders in Files")
+                                    Text(
+                                        "\$RECYCLE.BIN, System Volume Information, .TPDLNA and other hidden or system folders",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(checked = vm.hideSystemFolders, onCheckedChange = vm::updateHideSystemFolders)
+                            }
+                            OutlinedButton(onClick = { vm.ui.setFlag("settings.hidden", true) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
                         }
                         "Diagnostics" -> DiagnosticsSettings()
                         else -> Unit

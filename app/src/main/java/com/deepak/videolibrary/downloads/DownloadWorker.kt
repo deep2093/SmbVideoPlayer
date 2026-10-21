@@ -26,13 +26,15 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.io.OutputStream
 
 /**
- * Copies queued files from the server into the device's Download/Video Library folder, one at a time, keeping
- * folder structure. Progress is saved as it goes, so the Downloads screen shows a live bar and an interrupted file
+ * Copies queued files from the server into the device's Download/Video Library folder, keeping folder structure.
+ * One file at a time by default, up to four at once when the user chooses (each over its own connection); the rest
+ * wait in the queue. Progress is saved as it goes, so the Downloads screen shows a live bar and an interrupted file
  * continues where it stopped. Nothing on the server is changed.
  */
 class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
@@ -61,35 +63,45 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
         }
         val hold = vpn.beginPlayback()
         val profile = services.settings.toProfile(saved)
-        val connection = SmbConnection(profile)
+        val running = java.util.concurrent.ConcurrentHashMap<Long, LongArray>()
+        var retryLater = false
         try {
-            withContext(Dispatchers.IO) { connection.open() }
-            while (true) {
-                currentCoroutineContext().ensureActive()
-                val item = dao.nextQueued(libraryId) ?: break
-                if (dao.markRunning(item.id) == 0) continue
-                try {
-                    copy(connection, item)
-                } catch (e: CancellationException) {
-                    // The whole run was stopped (system or user): leave the item to continue next time.
-                    withContext(kotlinx.coroutines.NonCancellable) {
-                        if (dao.status(item.id) == DownloadItem.RUNNING) dao.setStatus(item.id, DownloadItem.QUEUED, null)
+            kotlinx.coroutines.coroutineScope {
+                val finished = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+                val jobs = HashMap<Long, kotlinx.coroutines.Job>()
+                var lastNotice = 0L
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    jobs.entries.removeAll { !it.value.isActive }
+                    // The number of files at a time is read each round, so a new setting applies to the next file.
+                    val limit = DownloadPrefs.parallel(applicationContext)
+                    while (!retryLater && jobs.size < limit) {
+                        val item = dao.nextQueued(libraryId) ?: break
+                        if (dao.markRunning(item.id) == 0) continue
+                        running[item.id] = longArrayOf(item.bytesDone, item.size)
+                        jobs[item.id] = launch {
+                            try {
+                                if (runOne(profile, item, running) == Outcome.RETRY_LATER) {
+                                    retryLater = true
+                                }
+                            } finally {
+                                running.remove(item.id)
+                                finished.trySend(Unit)
+                            }
+                        }
                     }
-                    throw e
-                } catch (e: StoppedByUser) {
-                    discard(dao.get(item.id)?.uri)
-                } catch (e: DeviceProblem) {
-                    // Problems on this device (full, not allowed) are not fixed by retrying.
-                    dao.setStatus(item.id, DownloadItem.FAILED, e.message)
-                    discard(dao.get(item.id)?.uri)
-                } catch (e: Exception) {
-                    if (SmbErrors.isTransient(e) && runAttemptCount < MAX_ATTEMPTS) {
-                        // Network dropped: try again later from where it stopped.
-                        dao.setStatus(item.id, DownloadItem.QUEUED, null)
-                        return Result.retry()
+                    if (jobs.isEmpty()) break
+                    val now = System.currentTimeMillis()
+                    if (now - lastNotice >= 1_000) {
+                        val totals = running.values.toList()
+                        val done = totals.sumOf { it[0] }
+                        val size = totals.sumOf { it[1] }
+                        val title = if (jobs.size == 1) dao.get(jobs.keys.first())?.name ?: "1 file" else "${jobs.size} files"
+                        runCatching { setForeground(foreground(title, done, size)) }
+                        lastNotice = now
                     }
-                    dao.setStatus(item.id, DownloadItem.FAILED, describe(e))
-                    discard(dao.get(item.id)?.uri)
+                    // Wake when a file finishes, or after a moment to pick up new files or a changed setting.
+                    kotlinx.coroutines.withTimeoutOrNull(1_000) { finished.receive() }
                 }
             }
         } catch (e: CancellationException) {
@@ -97,10 +109,54 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
         } catch (e: Exception) {
             return if (SmbErrors.isTransient(e) && runAttemptCount < 20) Result.retry() else Result.failure()
         } finally {
-            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { runCatching { connection.close() } }
             hold.release()
         }
-        return Result.success()
+        return if (retryLater) Result.retry() else Result.success()
+    }
+
+    private enum class Outcome { DONE, RETRY_LATER }
+
+    /** Copies one file over its own connection, recording the result on the item. */
+    private suspend fun runOne(profile: com.deepak.videolibrary.smb.SmbProfile, item: DownloadItem, running: MutableMap<Long, LongArray>): Outcome {
+        val connection = SmbConnection(profile)
+        try {
+            withContext(Dispatchers.IO) { connection.open() }
+        } catch (e: Exception) {
+            // Could not reach the server at all: the file waits in the queue.
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                runCatching { connection.close() }
+                if (dao.status(item.id) == DownloadItem.RUNNING) dao.setStatus(item.id, DownloadItem.QUEUED, null)
+            }
+            if (e is CancellationException) throw e
+            if (SmbErrors.isTransient(e) && runAttemptCount < MAX_ATTEMPTS) return Outcome.RETRY_LATER
+            throw e
+        }
+        try {
+            copy(connection, item) { done, size -> running[item.id] = longArrayOf(done, size) }
+        } catch (e: CancellationException) {
+            // The whole run was stopped (system or user): leave the item to continue next time.
+            withContext(kotlinx.coroutines.NonCancellable) {
+                if (dao.status(item.id) == DownloadItem.RUNNING) dao.setStatus(item.id, DownloadItem.QUEUED, null)
+            }
+            throw e
+        } catch (e: StoppedByUser) {
+            discard(dao.get(item.id)?.uri)
+        } catch (e: DeviceProblem) {
+            // Problems on this device (full, not allowed) are not fixed by retrying.
+            dao.setStatus(item.id, DownloadItem.FAILED, e.message)
+            discard(dao.get(item.id)?.uri)
+        } catch (e: Exception) {
+            if (SmbErrors.isTransient(e) && runAttemptCount < MAX_ATTEMPTS) {
+                // Network dropped: try again later from where it stopped.
+                dao.setStatus(item.id, DownloadItem.QUEUED, null)
+                return Outcome.RETRY_LATER
+            }
+            dao.setStatus(item.id, DownloadItem.FAILED, describe(e))
+            discard(dao.get(item.id)?.uri)
+        } finally {
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { runCatching { connection.close() } }
+        }
+        return Outcome.DONE
     }
 
     private class StoppedByUser : Exception()
@@ -124,7 +180,7 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
         throw DeviceProblem(message)
     }
 
-    private suspend fun copy(connection: SmbConnection, item: DownloadItem) = withContext(Dispatchers.IO) {
+    private suspend fun copy(connection: SmbConnection, item: DownloadItem, onProgress: (Long, Long) -> Unit) = withContext(Dispatchers.IO) {
         val resolver = applicationContext.contentResolver
         connection.openFile(item.sourcePath).use { file ->
             val size = file.fileInformation.standardInformation.endOfFile
@@ -162,7 +218,6 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 val buffer = ByteArray(CHUNK)
                 var position = start
                 var lastSave = System.currentTimeMillis()
-                var lastNotice = 0L
                 while (position < size) {
                     currentCoroutineContext().ensureActive()
                     val n = file.read(buffer, position, 0, minOf(CHUNK.toLong(), size - position).toInt())
@@ -173,13 +228,10 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
                     if (now - lastSave >= SAVE_EVERY_MS) {
                         onDevice("Could not write to this device. It may be full.") { output.flush() }
                         dao.setProgress(item.id, position)
+                        onProgress(position, size)
                         lastSave = now
                         // Cancelled from the Downloads screen?
                         if (dao.status(item.id) != DownloadItem.RUNNING) throw StoppedByUser()
-                        if (now - lastNotice >= 1_000) {
-                            runCatching { setForeground(foreground(item.name, position, size)) }
-                            lastNotice = now
-                        }
                     }
                 }
                 onDevice("Could not write to this device. It may be full.") { output.flush() }

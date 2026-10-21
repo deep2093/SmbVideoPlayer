@@ -54,9 +54,13 @@ import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.scan.ScanMode
 import com.deepak.videolibrary.scan.ScanStatus
 
+/**
+ * Sync and thumbnails, shown inside Settings: automatic sync status, the library scan with its actions and errors,
+ * and thumbnail generation.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun ScanScreen(vm: LibraryViewModel) {
+internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel) {
     val session by vm.session.collectAsStateWithLifecycle()
     val pending by vm.pendingDirs.collectAsStateWithLifecycle()
     val errors by vm.errors.collectAsStateWithLifecycle()
@@ -80,40 +84,12 @@ fun ScanScreen(vm: LibraryViewModel) {
         confirmButton={TextButton(onClick={session?.let { vm.confirmEmptyLibrary(it.id) };confirmEmpty=false}){Text("Remove entries")}},
         dismissButton={TextButton(onClick={confirmEmpty=false}){Text("Keep index")}},
     )
-    // Centered, readable column on tablets; full width on phones.
-    Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
-        LazyColumn(
-            Modifier.widthIn(max = 920.dp).fillMaxSize().padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(top = 16.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            item { Text(stringResource(R.string.ui_scan_sync_33eca10), style = MaterialTheme.typography.titleLarge) }
-
-            vm.notice?.let { message ->
-                item {
-                    Card(
-                        Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    ) {
-                        Row(
-                            Modifier.padding(start = 16.dp, end = 4.dp),
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                        ) {
-                            Text(message, Modifier.weight(1f).padding(vertical = 12.dp))
-                            TextButton(onClick = vm::dismissNotice) { Text(stringResource(R.string.ui_ok_9ce3bd4)) }
-                        }
-                    }
-                }
-            }
-
-            // ---- Sections in alphabetical order: Automatic sync ----
-            item { AutomaticSyncSummary() }
-
-            // ---- Downloads to this device ----
-            item { DownloadsSection(vm) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            // ---- Automatic sync ----
+            AutomaticSyncSummary()
 
             // ---- Library scan: status, numbers, actions ----
-            item {
+            run {
                 ScanSection("Library scan") {
                     val s = session
                     if (s == null) {
@@ -189,8 +165,8 @@ fun ScanScreen(vm: LibraryViewModel) {
 
             // ---- Scan errors ----
             if (errors.isNotEmpty()) {
-                item { TextButton(onClick = { showErrors = !showErrors }) { Text(if (showErrors) "Hide scan errors" else "View scan errors (${errors.size})") } }
-                if (showErrors) items(errors, key = { it.id }) { e ->
+                TextButton(onClick = { showErrors = !showErrors }) { Text(if (showErrors) "Hide scan errors" else "View scan errors (${errors.size})") }
+                if (showErrors) errors.take(MAX_SHOWN_ERRORS).forEach { e ->
                     Column(Modifier.padding(vertical = 2.dp)) {
                         Text(
                             e.path.ifEmpty { "(connection)" },
@@ -205,7 +181,7 @@ fun ScanScreen(vm: LibraryViewModel) {
             }
 
             // ---- Thumbnails ----
-            item {
+            run {
                 val all = thumbsDone + thumbsPending + thumbsFailed
                 ScanSection("Thumbnails") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -241,9 +217,10 @@ fun ScanScreen(vm: LibraryViewModel) {
                 }
             }
 
-        }
     }
 }
+
+private const val MAX_SHOWN_ERRORS = 200
 
 /** Failed-thumbnail list with a per-item dismiss button. Dismissing only hides the entry; no video is deleted. */
 @Composable
@@ -310,7 +287,7 @@ private fun prettyStatus(status: String) =
 internal fun ScanSection(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Card(
         Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -325,7 +302,7 @@ internal fun ScanSection(title: String, content: @Composable androidx.compose.fo
 private fun ScanStat(label: String, value: String, modifier: Modifier = Modifier, warn: Boolean = false) {
     Column(
         modifier
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(14.dp))
             // Glass themes: a darker inset keeps white numbers and labels readable on the frosted card.
             .background(
                 if (LocalLibraryTheme.current.light) Color.White.copy(alpha = 0.7f)

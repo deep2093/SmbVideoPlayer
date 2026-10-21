@@ -68,6 +68,9 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     val namespace = MutableStateFlow(connectionKey(settings))
     private val storageReady = MutableStateFlow(false)
     var foldersTab by mutableIntStateOf(1)
+
+    /** Page state kept while the app is open (open Settings sections, scroll positions). */
+    val ui = UiSession()
     val matchFolderFilter = MutableStateFlow<MatchFolderEntity?>(null)
     val matchFolderQuery = MutableStateFlow("")
     private val folderQueryFlow = MutableStateFlow("")
@@ -155,6 +158,23 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             .putString("explorer_sort", sort)
             .putBoolean("explorer_sort_descending", explorerSortDescending)
             .apply()
+    }
+
+    // ---- Card shape per page ----
+    private val pageShapes = PageShapeStore(app)
+
+    /** True when the cards on [page] are taller (3:4) instead of landscape. Separate for each server. */
+    fun isTallPage(page: String): Boolean = pageShapes.isTall(namespace.value + "|" + page)
+
+    fun setTallPage(page: String, tall: Boolean) = pageShapes.setTall(namespace.value + "|" + page, tall)
+
+    /** File Explorer leaves out system folders such as \$RECYCLE.BIN (on by default). */
+    var hideSystemFolders by mutableStateOf(layoutPrefs.getBoolean("hide_system_folders", true))
+        private set
+
+    fun updateHideSystemFolders(value: Boolean) {
+        hideSystemFolders = value
+        layoutPrefs.edit().putBoolean("hide_system_folders", value).apply()
     }
 
     fun toggleExplorerLayout() {
@@ -396,7 +416,12 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             coverRevision++
         }
     }
-    private fun selectedScope(mode: String): LibraryScope = when (mode) {
+    private fun selectedScope(mode: String): LibraryScope = when {
+        mode.startsWith("own:") -> ownFolders.value.firstOrNull { it.id == mode.removePrefix("own:") }?.let(::ownFolderScope)
+            ?: LibraryScope(namespace.value, members = FolderMembers(emptyList(), emptyList()))
+        else -> selectedScopeFor(mode)
+    }
+    private fun selectedScopeFor(mode: String): LibraryScope = when (mode) {
         "folders" -> LibraryScope(namespace.value, folderSearch, groupMatches = true, sort = videoSort.name, descending = sortDescending)
         "originals" -> LibraryScope(
             namespace.value,
@@ -656,6 +681,146 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
 
+    // ---- Own custom folders (named by the user, filled with chosen drive folders and files) ----
+    private val ownStore = OwnFolderStore(app)
+    private val ownRevision = MutableStateFlow(0)
+    val ownFolders: StateFlow<List<OwnFolder>> = combine(namespace, ownRevision) { key, _ ->
+        withContext(Dispatchers.IO) { ownStore.load(key) }.sortedBy { it.name.lowercase(java.util.Locale.ROOT) }
+    }.state(emptyList())
+
+    /** The own folder whose page is open in Custom folders, or null for the list. */
+    var openOwnFolderId by mutableStateOf<String?>(null)
+
+    private fun editOwn(change: (List<OwnFolder>) -> List<OwnFolder>) {
+        val key = namespace.value
+        ownStore.save(key, change(ownStore.load(key)))
+        ownRevision.value++
+    }
+
+    /** Creates an empty own folder and returns its id, or null when the name is not usable. */
+    fun createOwnFolder(name: String): String? {
+        val clean = cleanFolderName(name) ?: return null
+        val id = java.util.UUID.randomUUID().toString()
+        editOwn { it + OwnFolder(id, clean) }
+        return id
+    }
+
+    fun renameOwnFolder(id: String, name: String) {
+        val clean = cleanFolderName(name) ?: return
+        editOwn { list -> list.map { if (it.id == id) it.copy(name = clean) else it } }
+    }
+
+    fun deleteOwnFolder(id: String) {
+        editOwn { list -> list.filterNot { it.id == id } }
+        if (openOwnFolderId == id) openOwnFolderId = null
+        viewModelScope.launch {
+            services.artwork.ensureLoaded()
+            services.artwork.clear(listOf(ownFolderKey(id)))
+        }
+    }
+
+    /** Replaces what an own folder shows. Folders include everything inside them. */
+    fun setOwnFolderMembers(id: String, folders: Collection<String>, files: Collection<String>) {
+        val cleanFolders = folders.map { it.trim('/') }.distinct().sorted().take(MAX_OWN_FOLDERS)
+        // A file inside a chosen folder is already shown.
+        val cleanFiles = files.map { it.trim('/') }.filter { it.isNotEmpty() }.distinct()
+            .filterNot { file -> cleanFolders.any { dir -> dir.isEmpty() || file.startsWith("$dir/") } }
+            .sorted().take(MAX_OWN_FILES)
+        if (folders.size > MAX_OWN_FOLDERS || files.size > MAX_OWN_FILES) {
+            notice = "An own folder can hold up to $MAX_OWN_FOLDERS folders and $MAX_OWN_FILES single files; the rest were left out."
+        }
+        editOwn { list -> list.map { if (it.id == id) it.copy(folders = cleanFolders, files = cleanFiles) else it } }
+        coverRevision++
+    }
+
+    fun ownFolderKey(id: String) = "own:$id"
+
+    fun ownFolderScope(folder: OwnFolder) = LibraryScope(namespace.value, members = folder.members(), sort = videoSort.name, descending = sortDescending)
+
+    fun ownFolderCount(folder: OwnFolder): Flow<Int> = stateDao.count(LibraryQueries.count(ownFolderScope(folder)))
+
+    suspend fun ownFolderCover(folder: OwnFolder, key: String): File? = artwork.cover(ownFolderKey(folder.id), key, ownFolderScope(folder))
+
+    /** Count of indexed videos in a drive folder (with sub-folders). */
+    fun driveFolderCount(path: String): Flow<Int> = stateDao.count(LibraryQueries.count(LibraryScope(namespace.value, directory = path, subtree = true)))
+
+    /** Indexed videos for the single files of an own folder. */
+    suspend fun ownFolderFiles(folder: OwnFolder): List<VideoEntity> = indexedVideos(folder.files).values.sortedBy { it.name.lowercase(java.util.Locale.ROOT) }
+
+    /** Opens a drive folder of an own folder as a list of its videos (with sub-folders). */
+    fun openDriveFolder(path: String) {
+        groupFilter.value = null
+        query.value = ""
+        matchFolderFilter.value = MatchFolderEntity(
+            id = 0,
+            connectionKey = namespace.value,
+            name = originalDisplayName(path),
+            term = "",
+            sourcePath = path,
+            includeSubfolders = true,
+        )
+    }
+
+    /** Drive contents for the pickers: folders, and files when [withFiles] (hidden and system names left out). */
+    suspend fun driveEntries(path: String, withFiles: Boolean): List<SmbEntry> = folderCollections.entries(path, withFiles)
+        .filterNot { com.deepak.videolibrary.files.ExplorerHiding.shouldHide(listOf(path, it.name).filter(String::isNotBlank).joinToString("/"), it.name, hideSystemFolders, emptySet()) }
+
+    /**
+     * Custom folders from the drive picker. Each chosen folder shows its sub-folders as separate cards (each with
+     * everything inside it); a folder without sub-folders is one card, and videos lying directly in a chosen folder
+     * get a card of their own. [remove] are custom folders the user unticked; nothing on the drive changes.
+     */
+    fun applyDriveSelection(chosen: Set<String>, remove: List<MatchFolderEntity>, onDone: () -> Unit) {
+        organizerError = null
+        viewModelScope.launch {
+            try {
+                val roots = chosen.map { it.trim('/') }.filter { path -> chosen.none { other -> other != path && isWithinFolder(path, other.trim('/')) } }
+                val recursive = LinkedHashSet<String>()
+                val direct = LinkedHashSet<String>()
+                for (root in roots) {
+                    val children = folderCollections.children(root)
+                        .filterNot { com.deepak.videolibrary.files.ExplorerHiding.isSystemName(it.name) }
+                        .map { listOf(root, it.name).filter(String::isNotBlank).joinToString("/") }
+                    if (children.isEmpty()) {
+                        recursive += root
+                    } else {
+                        recursive += children
+                        val ownVideos = withContext(Dispatchers.IO) {
+                            stateDao.count(LibraryQueries.count(LibraryScope(namespace.value, sourcePath = root, includeSubfolders = false))).first()
+                        }
+                        if (ownVideos > 0) direct += root
+                    }
+                }
+                remove.forEach { folder ->
+                    stateDao.deleteMatch(folder.id)
+                    services.artwork.ensureLoaded()
+                    services.artwork.clear(listOf(com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(folder.id)))
+                }
+                if (recursive.isNotEmpty()) folderCollections.add(recursive, true, namespace.value)
+                if (direct.isNotEmpty()) folderCollections.add(direct, false, namespace.value)
+                onDone()
+                if (recursive.isNotEmpty() || direct.isNotEmpty()) {
+                    ScanWorker.enqueue(getApplication(), ScanMode.REFRESH, afterCurrent = true, libraryId = services.libraryId)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                organizerError = "Could not update custom folders. Check the connection and try again."
+            }
+        }
+    }
+
+    // ---- Display names of original folders (only in this app; the drive keeps its names) ----
+    private val folderNames = FolderNameStore(app)
+
+    fun originalDisplayName(path: String): String = folderNames.get(namespace.value, path) ?: originalFolderLabel(path)
+
+    /** Sets (or with a blank name, removes) the name shown for an original folder. */
+    fun renameOriginalDisplay(path: String, name: String) {
+        val clean = name.trim().takeIf { it.isNotEmpty() && it.length <= 100 }
+        folderNames.set(namespace.value, path, clean)
+    }
+
     // ---- thumbnails ----
 
     val thumbsDone: StateFlow<Int> = dao.observeThumbCount("DONE").state(0)
@@ -777,6 +942,30 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         return com.deepak.videolibrary.artwork.online.ArtworkHttp.downloadImage(
             url, maxWidth, com.deepak.videolibrary.artwork.online.EndpointPolicy.hostsOf(settings.customEndpoints.values),
         )
+    }
+
+    /**
+     * A picture chosen on a web page (Google Images tab): an https address, or a picture embedded in the page
+     * (data:image/...). Bounded in size; throws ProviderException with a readable reason.
+     */
+    suspend fun pictureFromWeb(address: String): android.graphics.Bitmap {
+        val text = address.trim()
+        if (text.startsWith("data:image/", ignoreCase = true)) {
+            val encoded = text.substringAfter("base64,", "")
+            if (encoded.isEmpty() || encoded.length > 12_000_000) {
+                throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.BAD_RESPONSE)
+            }
+            return withContext(Dispatchers.Default) {
+                val bytes = try {
+                    android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
+                } catch (e: IllegalArgumentException) {
+                    throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.BAD_RESPONSE, e)
+                }
+                com.deepak.videolibrary.artwork.online.ArtworkHttp.decode(bytes, 1280)
+                    ?: throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.BAD_RESPONSE)
+            }
+        }
+        return downloadPortrait(text)
     }
 
     suspend fun applyCoverImage(
@@ -928,7 +1117,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         viewModelScope.launch {
             withContext(Dispatchers.IO) { items.chunked(500).forEach { downloadDao.insertAll(it) } }
             com.deepak.videolibrary.downloads.DownloadWorker.enqueue(getApplication())
-            notice = "Downloading ${items.size} ${if (items.size == 1) "file" else "files"} to Download/${com.deepak.videolibrary.downloads.DownloadPaths.ROOT}. Progress is in Downloads."
+            notice = "Downloading ${items.size} ${if (items.size == 1) "file" else "files"} to Download/${com.deepak.videolibrary.downloads.DownloadPaths.ROOT}. Tap the download button at the top to see progress."
         }
     }
 
@@ -1010,6 +1199,14 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
 
+    /** An own custom folder: every video in its folders and its single files, saved into a folder of its name. */
+    fun downloadOwnFolder(folder: OwnFolder) {
+        viewModelScope.launch {
+            val rows = stateDao.videoList(LibraryQueries.videos(ownFolderScope(folder)))
+            queueDownloads(rows.map { downloadItem(it.relativePath, com.deepak.videolibrary.downloads.DownloadPaths.cleanFolder(folder.name), it.size) }, folder.name)
+        }
+    }
+
     fun cancelDownload(id: Long) { viewModelScope.launch { downloadDao.cancel(listOf(id)) } }
     fun cancelAllDownloads() { viewModelScope.launch { downloadDao.cancelAll() } }
     fun retryDownload(id: Long) {
@@ -1018,7 +1215,21 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
     fun removeDownload(id: Long) { viewModelScope.launch { downloadDao.remove(id) } }
-    fun clearFinishedDownloads() { viewModelScope.launch { downloadDao.clearFinished() } }
+    fun clearCompletedDownloads() { viewModelScope.launch { downloadDao.clearCompleted() } }
+
+    /** The Downloads page is open (kept for the session, so leaving and coming back returns to it). */
+    var downloadsOpen by mutableStateOf(false)
+    fun openDownloads() { downloadsOpen = true }
+
+    /** Files downloaded at the same time (1 to 4). */
+    var downloadParallel by mutableIntStateOf(com.deepak.videolibrary.downloads.DownloadPrefs.parallel(app))
+        private set
+
+    fun updateDownloadParallel(value: Int) {
+        val clean = value.coerceIn(com.deepak.videolibrary.downloads.DownloadPrefs.MIN_PARALLEL, com.deepak.videolibrary.downloads.DownloadPrefs.MAX_PARALLEL)
+        downloadParallel = clean
+        com.deepak.videolibrary.downloads.DownloadPrefs.setParallel(getApplication(), clean)
+    }
 
     /** Starts the queue again (after switching back to a server, or when it stopped on a network problem). */
     fun resumeDownloads() = com.deepak.videolibrary.downloads.DownloadWorker.enqueue(getApplication())
@@ -1345,6 +1556,10 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
 }
+
+/** Limits for own folders, so the library query stays within SQLite's parameter limit. */
+private const val MAX_OWN_FOLDERS = 100
+private const val MAX_OWN_FILES = 500
 
 /** A single folder download adds at most this many files, so a mistaken tap on the share root stays manageable. */
 private const val MAX_DOWNLOAD_FILES = 5000

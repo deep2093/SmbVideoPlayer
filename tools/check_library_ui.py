@@ -58,7 +58,7 @@ def find(label,timeout=20):
         time.sleep(.5)
     raise AssertionError('UI label not found: '+label)
 
-def scroll_to(label, attempts=14):
+def scroll_to(label, attempts=14, up=False):
     for _ in range(attempts):
         try:
             return find(label, timeout=1)
@@ -66,8 +66,28 @@ def scroll_to(label, attempts=14):
             # Swipe the content panel, not the fixed navigation rail.
             size=adb('shell','wm','size').decode()
             width,height=map(int,re.findall(r'(\d+)x(\d+)',size)[-1])
-            adb('shell','input','swipe',int(width*.75),int(height*.8),int(width*.75),int(height*.3),350)
+            start,end=(.3,.8) if up else (.8,.3)
+            adb('shell','input','swipe',int(width*.75),int(height*start),int(width*.75),int(height*end),350)
     raise AssertionError('Could not scroll to '+label)
+
+def gone(label, wait=3):
+    """True when no node shows [label] after a short wait (for things that must be hidden)."""
+    time.sleep(wait)
+    return not any(n.get('content-desc')==label or label in n.get('text','').splitlines() for n in tree().iter('node'))
+
+def open_section(name, probe):
+    """Settings keeps its open section and scroll position for the session: open [name] only if needed."""
+    try:
+        find(probe, timeout=2)
+        return
+    except AssertionError:
+        pass
+    try:
+        find(name, timeout=1)
+    except AssertionError:
+        scroll_to(name, up=True)
+    click(name)
+    scroll_to(probe)
 
 def click(label,long=False):
     node=find(label)
@@ -158,32 +178,34 @@ try:
     assert target.read_bytes()==(Path('/tmp/videolibrary-fixtures/Movies')/NAME).read_bytes()
     print('PASS: Select all in Videos -> shared Copy -> Paste from Original folders')
     click('Videos');click('Options for '+NAME);click('Remove / Hide')
-    click('File Explorer');click('Movies');find(NAME);screenshot('hidden-in-explorer')
-    click('Settings');click('Library');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
+    click('Files');click('Movies');screenshot('hidden-in-explorer')
+    assert gone(NAME), 'A hidden video must not be listed in Files'
+    click('Settings');open_section('Library','Unhide files and folders');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
     find('No hidden items.');screenshot('unhide')
-    print('PASS: hidden video stays browsable in File Explorer and can be restored in Settings')
-    click('Folders');click('Custom folders');click('Add');click('Create filename collection')
+    adb('shell','input','keyevent','4')  # Back from Hidden items to the Settings list.
+    print('PASS: hidden video is left out of Files and can be restored in Settings')
+    click('Folders');click('Custom folders');click('Add custom folder');click('Create filename collection')
     enter_text('Cruise');click('Create');find('Cruise')
     click('Cruise');click(NAME,long=True);click('Select all');find('2 selected');click('Done')
     print('PASS: automatic custom folder matches filenames and supports Select all')
-    click('Folders');click('Custom folders');click('Add');click('Choose drive folders')
-    find('Select all here');click('Select all here');click('Add folders');find('Movies')
+    click('Folders');click('Custom folders');click('Add custom folder');click('Add drive folders')
+    click('Choose folder Movies');click('Done');find('Movies')
     print('PASS: live folders can be added to Custom folders')
     # Put many live, unindexed files before the failed video in the real listing.
     for i in range(80):
         (target.parent/f'A{i:03}.txt').write_text('fixture')
-    click('Downloads');scroll_to('View failed thumbnails');click('View failed thumbnails');scroll_to(NAME);click(NAME);click('Open folder in File Explorer')
+    click('Settings');open_section('Sync & thumbnails','View failed thumbnails');click('View failed thumbnails');scroll_to(NAME);click(NAME);click('Open folder in File Explorer')
     find('Target file: '+NAME);screenshot('exact-file-jump')
     labels=[n.get('text','') for n in tree().iter('node')]
     assert 'A000.txt' not in labels, 'Shortcut must scroll beyond the first page'
     print('PASS: failed-thumbnail shortcut scrolls to the exact file and highlights it')
-    click('Settings');click('Appearance');click('Floating bottom bar');click('Folders');find('Custom folders');screenshot('floating-navigation')
+    click('Settings');open_section('Appearance','Floating bottom bar');click('Floating bottom bar');click('Folders');find('Custom folders');screenshot('floating-navigation')
     # Publish codec fixtures only now so background refresh cannot change the
     # earlier one-video selection scenario. Exercise generated WMV8 and real WMV9.
     for source,name in [('/tmp/videolibrary-sample.wmv','Sample.wmv'),('/tmp/videolibrary-wmv9.wmv','WMV9.wmv')]:
         shutil.copyfile(source,'/tmp/videolibrary-fixtures/Movies/'+name)
         if name=='Sample.wmv':
-            click('File Explorer');click('Go to Share root');click('Movies')
+            click('Files');click('Go to Share root');click('Movies')
         else:
             click('Refresh')
         adb('logcat','-c');click(name)
@@ -214,7 +236,7 @@ try:
         print('PASS: '+name+' streams from SMB with advancing video output')
 
     # Native visual review at exact logical widths, after the existing functional checks.
-    click('Settings');click('Appearance');click('Sidebar')
+    click('Settings');open_section('Appearance','Sidebar');click('Sidebar')
     for width,height,density,label in [(780,1688,320,'phone-390'),(1536,2048,320,'tablet-768'),(2560,1600,320,'landscape-1280')]:
         adb('shell','wm','size',str(width)+'x'+str(height))
         adb('shell','wm','density',str(density))

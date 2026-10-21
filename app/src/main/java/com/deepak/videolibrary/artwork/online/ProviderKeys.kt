@@ -17,6 +17,13 @@ import javax.crypto.spec.GCMParameterSpec
 class ProviderKeys(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("artwork-provider-keys", Context.MODE_PRIVATE)
 
+    init {
+        // ThePornDB was removed (its API is paid): forget any token an older version saved for it.
+        if (prefs.contains(com.deepak.videolibrary.artwork.ProviderIds.RETIRED_THE_PORN_DB)) {
+            prefs.edit().remove(com.deepak.videolibrary.artwork.ProviderIds.RETIRED_THE_PORN_DB).apply()
+        }
+    }
+
     fun has(providerId: String): Boolean = prefs.contains(providerId)
 
     fun get(providerId: String): String? =

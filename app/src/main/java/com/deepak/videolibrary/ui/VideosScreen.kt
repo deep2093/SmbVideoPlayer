@@ -82,6 +82,14 @@ fun VideosScreen(
     val group by vm.groupFilter.collectAsStateWithLifecycle()
     val matchFolder by vm.matchFolderFilter.collectAsStateWithLifecycle()
     val selectedGroup = group ?: matchFolder?.name
+    // Each folder page (and the all-videos page) has its own card shape.
+    val page = when {
+        group != null -> Pages.virtualFolder(group!!)
+        matchFolder != null && matchFolder!!.id > 0 -> Pages.customFolder(matchFolder!!.id)
+        matchFolder != null -> Pages.drivePick(matchFolder!!.sourcePath.orEmpty())
+        else -> Pages.VIDEOS
+    }
+    val aspect = cardAspect(vm, page)
     var searchExpanded by rememberSaveable { mutableStateOf(query.isNotBlank()) }
     val total by vm.videoCount.collectAsStateWithLifecycle()
     val count by vm.videoResultsCount.collectAsStateWithLifecycle()
@@ -113,6 +121,7 @@ fun VideosScreen(
                 null
             },
         ) {
+            CardShapeButton(vm, page)
             LibraryDisplayMenu(vm)
         }
         if (selectedGroup != null && matchFolder == null) {
@@ -230,7 +239,7 @@ fun VideosScreen(
                             } else {
                                 onPlay(video, listOf(video))
                             }
-                        }, vm = vm, listMode = vm.videoListMode)
+                        }, vm = vm, listMode = vm.videoListMode, aspect = aspect)
                     }
                 }
             }
@@ -279,6 +288,8 @@ internal fun VideoCard(
     onRemoveFromContinue: (() -> Unit)? = null,
     listMode: Boolean = false,
     selectionScope: String = "videos",
+    /** Card shape of the page: 16:9 (default) or 3:4. */
+    aspect: Float = com.deepak.videolibrary.artwork.CoverCrop.CARD_ASPECT,
 ) {
     var menuOpen by remember(video.relativePath) { mutableStateOf(false) }
     val context = LocalContext.current
@@ -286,8 +297,9 @@ internal fun VideoCard(
     val customRevision by com.deepak.videolibrary.thumbs.CustomThumbs.revision.collectAsStateWithLifecycle()
     val artRevision by vm.artworkRevision.collectAsStateWithLifecycle()
     val artworkOn = rememberArtworkEnabled(vm)
-    val thumb: File? = remember(video.id, video.thumbStatus, video.customGroup, video.groupKey, customRevision, artRevision) {
-        vm.videoArtwork(video)
+    val tall = aspect < 1f
+    val thumb: File? = remember(video.id, video.thumbStatus, video.customGroup, video.groupKey, customRevision, artRevision, tall) {
+        com.deepak.videolibrary.artwork.ArtworkRepository.forShape(vm.videoArtwork(video), tall)
     }
     var pickThumbnail by remember(video.relativePath) { mutableStateOf(false) }
     var changeCover by remember(video.relativePath) { mutableStateOf(false) }
@@ -299,12 +311,12 @@ internal fun VideoCard(
     val artwork: @Composable () -> Unit = {
         Box(
             if (listMode) {
-                Modifier.width(128.dp).height(80.dp)
+                Modifier.width(128.dp).height(if (tall) 170.dp else 80.dp)
             } else {
-                Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                Modifier.fillMaxWidth().aspectRatio(aspect)
             },
         ) {
-            FileImage(thumb, Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
+            FileImage(thumb, Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)))
             if (totalMs > 0L) {
                 Text(
                     DateUtils.formatElapsedTime(totalMs / 1_000),
@@ -366,7 +378,7 @@ internal fun VideoCard(
     }
     Box(modifier) {
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).combinedClickable(onClick = {
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).combinedClickable(onClick = {
                 if (vm.selectedPaths.isNotEmpty())vm.toggleSelected(video.relativePath, selectionScope) else onClick()
             }, onLongClick = {
                 // In Videos, holding a video selects it; elsewhere it opens the options menu as before.

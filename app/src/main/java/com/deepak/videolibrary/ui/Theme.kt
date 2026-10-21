@@ -258,12 +258,14 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
             labelMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 18.sp, fontFeatureSettings = "tnum"),
             labelSmall = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 12.sp, lineHeight = 18.sp, fontFeatureSettings = "tnum"),
         ),
-        // Glass themes use softer, more concentric corners, like Apple's Liquid Glass.
-        shapes = if (theme.glass) {
-            Shapes(small = RoundedCornerShape(12.dp), medium = RoundedCornerShape(18.dp), large = RoundedCornerShape(26.dp))
-        } else {
-            Shapes(small = RoundedCornerShape(8.dp), medium = RoundedCornerShape(8.dp), large = RoundedCornerShape(16.dp))
-        },
+        // Every theme uses the same soft, concentric corners as Liquid Glass, so cards, menus and fields match.
+        shapes = Shapes(
+            extraSmall = RoundedCornerShape(10.dp),
+            small = RoundedCornerShape(12.dp),
+            medium = RoundedCornerShape(18.dp),
+            large = RoundedCornerShape(26.dp),
+            extraLarge = RoundedCornerShape(32.dp),
+        ),
         content = {
             CompositionLocalProvider(LocalLibraryTheme provides theme) {
                 if (theme.glass) {

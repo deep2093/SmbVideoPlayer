@@ -45,7 +45,8 @@ class StashDbProvider : PerformerProvider {
                 val name = item.optString("name").trim()
                 val performerId = item.optString("id")
                 if (name.isEmpty() || performerId.isBlank()) continue
-                val url = bestImage(item)
+                val photos = rankedImages(item)
+                val url = photos.firstOrNull()
                 out += PerformerCandidate(
                     providerId = ProviderIds.STASH_DB,
                     providerName = "StashDB",
@@ -54,16 +55,19 @@ class StashDbProvider : PerformerProvider {
                     disambiguation = item.optString("disambiguation").takeIf { it.isNotBlank() && it != "null" },
                     imageUrl = url,
                     previewUrl = url,
+                    images = photos,
                 )
             }
             return out
         }
 
-        /** Prefers a portrait-shaped image (faces suit portrait covers), otherwise the first usable one. */
-        internal fun bestImage(item: JSONObject): String? {
-            val images = item.optJSONArray("images") ?: return null
-            var best: String? = null
-            var bestScore = -1L
+        /** The best image: portrait-shaped first (faces suit portrait covers), otherwise the largest usable one. */
+        internal fun bestImage(item: JSONObject): String? = rankedImages(item).firstOrNull()
+
+        /** Every usable image, portrait-shaped and larger ones first, without duplicates (at most [MAX_PHOTOS]). */
+        internal fun rankedImages(item: JSONObject): List<String> {
+            val images = item.optJSONArray("images") ?: return emptyList()
+            val scored = ArrayList<Pair<String, Long>>()
             for (i in 0 until images.length()) {
                 val image = images.optJSONObject(i) ?: continue
                 val url = image.optString("url")
@@ -71,12 +75,12 @@ class StashDbProvider : PerformerProvider {
                 val w = image.optInt("width")
                 val h = image.optInt("height")
                 val score = (if (h >= w && w > 0) 1_000_000_000L else 0L) + minOf(w.toLong() * h, 999_999_999L)
-                if (score > bestScore) {
-                    bestScore = score
-                    best = url
-                }
+                scored += url to score
             }
-            return best
+            // Stable sort: equal scores keep the provider's order.
+            return scored.sortedByDescending { it.second }.map { it.first }.distinct().take(MAX_PHOTOS)
         }
+
+        const val MAX_PHOTOS = 12
     }
 }

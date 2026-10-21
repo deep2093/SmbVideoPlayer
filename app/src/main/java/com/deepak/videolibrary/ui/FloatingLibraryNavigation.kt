@@ -26,9 +26,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /**
- * The floating navigation bar. Normal themes: an opaque, compact bar. Glass themes: a Liquid Glass capsule
- * that blurs the content scrolling underneath ([hazeState]), tinted dark enough that labels stay readable,
- * with a specular rim and a lighter glass "lens" behind the selected tab.
+ * The floating navigation bar: a rounded capsule in every theme, with a soft shadow, a rim and a rounded "lens"
+ * behind the selected tab. Glass themes also blur the content scrolling underneath ([hazeState]), tinted dark
+ * enough that labels stay readable; other themes use their own opaque surface.
  */
 @Composable
 internal fun FloatingLibraryNavigation(
@@ -41,9 +41,10 @@ internal fun FloatingLibraryNavigation(
 ) {
     val theme = LocalLibraryTheme.current
     val glass = theme.glass
-    val shape = if (glass) RoundedCornerShape(percent = 50) else RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(percent = 50)
+    val shadowAlpha = if (theme.light) 0.35f else 1f
     val surface = Modifier
-        .then(if (glass) Modifier.shadow(20.dp, shape, ambientColor = Color.Black.copy(alpha = if (theme.light) 0.35f else 1f), spotColor = Color.Black.copy(alpha = if (theme.light) 0.35f else 1f)) else Modifier)
+        .shadow(if (glass) 20.dp else 12.dp, shape, ambientColor = Color.Black.copy(alpha = shadowAlpha), spotColor = Color.Black.copy(alpha = shadowAlpha))
         .clip(shape)
         .then(
             if (glass && hazeState != null) {
@@ -61,33 +62,38 @@ internal fun FloatingLibraryNavigation(
             } else if (glass) {
                 Modifier.background(theme.menu.copy(alpha = 0.92f))
             } else {
-                Modifier.background(MaterialTheme.colorScheme.surface)
+                Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)
             },
         )
-        .then(if (glass) Modifier.themedOutline(shape) else Modifier)
+        .themedOutline(shape)
     Row(
-        modifier.widthIn(max = 520.dp).fillMaxWidth().padding(horizontal = 16.dp)
+        modifier.widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 16.dp)
             .then(surface)
-            .padding(if (glass) 6.dp else 0.dp),
+            .padding(6.dp),
     ) {
         labels.forEachIndexed { index, label ->
             val isSelected = selected == index
+            val lensColor = when {
+                !isSelected -> Color.Transparent
+                glass && theme.light -> Color(0xFF5B4A2E).copy(alpha = 0.12f)
+                glass -> Color.White.copy(alpha = 0.2f)
+                else -> theme.accent.copy(alpha = 0.22f)
+            }
             val lens by animateColorAsState(
-                if (glass && isSelected) (if (theme.light) Color(0xFF5B4A2E).copy(alpha = 0.12f) else Color.White.copy(alpha = 0.2f)) else Color.Transparent,
+                lensColor,
                 animationSpec = tween(220),
                 label = "nav_lens",
             )
             Column(
-                Modifier.weight(1f).heightIn(min = if (glass) 60.dp else 72.dp)
-                    .then(if (glass) Modifier.clip(RoundedCornerShape(percent = 50)).background(lens) else Modifier)
+                Modifier.weight(1f).heightIn(min = 56.dp)
+                    .clip(RoundedCornerShape(percent = 50)).background(lens)
                     .selectable(selected = isSelected, role = Role.Tab, onClick = { onSelect(index) })
-                    .padding(horizontal = 2.dp, vertical = if (glass) 8.dp else 12.dp),
+                    .padding(horizontal = 2.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
             ) {
                 val ink = when {
-                    isSelected && glass -> theme.accent
-                    isSelected -> MaterialTheme.colorScheme.onSurface
+                    isSelected -> theme.accent
                     glass && theme.light -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
                     glass -> Color.White.copy(alpha = 0.88f)
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -116,7 +122,7 @@ internal fun LibrarySidebar(
             if (index == labels.lastIndex) Spacer(Modifier.weight(1f))
             val ink = if (selected == index) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
             Row(
-                Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(8.dp))
+                Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(percent = 50))
                     .background(if (selected == index) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.background)
                     .selectable(selected = selected == index, role = Role.Tab, onClick = { onSelect(index) })
                     .padding(horizontal = 12.dp, vertical = 12.dp),

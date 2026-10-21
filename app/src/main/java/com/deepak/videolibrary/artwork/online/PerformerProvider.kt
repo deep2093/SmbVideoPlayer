@@ -9,6 +9,8 @@ data class PerformerCandidate(
     val disambiguation: String?,
     val imageUrl: String?,
     val previewUrl: String?,
+    /** Every usable photo of this performer, best first (starts with [imageUrl]). */
+    val images: List<String> = listOfNotNull(imageUrl),
 )
 
 enum class ProviderFailure(val message: String) {

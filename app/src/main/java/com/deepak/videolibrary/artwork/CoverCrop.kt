@@ -7,8 +7,11 @@ import android.graphics.Bitmap
 data class CropWindow(val left: Int, val top: Int, val width: Int, val height: Int)
 
 object CoverCrop {
-    /** Cards and thumbnails are 16:9. */
+    /** Landscape cards and thumbnails are 16:9. */
     const val CARD_ASPECT = 16f / 9f
+
+    /** Taller cards (a page can switch to them) are 3:4. */
+    const val TALL_ASPECT = 3f / 4f
 
     /**
      * The part of a [width] x [height] image to keep for [aspect] (width / height). [focusX] and [focusY] are 0..1

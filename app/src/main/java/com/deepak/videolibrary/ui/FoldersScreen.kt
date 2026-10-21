@@ -155,6 +155,7 @@ fun FoldersScreen(
             placeholder = "Search virtual folders",
             modifier = Modifier.padding(top = 8.dp),
         ) {
+            CardShapeButton(vm, Pages.VIRTUAL)
             Box {
                 var sortExpanded by remember { mutableStateOf(false) }
                 IconButton(onClick = { sortExpanded = true }) {
@@ -216,6 +217,7 @@ fun FoldersScreen(
         Spacer(Modifier.height(12.dp))
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         val columns = libraryColumns(vm.folderGridPreset, floatingPadding(vm))
+        val aspect = cardAspect(vm, Pages.VIRTUAL)
         FastScrollBox(
             state = gridState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -286,7 +288,7 @@ fun FoldersScreen(
                 }
                 gridItems(shownGroups, key = { it.groupKey }, contentType = { "folder" }) { row ->
                     Column {
-                        FolderCard(vm, row, listMode = vm.folderListMode) {
+                        FolderCard(vm, row, aspect, listMode = vm.folderListMode) {
                             vm.matchFolderFilter.value = null
                             vm.groupFilter.value = row.groupKey
                             vm.query.value = ""
@@ -352,61 +354,44 @@ fun FoldersScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FolderCard(
     vm: LibraryViewModel,
     row: FolderSummary,
+    aspect: Float,
     modifier: Modifier = Modifier,
     listMode: Boolean = false,
     onClick: () -> Unit,
 ) {
     var actions by remember(row.groupKey) { mutableStateOf(false) }
     var changeCover by remember(row.groupKey) { mutableStateOf(false) }
+    var rename by remember(row.groupKey) { mutableStateOf(false) }
     val artworkOn = rememberArtworkEnabled(vm)
     val key = vm.coverKey("group:${row.groupKey}", row.count, row.thumbsDone, row.lastModified)
     var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
     LaunchedEffect(key) { cover = vm.coverFor(row.groupKey, key) }
-    val artwork: @Composable () -> Unit = {
-        Box(
-            (if (listMode)Modifier.width(104.dp).height(68.dp)else Modifier.fillMaxWidth().aspectRatio(16f / 9f)),
-            contentAlignment = androidx.compose.ui.Alignment.Center,
-        ) {
-            if (cover !=
-                null
-            ) {
-                FileImage(cover, Modifier.fillMaxSize())
-            } else {
-                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                    Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.height(36.dp).width(36.dp))
-                }
-            }
-        }
-    }
-    val caption: @Composable () -> Unit = {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
-            Text(row.groupKey.replaceFirstChar { it.titlecase(Locale.ROOT) }, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text("${row.count} videos", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
     Box(modifier) {
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surface).combinedClickable(onClick = onClick, onLongClick = { actions = true })) {
-            if (listMode) {
-                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                    artwork()
-                    Box(Modifier.weight(1f)) { caption() }
-                }
-            } else {
-                artwork()
-                caption()
-            }
-        }
+        FolderTile(
+            title = row.groupKey.replaceFirstChar { it.titlecase(Locale.ROOT) },
+            detail = "${row.count} videos",
+            cover = cover,
+            aspect = aspect,
+            listMode = listMode,
+            onClick = onClick,
+            onLongPress = { actions = true },
+            onRename = { rename = true },
+        )
         FileActionsMenu(actions, {
             actions = false
         }, vm, row.groupKey, directory = true, virtual = true, details = "${row.groupKey}\n${row.count} videos\nVirtual library folder",
             onChangeCover = if (artworkOn) ({ changeCover = true }) else null)
         if (changeCover) {
             ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.virtualFolder(row.groupKey), row.groupKey, row.groupKey), null) { changeCover = false }
+        }
+    }
+    if (rename) {
+        RenameDialog("Rename virtual folder", row.groupKey, "This changes library organisation only. No files on your drive are renamed.", { rename = false }) {
+            vm.renameFolder(row.groupKey, it)
         }
     }
 }

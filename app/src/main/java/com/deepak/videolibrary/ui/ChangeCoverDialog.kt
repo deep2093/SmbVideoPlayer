@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -74,14 +75,23 @@ internal data class CoverTarget(val key: String, val title: String, val label: S
 private enum class CoverTab(val label: String) {
     AUTO("Auto frame"),
     COLLAGE("Folder collage"),
-    INTERNET("Internet performer"),
-    IMAGE("Choose image"),
+    INTERNET("StashDB"),
+    GOOGLE("Google Images"),
+    IMAGE("From this phone"),
     RESET("Reset"),
 }
 
+/** Search suggestions from a label: each part before or between "," and "-", then the whole name. */
+internal fun nameChoices(label: String): List<String> {
+    val base = label.substringAfterLast('/').replace(Regex("\\.[A-Za-z0-9]{2,4}$"), "")
+    val parts = base.split(',', '-').map { it.replace('_', ' ').replace('.', ' ').trim().replace(Regex("\\s+"), " ") }
+    return (parts + base.trim()).filter { it.length >= 2 }.distinct().take(6)
+}
+
 /**
- * Change cover: tabbed sources (auto frame, internet performer, folder collage, image from this phone, reset), a search
- * field prefilled with the cleaned name, a candidate list, and a crop-position step before anything is saved.
+ * Change cover: tabbed sources (auto frame, folder collage, StashDB performer, Google Images, a picture from this
+ * phone, reset), a search field prefilled with the cleaned name, a choice of photos, and a crop-position step
+ * (showing both card shapes) before anything is saved.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -97,13 +107,32 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
     var query by remember(target.key) { mutableStateOf(vm.artworkSearchTerm(target.key, target.label)) }
     var oneOff by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<PerformerCandidate>?>(null) }
+    var photosOf by remember { mutableStateOf<PerformerCandidate?>(null) }
     var pending by remember { mutableStateOf<Bitmap?>(null) }
     var pendingCandidate by remember { mutableStateOf<PerformerCandidate?>(null) }
+    val choices = remember(target.label) { nameChoices(target.label) }
 
     // Suggestions already found in the background for this item are shown straight away.
     androidx.compose.runtime.LaunchedEffect(target.key) {
         val saved = vm.portraitSuggestions(target.key)
         if (saved.isNotEmpty() && results == null) results = saved
+    }
+
+    fun load(candidate: PerformerCandidate?, url: String, fromWeb: Boolean = false) {
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                pending = if (fromWeb) vm.pictureFromWeb(url) else vm.downloadPortrait(url)
+                pendingCandidate = candidate
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ProviderException) {
+                error = if (fromWeb) "That picture can't be used. Open it first (tap it in Google), then hold the larger picture." else e.failure.message
+            } finally {
+                busy = false
+            }
+        }
     }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -124,11 +153,16 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
 
     Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(26.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             modifier = Modifier.padding(16.dp).widthIn(max = 720.dp).fillMaxWidth(),
         ) {
-            Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // The Google tab holds a web page that scrolls by itself, so the dialog does not scroll around it.
+            val scrollable = pending != null || tab != CoverTab.GOOGLE
+            Column(
+                Modifier.then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 Text("Change cover", style = MaterialTheme.typography.titleLarge)
                 Text(target.title, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
 
@@ -189,7 +223,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                             val allowed = settings.adultConsent || oneOff
                             if (!allowed) {
                                 Text(
-                                    "Searching sends only the name below to the services you set up in Settings > Artwork. Nothing is sent until you allow it.",
+                                    "Searching sends only the name below to StashDB, with the key you saved in Settings > Artwork. Nothing is sent until you allow it.",
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -197,63 +231,64 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                     Text("Allow this one search")
                                 }
                             } else {
-                                PillTextField(query, { query = it }, label = "Performer name", modifier = Modifier.fillMaxWidth())
-                                Button(enabled = query.isNotBlank() && !busy, onClick = {
-                                    busy = true
-                                    error = null
-                                    results = null
-                                    scope.launch {
-                                        try {
-                                            when (val outcome = vm.searchPerformers(query.trim())) {
-                                                is SearchOutcome.Failed -> {
-                                                    error = outcome.failure.message
-                                                }
-                                                is SearchOutcome.Found -> {
-                                                    results = outcome.candidates
-                                                    if (outcome.candidates.isEmpty()) {
-                                                        error = outcome.failures.firstOrNull()?.let { "${it.first}: ${it.second.message}" } ?: "No matches. Try a different spelling."
+                                val photos = photosOf
+                                if (photos != null) {
+                                    PhotoChoice(vm, photos, enabled = !busy, onBack = { photosOf = null }) { url -> load(photos, url) }
+                                } else {
+                                    SearchField(query, { query = it }, choices, label = "Performer name")
+                                    Button(enabled = query.isNotBlank() && !busy, onClick = {
+                                        busy = true
+                                        error = null
+                                        results = null
+                                        scope.launch {
+                                            try {
+                                                when (val outcome = vm.searchPerformers(query.trim())) {
+                                                    is SearchOutcome.Failed -> {
+                                                        error = outcome.failure.message
+                                                    }
+                                                    is SearchOutcome.Found -> {
+                                                        results = outcome.candidates
+                                                        if (outcome.candidates.isEmpty()) {
+                                                            error = outcome.failures.firstOrNull()?.let { "${it.first}: ${it.second.message}" } ?: "No matches. Try a different spelling, or the Google Images tab."
+                                                        }
                                                     }
                                                 }
+                                            } catch (e: CancellationException) {
+                                                throw e
+                                            } finally {
+                                                busy = false
                                             }
-                                        } catch (e: CancellationException) {
-                                            throw e
-                                        } finally {
-                                            busy = false
                                         }
-                                    }
-                                }) { Text("Search") }
-                                results?.forEach { candidate ->
-                                    CandidateRow(vm, candidate, enabled = !busy) {
-                                        val url = candidate.imageUrl
-                                        if (url == null) {
-                                            error = "This match has no picture."
-                                        } else {
-                                            busy = true
-                                            error = null
-                                            scope.launch {
-                                                try {
-                                                    pending = vm.downloadPortrait(url)
-                                                    pendingCandidate = candidate
-                                                } catch (e: CancellationException) {
-                                                    throw e
-                                                } catch (e: ProviderException) {
-                                                    error = e.failure.message
-                                                } finally {
-                                                    busy = false
-                                                }
+                                    }) { Text("Search") }
+                                    results?.forEach { candidate ->
+                                        CandidateRow(vm, candidate, enabled = !busy) {
+                                            val url = candidate.imageUrl
+                                            if (candidate.images.size > 1) {
+                                                photosOf = candidate
+                                            } else if (url != null) {
+                                                load(candidate, url)
+                                            } else {
+                                                error = "This match has no picture."
                                             }
                                         }
                                     }
                                 }
                             }
                         }
+                        CoverTab.GOOGLE -> GoogleImagesTab(
+                            query = query,
+                            onQuery = { query = it },
+                            choices = choices,
+                            enabled = !busy,
+                            onPicture = { address -> load(null, address, fromWeb = true) },
+                        )
                         CoverTab.IMAGE -> {
                             Text("Use a picture from this phone. Your original file is not changed or moved.", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = { picker.launch("image/*") }, enabled = !busy) { Text("Choose from this phone") }
                         }
                         CoverTab.RESET -> {
-                            Text("Go back to the default cover for this item. Pictures you chose are removed from the app only.", style = MaterialTheme.typography.bodyMedium)
-                            Button(onClick = { vm.resetCover(target.key, target.video); onDismiss() }) { Text("Reset to default") }
+                            Text("Go back to the automatic cover for this item. Pictures you chose are removed from the app only.", style = MaterialTheme.typography.bodyMedium)
+                            Button(onClick = { vm.resetCover(target.key, target.video); onDismiss() }) { Text("Reset to automatic") }
                         }
                     }
                     if (busy) Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(24.dp)); Spacer(Modifier.width(12.dp)); Text("Working…") }
@@ -268,16 +303,71 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
     }
 }
 
+/**
+ * The name to search: wraps onto up to three lines so a long name is fully visible and the cursor can be placed
+ * anywhere, with a clear button and one-tap suggestions taken from the file or folder name.
+ */
+@Composable
+private fun SearchField(value: String, onChange: (String) -> Unit, choices: List<String>, label: String) {
+    androidx.compose.material3.OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label) },
+        minLines = 1,
+        maxLines = 3,
+        shape = RoundedCornerShape(20.dp),
+        trailingIcon = if (value.isNotEmpty()) {
+            { androidx.compose.material3.IconButton(onClick = { onChange("") }) { androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.Close, contentDescription = "Clear") } }
+        } else {
+            null
+        },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    if (choices.size > 1) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            choices.forEach { choice ->
+                androidx.compose.material3.SuggestionChip(onClick = { onChange(choice) }, label = { Text(choice, maxLines = 1) })
+            }
+        }
+    }
+}
+
+/** Every photo the service has for one performer; tap one to use it. */
+@Composable
+private fun PhotoChoice(vm: LibraryViewModel, candidate: PerformerCandidate, enabled: Boolean, onBack: () -> Unit, onChoose: (String) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = onBack) { Text("‹ Results") }
+        Text("${candidate.name} · ${candidate.images.size} photos", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+    candidate.images.chunked(3).forEach { row ->
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            row.forEach { url ->
+                Box(
+                    Modifier.weight(1f).aspectRatio(3f / 4f).clip(RoundedCornerShape(14.dp))
+                        .clickable(enabled = enabled, onClickLabel = "Use this photo") { onChoose(url) },
+                ) {
+                    RemoteThumb(vm, url, Modifier.fillMaxSize())
+                }
+            }
+            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+        }
+    }
+}
+
 @Composable
 private fun CandidateRow(vm: LibraryViewModel, candidate: PerformerCandidate, enabled: Boolean, onChoose: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        RemoteThumb(vm, candidate.previewUrl, Modifier.size(width = 72.dp, height = 96.dp).clip(RoundedCornerShape(8.dp)))
+        RemoteThumb(vm, candidate.previewUrl, Modifier.size(width = 72.dp, height = 96.dp).clip(RoundedCornerShape(14.dp)))
         Column(Modifier.weight(1f)) {
             Text(candidate.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             candidate.disambiguation?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            Text(candidate.providerName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                candidate.providerName + if (candidate.images.size > 1) " · ${candidate.images.size} photos" else "",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        OutlinedButton(onClick = onChoose, enabled = enabled && candidate.imageUrl != null) { Text("Choose") }
+        OutlinedButton(onClick = onChoose, enabled = enabled && candidate.imageUrl != null) { Text(if (candidate.images.size > 1) "Photos" else "Choose") }
     }
 }
 
@@ -302,21 +392,25 @@ internal fun RemoteThumb(vm: LibraryViewModel, url: String?, modifier: Modifier)
     }
 }
 
-/** Shows how the picture will be cropped to a card and lets the user slide the visible part. */
+/**
+ * Shows how the picture will be cropped (landscape and taller cards, side by side) and lets the user slide the
+ * visible part. Both shapes are saved, so a page can switch between them later.
+ */
 @Composable
 private fun PositionStep(image: Bitmap, saving: Boolean, onCancel: () -> Unit, onApply: (Float, Float) -> Unit) {
     var fx by remember { mutableFloatStateOf(0.5f) }
     var fy by remember { mutableFloatStateOf(0.25f) }
     val bitmap = remember(image) { image.asImageBitmap() }
     Text("Position the picture", style = MaterialTheme.typography.titleMedium)
-    Box(Modifier.fillMaxWidth().aspectRatio(CoverCrop.CARD_ASPECT).clip(RoundedCornerShape(12.dp)).background(Color.Black)) {
-        Image(
-            bitmap,
-            contentDescription = "Cover preview",
-            contentScale = ContentScale.Crop,
-            alignment = BiasAlignment(fx * 2f - 1f, fy * 2f - 1f),
-            modifier = Modifier.fillMaxSize(),
-        )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
+        Column(Modifier.weight(2.2f)) {
+            CropPreview(bitmap, CoverCrop.CARD_ASPECT, fx, fy, "Landscape preview")
+            Text("Landscape", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Column(Modifier.weight(1f)) {
+            CropPreview(bitmap, CoverCrop.TALL_ASPECT, fx, fy, "Taller preview")
+            Text("Taller 3:4", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
     Text("Up / down", style = MaterialTheme.typography.labelMedium)
     Slider(value = fy, onValueChange = { fy = it }, enabled = !saving)
@@ -325,6 +419,19 @@ private fun PositionStep(image: Bitmap, saving: Boolean, onCancel: () -> Unit, o
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         TextButton(onClick = onCancel, enabled = !saving) { Text("Back") }
         Button(onClick = { onApply(fx, fy) }, enabled = !saving) { Text("Use this cover") }
+    }
+}
+
+@Composable
+private fun CropPreview(bitmap: ImageBitmap, aspect: Float, fx: Float, fy: Float, label: String) {
+    Box(Modifier.fillMaxWidth().aspectRatio(aspect).clip(RoundedCornerShape(14.dp)).background(Color.Black)) {
+        Image(
+            bitmap,
+            contentDescription = label,
+            contentScale = ContentScale.Crop,
+            alignment = BiasAlignment(fx * 2f - 1f, fy * 2f - 1f),
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 

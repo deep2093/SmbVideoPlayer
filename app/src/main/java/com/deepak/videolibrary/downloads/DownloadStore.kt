@@ -94,8 +94,9 @@ interface DownloadDao {
     @Query("DELETE FROM downloads WHERE id = :id AND status IN ('DONE', 'FAILED', 'CANCELLED')")
     suspend fun remove(id: Long)
 
-    @Query("DELETE FROM downloads WHERE status IN ('DONE', 'FAILED', 'CANCELLED')")
-    suspend fun clearFinished()
+    /** Removes completed downloads from the list (the files stay on the device). Failed and cancelled ones stay. */
+    @Query("DELETE FROM downloads WHERE status = 'DONE'")
+    suspend fun clearCompleted()
 }
 
 @Database(entities = [DownloadItem::class], version = 1, exportSchema = false)

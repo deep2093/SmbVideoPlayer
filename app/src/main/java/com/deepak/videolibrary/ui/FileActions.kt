@@ -252,7 +252,19 @@ internal fun FileClipboardBar(vm: LibraryViewModel) {
         LinearProgressIndicator(Modifier.fillMaxWidth())
     }
     val recent = transfers.filter { it.state.isFinished }.maxByOrNull { it.outputData.getLong("finishedAt", 0) }
-    recent?.outputData?.getString("message")?.let {
+    // A finished operation's message shows briefly, then goes away; it never reappears on a later launch.
+    val finishedAt = recent?.outputData?.getLong("finishedAt", 0L) ?: 0L
+    val showFor = if (recent?.state == WorkInfo.State.FAILED) FAILED_MESSAGE_MS else DONE_MESSAGE_MS
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(finishedAt, showFor) {
+        now = System.currentTimeMillis()
+        val left = finishedAt + showFor - now
+        if (left > 0) {
+            kotlinx.coroutines.delay(left)
+            now = System.currentTimeMillis()
+        }
+    }
+    recent?.outputData?.getString("message")?.takeIf { finishedAt > 0 && now - finishedAt in 0 until showFor }?.let {
         Text(
             it,
             Modifier.padding(horizontal = 8.dp),
@@ -267,6 +279,9 @@ internal fun FileClipboardBar(vm: LibraryViewModel) {
     }
     if (vm.pasteDestination != null) PasteDestinationDialog(vm)
 }
+
+private const val DONE_MESSAGE_MS = 5_000L
+private const val FAILED_MESSAGE_MS = 15_000L
 
 @Composable
 private fun PasteDestinationDialog(vm: LibraryViewModel) {

@@ -77,12 +77,13 @@ class ArtworkPreferences(context: Context, libraryId: String) {
             .putBoolean("folder_whole_name", s.folderUseWholeName)
             .putString("smb_selection", s.smbFolderSelection.name)
             .putString("virtual_selection", s.virtualFolderSelection.name)
+            .remove("endpoint_${ProviderIds.RETIRED_THE_PORN_DB}")
             .also { e -> known.forEach { id -> if (s.customEndpoints[id].isNullOrBlank()) e.remove("endpoint_$id") else e.putString("endpoint_$id", s.customEndpoints[id]) } }
             .apply()
     }
 
     companion object {
-        private val known = listOf(ProviderIds.THE_PORN_DB, ProviderIds.STASH_DB)
+        private val known = listOf(ProviderIds.STASH_DB)
 
         internal fun sanitizeOrder(saved: List<String>): List<String> =
             saved.filter { it in known }.distinct().let { kept -> kept + known.filter { it !in kept } }
