@@ -13,9 +13,15 @@ object LibraryLayout {
 
     fun columns(preset: String): Int = normalize(preset).toInt()
 
-    /** A 148dp artwork tile plus a 12dp gutter, respecting the saved column ceiling. */
+    /** Narrowest card a grid may use, so even 5 columns fit on a phone. */
+    const val MIN_TILE_DP = 64
+
+    /**
+     * The number of columns you chose in Settings > App layout. It is only reduced when the screen is too narrow for
+     * cards of [MIN_TILE_DP] with a 12dp gap (a phone used to be held to 2 columns, so the choice seemed to do nothing).
+     */
     fun fittedColumns(preset: String, availableWidthDp: Int): Int =
-        minOf(columns(preset), ((availableWidthDp.coerceAtLeast(1) + 12) / 160).coerceAtLeast(1))
+        minOf(columns(preset), ((availableWidthDp.coerceAtLeast(1) + 12) / (MIN_TILE_DP + 12)).coerceAtLeast(1))
 }
 
 enum class VideoSort(val label: String) {
