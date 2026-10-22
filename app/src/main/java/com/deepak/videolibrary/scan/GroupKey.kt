@@ -55,6 +55,43 @@ object GroupKey {
  * ("tom cruise, brad pitt - movie.mp4" -> Tom Cruise, Brad Pitt). A name with neither a hyphen nor a comma uses its
  * first two words. Display only: nothing on the drive is renamed, copied or moved.
  */
+/**
+ * The three on/off rules that turn a file name into folder names. All on is the Virtual folder rule:
+ * [stopAtHyphen] reads only the text before the first "-", [splitAtCommas] makes one folder per comma-separated name
+ * (the video is listed in each), and [firstTwoWords] uses the first two words when no hyphen or comma was used.
+ */
+data class GroupingSwitches(
+    val stopAtHyphen: Boolean = true,
+    val splitAtCommas: Boolean = true,
+    val firstTwoWords: Boolean = true,
+)
+
+/** The grouping switches of each place (Virtual folders, Custom folders), kept on this device. */
+object GroupingPrefs {
+    const val VIRTUAL = "virtual"
+    const val CUSTOM = "custom"
+
+    private fun prefs(context: android.content.Context) =
+        context.applicationContext.getSharedPreferences("grouping_switches", android.content.Context.MODE_PRIVATE)
+
+    fun load(context: android.content.Context, place: String): GroupingSwitches {
+        val p = prefs(context)
+        return GroupingSwitches(
+            stopAtHyphen = p.getBoolean("$place.hyphen", true),
+            splitAtCommas = p.getBoolean("$place.commas", true),
+            firstTwoWords = p.getBoolean("$place.twoWords", true),
+        )
+    }
+
+    fun save(context: android.content.Context, place: String, rules: GroupingSwitches) {
+        prefs(context).edit()
+            .putBoolean("$place.hyphen", rules.stopAtHyphen)
+            .putBoolean("$place.commas", rules.splitAtCommas)
+            .putBoolean("$place.twoWords", rules.firstTwoWords)
+            .apply()
+    }
+}
+
 object VirtualNames {
     private val leadingTag = Regex("^\\s*(\\[[^\\]]*\\]|\\([^)]*\\))")
     private val spaces = Regex("\\s+")
@@ -67,16 +104,18 @@ object VirtualNames {
     fun display(name: String): String = name.trim().replace(spaces, " ").split(' ')
         .joinToString(" ") { word -> word.lowercase(Locale.ROOT).replaceFirstChar { it.titlecase(Locale.ROOT) } }
 
-    fun of(fileName: String): List<String> {
+    fun of(fileName: String, rules: GroupingSwitches = GroupingSwitches()): List<String> {
         var s = fileName.substringBeforeLast('.', fileName).trim()
         while (true) {
             val tag = leadingTag.find(s) ?: break
             s = s.substring(tag.range.last + 1).trimStart()
         }
         val hyphen = s.indexOf('-')
-        val head = if (hyphen >= 0) s.substring(0, hyphen) else s
-        var parts = head.split(',').map(::clean).filter(String::isNotBlank)
-        if (hyphen < 0 && parts.size <= 1) {
+        val cutAtHyphen = rules.stopAtHyphen && hyphen >= 0
+        val head = if (cutAtHyphen) s.substring(0, hyphen) else s
+        val splitAtComma = rules.splitAtCommas && ',' in head
+        var parts = (if (splitAtComma) head.split(',') else listOf(head)).map(::clean).filter(String::isNotBlank)
+        if (rules.firstTwoWords && !cutAtHyphen && !splitAtComma) {
             parts = parts.map { it.split(' ').filter(String::isNotBlank).take(2).joinToString(" ") }
         }
         val seen = HashSet<String>()

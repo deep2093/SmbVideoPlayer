@@ -68,6 +68,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.deepak.videolibrary.settings.SmbSettings
 import kotlinx.coroutines.launch
 
@@ -108,14 +109,15 @@ private fun GridPresetSetting(label: String, selected: String, onSelect: (String
 private class SettingsSection(val id: String, val title: String, val description: String)
 
 private val SETTINGS_SECTIONS = listOf(
-    // In the order you need them: the server first, then the library, how it looks, and troubleshooting last.
-    SettingsSection("Connection", "Connection", "Server, share and account"),
-    SettingsSection("Library", "Library", "Scanning, automatic sync, hidden items, backup"),
-    SettingsSection("Artwork", "Artwork & thumbnails", "Covers, portraits, thumbnails and resets"),
-    SettingsSection("Appearance", "Appearance", "Theme, tabs, navigation and grid"),
+    // One question per section, in the order you need them: the server first, troubleshooting last.
+    SettingsSection("Connection", "Connection", "Server, account and remote access"),
+    SettingsSection("Sync", "Sync & scanning", "Automatic rescan and library scan"),
+    SettingsSection("Grouping", "Auto grouping", "How file names become folders"),
+    SettingsSection("Artwork", "Artwork & thumbnails", "Covers, portraits and thumbnails"),
+    SettingsSection("Layout", "App layout", "Folder tabs, grids, navigation, hidden items"),
+    SettingsSection("Appearance", "Appearance", "Theme"),
     SettingsSection("Playback", "Playback", "Player gestures"),
-    SettingsSection("VPN", "VPN", "WireGuard for remote access"),
-    SettingsSection("Diagnostics", "Diagnostics", "Reports and troubleshooting"),
+    SettingsSection("Diagnostics", "Backup & diagnostics", "Export, restore and reports"),
 )
 
 /** One settings group: a card whose content drops down in place when the header is tapped. */
@@ -228,7 +230,6 @@ fun SettingsScreen(vm: LibraryViewModel) {
     val scroll = remember { androidx.compose.foundation.ScrollState(vm.ui.settingsScroll) }
     androidx.compose.runtime.DisposableEffect(scroll) { onDispose { vm.ui.settingsScroll = scroll.value } }
     OnScrollTopRequest(vm) { scroll.animateScrollTo(0) }
-    var layoutExpanded by vm.ui.flagState("settings.layout")
     // The title line slides away while scrolling down and comes back on any scroll up.
     val header = rememberCollapsingHeader()
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().nestedScroll(header.connection), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
@@ -384,90 +385,57 @@ fun SettingsScreen(vm: LibraryViewModel) {
                                 is TestState.Success -> Text(t.message, color = MaterialTheme.colorScheme.primary)
                                 is TestState.Failure -> Text(t.message, color = MaterialTheme.colorScheme.error)
                             }
+                            SettingsDivider()
+                            // Remote access is part of reaching the server, so it lives here, folded away until needed.
+                            var vpnOpen by vm.ui.flagState("settings.vpn")
+                            ExpandRow("Remote access (VPN)", "WireGuard, for reaching your server away from home", vpnOpen) { vpnOpen = !vpnOpen }
+                            if (vpnOpen) VpnSettings()
                         }
-                        "VPN" -> VpnSettings()
+                        "Sync" -> SyncAndThumbnailsSettings(vm, scan = true, thumbnails = false)
+                        "Grouping" -> AutoGroupingSettings(vm)
                         "Artwork" -> {
                             ArtworkSettingsSection(vm)
+                            SettingsDivider()
                             SyncAndThumbnailsSettings(vm, scan = false, thumbnails = true)
+                            SettingsDivider()
                             ResetChoicesSetting(vm)
                         }
-                        "Appearance" -> {
-                            ThemeSettings()
+                        "Layout" -> {
                             FolderTabsSetting(vm)
-                            Text(stringResource(R.string.ui_navigation_position_9c04a08), style = MaterialTheme.typography.titleMedium)
+                            SettingsDivider()
+                            SettingsLabel("Navigation")
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                 RadioButton(selected = vm.navigationPosition == "SIDEBAR", onClick = { vm.updateNavigationPosition("SIDEBAR") })
                                 TextButton(onClick = { vm.updateNavigationPosition("SIDEBAR") }) { Text(stringResource(R.string.ui_sidebar_f5171c9)) }
                                 RadioButton(selected = vm.navigationPosition == "FLOATING", onClick = { vm.updateNavigationPosition("FLOATING") })
                                 TextButton(onClick = { vm.updateNavigationPosition("FLOATING") }) { Text(stringResource(R.string.ui_floating_bottom_bar_b162779)) }
                             }
-                            Card(
-                                shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                            ) {
-                                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Row(
-                                        Modifier.fillMaxWidth().clickable { layoutExpanded = !layoutExpanded },
-                                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                                    ) {
-                                        Text(stringResource(R.string.ui_library_layout_ffd5af3), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                                        Text(if (layoutExpanded) "▲" else "▼", color = MaterialTheme.colorScheme.primary)
-                                    }
-                                    if (layoutExpanded) {
-                                        Text(
-                                            stringResource(R.string.ui_choose_the_number_of_columns_thumbnails_ke_5c42c7f),
-                                            style = MaterialTheme.typography.bodySmall,
-                                        )
-                                        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                            Text(stringResource(R.string.ui_show_videos_as_a_list_a89e29d), modifier = Modifier.weight(1f))
-                                            Switch(checked = vm.videoListMode, onCheckedChange = { vm.toggleVideoLayout() })
-                                        }
-                                        GridPresetSetting("Folders grid", vm.folderGridPreset, vm::updateFolderGridPreset)
-                                        GridPresetSetting("Videos grid", vm.videoGridPreset, vm::updateVideoGridPreset)
-                                    }
-                                }
-                            }
-                        }
-                        "Playback" -> {
-                            // Shown directly: no second dropdown inside the Playback section.
-                            Text(stringResource(R.string.ui_player_gestures_1c6f88a), style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                stringResource(R.string.ui_volume_is_controlled_from_the_right_side_b_3c74369),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(stringResource(R.string.ui_brightness_and_volume_swipe_54fb5b9))
-                                    Text(stringResource(R.string.ui_left_brightness_right_volume_927c237), style = MaterialTheme.typography.labelSmall)
-                                }
-                                Switch(checked = swipeGesturesEnabled, onCheckedChange = {
-                                    swipeGesturesEnabled = it
-                                    gesturePrefs
-                                        .edit()
-                                        .putBoolean("volume_gesture_enabled", it)
-                                        .putBoolean("brightness_gesture_enabled", it)
-                                        .apply()
-                                })
-                            }
-                        }
-                        "Library" -> {
-                            SyncAndThumbnailsSettings(vm, scan = true, thumbnails = false)
-                            LibraryBackupActions(vm)
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text("Hide system folders in Files")
-                                    Text(
-                                        "\$RECYCLE.BIN, System Volume Information, .TPDLNA and other hidden or system folders",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                Switch(checked = vm.hideSystemFolders, onCheckedChange = vm::updateHideSystemFolders)
-                            }
+                            SettingsDivider()
+                            SettingsLabel("Grids")
+                            SwitchRow(stringResource(R.string.ui_show_videos_as_a_list_a89e29d), null, vm.videoListMode) { vm.toggleVideoLayout() }
+                            GridPresetSetting("Folders", vm.folderGridPreset, vm::updateFolderGridPreset)
+                            GridPresetSetting("Videos", vm.videoGridPreset, vm::updateVideoGridPreset)
+                            SettingsDivider()
+                            SettingsLabel("What is shown")
+                            SwitchRow("Hide system folders in Files", "Recycle bin, System Volume Information and other system folders", vm.hideSystemFolders, onChange = vm::updateHideSystemFolders)
                             OutlinedButton(onClick = { vm.ui.setFlag("settings.hidden", true) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
                         }
-                        "Diagnostics" -> DiagnosticsSettings()
+                        "Appearance" -> ThemeSettings()
+                        "Playback" -> {
+                            SwitchRow(stringResource(R.string.ui_brightness_and_volume_swipe_54fb5b9), stringResource(R.string.ui_left_brightness_right_volume_927c237), swipeGesturesEnabled) {
+                                swipeGesturesEnabled = it
+                                gesturePrefs
+                                    .edit()
+                                    .putBoolean("volume_gesture_enabled", it)
+                                    .putBoolean("brightness_gesture_enabled", it)
+                                    .apply()
+                            }
+                        }
+                        "Diagnostics" -> {
+                            LibraryBackupActions(vm)
+                            SettingsDivider()
+                            DiagnosticsSettings()
+                        }
                         else -> Unit
                     }
                 }
@@ -517,4 +485,90 @@ private fun ResetChoicesSetting(vm: LibraryViewModel) {
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
         )
     }
+}
+
+/** A small heading inside a section. */
+@Composable
+internal fun SettingsLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+}
+
+/** A thin line between the parts of a section (instead of boxes inside boxes). */
+@Composable
+internal fun SettingsDivider() {
+    androidx.compose.material3.HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+}
+
+/** One setting on one line: its name (and an optional short note) on the left, the switch on the right. */
+@Composable
+internal fun SwitchRow(title: String, note: String?, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = enabled, role = Role.Switch) { onChange(!checked) },
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+            if (note != null) Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
+    }
+}
+
+/** A row that opens more settings in place. */
+@Composable
+private fun ExpandRow(title: String, note: String, open: Boolean, onToggle: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button, onClick = onToggle),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(
+            Icons.Filled.ChevronRight,
+            contentDescription = if (open) "Close $title" else "Open $title",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.rotate(if (open) 90f else 0f),
+        )
+    }
+}
+
+/**
+ * Auto grouping: how file names become folders. Virtual folders and Custom folders each have their own three
+ * switches; all three on is the usual rule. The artwork search names live here too.
+ */
+@Composable
+private fun AutoGroupingSettings(vm: LibraryViewModel) {
+    Text(
+        "Example: \"tom cruise, brad pitt - top gun\". All three on gives Tom Cruise and Brad Pitt.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    GroupingSwitchesSetting(vm.sectionName(1), vm.virtualGrouping, vm::updateVirtualGrouping)
+    SettingsDivider()
+    GroupingSwitchesSetting(vm.sectionName(0) + " (single videos)", vm.customGrouping, vm::updateCustomGrouping)
+    SettingsDivider()
+    val artwork by vm.artworkSettings.collectAsStateWithLifecycle()
+    SettingsLabel("Artwork search")
+    Text(
+        "Videos search the name before the first comma, then the name before the hyphen. If neither is found, search by hand in Change cover.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    SwitchRow("Folders: search the whole folder name", "Off: the name is cleaned like a file name", artwork.folderUseWholeName) { on ->
+        vm.updateArtwork { it.copy(folderUseWholeName = on) }
+    }
+}
+
+@Composable
+private fun GroupingSwitchesSetting(
+    place: String,
+    rules: com.deepak.videolibrary.scan.GroupingSwitches,
+    onChange: (com.deepak.videolibrary.scan.GroupingSwitches) -> Unit,
+) {
+    SettingsLabel(place)
+    SwitchRow("Stop at the first hyphen", "Only the text before \"-\" is used", rules.stopAtHyphen) { onChange(rules.copy(stopAtHyphen = it)) }
+    SwitchRow("Split names at commas", "Each name gets a folder; the video shows in each", rules.splitAtCommas) { onChange(rules.copy(splitAtCommas = it)) }
+    SwitchRow("Otherwise the first two words", "When there is no hyphen or comma", rules.firstTwoWords) { onChange(rules.copy(firstTwoWords = it)) }
 }

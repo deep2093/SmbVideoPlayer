@@ -153,14 +153,14 @@ try:
     find('Hollywood')
     print('PASS: a virtual folder reads its chosen drive folder and shows the subfolder of the video filed there')
     click('Settings')
-    find('Connection');find('Playback');find('Library')
+    find('Connection');find('Playback');find('Sync & scanning')
     # Diagnostics is the last section; it may sit below the fold on a phone.
-    scroll_to('Diagnostics');scroll_to('Connection',up=True)
+    scroll_to('Backup & diagnostics');scroll_to('Connection',up=True)
     screenshot('settings-categories')
     click('Connection');find('Server address');find('Share name');click('Advanced connection options');find('Domain (optional)');find('Require SMB encryption')
     # The new Artwork section adds a row, so fold Connection away before opening the next section.
     click('Connection')
-    click('Playback');find('Player gestures')
+    click('Playback');find('Brightness and volume swipe')
     click('Appearance')
     current='Dark grey'
     for theme in ['AMOLED black','Midnight blue','Forest','Plum','Dark grey']:
@@ -207,7 +207,7 @@ try:
     click('Videos');click(NAME,long=True);click('Remove / Hide')
     click('Files');click('Movies');screenshot('hidden-in-explorer')
     assert gone(NAME), 'A hidden video must not be listed in Files'
-    click('Settings');open_section('Library','Unhide files and folders');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
+    click('Settings');open_section('App layout','Unhide files and folders');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
     find('No hidden items.');screenshot('unhide')
     adb('shell','input','keyevent','4')  # Back from Hidden items to the Settings list.
     print('PASS: hidden video is left out of Files and can be restored in Settings')
@@ -226,7 +226,7 @@ try:
     labels=[n.get('text','') for n in tree().iter('node')]
     assert 'A000.txt' not in labels, 'Shortcut must scroll beyond the first page'
     print('PASS: failed-thumbnail shortcut scrolls to the exact file and highlights it')
-    click('Settings');open_section('Appearance','Floating bottom bar');click('Floating bottom bar');click('Folders');find('Custom folders');screenshot('floating-navigation')
+    click('Settings');open_section('App layout','Floating bottom bar');click('Floating bottom bar');click('Folders');find('Custom folders');screenshot('floating-navigation')
     # Publish codec fixtures only now so background refresh cannot change the
     # earlier one-video selection scenario. Exercise generated WMV8 and real WMV9.
     for source,name in [('/tmp/videolibrary-sample.wmv','Sample.wmv'),('/tmp/videolibrary-wmv9.wmv','WMV9.wmv')]:
@@ -263,7 +263,7 @@ try:
         print('PASS: '+name+' streams from SMB with advancing video output')
 
     # Native visual review at exact logical widths, after the existing functional checks.
-    click('Settings');open_section('Appearance','Sidebar');click('Sidebar')
+    click('Settings');open_section('App layout','Sidebar');click('Sidebar')
     for width,height,density,label in [(780,1688,320,'phone-390'),(1536,2048,320,'tablet-768'),(2560,1600,320,'landscape-1280')]:
         adb('shell','wm','size',str(width)+'x'+str(height))
         adb('shell','wm','density',str(density))

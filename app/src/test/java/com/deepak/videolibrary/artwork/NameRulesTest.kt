@@ -75,4 +75,9 @@ class NameRulesTest {
         assertEquals("https://stash.example.org/graphql", EndpointPolicy.normalize(" https://stash.example.org/graphql/ "))
         assertEquals(null, EndpointPolicy.normalize("ftp://x.example.org"))
     }
+
+    @Test fun videoSearchTriesTheCommaNameThenTheHyphenName() {
+        assertEquals(listOf("tom cruise", "tom cruise, brad pitt"), NameCleaner.videoTerms("tom cruise, brad pitt - movie.mp4"))
+        assertEquals(listOf("tom cruise"), NameCleaner.videoTerms("tom cruise - movie.mp4"))
+    }
 }

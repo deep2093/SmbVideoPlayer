@@ -307,7 +307,18 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                         if (!next) results = null
                                         scope.launch {
                                             try {
-                                                when (val outcome = vm.searchPerformers(query.trim(), page)) {
+                                                var outcome = vm.searchPerformers(query.trim(), page)
+                                                // A video tries the name before the first comma, then the name before the hyphen.
+                                                val terms = if (target.video != null) com.deepak.videolibrary.artwork.online.NameCleaner.videoTerms(target.label) else emptyList()
+                                                val fallback = terms.getOrNull(1)
+                                                val first = outcome
+                                                if (!next && fallback != null && query.trim() == terms.first() &&
+                                                    first is SearchOutcome.Found && first.candidates.isEmpty()
+                                                ) {
+                                                    query = fallback
+                                                    outcome = vm.searchPerformers(fallback, page)
+                                                }
+                                                when (outcome) {
                                                     is SearchOutcome.Failed -> {
                                                         error = outcome.failure.message
                                                     }

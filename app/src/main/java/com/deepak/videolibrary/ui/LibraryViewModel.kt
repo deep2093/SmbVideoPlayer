@@ -926,6 +926,24 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
 
+    // ---- Auto grouping: how file names become folders, separately for Virtual and Custom folders ----
+    var virtualGrouping by mutableStateOf(com.deepak.videolibrary.scan.GroupingPrefs.load(app, com.deepak.videolibrary.scan.GroupingPrefs.VIRTUAL))
+        private set
+    var customGrouping by mutableStateOf(com.deepak.videolibrary.scan.GroupingPrefs.load(app, com.deepak.videolibrary.scan.GroupingPrefs.CUSTOM))
+        private set
+
+    fun updateVirtualGrouping(rules: com.deepak.videolibrary.scan.GroupingSwitches) {
+        virtualGrouping = rules
+        com.deepak.videolibrary.scan.GroupingPrefs.save(getApplication(), com.deepak.videolibrary.scan.GroupingPrefs.VIRTUAL, rules)
+        coverRevision++
+    }
+
+    fun updateCustomGrouping(rules: com.deepak.videolibrary.scan.GroupingSwitches) {
+        customGrouping = rules
+        com.deepak.videolibrary.scan.GroupingPrefs.save(getApplication(), com.deepak.videolibrary.scan.GroupingPrefs.CUSTOM, rules)
+        coverRevision++
+    }
+
     // ---- Virtual folders: folders you make and name, filled with chosen drive folders; the subfolders are generated ----
     private val virtualStore get() = services.virtualSets
     private val virtualRevision = MutableStateFlow(0)

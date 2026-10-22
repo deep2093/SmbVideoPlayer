@@ -30,14 +30,19 @@ object NameCleaner {
     }
 
     /**
-     * Search term for a video file name: only the part before the first "," or "-" is the person.
-     * "tom cruise- movie" and "tom cruise, brad pitt- movie" both give "tom cruise".
+     * Search terms for a video file name, in the order they are tried: the name before the first ",", then the
+     * name before the first "-". "tom cruise, brad pitt - movie" tries "tom cruise", then "tom cruise, brad pitt";
+     * "tom cruise - movie" tries "tom cruise". If none finds anyone, the user searches by hand.
      */
-    fun forVideo(raw: String): String {
-        var s = raw.trim().substringAfterLast('/').replace(videoExtension, "")
-        s = s.substringBefore(',').substringBefore('-')
-        return tidy(s)
+    fun videoTerms(raw: String): List<String> {
+        val s = raw.trim().substringAfterLast('/').replace(videoExtension, "")
+        val beforeComma = if (',' in s) tidy(s.substringBefore(',')) else ""
+        val beforeHyphen = tidy(s.substringBefore('-'))
+        return listOf(beforeComma, beforeHyphen).filter { it.isNotEmpty() }.distinct()
     }
+
+    /** The first search term for a video file name (see [videoTerms]). */
+    fun forVideo(raw: String): String = videoTerms(raw).firstOrNull().orEmpty()
 
     /**
      * Search term for a folder: the whole folder name (only separators and spacing are tidied) when [whole] is on,

@@ -355,12 +355,13 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
     var edit by remember { mutableStateOf(false) }
     // Grouping thousands of videos runs off the main thread, and the last result is shown at once when the folder is
     // opened again, so opening, closing and scrolling stay smooth while scans and thumbnails update the index.
-    val content by produceState(vm.cachedVirtualContent(set), set, vm.folderSort, vm.folderSortDescending) {
+    val content by produceState(vm.cachedVirtualContent(set), set, vm.folderSort, vm.folderSortDescending, vm.virtualGrouping) {
         val sort = vm.folderSort
         val descending = vm.folderSortDescending
+        val rules = vm.virtualGrouping
         vm.virtualSetVideos(set).conflate().collect { list ->
             val built = withContext(Dispatchers.Default) {
-                VirtualContent(list, VirtualGroups.sorted(VirtualGroups.build(set, list), sort, descending), loaded = true)
+                VirtualContent(list, VirtualGroups.sorted(VirtualGroups.build(set, list, rules), sort, descending), loaded = true)
             }
             value = built
             vm.rememberVirtualContent(set, built)

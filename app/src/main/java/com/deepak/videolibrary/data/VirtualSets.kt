@@ -94,12 +94,16 @@ object VirtualGroups {
      * (customGroup) stays only in the folder it was given. The set's renames and hidden folders are applied, so a
      * rescan never undoes them; renaming a folder to the name of another merges them.
      */
-    fun build(set: VirtualSet, videos: List<VideoEntity>): List<VirtualGroup> {
+    fun build(
+        set: VirtualSet,
+        videos: List<VideoEntity>,
+        rules: com.deepak.videolibrary.scan.GroupingSwitches = com.deepak.videolibrary.scan.GroupingSwitches(),
+    ): List<VirtualGroup> {
         val titles = LinkedHashMap<String, String>()
         val members = LinkedHashMap<String, LinkedHashMap<String, VideoEntity>>()
         for (video in videos) {
             val names = video.customGroup?.takeIf { it.isNotBlank() }?.let { listOf(com.deepak.videolibrary.scan.VirtualNames.display(it)) }
-                ?: com.deepak.videolibrary.scan.VirtualNames.of(video.name)
+                ?: com.deepak.videolibrary.scan.VirtualNames.of(video.name, rules)
             for (name in names) {
                 val generated = com.deepak.videolibrary.scan.VirtualNames.identity(name)
                 if (generated in set.hidden) continue
@@ -130,3 +134,17 @@ object VirtualGroups {
 
 /** What a Virtual folder page shows: its videos and the subfolders built from them. [loaded] is false until the first result. */
 data class VirtualContent(val videos: List<VideoEntity>, val groups: List<VirtualGroup>, val loaded: Boolean)
+
+/**
+ * Single videos of a Custom folder grouped by name with that place's switches: folder identity -> its videos.
+ * A video filed by hand stays in its own folder. Sorted by name.
+ */
+fun groupByNames(videos: List<VideoEntity>, rules: com.deepak.videolibrary.scan.GroupingSwitches): java.util.SortedMap<String, List<VideoEntity>> {
+    val names = com.deepak.videolibrary.scan.VirtualNames
+    val out = java.util.TreeMap<String, LinkedHashMap<String, VideoEntity>>()
+    for (video in videos) {
+        val found = video.customGroup?.takeIf { it.isNotBlank() }?.let { listOf(it) } ?: names.of(video.name, rules)
+        found.forEach { name -> out.getOrPut(names.identity(name)) { LinkedHashMap() }[video.relativePath] = video }
+    }
+    return java.util.TreeMap(out.mapValues { it.value.values.toList() })
+}

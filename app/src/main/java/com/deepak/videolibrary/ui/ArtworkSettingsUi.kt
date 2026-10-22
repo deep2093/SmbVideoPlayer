@@ -188,18 +188,7 @@ internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
         StashDbKey(vm, s, keyRevision, portraitsOn)
     }
 
-    ArtworkGroup(
-        vm, "names", "Names to search",
-        "Videos: ${if (s.videoUseFirstName) "text before \",\" or \"-\"" else "whole name"} · Folders: ${if (s.folderUseWholeName) "whole name" else "cleaned name"}",
-        s.enabled,
-    ) {
-        ToggleRow(
-            "Videos: text before \",\" or \"-\"",
-            "\"tom cruise, brad pitt- movie\" searches for \"tom cruise\".",
-            s.videoUseFirstName,
-        ) { on -> vm.updateArtwork { it.copy(videoUseFirstName = on) } }
-        ToggleRow("Folders: whole folder name", null, s.folderUseWholeName) { on -> vm.updateArtwork { it.copy(folderUseWholeName = on) } }
-    }
+    // The names sent to the search are set in Settings > Auto grouping.
 
     ArtworkGroup(
         vm, "tools", "Tools",

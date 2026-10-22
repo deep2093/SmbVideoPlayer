@@ -122,7 +122,8 @@ internal object FolderTargets {
                     com.deepak.videolibrary.data.LibraryScope(serverKey, members = set.members()),
                 ),
             )
-            com.deepak.videolibrary.data.VirtualGroups.build(set, videos).forEach { consider(ArtworkKeys.virtualSub(set.id, it.identity), it.title) }
+            val rules = com.deepak.videolibrary.scan.GroupingPrefs.load(services.artworkContext, com.deepak.videolibrary.scan.GroupingPrefs.VIRTUAL)
+            com.deepak.videolibrary.data.VirtualGroups.build(set, videos, rules).forEach { consider(ArtworkKeys.virtualSub(set.id, it.identity), it.title) }
         }
         return out.entries.map { it.key to it.value }
     }

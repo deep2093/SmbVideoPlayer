@@ -31,4 +31,12 @@ class VirtualNamesTest {
         assertEquals(listOf("#"), VirtualNames.of("- x.mp4"))
         assertEquals(listOf("A", "B"), VirtualNames.of("a,, b - x.mp4"))
     }
+
+    @Test fun eachSwitchChangesTheResult() {
+        val name = "tom cruise, brad pitt - top gun.mp4"
+        assertEquals(listOf("Tom Cruise, Brad Pitt"), VirtualNames.of(name, GroupingSwitches(stopAtHyphen = true, splitAtCommas = false, firstTwoWords = false)))
+        assertEquals(listOf("Tom Cruise", "Brad Pitt - Top Gun"), VirtualNames.of(name, GroupingSwitches(stopAtHyphen = false, splitAtCommas = true, firstTwoWords = false)))
+        assertEquals(listOf("Tom Cruise Movie Night"), VirtualNames.of("tom cruise movie night.mp4", GroupingSwitches(firstTwoWords = false)))
+        assertEquals(listOf("Tom Cruise"), VirtualNames.of("tom cruise - top gun.mp4", GroupingSwitches(stopAtHyphen = false, splitAtCommas = false, firstTwoWords = true)))
+    }
 }

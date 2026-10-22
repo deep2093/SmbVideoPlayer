@@ -78,6 +78,7 @@ internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel, scan: Boolean = tru
     var scanMenu by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var showFailures by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
     var showErrors by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    var showDetails by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
 
     if(confirmEmpty) androidx.compose.material3.AlertDialog(
         onDismissRequest={confirmEmpty=false},
@@ -112,19 +113,21 @@ internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel, scan: Boolean = tru
                                 },
                                 modifier = Modifier.weight(1f),
                             )
-                            Text(
-                                "${s.mode.lowercase().replaceFirstChar { it.uppercase() }} scan",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
                         if (active) LinearProgressIndicator(Modifier.fillMaxWidth())
-                        Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "$total videos · " + (s.finishedAt?.let { "finished " + shortAgo(it).lowercase() } ?: "not finished") +
+                                if (s.errorCount > 0) " · ${s.errorCount} errors" else "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (s.errorCount > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                        )
+                        TextButton(onClick = { showDetails = !showDetails }) { Text(if (showDetails) "Hide details" else "Details") }
+                        if (showDetails) Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             ScanStat("Folders", s.dirsScanned.toString(), Modifier.weight(1f))
                             ScanStat("Waiting", pending.toString(), Modifier.weight(1f))
                             ScanStat("Errors", s.errorCount.toString(), Modifier.weight(1f), warn = s.errorCount > 0)
                         }
-                        Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (showDetails) Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             ScanStat("Found", s.videosFound.toString(), Modifier.weight(1f))
                             ScanStat("In library", total.toString(), Modifier.weight(1f))
                             ScanStat("Finished", s.finishedAt?.let(::shortAgo) ?: "—", Modifier.weight(1f))
@@ -143,7 +146,6 @@ internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel, scan: Boolean = tru
                         Text("No videos found. The previous index was kept in case your drive is unavailable.",color=MaterialTheme.colorScheme.onSurfaceVariant)
                         TextButton(enabled=!busy,onClick={confirmEmpty=true}){Text("Remove missing entries…")}
                     }
-                    HorizontalDivider()
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { vm.startScan(if (session == null) ScanMode.INITIAL else ScanMode.REFRESH) }, enabled = !busy) {
                             Text(if (session == null) "Scan library" else "Refresh library")
@@ -182,15 +184,14 @@ internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel, scan: Boolean = tru
             if (thumbnails) run {
                 val all = thumbsDone + thumbsPending + thumbsFailed
                 ScanSection("Thumbnails") {
-                    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ScanStat("Ready", thumbsDone.toString(), Modifier.weight(1f))
-                        ScanStat("Waiting", thumbsPending.toString(), Modifier.weight(1f))
-                        ScanStat("Failed", thumbsFailed.toString(), Modifier.weight(1f), warn = visibleFailures.isNotEmpty())
-                    }
+                    Text(
+                        "$thumbsDone ready · $thumbsPending waiting · $thumbsFailed failed",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (visibleFailures.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    )
                     if (busy && thumbsPending > 0) {
                         FillBar(thumbsDone.toFloat() / all.coerceAtLeast(1), Modifier.fillMaxWidth())
                     }
-                    HorizontalDivider()
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = vm::startThumbnails, enabled = !busy && thumbsPending > 0) { Text(stringResource(R.string.ui_generate_fc45f9b)) }
                         OutlinedButton(onClick = vm::retryFailedThumbnails, enabled = !busy && thumbsFailed > 0) { Text(stringResource(R.string.ui_retry_failed_7b6ca4d)) }
@@ -277,18 +278,12 @@ private fun DismissibleThumbnailFailures(vm: LibraryViewModel, failures: List<Vi
 private fun prettyStatus(status: String) =
     status.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
 
-/** A titled card; every Scan section uses the same padding, spacing and colours. */
+/** A titled part of a Settings section: a small heading and its rows, with no box around it. */
 @Composable
 internal fun ScanSection(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
-    Card(
-        Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-    ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            content()
-        }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SettingsLabel(title)
+        content()
     }
 }
 
@@ -357,19 +352,9 @@ private fun AutomaticSyncSummary() {
     }
     var enabled by remember(context) { mutableStateOf(com.deepak.videolibrary.scan.PeriodicSyncWorker.isEnabled(context)) }
     ScanSection("Automatic sync") {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Text(
-                "Rescan automatically",
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.weight(1f),
-            )
-            androidx.compose.material3.Switch(
-                checked = enabled,
-                onCheckedChange = {
-                    enabled = it
-                    com.deepak.videolibrary.scan.PeriodicSyncWorker.setEnabled(context, it)
-                },
-            )
+        SwitchRow("Rescan automatically", null, enabled) {
+            enabled = it
+            com.deepak.videolibrary.scan.PeriodicSyncWorker.setEnabled(context, it)
         }
         Text(
             if (enabled) {
@@ -380,10 +365,10 @@ private fun AutomaticSyncSummary() {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ScanStat("Status", status, Modifier.weight(1f))
-            ScanStat("Last sync", if (snapshot.second == 0L) "Never" else shortAgo(snapshot.second), Modifier.weight(1f))
-        }
+        Text(
+            "$status · last sync " + if (snapshot.second == 0L) "never" else shortAgo(snapshot.second).lowercase(),
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 

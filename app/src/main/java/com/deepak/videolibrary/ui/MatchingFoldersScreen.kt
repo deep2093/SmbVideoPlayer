@@ -296,7 +296,9 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
     var edit by remember { mutableStateOf(false) }
     val files by produceState(emptyList<VideoEntity>(), folder) { value = vm.ownFolderFiles(folder) }
     val grouped = vm.ownFolderGroupsFiles(folder.id)
-    val groups = remember(files) { files.groupBy { it.groupKey }.toSortedMap() }
+    // Grouped by the Custom folders switches in Settings > Auto grouping.
+    val rules = vm.customGrouping
+    val groups = remember(files, rules) { groupByNames(files, rules) }
     val shownFiles = openGroup?.let { groups[it].orEmpty() } ?: files
     val gridState = remember(folder.id, openGroup) { LazyGridState() }
     ScrollTopOnRequest(vm, gridState)
