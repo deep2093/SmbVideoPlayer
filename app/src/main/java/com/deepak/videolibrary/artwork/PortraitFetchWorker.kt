@@ -110,7 +110,9 @@ internal object FolderTargets {
         fun consider(identity: String, label: String) {
             val scope = ArtworkKeys.scopeOf(identity)
             if (!settings.portraitLookupWanted(scope)) return
-            val row = repo.row(identity)
+            // A folder whose cover you chose, or that already has a portrait (also from earlier folders of the same
+            // name), is never looked up again.
+            val row = repo.effectiveRow(identity)
             if (row?.manual == true) return
             // Already has a portrait: never downloaded again. Earlier "no match" / "unclear" results are only
             // retried when the user asks for a lookup from Settings.
@@ -118,12 +120,20 @@ internal object FolderTargets {
             if (row != null && (!forced || row.updatedAt >= since)) return
             out[identity] = label
         }
-        dao.allGroupNames().forEach { consider(ArtworkKeys.virtualFolder(it), it) }
         dao.allMatchFolders().forEach { consider(ArtworkKeys.matchFolder(it.id), it.name) }
         dao.allParentDirs().forEach { consider(ArtworkKeys.originalFolder(it), it.substringAfterLast('/')) }
         // The subfolders generated inside the user's Virtual folders are named after people too.
         val saved = services.settings.load()
         val serverKey = saved.host.trim().lowercase(java.util.Locale.ROOT) + "/" + saved.share.trim().lowercase(java.util.Locale.ROOT)
+        // Groups of single videos inside Custom folders.
+        val customRules = com.deepak.videolibrary.scan.GroupingPrefs.load(services.artworkContext, com.deepak.videolibrary.scan.GroupingPrefs.CUSTOM)
+        for (own in com.deepak.videolibrary.data.OwnFolderStore(services.artworkContext).load(serverKey)) {
+            if (own.files.isEmpty()) continue
+            val videos = own.files.chunked(500).flatMap { dao.videosByPaths(it) }
+            com.deepak.videolibrary.data.groupByNames(videos, customRules).keys.forEach { identity ->
+                consider(ArtworkKeys.virtualFolder(identity), com.deepak.videolibrary.scan.VirtualNames.display(identity))
+            }
+        }
         for (set in services.virtualSets.load(serverKey)) {
             if (set.isEmpty) continue
             val videos = services.db.libraryState().videoList(

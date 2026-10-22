@@ -35,7 +35,7 @@ internal fun MatchingFoldersScreen(
     val own by vm.ownFolders.collectAsStateWithLifecycle()
     val opened = own.firstOrNull { it.id == vm.openOwnFolderId }
     if (opened != null) {
-        OwnFolderPage(vm, opened, onOpen, onPlay)
+        OwnFolderPage(vm, opened, own, onOpen, onPlay)
         return
     }
     val query by vm.matchFolderQuery.collectAsStateWithLifecycle()
@@ -47,7 +47,9 @@ internal fun MatchingFoldersScreen(
     var name by remember { mutableStateOf("") }
     // A new own folder goes straight on to choosing what it shows.
     var fillNew by remember { mutableStateOf<String?>(null) }
-    val shownOwn = if (query.isBlank()) own else own.filter { it.name.contains(query.trim(), ignoreCase = true) }
+    // Folders made inside another one show on that folder's page, not here.
+    val topOwn = own.filter { it.parentId == null }
+    val shownOwn = if (query.isBlank()) topOwn else topOwn.filter { it.name.contains(query.trim(), ignoreCase = true) }
     val aspect = cardAspect(vm, Pages.CUSTOM)
     ScrollToTopOnChange(query, gridState)
     LaunchedEffect(active) {
@@ -280,7 +282,11 @@ private fun OwnFolderCard(vm: LibraryViewModel, folder: OwnFolder, aspect: Float
  * folder together.
  */
 @Composable
-private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () -> Unit, onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
+private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<OwnFolder>, onOpen: () -> Unit, onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
+    val children = allOwn.filter { it.parentId == folder.id }
+    val parent = allOwn.firstOrNull { it.id == folder.parentId }
+    var naming by remember { mutableStateOf(false) }
+    var fillNew by remember { mutableStateOf<String?>(null) }
     var openGroup by remember(folder.id) { mutableStateOf<String?>(null) }
     val selectPage = "select:own:" + folder.id
     val selection = vm.ui.selectionOn(selectPage)
@@ -288,7 +294,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
         when {
             selection != null -> vm.ui.endSelection(selectPage)
             openGroup != null -> openGroup = null
-            else -> vm.openOwnFolderId = null
+            else -> vm.openOwnFolderId = folder.parentId
         }
     }
     val page = Pages.ownFolder(folder.id)
@@ -340,8 +346,8 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
             )
         } else {
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { if (openGroup != null) openGroup = null else vm.openOwnFolderId = null }) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = if (openGroup != null) "Back to ${folder.name}" else "Back to Custom folders")
+                IconButton(onClick = { if (openGroup != null) openGroup = null else vm.openOwnFolderId = folder.parentId }) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = if (openGroup != null) "Back to ${folder.name}" else "Back to ${parent?.name ?: "Custom folders"}")
                 }
                 Text(
                     openGroup?.let(::groupTitle) ?: folder.name,
@@ -351,6 +357,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
                     modifier = Modifier.weight(1f),
                 )
                 if (openGroup == null) {
+                    IconAction(Icons.Default.CreateNewFolder, "New folder inside ${folder.name}", onClick = { naming = true })
                     IconAction(Icons.Default.Edit, "Choose folders and files", onClick = { edit = true })
                     if (files.isNotEmpty()) {
                         IconAction(
@@ -368,7 +375,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
                 if (LocalHubBarSlot.current == null) LocalTopBarEnd.current()
             }
         }
-        if (folder.isEmpty) {
+        if (folder.isEmpty && children.isEmpty()) {
             Column(Modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
                 Text("Choose drive folders and videos for this folder.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -384,6 +391,8 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
             contentPadding = PaddingValues(top = 8.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
         ) {
             if (openGroup == null) {
+                // Folders made inside this one come first.
+                items(children, key = { "own:" + it.id }) { child -> OwnFolderCard(vm, child, aspect, null) }
                 items(folder.folders, key = { "dir:$it" }) { path ->
                     DriveFolderCard(
                         vm, path, aspect, onOpen,
@@ -419,7 +428,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
                     }
                 }
             }
-            val dirs = if (openGroup == null) folder.folders.size else 0
+            val dirs = if (openGroup == null) folder.folders.size + children.size else 0
             val groupCards = if (openGroup == null && grouped) groups.size else 0
             if (dirs + groupCards + (if (openGroup != null || !grouped) shownFiles.size else 0) > 0) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
@@ -432,6 +441,16 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, onOpen: () ->
         }
     }
     if (edit) OwnFolderContentsPicker(vm, folder) { edit = false }
+    if (naming) {
+        RenameDialog(
+            title = "New folder inside ${folder.name}",
+            current = "",
+            hint = "Give it any name, then choose the drive folders and files it shows. Nothing on your drive changes.",
+            onDismiss = { naming = false },
+            onRename = { typed -> fillNew = vm.createOwnFolder(typed, parentId = folder.id) },
+        )
+    }
+    fillNew?.let { id -> allOwn.firstOrNull { it.id == id }?.let { child -> OwnFolderContentsPicker(vm, child) { fillNew = null } } }
 }
 
 private fun groupTitle(key: String) = key.split(' ').joinToString(" ") { word -> word.replaceFirstChar { it.titlecase(java.util.Locale.ROOT) } }

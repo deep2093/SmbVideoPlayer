@@ -798,11 +798,11 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         notice = "${paths.size} ${if (paths.size == 1) "video" else "videos"} added to Custom folders."
     }
 
-    /** Creates an empty own folder and returns its id, or null when the name is not usable. */
-    fun createOwnFolder(name: String): String? {
+    /** Creates an empty own folder (inside [parentId] when given) and returns its id, or null when the name is not usable. */
+    fun createOwnFolder(name: String, parentId: String? = null): String? {
         val clean = cleanFolderName(name) ?: return null
         val id = java.util.UUID.randomUUID().toString()
-        editOwn { it + OwnFolder(id, clean) }
+        editOwn { it + OwnFolder(id, clean, parentId = parentId) }
         // A folder made again with an earlier name gets back the cover it had.
         viewModelScope.launch { restoreCover(savedCoverKey("own", clean), ownFolderKey(id)) }
         return id
@@ -814,9 +814,12 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
 
     fun deleteOwnFolder(id: String) {
-        val name = ownStore.load(namespace.value).firstOrNull { it.id == id }?.name
+        val all = ownStore.load(namespace.value)
+        val name = all.firstOrNull { it.id == id }?.name
+        // Folders inside it go with it.
+        all.filter { it.parentId == id }.forEach { deleteOwnFolder(it.id) }
         editOwn { list -> list.filterNot { it.id == id } }
-        if (openOwnFolderId == id) openOwnFolderId = null
+        if (openOwnFolderId == id) openOwnFolderId = all.firstOrNull { it.id == id }?.parentId
         // The cover is kept, so a folder made again with this name gets it back.
         if (name != null) viewModelScope.launch { keepCover(ownFolderKey(id), savedCoverKey("own", name)) }
     }
@@ -954,17 +957,21 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     /** The Virtual folder whose page is open, or null for the list. */
     var openVirtualSetId by mutableStateOf<String?>(null)
 
+    /** Where each Virtual folder page was (open subfolder, scroll), so coming back from the player returns there. */
+    val virtualOpenGroup = HashMap<String, String>()
+    val virtualScroll = HashMap<String, Pair<Int, Int>>()
+
     private fun editVirtual(change: (List<VirtualSet>) -> List<VirtualSet>) {
         val key = namespace.value
         virtualStore.save(key, change(virtualStore.load(key)))
         virtualRevision.value++
     }
 
-    /** Creates an empty Virtual folder and returns its id, or null when the name is not usable. */
-    fun createVirtualSet(name: String): String? {
+    /** Creates an empty Virtual folder (inside [parentId] when given) and returns its id, or null when the name is not usable. */
+    fun createVirtualSet(name: String, parentId: String? = null): String? {
         val clean = cleanFolderName(name) ?: return null
         val id = java.util.UUID.randomUUID().toString()
-        editVirtual { it + VirtualSet(id, clean) }
+        editVirtual { it + VirtualSet(id, clean, parentId = parentId) }
         // A folder made again with an earlier name gets back its cover and its subfolders' covers.
         viewModelScope.launch { restoreCover(savedCoverKey("vset", clean), virtualSetKey(id)) }
         return id
@@ -977,9 +984,12 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
 
     /** Removes the folder from the app only. Nothing on the drive is touched. */
     fun deleteVirtualSet(id: String) {
-        val name = virtualStore.load(namespace.value).firstOrNull { it.id == id }?.name
+        val all = virtualStore.load(namespace.value)
+        val name = all.firstOrNull { it.id == id }?.name
+        // Folders inside it go with it (their covers are kept the same way).
+        all.filter { it.parentId == id }.forEach { deleteVirtualSet(it.id) }
         editVirtual { list -> list.filterNot { it.id == id } }
-        if (openVirtualSetId == id) openVirtualSetId = null
+        if (openVirtualSetId == id) openVirtualSetId = all.firstOrNull { it.id == id }?.parentId
         // Covers are kept, so a folder made again with this name gets them back.
         if (name != null) viewModelScope.launch {
             keepCover(virtualSetKey(id), savedCoverKey("vset", name))

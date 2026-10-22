@@ -67,6 +67,18 @@ class ArtworkRepository(
 
     fun row(key: String): ArtworkOverride? = rows[key]
 
+    /**
+     * The stored choice for a folder. A Virtual subfolder ("vset:<folder>:<name>") with nothing of its own uses the
+     * cover its name had in the earlier Virtual folders ("virtual:<name>"), so covers chosen or found before are
+     * shown again and never looked up a second time.
+     */
+    fun effectiveRow(key: String): ArtworkOverride? {
+        rows[key]?.let { return it }
+        if (!key.startsWith("vset:")) return null
+        val name = key.removePrefix("vset:").substringAfter(':', "")
+        return if (name.isEmpty()) null else rows["virtual:$name"]
+    }
+
     fun imageFile(name: String?): File? = name?.let { File(imageDir(), it) }?.takeIf { it.isFile }
 
     // ---- Deciding what to show ----
@@ -74,7 +86,7 @@ class ArtworkRepository(
     /** The decision for a folder (identity such as `virtual:Name` or `original:path`). */
     fun decideFolder(identity: String): ArtworkDecision {
         val scope = ArtworkKeys.scopeOf(identity)
-        val decision = ArtworkResolver.decide(scope, rows[identity], null, false, settings.value)
+        val decision = ArtworkResolver.decide(scope, effectiveRow(identity), null, false, settings.value)
         if (decision.source == ArtworkSource.IMAGE && imageFile(decision.imageName) == null) {
             // The picture is gone (cleared storage): fall back to the existing cover rather than showing nothing.
             return ArtworkDecision(ArtworkSource.LEGACY)

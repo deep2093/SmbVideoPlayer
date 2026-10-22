@@ -19,6 +19,8 @@ data class VirtualSet(
     val hidden: Set<String> = emptySet(),
     /** Single videos chosen on their own; they are filed into the name subfolders like everything else. */
     val files: List<String> = emptyList(),
+    /** The Virtual folder this one sits inside, or null for one on the Virtual folders page. */
+    val parentId: String? = null,
 ) {
     val isEmpty: Boolean get() = folders.isEmpty() && files.isEmpty()
 
@@ -51,7 +53,8 @@ class VirtualSetStore(context: Context) {
                         .put("folders", JSONArray(s.folders))
                         .put("renames", JSONObject().apply { s.renames.forEach { (k, v) -> put(k, v) } })
                         .put("hidden", JSONArray(s.hidden.toList()))
-                        .put("files", JSONArray(s.files)),
+                        .put("files", JSONArray(s.files))
+                        .put("parent", s.parentId ?: JSONObject.NULL),
                 )
             }
         }.toString()
@@ -69,6 +72,7 @@ class VirtualSetStore(context: Context) {
                     VirtualSet(
                         id, name, strings(o.optJSONArray("folders")), renames, strings(o.optJSONArray("hidden")).toSet(),
                         strings(o.optJSONArray("files")).filter { it.isNotEmpty() },
+                        o.optString("parent").takeIf { it.isNotBlank() && it != "null" },
                     )
                 }
             } catch (e: Exception) {

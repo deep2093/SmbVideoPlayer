@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
@@ -90,7 +91,7 @@ internal fun VirtualFoldersScreen(
     ) { id ->
         val opened = sets.firstOrNull { it.id == id }
         if (opened != null) {
-            VirtualSetPage(vm, opened, onPlay)
+            VirtualSetPage(vm, opened, sets, onPlay)
         } else {
             VirtualSetList(vm, sets, gridState, onOpenSettings, active)
         }
@@ -120,7 +121,8 @@ private fun VirtualSetList(
     var naming by remember { mutableStateOf(false) }
     // A new folder goes straight on to choosing its drive folders.
     var fillNew by remember { mutableStateOf<String?>(null) }
-    val shown = if (query.isBlank()) sets else sets.filter { it.name.contains(query.trim(), ignoreCase = true) }
+    val topLevel = sets.filter { it.parentId == null }
+    val shown = if (query.isBlank()) topLevel else topLevel.filter { it.name.contains(query.trim(), ignoreCase = true) }
     val aspect = cardAspect(vm, Pages.VIRTUAL)
     ScrollToTopOnChange(query, gridState)
     LaunchedEffect(active) {
@@ -341,15 +343,20 @@ private fun VirtualSetCard(vm: LibraryViewModel, set: VirtualSet, aspect: Float,
  * offers the same actions as the other folder pages.
  */
 @Composable
-private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
-    var openGroup by remember(set.id) { mutableStateOf<String?>(null) }
+private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<VirtualSet>, onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
+    // The open subfolder is kept in the view model, so coming back from the player opens it again.
+    var openGroup by remember(set.id) { mutableStateOf(vm.virtualOpenGroup[set.id]) }
+    val children = allSets.filter { it.parentId == set.id }
+    val parent = allSets.firstOrNull { it.id == set.parentId }
+    var naming by remember { mutableStateOf(false) }
+    var fillNew by remember { mutableStateOf<String?>(null) }
     val selectPage = "select:vset:" + set.id
     val selection = vm.ui.selectionOn(selectPage)
     BackHandler {
         when {
             selection != null -> vm.ui.endSelection(selectPage)
             openGroup != null -> openGroup = null
-            else -> vm.openVirtualSetId = null
+            else -> vm.openVirtualSetId = set.parentId
         }
     }
     var edit by remember { mutableStateOf(false) }
@@ -377,9 +384,21 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
     val shownVideos = current?.videos.orEmpty()
     // Each view keeps its own scroll position; the list of subfolders is where it was after closing one.
     val states = remember(set.id) { HashMap<String, LazyGridState>() }
-    fun stateFor(id: String?): LazyGridState = states.getOrPut(id ?: "") { LazyGridState() }
+    fun stateFor(id: String?): LazyGridState = states.getOrPut(id ?: "") {
+        val saved = vm.virtualScroll[set.id + "|" + (id ?: "")]
+        LazyGridState(saved?.first ?: 0, saved?.second ?: 0)
+    }
+    // Scroll positions are kept too, for when this page comes back after playing a video.
+    androidx.compose.runtime.DisposableEffect(set.id) {
+        onDispose {
+            states.forEach { (id, state) -> vm.virtualScroll[set.id + "|" + id] = state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
+        }
+    }
     ScrollTopOnRequest(vm, stateFor(openGroup))
-    LaunchedEffect(openGroup) { vm.ui.endSelection(selectPage) }
+    LaunchedEffect(openGroup) {
+        vm.ui.endSelection(selectPage)
+        openGroup.let { if (it == null) vm.virtualOpenGroup.remove(set.id) else vm.virtualOpenGroup[set.id] = it }
+    }
     fun toggle(key: String) = vm.ui.toggleFolder(selectPage, key)
     fun videosOf(keys: Set<String>): List<VideoEntity> = keys.flatMap { key ->
         when {
@@ -409,8 +428,8 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
             )
         } else {
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { if (openGroup != null) openGroup = null else vm.openVirtualSetId = null }) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = if (openGroup != null) "Back to ${set.name}" else "Back to ${vm.sectionName(1)}")
+                IconButton(onClick = { if (openGroup != null) openGroup = null else vm.openVirtualSetId = set.parentId }) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = if (openGroup != null) "Back to ${set.name}" else "Back to ${parent?.name ?: vm.sectionName(1)}")
                 }
                 Text(
                     current?.title ?: set.name,
@@ -420,6 +439,7 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
                     modifier = Modifier.weight(1f),
                 )
                 if (current == null) {
+                    IconAction(Icons.Default.CreateNewFolder, "New folder inside ${set.name}", onClick = { naming = true })
                     IconAction(Icons.Default.Edit, "Choose folders and files", onClick = { edit = true })
                     IconAction(Icons.Default.Refresh, "Scan now", onClick = { vm.rescanVirtual() })
                     if (set.hidden.isNotEmpty()) {
@@ -441,13 +461,13 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
                 if (LocalHubBarSlot.current == null) LocalTopBarEnd.current()
             }
         }
-        if (set.isEmpty) {
+        if (set.isEmpty && children.isEmpty()) {
             Column(Modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
                 Text("Choose the drive folders and videos this virtual folder reads.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(onClick = { edit = true }) { Text("Choose folders and files") }
             }
-        } else if (content.loaded && groups.isEmpty()) {
+        } else if (!set.isEmpty && content.loaded && groups.isEmpty()) {
             Column(Modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Looking for videos…", style = MaterialTheme.typography.titleMedium)
                 Text(
@@ -467,14 +487,34 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
             val shown = groups.firstOrNull { it.identity == groupId }
             val inside = shown?.videos.orEmpty()
             val aspect = cardAspect(vm, if (groupId == null) Pages.virtualSet(set.id) else Pages.virtualSetVideos(set.id))
+            val gridState = stateFor(groupId)
+            // The letter rail on the right, like the other folder pages.
+            FastScrollBox(
+                state = gridState,
+                modifier = Modifier.fillMaxSize(),
+                labelFor = { index ->
+                    if (groupId == null) {
+                        (children.map { it.name } + groups.map { it.title }).getOrNull(index)?.let(::sectionLetter)
+                    } else {
+                        inside.getOrNull(index)?.name?.let(::sectionLetter)
+                    }
+                },
+                bottomInset = if (floatingPadding(vm)) 100.dp else 16.dp,
+            ) {
             LazyVerticalGrid(
-                state = stateFor(groupId),
+                state = gridState,
                 modifier = Modifier.fillMaxSize().testTag(if (groupId == null) "virtual-subfolder-grid" else "virtual-subfolder-videos"),
                 columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(top = 8.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
             ) {
+                // Folders you made inside this one come first, then the generated name folders.
+                if (groupId == null) {
+                    items(children, key = { "set:" + it.id }, contentType = { "set" }) { child ->
+                        VirtualSetCard(vm, child, aspect, null)
+                    }
+                }
                 if (groupId == null) {
                     items(groups, key = { "group:" + it.identity }, contentType = { "group" }) { group ->
                         VirtualGroupCard(
@@ -500,18 +540,30 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, onPlay: (Video
                         }
                     }
                 }
-                if (groups.isNotEmpty()) {
+                if (groups.isNotEmpty() || children.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
+                        val folders = groups.size + children.size
                         ListTotal(
-                            if (groupId == null) "${groups.size} ${if (groups.size == 1) "folder" else "folders"} · ${videos.size} videos"
+                            if (groupId == null) "$folders ${if (folders == 1) "folder" else "folders"} · ${videos.size} videos"
                             else "${inside.size} ${if (inside.size == 1) "video" else "videos"}",
                         )
                     }
                 }
             }
+            }
         }
     }
     if (edit) VirtualFolderPicker(vm, set) { edit = false }
+    if (naming) {
+        RenameDialog(
+            title = "New folder inside ${set.name}",
+            current = "",
+            hint = "Give it any name, then choose the drive folders and videos it reads. Nothing on your drive changes.",
+            onDismiss = { naming = false },
+            onRename = { typed -> fillNew = vm.createVirtualSet(typed, parentId = set.id) },
+        )
+    }
+    fillNew?.let { id -> allSets.firstOrNull { it.id == id }?.let { child -> VirtualFolderPicker(vm, child) { fillNew = null } } }
 }
 
 /** A generated subfolder. Hold it for Select, Change cover, Download, Cut, Copy, Paste, Rename and Take out. */

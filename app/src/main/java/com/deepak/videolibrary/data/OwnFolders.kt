@@ -13,6 +13,8 @@ data class OwnFolder(
     val name: String,
     val folders: List<String> = emptyList(),
     val files: List<String> = emptyList(),
+    /** The Custom folder this one sits inside, or null for one on the Custom folders page. */
+    val parentId: String? = null,
 ) {
     val isEmpty: Boolean get() = folders.isEmpty() && files.isEmpty()
 
@@ -45,7 +47,8 @@ class OwnFolderStore(context: Context) {
                         .put("id", f.id)
                         .put("name", f.name)
                         .put("folders", JSONArray(f.folders))
-                        .put("files", JSONArray(f.files)),
+                        .put("files", JSONArray(f.files))
+                        .put("parent", f.parentId ?: JSONObject.NULL),
                 )
             }
         }.toString()
@@ -59,7 +62,10 @@ class OwnFolderStore(context: Context) {
                     val id = o.optString("id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
                     val name = o.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
                     // A folder may be "" (the whole share); a file never is.
-                    OwnFolder(id, name, strings(o.optJSONArray("folders")), strings(o.optJSONArray("files")).filter { it.isNotEmpty() })
+                    OwnFolder(
+                        id, name, strings(o.optJSONArray("folders")), strings(o.optJSONArray("files")).filter { it.isNotEmpty() },
+                        o.optString("parent").takeIf { it.isNotBlank() && it != "null" },
+                    )
                 }
             } catch (e: Exception) {
                 emptyList()
