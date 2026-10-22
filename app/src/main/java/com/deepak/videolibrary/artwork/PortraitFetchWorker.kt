@@ -41,7 +41,10 @@ class PortraitFetchWorker(context: Context, params: WorkerParameters) : Coroutin
         val fetcher = services.portraitFetcher
         var applied = 0
         var unclear = 0
-        for ((identity, label) in targets) {
+        // Shown as a bar at the top of the app: how many of the folders have been looked up.
+        setProgress(workDataOf(PROGRESS_DONE to 0, PROGRESS_TOTAL to targets.size))
+        for ((index, target) in targets.withIndex()) {
+            val (identity, label) = target
             val outcome = try {
                 fetcher.autoFetch(identity, label)
             } catch (e: CancellationException) {
@@ -61,6 +64,7 @@ class PortraitFetchWorker(context: Context, params: WorkerParameters) : Coroutin
                 PortraitFetcher.Outcome.Ambiguous, PortraitFetcher.Outcome.Suggested -> unclear++
                 else -> Unit
             }
+            setProgress(workDataOf(PROGRESS_DONE to index + 1, PROGRESS_TOTAL to targets.size))
             // Gentle pace: well under any provider's rate limit, and cancellable between lookups.
             delay(PACE_MS)
         }
@@ -70,6 +74,11 @@ class PortraitFetchWorker(context: Context, params: WorkerParameters) : Coroutin
 
     companion object {
         private const val UNIQUE = "artwork_portraits"
+        const val PROGRESS_DONE = "done"
+        const val PROGRESS_TOTAL = "total"
+
+        /** The WorkManager name of the lookup for one library (to follow its progress). */
+        fun workName(libraryId: String) = "$UNIQUE:$libraryId"
         private const val PACE_MS = 1_200L
 
         fun enqueue(context: Context, libraryId: String, force: Boolean = false) {

@@ -284,3 +284,27 @@ private fun DownloadRow(vm: LibraryViewModel, item: DownloadItem, bytesPerSecond
         }
     }
 }
+
+/**
+ * While artwork is being looked up: one quiet line at the top of the app ("Looking up artwork · 12 of 80") over a
+ * thin bar that fills from left to right as folders are done. Theme colours keep it readable everywhere.
+ */
+@Composable
+internal fun ArtworkProgressStrip(vm: LibraryViewModel) {
+    val progress by vm.portraitProgress.collectAsStateWithLifecycle()
+    androidx.compose.animation.AnimatedVisibility(visible = progress != null) {
+        val (done, total) = progress ?: (0 to 0)
+        val fraction by androidx.compose.animation.core.animateFloatAsState(
+            if (total > 0) done.toFloat() / total else 0f,
+            androidx.compose.animation.core.tween(600),
+            label = "artwork_progress",
+        )
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth()) {
+                Text("Looking up artwork", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                Text(if (total > 0) "$done of $total" else "Starting…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            FillBar(fraction, Modifier.fillMaxWidth())
+        }
+    }
+}

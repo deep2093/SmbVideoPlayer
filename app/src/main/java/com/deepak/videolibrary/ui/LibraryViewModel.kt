@@ -1309,6 +1309,16 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
 
+    /** Progress of a running artwork lookup as (done, total), or null when none is running. */
+    val portraitProgress: StateFlow<Pair<Int, Int>?> = WorkManager.getInstance(app)
+        .getWorkInfosForUniqueWorkFlow(com.deepak.videolibrary.artwork.PortraitFetchWorker.workName(services.libraryId))
+        .map { infos ->
+            infos.firstOrNull { it.state == WorkInfo.State.RUNNING }?.let { info ->
+                val total = info.progress.getInt(com.deepak.videolibrary.artwork.PortraitFetchWorker.PROGRESS_TOTAL, 0)
+                info.progress.getInt(com.deepak.videolibrary.artwork.PortraitFetchWorker.PROGRESS_DONE, 0) to total
+            }
+        }.state(null)
+
     fun fetchPortraitsNow() {
         val settings = artworkSettings.value
         if (!settings.enabled || !settings.adultConsent || !(settings.portraitsOnFolders || settings.portraitsOnVideos)) {

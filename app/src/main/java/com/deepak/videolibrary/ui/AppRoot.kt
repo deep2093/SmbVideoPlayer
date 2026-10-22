@@ -280,6 +280,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                 returnToThumbnails = false
                             }) { Text(stringResource(R.string.ui_thumbnail_failures_737d640)) }
                         }
+                        ArtworkProgressStrip(vm)
                         VpnStatusBanner(Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                         FileClipboardBar(vm)
                         vm.notice?.let { message ->
