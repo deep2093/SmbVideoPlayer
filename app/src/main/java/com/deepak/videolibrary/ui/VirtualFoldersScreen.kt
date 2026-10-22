@@ -280,7 +280,8 @@ private fun VirtualSetCard(vm: LibraryViewModel, set: VirtualSet, aspect: Float,
     val countFlow = remember(set.folders) { vm.virtualSetCount(set) }
     val count by countFlow.collectAsStateWithLifecycle(initialValue = 0)
     val key = vm.coverKey("vset:${set.id}:${set.folders.hashCode()}", count, count)
-    var cover by remember(key) { mutableStateOf<File?>(vm.cachedCover(key)) }
+    // Keeps showing the current cover while a new one is prepared, so cards never blink empty.
+    var cover by remember { mutableStateOf<File?>(vm.cachedCover(key)) }
     LaunchedEffect(key) { cover = vm.virtualSetCover(set, key) }
     var menu by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
@@ -525,7 +526,8 @@ private fun VirtualGroupCard(
 ) {
     val count = group.videos.size
     val key = vm.coverKey("vgroup:${set.id}:${group.identity}", count, count, group.lastModified)
-    var cover by remember(key) { mutableStateOf<File?>(vm.cachedCover(key)) }
+    // Keeps showing the current cover while a new one is prepared, so cards never blink empty.
+    var cover by remember { mutableStateOf<File?>(vm.cachedCover(key)) }
     LaunchedEffect(key) { cover = vm.virtualSubCover(set.id, group.identity, group.videos, key) }
     var menu by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }

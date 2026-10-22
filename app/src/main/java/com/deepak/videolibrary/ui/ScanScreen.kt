@@ -3,9 +3,11 @@ package com.deepak.videolibrary.ui
 import androidx.compose.ui.res.stringResource
 import com.deepak.videolibrary.R
 
-import android.text.format.DateUtils
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -117,19 +119,15 @@ internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel, scan: Boolean = tru
                             )
                         }
                         if (active) LinearProgressIndicator(Modifier.fillMaxWidth())
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ScanStat("Folders scanned", s.dirsScanned.toString(), Modifier.weight(1f))
+                        Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ScanStat("Folders", s.dirsScanned.toString(), Modifier.weight(1f))
                             ScanStat("Waiting", pending.toString(), Modifier.weight(1f))
                             ScanStat("Errors", s.errorCount.toString(), Modifier.weight(1f), warn = s.errorCount > 0)
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ScanStat("Found this scan", s.videosFound.toString(), Modifier.weight(1f))
+                        Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ScanStat("Found", s.videosFound.toString(), Modifier.weight(1f))
                             ScanStat("In library", total.toString(), Modifier.weight(1f))
-                            ScanStat(
-                                "Finished",
-                                s.finishedAt?.let { DateUtils.getRelativeTimeSpanString(it).toString() } ?: "—",
-                                Modifier.weight(1f),
-                            )
+                            ScanStat("Finished", s.finishedAt?.let(::shortAgo) ?: "—", Modifier.weight(1f))
                         }
                         if (active && s.currentDir.isNotEmpty()) {
                             Text(
@@ -184,7 +182,7 @@ internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel, scan: Boolean = tru
             if (thumbnails) run {
                 val all = thumbsDone + thumbsPending + thumbsFailed
                 ScanSection("Thumbnails") {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         ScanStat("Ready", thumbsDone.toString(), Modifier.weight(1f))
                         ScanStat("Waiting", thumbsPending.toString(), Modifier.weight(1f))
                         ScanStat("Failed", thumbsFailed.toString(), Modifier.weight(1f), warn = visibleFailures.isNotEmpty())
@@ -299,6 +297,7 @@ internal fun ScanSection(title: String, content: @Composable androidx.compose.fo
 private fun ScanStat(label: String, value: String, modifier: Modifier = Modifier, warn: Boolean = false) {
     Column(
         modifier
+            .fillMaxHeight()
             .clip(RoundedCornerShape(14.dp))
             // Glass themes: a darker inset keeps white numbers and labels readable on the frosted card.
             .background(
@@ -311,7 +310,7 @@ private fun ScanStat(label: String, value: String, modifier: Modifier = Modifier
         Text(
             value,
             style = MaterialTheme.typography.titleMedium,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             color = if (warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
         )
@@ -374,26 +373,27 @@ private fun AutomaticSyncSummary() {
         }
         Text(
             if (enabled) {
-                "Runs about every 12 hours when your server can be reached, and also reads the drive folders of your Virtual folders. Your own changes (names, folders you took out, covers) are kept. Use Refresh library to scan right now."
+                "Every 12 hours when your server is reachable. Your names and covers are kept."
             } else {
-                "Off. The library only changes when you use Refresh library or choose new folders."
+                "Off. Use Refresh library to scan."
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ScanStat("Status", status, Modifier.weight(1f))
-            ScanStat(
-                "Last successful sync",
-                if (snapshot.second == 0L) {
-                    "Never"
-                } else {
-                    java.text.DateFormat
-                        .getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
-                        .format(java.util.Date(snapshot.second))
-                },
-                Modifier.weight(1f),
-            )
+            ScanStat("Last sync", if (snapshot.second == 0L) "Never" else shortAgo(snapshot.second), Modifier.weight(1f))
         }
+    }
+}
+
+/** "Just now", "15 min ago", "3 h ago", "2 d ago": short enough for one line in a tile. */
+private fun shortAgo(time: Long): String {
+    val minutes = ((System.currentTimeMillis() - time) / 60_000L).coerceAtLeast(0)
+    return when {
+        minutes < 1 -> "Just now"
+        minutes < 60 -> "$minutes min ago"
+        minutes < 48 * 60 -> "${minutes / 60} h ago"
+        else -> "${minutes / (24 * 60)} d ago"
     }
 }

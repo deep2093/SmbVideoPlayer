@@ -1179,7 +1179,8 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         viewModelScope.launch {
             services.artwork.ensureLoaded()
             // Rebuild folder covers whenever settings or stored artwork change.
-            services.artwork.revision.collect { artwork.invalidate() }
+            // Only folders whose artwork changed get a new cover; the rest keep theirs (no flashing during lookups).
+            services.artwork.revision.collect { artwork.refresh() }
         }
     }
 

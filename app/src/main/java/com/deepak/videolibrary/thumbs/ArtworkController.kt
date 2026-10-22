@@ -14,7 +14,18 @@ internal class ArtworkController(private val services: ServiceLocator) {
     var revision by mutableIntStateOf(0)
     fun key(name: String,count: Int,done: Int,modified: Long) = "${services.libraryId}:$name:$count:$done:$modified:$revision:${services.artwork.revision.value}"
     fun cached(key: String): File? = files.get(key)?.takeIf { it.isFile }
-    fun invalidate() { files.evictAll(); revision++ }
+    /**
+     * The last cover built for each folder and what it was built from. When artwork changes somewhere else (a
+     * portrait saved for another folder), this folder's cover is reused instead of being rebuilt, so the screen does
+     * not flash while a lookup runs.
+     */
+    private val built = java.util.concurrent.ConcurrentHashMap<String, Pair<String, File>>()
+
+    /** Drops everything: thumbnails or settings changed for all folders. */
+    fun invalidate() { files.evictAll(); built.clear(); revision++ }
+
+    /** Stored artwork changed for some folders: screens look again, but unchanged folders keep their covers. */
+    fun refresh() { revision++ }
     suspend fun cover(identity: String, key: String, scope: LibraryScope): File? {
         cached(key)?.let { return it }
         val art = services.artwork
@@ -32,12 +43,21 @@ internal class ArtworkController(private val services: ServiceLocator) {
         }
         return try {
             val ids = withContext(Dispatchers.IO) { services.db.libraryState().ids(LibraryQueries.coverIds(scope)) }
-            val built = if (style != null) {
-                services.covers.buildStyled(identity, ids, style, art.settings.value.collageTiles)
+            val tiles = art.settings.value.collageTiles
+            val signature = "$decision|$style|$tiles|${ids.size}|${ids.hashCode()}"
+            built[identity]?.takeIf { it.first == signature && it.second.isFile }?.let { (_, file) ->
+                files.put(key, file)
+                return file
+            }
+            val made = if (style != null) {
+                services.covers.buildStyled(identity, ids, style, tiles)
             } else {
                 services.covers.buildOriginal(identity, ids)
             }
-            built?.also { files.put(key,it) }
+            made?.also {
+                files.put(key, it)
+                built[identity] = signature to it
+            }
         } catch(e: CancellationException) { throw e } catch(_: Exception) { null }
     }
     suspend fun clear() = services.thumbnails.exclusive {

@@ -333,7 +333,8 @@ private fun ExplorerGridCard(
     val image: java.io.File? = when {
         entry.isDirectory -> {
             val key = vm.coverKey("original:${hit.path}", 0, 0)
-            var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
+            // Keeps showing the current cover while a new one is prepared, so cards never blink empty.
+            var cover by remember(hit.path) { mutableStateOf(vm.cachedCover(key)) }
             LaunchedEffect(key) { cover = vm.originalCover(hit.path, key) }
             cover
         }

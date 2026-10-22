@@ -201,7 +201,8 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
 @Composable
 private fun OriginalFolderCard(vm: LibraryViewModel, folder: DirectorySummary, aspect: Float, selected: Boolean?, onClick: () -> Unit) {
     val key = vm.coverKey("original:${folder.path}", folder.count, folder.thumbsDone)
-    var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
+    // Keeps showing the current cover while a new one is prepared, so cards never blink empty.
+    var cover by remember { mutableStateOf(vm.cachedCover(key)) }
     var menu by remember(folder.path) { mutableStateOf(false) }
     var changeCover by remember(folder.path) { mutableStateOf(false) }
     var rename by remember(folder.path) { mutableStateOf(false) }

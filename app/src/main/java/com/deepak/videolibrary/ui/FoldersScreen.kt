@@ -400,7 +400,8 @@ private fun FolderCard(
     var rename by remember(row.groupKey) { mutableStateOf(false) }
     val artworkOn = rememberArtworkEnabled(vm)
     val key = vm.coverKey("group:${row.groupKey}", row.count, row.thumbsDone, row.lastModified)
-    var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
+    // Keeps showing the current cover while a new one is prepared, so cards never blink empty.
+    var cover by remember { mutableStateOf(vm.cachedCover(key)) }
     LaunchedEffect(key) { cover = vm.coverFor(row.groupKey, key) }
     Box(modifier) {
         FolderTile(

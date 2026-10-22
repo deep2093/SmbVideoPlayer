@@ -215,7 +215,8 @@ private fun OwnFolderCard(vm: LibraryViewModel, folder: OwnFolder, aspect: Float
     val countFlow = remember(folder) { vm.ownFolderCount(folder) }
     val count by countFlow.collectAsStateWithLifecycle(initialValue = 0)
     val key = vm.coverKey("own:${folder.id}:${folder.folders.hashCode()}:${folder.files.hashCode()}", count, count)
-    var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
+    // Keeps showing the current cover while a new one is prepared, so cards never blink empty.
+    var cover by remember { mutableStateOf(vm.cachedCover(key)) }
     LaunchedEffect(key) { cover = vm.ownFolderCover(folder, key) }
     var menu by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
@@ -456,7 +457,8 @@ private fun FileGroupCard(
     onSelect: () -> Unit,
 ) {
     val coverKey = vm.coverKey("group:$key", videos.size, videos.size)
-    var cover by remember(coverKey) { mutableStateOf(vm.cachedCover(coverKey)) }
+    // Keeps showing the current cover while a new one is prepared, so cards never blink empty.
+    var cover by remember { mutableStateOf(vm.cachedCover(coverKey)) }
     LaunchedEffect(coverKey) { cover = vm.coverFor(key, coverKey) }
     var menu by remember { mutableStateOf(false) }
     var changeCover by remember { mutableStateOf(false) }
@@ -499,7 +501,8 @@ private fun DriveFolderCard(
     val countFlow = remember(path) { vm.driveFolderCount(path) }
     val count by countFlow.collectAsStateWithLifecycle(initialValue = 0)
     val key = vm.coverKey("original:$path", count, count)
-    var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
+    // Keeps showing the current cover while a new one is prepared, so cards never blink empty.
+    var cover by remember { mutableStateOf(vm.cachedCover(key)) }
     LaunchedEffect(key) { cover = vm.originalCover(path, key) }
     var rename by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
@@ -555,7 +558,8 @@ private fun MatchingFolderCard(
     val folder = row.folder
     val selectKey = "match:" + folder.id
     val key = vm.coverKey("match:${folder.id}:${folder.term}", row.count, row.thumbsDone, row.lastModified)
-    var cover by remember(key) { mutableStateOf(vm.cachedCover(key)) }
+    // Keeps showing the current cover while a new one is prepared, so cards never blink empty.
+    var cover by remember { mutableStateOf(vm.cachedCover(key)) }
     LaunchedEffect(key) { cover = vm.matchingCover(folder, key) }
     var menu by remember { mutableStateOf(false) }
     var changeCover by remember { mutableStateOf(false) }
