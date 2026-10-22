@@ -58,8 +58,6 @@ private fun adaptiveTheme(id: String, label: String, style: AdaptiveStyle, card:
     glassTint = tint,
     menu = menu,
     adaptive = style,
-    // See-through: the phone wallpaper shows under the adaptive colours.
-    showsWallpaper = true,
 )
 
 val libraryThemes = listOf(
@@ -78,26 +76,32 @@ val libraryThemes = listOf(
         glassTint = Color(0x8C14112E),
         menu = Color(0xFF1E1E44),
     ),
-    // Transparent (formerly Liquid Glass; the id is kept so a saved choice still works): the phone wallpaper shows
-    // through the whole app. A soft dark veil and clear, lightly tinted glass keep white text easy to read.
+    // Transparent (formerly Liquid Glass; the id is kept so a saved choice still works): a soft, light wallpaper
+    // inside the app, with clear glass panels that let it show through. Text is dark ink, and a fine rim marks each
+    // panel so it stays easy to read.
     LibraryTheme(
-        "LIQUID_GLASS", "Transparent", Color.Transparent, Color(0x14000000), Color(0x29000000), Color(0xFF9AD8FF),
+        "LIQUID_GLASS", "Transparent", Color.Transparent, Color(0x40FFFFFF), Color(0x73FFFFFF), Color(0xFF0A6CD6),
         glass = true,
-        glassTint = Color(0x73000000),
-        menu = Color(0xFF1C1C22),
-        showsWallpaper = true,
+        wallpaper = listOf(Color(0xFFFDF8EE), Color(0xFFEFF4FB), Color(0xFFFBF1F4), Color(0xFFF1F6EF)),
+        glows = listOf(
+            WallpaperGlow(0.9f, 0.05f, 0.7f, Color(0x55FFD2A0)),
+            WallpaperGlow(0.05f, 0.55f, 0.75f, Color(0x4DA9CFF5)),
+            WallpaperGlow(0.65f, 1.0f, 0.8f, Color(0x4DF2B8C8)),
+            WallpaperGlow(0.35f, 0.25f, 0.45f, Color(0x66FFFFFF)),
+        ),
+        glassTint = Color(0x80FFFBF3),
+        menu = Color(0xFFFFFBF3),
+        light = true,
     ),
-    // Adaptive: the background follows the colours of what is on screen and eases between them. All keep the
-    // colours dark enough for white text.
     // Each adapts in its own way: Glow lays the cover colours in a diagonal gradient with a bright accent of the
     // same colour; Midnight washes one soft colour down from the top over near-black with a pale accent; Vivid paints
-    // bright aurora blobs with the opposite colour as accent. All show the phone wallpaper through.
+    // bright aurora blobs with the opposite colour as accent. Panels are clear glass, so the colours show through them.
     adaptiveTheme(
         "ADAPTIVE_GLOW", "Adaptive Glow",
         AdaptiveStyle(
             listOf(0.36f, 0.26f, 0.16f), 0.35f, 0.75f, glow = 0.32f, scrim = 0.22f,
             fallback = listOf(Color(0xFF3A2A5A), Color(0xFF1E3A4A), Color(0xFF241A30)),
-            layout = AdaptiveLayout.GLOW, accent = AdaptiveAccent.SAME_HUE, fallbackAccent = Color(0xFFFFC27A), opacity = 0.72f,
+            layout = AdaptiveLayout.GLOW, accent = AdaptiveAccent.SAME_HUE, fallbackAccent = Color(0xFFFFC27A), opacity = 1f,
         ),
         card = Color(0x1FFFFFFF), tint = Color(0x8C101016), menu = Color(0xFF1B1B24),
     ),
@@ -106,7 +110,7 @@ val libraryThemes = listOf(
         AdaptiveStyle(
             listOf(0.22f, 0.15f, 0.30f), 0.25f, 0.55f, glow = 0.30f, scrim = 0.30f,
             fallback = listOf(Color(0xFF1C2333), Color(0xFF14202A), Color(0xFF2A3550)),
-            layout = AdaptiveLayout.WASH, accent = AdaptiveAccent.SOFT, fallbackAccent = Color(0xFFCFE3FF), opacity = 0.82f,
+            layout = AdaptiveLayout.WASH, accent = AdaptiveAccent.SOFT, fallbackAccent = Color(0xFFCFE3FF), opacity = 1f,
         ),
         card = Color(0x14FFFFFF), tint = Color(0xB3060609), menu = Color(0xFF111117),
     ),
@@ -115,7 +119,7 @@ val libraryThemes = listOf(
         AdaptiveStyle(
             listOf(0.62f, 0.55f, 0.20f), 0.6f, 0.95f, glow = 0.55f, scrim = 0.34f,
             fallback = listOf(Color(0xFF8A2C7C), Color(0xFF1F6F9E), Color(0xFF2A1240)),
-            layout = AdaptiveLayout.AURORA, accent = AdaptiveAccent.OPPOSITE, fallbackAccent = Color(0xFF5CF2C2), opacity = 0.6f,
+            layout = AdaptiveLayout.AURORA, accent = AdaptiveAccent.OPPOSITE, fallbackAccent = Color(0xFF5CF2C2), opacity = 1f,
         ),
         card = Color(0x29FFFFFF), tint = Color(0x80180A24), menu = Color(0xFF221430),
     ),

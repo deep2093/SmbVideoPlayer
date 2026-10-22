@@ -173,7 +173,7 @@ internal fun rememberAdaptiveAccent(style: AdaptiveStyle): Color {
 }
 
 /**
- * Paints an adaptive background over the phone wallpaper, laid out the theme's own way, then a dark veil so white
+ * Paints an adaptive background inside the app, laid out the theme's own way, then a dark veil so white
  * text stays easy to read. [colors] are the three gradient colours.
  */
 internal fun DrawScope.drawAdaptiveWallpaper(colors: List<Color>, style: AdaptiveStyle) {
@@ -198,7 +198,7 @@ internal fun DrawScope.drawAdaptiveWallpaper(colors: List<Color>, style: Adaptiv
             drawRect(Brush.radialGradient(listOf(colors[0].copy(alpha = style.glow * 0.6f), Color.Transparent), Offset(size.width, size.height), size.maxDimension * 0.6f))
         }
         AdaptiveLayout.AURORA -> {
-            drawRect(colors[2].copy(alpha = o * 0.8f))
+            drawRect(colors[2].copy(alpha = o))
             drawRect(Brush.radialGradient(listOf(colors[0].copy(alpha = style.glow), Color.Transparent), Offset(size.width * 0.2f, size.height * 0.15f), size.maxDimension * 0.55f))
             drawRect(Brush.radialGradient(listOf(colors[1].copy(alpha = style.glow), Color.Transparent), Offset(size.width * 0.9f, size.height * 0.45f), size.maxDimension * 0.55f))
             drawRect(Brush.radialGradient(listOf(colors[0].copy(alpha = style.glow * 0.7f), Color.Transparent), Offset(size.width * 0.35f, size.height * 0.95f), size.maxDimension * 0.5f))
