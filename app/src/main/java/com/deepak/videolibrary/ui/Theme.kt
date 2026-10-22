@@ -289,13 +289,20 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
             val window = (view.context as? android.app.Activity)?.window
             if (window != null) {
                 androidx.core.view.WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = theme.light
-                // See-through themes show the phone wallpaper behind the app; the others keep a solid window.
-                if (theme.showsWallpaper) {
-                    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
-                    window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
-                } else {
-                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
-                    window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
+                // See-through themes show the phone wallpaper behind the app; the others keep a solid window. The
+                // window must also switch to a translucent surface: an opaque one with a clear background is never
+                // wiped between frames, which left trails of earlier screens and hid the wallpaper.
+                val showing = (window.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER) != 0
+                if (showing != theme.showsWallpaper) {
+                    if (theme.showsWallpaper) {
+                        window.setFormat(android.graphics.PixelFormat.TRANSLUCENT)
+                        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+                        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+                    } else {
+                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+                        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
+                        window.setFormat(android.graphics.PixelFormat.OPAQUE)
+                    }
                 }
             }
         }
