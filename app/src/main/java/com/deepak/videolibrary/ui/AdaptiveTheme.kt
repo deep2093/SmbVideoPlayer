@@ -31,7 +31,20 @@ data class AdaptiveStyle(
     val glow: Float,
     val scrim: Float,
     val fallback: List<Color>,
+    /** How the colours are laid out on the background. */
+    val layout: AdaptiveLayout = AdaptiveLayout.GLOW,
+    /** How the accent (selected tab, progress, highlights) follows the covers. */
+    val accent: AdaptiveAccent = AdaptiveAccent.SAME_HUE,
+    val fallbackAccent: Color = Color(0xFFFFD27A),
+    /** How strongly the colours cover the phone wallpaper behind the app (1 = not see-through). */
+    val opacity: Float = 0.7f,
 )
+
+/** GLOW: a diagonal gradient with two soft lights. WASH: one colour washing down from the top over near-black. AURORA: three bright blobs. */
+enum class AdaptiveLayout { GLOW, WASH, AURORA }
+
+/** SAME_HUE: a bright version of the main cover colour. SOFT: a pale tint of the average colour. OPPOSITE: the complementary colour. */
+enum class AdaptiveAccent { SAME_HUE, SOFT, OPPOSITE }
 
 /** Colours of the pictures currently on screen. Each shown picture adds one colour and removes it when it leaves. */
 object ScreenColors {
@@ -118,30 +131,84 @@ internal fun adaptivePalette(colors: List<Color>, style: AdaptiveStyle): List<Co
 private fun Color.toArgbInt(): Int =
     android.graphics.Color.argb((alpha * 255).toInt(), (red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt())
 
-/** The gradient colours of an adaptive theme, easing slowly from one set to the next as the screen changes. */
+/** The accent of an adaptive theme from the colours on screen; each theme picks it its own way. */
+internal fun adaptiveAccent(colors: List<Color>, style: AdaptiveStyle): Color {
+    if (colors.isEmpty()) return style.fallbackAccent
+    val hsv = colors.map { c -> FloatArray(3).also { android.graphics.Color.colorToHSV(c.toArgbInt(), it) } }
+    val main = hsv.maxBy { it[1] * it[2] }
+    val color = when (style.accent) {
+        AdaptiveAccent.SAME_HUE -> floatArrayOf(main[0], 0.55f, 1f)
+        AdaptiveAccent.SOFT -> {
+            var x = 0.0
+            var y = 0.0
+            hsv.forEach { x += kotlin.math.cos(Math.toRadians(it[0].toDouble())) * it[1]; y += kotlin.math.sin(Math.toRadians(it[0].toDouble())) * it[1] }
+            floatArrayOf(((Math.toDegrees(kotlin.math.atan2(y, x)) + 360.0) % 360.0).toFloat(), 0.28f, 0.96f)
+        }
+        AdaptiveAccent.OPPOSITE -> floatArrayOf((main[0] + 180f) % 360f, 0.75f, 1f)
+    }
+    return Color(android.graphics.Color.HSVToColor(color))
+}
+
+/** The three gradient colours of an adaptive theme, easing slowly from one set to the next as the screen changes. */
 @Composable
 internal fun rememberAdaptiveColors(style: AdaptiveStyle): List<State<Color>> {
     val target by remember(style) { derivedStateOf { adaptivePalette(ScreenColors.current(), style) } }
     return List(3) { i -> animateColorAsState(target[i], tween(1400), label = "adaptive_$i") }
 }
 
-/** Paints an adaptive wallpaper: a diagonal gradient of [colors], two soft lights and a readability veil. */
+/**
+ * The accent of an adaptive theme. Its hue moves in steps of 30 degrees, so it changes only when the screen's
+ * colours really change (each change restyles the whole app), never on every scroll.
+ */
+@Composable
+internal fun rememberAdaptiveAccent(style: AdaptiveStyle): Color {
+    val accent by remember(style) {
+        derivedStateOf {
+            val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(adaptiveAccent(ScreenColors.current(), style).toArgbInt(), it) }
+            hsv[0] = (Math.round(hsv[0] / 30f) * 30f) % 360f
+            Color(android.graphics.Color.HSVToColor(hsv))
+        }
+    }
+    return accent
+}
+
+/**
+ * Paints an adaptive background over the phone wallpaper, laid out the theme's own way, then a dark veil so white
+ * text stays easy to read. [colors] are the three gradient colours.
+ */
 internal fun DrawScope.drawAdaptiveWallpaper(colors: List<Color>, style: AdaptiveStyle) {
-    drawRect(Brush.linearGradient(listOf(colors[0], colors[2], colors[1]), start = Offset.Zero, end = Offset(size.width, size.height)))
-    drawRect(
-        Brush.radialGradient(
-            listOf(colors[0].copy(alpha = style.glow), Color.Transparent),
-            center = Offset(size.width * 0.85f, size.height * 0.08f),
-            radius = size.maxDimension * 0.7f,
-        ),
-    )
-    drawRect(
-        Brush.radialGradient(
-            listOf(colors[1].copy(alpha = style.glow * 0.8f), Color.Transparent),
-            center = Offset(size.width * 0.1f, size.height * 0.9f),
-            radius = size.maxDimension * 0.75f,
-        ),
-    )
+    val o = style.opacity
+    when (style.layout) {
+        AdaptiveLayout.GLOW -> {
+            drawRect(
+                Brush.linearGradient(listOf(colors[0], colors[2], colors[1]).map { it.copy(alpha = o) }, start = Offset.Zero, end = Offset(size.width, size.height)),
+            )
+            drawRect(Brush.radialGradient(listOf(colors[0].copy(alpha = style.glow), Color.Transparent), Offset(size.width * 0.85f, size.height * 0.08f), size.maxDimension * 0.7f))
+            drawRect(Brush.radialGradient(listOf(colors[1].copy(alpha = style.glow * 0.8f), Color.Transparent), Offset(size.width * 0.1f, size.height * 0.9f), size.maxDimension * 0.75f))
+        }
+        AdaptiveLayout.WASH -> {
+            drawRect(Color(0xFF07070A).copy(alpha = o))
+            drawRect(
+                Brush.verticalGradient(
+                    0f to colors[2].copy(alpha = style.glow + 0.2f),
+                    0.55f to colors[2].copy(alpha = style.glow * 0.4f),
+                    1f to Color.Transparent,
+                ),
+            )
+            drawRect(Brush.radialGradient(listOf(colors[0].copy(alpha = style.glow * 0.6f), Color.Transparent), Offset(size.width, size.height), size.maxDimension * 0.6f))
+        }
+        AdaptiveLayout.AURORA -> {
+            drawRect(colors[2].copy(alpha = o * 0.8f))
+            drawRect(Brush.radialGradient(listOf(colors[0].copy(alpha = style.glow), Color.Transparent), Offset(size.width * 0.2f, size.height * 0.15f), size.maxDimension * 0.55f))
+            drawRect(Brush.radialGradient(listOf(colors[1].copy(alpha = style.glow), Color.Transparent), Offset(size.width * 0.9f, size.height * 0.45f), size.maxDimension * 0.55f))
+            drawRect(Brush.radialGradient(listOf(colors[0].copy(alpha = style.glow * 0.7f), Color.Transparent), Offset(size.width * 0.35f, size.height * 0.95f), size.maxDimension * 0.5f))
+        }
+    }
     // Darker towards the bottom, where lists and the navigation bar sit.
     drawRect(Brush.verticalGradient(listOf(Color.Black.copy(alpha = style.scrim * 0.6f), Color.Black.copy(alpha = style.scrim))))
+}
+
+/** The Transparent theme: the phone wallpaper with a soft dark veil, darker at the bottom, so white text reads easily. */
+internal fun DrawScope.drawTransparentVeil() {
+    drawRect(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.38f), Color.Black.copy(alpha = 0.55f))))
 }

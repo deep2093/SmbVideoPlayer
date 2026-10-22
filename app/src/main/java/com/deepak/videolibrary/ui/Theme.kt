@@ -46,16 +46,20 @@ data class LibraryTheme(
     val light: Boolean = false,
     /** Adaptive themes: the wallpaper takes its colours from the covers on screen. */
     val adaptive: AdaptiveStyle? = null,
+    /** The phone's own wallpaper shows through the app (with a veil for readable text). */
+    val showsWallpaper: Boolean = false,
 )
 
 /** The look shared by the adaptive themes: smoky dark glass over a wallpaper made from the covers on screen. */
-private fun adaptiveTheme(id: String, label: String, style: AdaptiveStyle) = LibraryTheme(
-    id, label, Color.Transparent, Color(0x33000000), Color(0x26FFFFFF), Color(0xFFFFD27A),
+private fun adaptiveTheme(id: String, label: String, style: AdaptiveStyle, card: Color, tint: Color, menu: Color) = LibraryTheme(
+    id, label, Color.Transparent, Color(0x1F000000), card, style.fallbackAccent,
     glass = true,
     wallpaper = style.fallback,
-    glassTint = Color(0xA6101016),
-    menu = Color(0xFF1B1B24),
+    glassTint = tint,
+    menu = menu,
     adaptive = style,
+    // See-through: the phone wallpaper shows under the adaptive colours.
+    showsWallpaper = true,
 )
 
 val libraryThemes = listOf(
@@ -74,38 +78,46 @@ val libraryThemes = listOf(
         glassTint = Color(0x8C14112E),
         menu = Color(0xFF1E1E44),
     ),
-    // Apple-style Liquid Glass on a creamy white wallpaper: warm ivory with soft light, clear frosted glass that
-    // blurs what is behind it, a fine specular edge and floating capsule controls. Text is dark.
+    // Transparent (formerly Liquid Glass; the id is kept so a saved choice still works): the phone wallpaper shows
+    // through the whole app. A soft dark veil and clear, lightly tinted glass keep white text easy to read.
     LibraryTheme(
-        "LIQUID_GLASS", "Liquid Glass", Color.Transparent, Color(0x80FFFFFF), Color(0xB3FFFFFF), Color(0xFF0A6CD6),
+        "LIQUID_GLASS", "Transparent", Color.Transparent, Color(0x14000000), Color(0x29000000), Color(0xFF9AD8FF),
         glass = true,
-        wallpaper = listOf(Color(0xFFFFFCF3), Color(0xFFFAF3E3), Color(0xFFFFF8EA), Color(0xFFF4EBD8)),
-        glows = listOf(
-            WallpaperGlow(0.9f, 0.05f, 0.7f, Color(0x40FFD9A8)),
-            WallpaperGlow(0.05f, 0.6f, 0.7f, Color(0x33BFDDF7)),
-            WallpaperGlow(0.6f, 1.0f, 0.8f, Color(0x33F6C9C9)),
-            WallpaperGlow(0.35f, 0.25f, 0.45f, Color(0x66FFFFFF)),
-        ),
-        glassTint = Color(0x99FFFBF0),
-        menu = Color(0xFFFFFBF1),
-        light = true,
+        glassTint = Color(0x73000000),
+        menu = Color(0xFF1C1C22),
+        showsWallpaper = true,
     ),
     // Adaptive: the background follows the colours of what is on screen and eases between them. All keep the
     // colours dark enough for white text.
+    // Each adapts in its own way: Glow lays the cover colours in a diagonal gradient with a bright accent of the
+    // same colour; Midnight washes one soft colour down from the top over near-black with a pale accent; Vivid paints
+    // bright aurora blobs with the opposite colour as accent. All show the phone wallpaper through.
     adaptiveTheme(
         "ADAPTIVE_GLOW", "Adaptive Glow",
-        AdaptiveStyle(listOf(0.34f, 0.24f, 0.14f), 0.35f, 0.75f, glow = 0.35f, scrim = 0.25f,
-            fallback = listOf(Color(0xFF3A2A5A), Color(0xFF1E3A4A), Color(0xFF241A30))),
+        AdaptiveStyle(
+            listOf(0.36f, 0.26f, 0.16f), 0.35f, 0.75f, glow = 0.32f, scrim = 0.22f,
+            fallback = listOf(Color(0xFF3A2A5A), Color(0xFF1E3A4A), Color(0xFF241A30)),
+            layout = AdaptiveLayout.GLOW, accent = AdaptiveAccent.SAME_HUE, fallbackAccent = Color(0xFFFFC27A), opacity = 0.72f,
+        ),
+        card = Color(0x1FFFFFFF), tint = Color(0x8C101016), menu = Color(0xFF1B1B24),
     ),
     adaptiveTheme(
         "ADAPTIVE_MIDNIGHT", "Adaptive Midnight",
-        AdaptiveStyle(listOf(0.20f, 0.13f, 0.08f), 0.25f, 0.55f, glow = 0.22f, scrim = 0.35f,
-            fallback = listOf(Color(0xFF1C2333), Color(0xFF14202A), Color(0xFF15131C))),
+        AdaptiveStyle(
+            listOf(0.22f, 0.15f, 0.30f), 0.25f, 0.55f, glow = 0.30f, scrim = 0.30f,
+            fallback = listOf(Color(0xFF1C2333), Color(0xFF14202A), Color(0xFF2A3550)),
+            layout = AdaptiveLayout.WASH, accent = AdaptiveAccent.SOFT, fallbackAccent = Color(0xFFCFE3FF), opacity = 0.82f,
+        ),
+        card = Color(0x14FFFFFF), tint = Color(0xB3060609), menu = Color(0xFF111117),
     ),
     adaptiveTheme(
         "ADAPTIVE_VIVID", "Adaptive Vivid",
-        AdaptiveStyle(listOf(0.46f, 0.32f, 0.18f), 0.5f, 0.9f, glow = 0.45f, scrim = 0.38f,
-            fallback = listOf(Color(0xFF6A2C5C), Color(0xFF1F4F6E), Color(0xFF3A1E40))),
+        AdaptiveStyle(
+            listOf(0.62f, 0.55f, 0.20f), 0.6f, 0.95f, glow = 0.55f, scrim = 0.34f,
+            fallback = listOf(Color(0xFF8A2C7C), Color(0xFF1F6F9E), Color(0xFF2A1240)),
+            layout = AdaptiveLayout.AURORA, accent = AdaptiveAccent.OPPOSITE, fallbackAccent = Color(0xFF5CF2C2), opacity = 0.6f,
+        ),
+        card = Color(0x29FFFFFF), tint = Color(0x80180A24), menu = Color(0xFF221430),
     ),
 )
 
@@ -193,7 +205,11 @@ private fun rememberThemeChoice(): State<String> {
 @Composable
 fun VideoLibraryTheme(content: @Composable () -> Unit) {
     val choice by rememberThemeChoice()
-    val theme = libraryThemes.first { it.id == choice }
+    val chosen = libraryThemes.first { it.id == choice }
+    // Adaptive themes: colours follow the covers on screen, and so does the accent.
+    val adaptiveStyle = chosen.adaptive
+    val adaptiveColors = if (adaptiveStyle != null) rememberAdaptiveColors(adaptiveStyle) else null
+    val theme = if (adaptiveStyle != null) chosen.copy(accent = rememberAdaptiveAccent(adaptiveStyle)) else chosen
     val ink = Color(0xFF1F1B13)
     val colors = if (theme.light) lightColorScheme(
         primary = ink,
@@ -271,7 +287,17 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as? android.app.Activity)?.window
-            if (window != null) androidx.core.view.WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = theme.light
+            if (window != null) {
+                androidx.core.view.WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = theme.light
+                // See-through themes show the phone wallpaper behind the app; the others keep a solid window.
+                if (theme.showsWallpaper) {
+                    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+                    window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
+                } else {
+                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+                    window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
+                }
+            }
         }
     }
     MaterialTheme(
@@ -297,10 +323,10 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         ),
         content = {
             CompositionLocalProvider(LocalLibraryTheme provides theme) {
-                val adaptive = theme.adaptive
-                if (adaptive != null) {
-                    val colors = rememberAdaptiveColors(adaptive)
-                    Box(Modifier.fillMaxSize().drawBehind { drawAdaptiveWallpaper(colors.map { it.value }, adaptive) }) { content() }
+                if (adaptiveStyle != null && adaptiveColors != null) {
+                    Box(Modifier.fillMaxSize().drawBehind { drawAdaptiveWallpaper(adaptiveColors.map { it.value }, adaptiveStyle) }) { content() }
+                } else if (theme.showsWallpaper) {
+                    Box(Modifier.fillMaxSize().drawBehind { drawTransparentVeil() }) { content() }
                 } else if (theme.glass) {
                     Box(Modifier.fillMaxSize().drawBehind { drawGlassWallpaper(theme) }) { content() }
                 } else {

@@ -39,4 +39,10 @@ class VirtualNamesTest {
         assertEquals(listOf("Tom Cruise Movie Night"), VirtualNames.of("tom cruise movie night.mp4", GroupingSwitches(firstTwoWords = false)))
         assertEquals(listOf("Tom Cruise"), VirtualNames.of("tom cruise - top gun.mp4", GroupingSwitches(stopAtHyphen = false, splitAtCommas = false, firstTwoWords = true)))
     }
+
+    @Test fun nextTwoWordsTakesWordsThreeAndFour() {
+        assertEquals(listOf("Top Gun"), VirtualNames.of("tom cruise top gun movie.mp4", GroupingSwitches(nextTwoWords = true)))
+        // Too short for a third word: the first two are used.
+        assertEquals(listOf("Tom Cruise"), VirtualNames.of("tom cruise.mp4", GroupingSwitches(nextTwoWords = true)))
+    }
 }

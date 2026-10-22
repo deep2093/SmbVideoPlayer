@@ -64,6 +64,8 @@ data class GroupingSwitches(
     val stopAtHyphen: Boolean = true,
     val splitAtCommas: Boolean = true,
     val firstTwoWords: Boolean = true,
+    /** Instead of the first two words, the next two ("tom cruise top gun movie" -> Top Gun). Off by default. */
+    val nextTwoWords: Boolean = false,
 )
 
 /** The grouping switches of each place (Virtual folders, Custom folders), kept on this device. */
@@ -80,6 +82,7 @@ object GroupingPrefs {
             stopAtHyphen = p.getBoolean("$place.hyphen", true),
             splitAtCommas = p.getBoolean("$place.commas", true),
             firstTwoWords = p.getBoolean("$place.twoWords", true),
+            nextTwoWords = p.getBoolean("$place.nextTwo", false),
         )
     }
 
@@ -88,6 +91,7 @@ object GroupingPrefs {
             .putBoolean("$place.hyphen", rules.stopAtHyphen)
             .putBoolean("$place.commas", rules.splitAtCommas)
             .putBoolean("$place.twoWords", rules.firstTwoWords)
+            .putBoolean("$place.nextTwo", rules.nextTwoWords)
             .apply()
     }
 }
@@ -115,8 +119,12 @@ object VirtualNames {
         val head = if (cutAtHyphen) s.substring(0, hyphen) else s
         val splitAtComma = rules.splitAtCommas && ',' in head
         var parts = (if (splitAtComma) head.split(',') else listOf(head)).map(::clean).filter(String::isNotBlank)
-        if (rules.firstTwoWords && !cutAtHyphen && !splitAtComma) {
-            parts = parts.map { it.split(' ').filter(String::isNotBlank).take(2).joinToString(" ") }
+        if ((rules.firstTwoWords || rules.nextTwoWords) && !cutAtHyphen && !splitAtComma) {
+            parts = parts.map { part ->
+                val words = part.split(' ').filter(String::isNotBlank)
+                // Words 3 and 4 when asked for and the name has them; otherwise the first two.
+                (if (rules.nextTwoWords && words.size >= 3) words.drop(2) else words).take(2).joinToString(" ")
+            }
         }
         val seen = HashSet<String>()
         val names = parts.map(::display).filter { seen.add(identity(it)) }
