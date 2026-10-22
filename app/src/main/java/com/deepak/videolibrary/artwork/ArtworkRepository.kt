@@ -154,6 +154,28 @@ class ArtworkRepository(
         changes.value++
     }
 
+    /**
+     * Stores a moving cover for [key] exactly as given: an animated GIF ([extension] "gif") or a flip-book strip
+     * made from a video ("strip8.jpg": eight frames stacked top to bottom). It is shown as it is, without cropping.
+     */
+    suspend fun saveAnimated(key: String, bytes: ByteArray, extension: String) {
+        require(bytes.isNotEmpty() && bytes.size <= MAX_ANIMATED_BYTES) { "The moving picture is too large" }
+        withContext(Dispatchers.IO) {
+            writeLock.withLock {
+                val name = "${hash(key)}_${System.currentTimeMillis()}_${sequence.incrementAndGet()}.$extension"
+                val target = File(imageDir().apply { mkdirs() }, name)
+                ArtworkFiles.publish(target) { out -> out.write(bytes) }
+                val previous = rows[key]?.imageName
+                val row = ArtworkOverride(key, ArtworkMode.CUSTOM, true, name, null, null, null, ArtworkOverride.STATUS_OK, System.currentTimeMillis())
+                dao.upsert(ArtworkRow.of(row))
+                rows[key] = row
+                dao.deleteCandidates(listOf(key))
+                if (previous != null && previous != name) deleteImage(previous)
+            }
+        }
+        changes.value++
+    }
+
     /** Stores a mode that needs no picture (first frame, collage, none, existing) as a manual choice. */
     suspend fun setMode(key: String, mode: ArtworkMode) {
         withContext(Dispatchers.IO) {
@@ -355,6 +377,7 @@ class ArtworkRepository(
         const val IMAGE_WIDTH = 640
         const val TALL_WIDTH = 480
         const val MAX_SUGGESTIONS = 12
+        const val MAX_ANIMATED_BYTES = 20_000_000
 
         /** The 3:4 version saved next to a chosen picture. */
         fun tallFile(file: File): File = File(file.parentFile, file.nameWithoutExtension + "_t.jpg")

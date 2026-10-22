@@ -55,17 +55,27 @@ internal fun GoogleImagesTab(
 ) {
     var loaded by remember { mutableStateOf<String?>(null) }
     var offered by remember { mutableStateOf<String?>(null) }
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    // Searching closes the keyboard; it only opens again when the search box is tapped.
+    fun search(text: String) {
+        focus.clearFocus()
+        keyboard?.hide()
+        if (text.isNotBlank()) loaded = googleImagesUrl(text)
+    }
     Text(
         "Search Google Images here, then hold a picture to use it. For a sharper cover, tap a result first and hold the larger picture. What you search is sent to Google.",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
         OutlinedTextField(
             value = query,
             onValueChange = onQuery,
             label = { Text("Search") },
-            maxLines = 2,
+            singleLine = true,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { search(query) }),
             shape = RoundedCornerShape(20.dp),
             trailingIcon = if (query.isNotEmpty()) {
                 { IconButton(onClick = { onQuery("") }) { Icon(Icons.Filled.Close, contentDescription = "Clear") } }
@@ -74,12 +84,12 @@ internal fun GoogleImagesTab(
             },
             modifier = Modifier.weight(1f),
         )
-        Button(onClick = { loaded = googleImagesUrl(query) }, enabled = enabled && query.isNotBlank()) { Text("Search") }
+        Button(onClick = { search(query) }, enabled = enabled && query.isNotBlank(), modifier = Modifier.height(56.dp)) { Text("Search") }
     }
     if (choices.size > 1) {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             choices.forEach { choice ->
-                SuggestionChip(onClick = { onQuery(choice); loaded = googleImagesUrl(choice) }, label = { Text(choice, maxLines = 1) })
+                SuggestionChip(onClick = { onQuery(choice); search(choice) }, label = { Text(choice, maxLines = 1) })
             }
         }
     }

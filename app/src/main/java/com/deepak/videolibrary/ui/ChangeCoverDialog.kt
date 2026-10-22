@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -120,6 +121,23 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
     var pending by remember { mutableStateOf<Bitmap?>(null) }
     var pendingCandidate by remember { mutableStateOf<PerformerCandidate?>(null) }
     val choices = remember(target.label) { nameChoices(target.label) }
+    // Choosing videos of this folder: for the photo collage ("photos") or for the folder collage ("collage").
+    var choosingFrom by remember { mutableStateOf<String?>(null) }
+    fun makeMoving() {
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                if (vm.makeMovingCover(target.key, target.video)) onDismiss() else error = "No frames could be read from the video. Try again when the server is reachable."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                error = "Couldn't make the moving cover. Check the connection and try again."
+            } finally {
+                busy = false
+            }
+        }
+    }
     // Pictures gathered for a photo collage (up to four), and whether the next picture picked goes there.
     val collage = remember { androidx.compose.runtime.mutableStateListOf<Bitmap>() }
     var collecting by remember { mutableStateOf(false) }
@@ -145,7 +163,20 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
         error = null
         scope.launch {
             try {
-                takePicture(if (fromWeb) vm.pictureFromWeb(url) else vm.downloadPortrait(url), candidate)
+                if (fromWeb) {
+                    // A GIF from the web stays moving; anything else goes to the crop step as before.
+                    val bytes = vm.pictureBytesFromWeb(url)
+                    if (com.deepak.videolibrary.artwork.online.ArtworkHttp.isGif(bytes) && !collecting) {
+                        vm.applyAnimatedCover(target.key, bytes)
+                        onDismiss()
+                        return@launch
+                    }
+                    val still = withContext(Dispatchers.Default) { com.deepak.videolibrary.artwork.online.ArtworkHttp.decode(bytes, 1280) }
+                        ?: throw ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.BAD_RESPONSE)
+                    takePicture(still, candidate)
+                    return@launch
+                }
+                takePicture(vm.downloadPortrait(url), candidate)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ProviderException) {
@@ -161,6 +192,29 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
         busy = true
         error = null
         scope.launch {
+            // A GIF from the phone is kept as it is, so it moves on the card.
+            val gif = withContext(Dispatchers.IO) {
+                if (context.contentResolver.getType(uri) == "image/gif") {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        input.readBytes().takeIf { it.size <= com.deepak.videolibrary.artwork.ArtworkRepository.MAX_ANIMATED_BYTES }
+                    }
+                } else {
+                    null
+                }
+            }
+            if (gif != null && !collecting) {
+                try {
+                    vm.applyAnimatedCover(target.key, gif)
+                    onDismiss()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    error = "Couldn't save the moving picture. Check free space and try again."
+                } finally {
+                    busy = false
+                }
+                return@launch
+            }
             val bitmap = withContext(Dispatchers.IO) { decodePhoneImage(context, uri) }
             busy = false
             if (bitmap == null) {
@@ -186,6 +240,39 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
         }
     }
 
+    choosingFrom?.let { purpose ->
+        val max = if (purpose == "photos") com.deepak.videolibrary.artwork.PhotoCollage.MAX_PHOTOS - collage.size else 6
+        FolderVideoPicker(
+            vm = vm,
+            coverKey = target.key,
+            max = max.coerceAtLeast(1),
+            title = if (purpose == "photos") "Pictures for the collage" else "Videos for the collage",
+            onDismiss = { choosingFrom = null },
+        ) { videos ->
+            choosingFrom = null
+            busy = true
+            error = null
+            scope.launch {
+                try {
+                    if (purpose == "photos") {
+                        val pictures = withContext(Dispatchers.IO) {
+                            videos.mapNotNull { video -> vm.stillOf(video)?.let { android.graphics.BitmapFactory.decodeFile(it.path) } }
+                        }
+                        collage.addAll(pictures.take(com.deepak.videolibrary.artwork.PhotoCollage.MAX_PHOTOS - collage.size))
+                        if (pictures.size < videos.size) error = "Some videos have no thumbnail yet."
+                    } else {
+                        if (vm.applyChosenCollage(target.key, videos)) onDismiss() else error = "Those videos have no thumbnails yet. Generate thumbnails first."
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    error = "Couldn't make the collage. Try again."
+                } finally {
+                    busy = false
+                }
+            }
+        }
+    }
     Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             shape = RoundedCornerShape(26.dp),
@@ -261,6 +348,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                             },
                             onFromStashDb = { collecting = true; tab = CoverTab.INTERNET },
                             onFromGoogle = { collecting = true; tab = CoverTab.GOOGLE },
+                            onFromFolder = if (target.isFolder) ({ choosingFrom = "photos" }) else null,
                             onMake = {
                                 pending = com.deepak.videolibrary.artwork.PhotoCollage.compose(collage.toList())
                                 pendingCandidate = null
@@ -277,10 +365,18 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                 }
                                 OutlinedButton(onClick = { vm.setCoverMode(target.key, ArtworkMode.FRAME); onDismiss() }) { Text("Use the automatic frame") }
                             }
+                            Text(
+                                if (target.isFolder) "Or a moving cover: short clips from the first video, played in turn." else "Or a moving cover: short clips from this video, played in turn.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            OutlinedButton(onClick = ::makeMoving, enabled = !busy) { Text(if (busy) "Making…" else "Make a moving cover") }
                         }
                         CoverTab.COLLAGE -> {
                             Text("A collage of ${settings.collageTiles} frames from this folder (change the number in Settings > Artwork).", style = MaterialTheme.typography.bodyMedium)
                             Button(onClick = { vm.setCoverMode(target.key, ArtworkMode.COLLAGE); onDismiss() }) { Text("Use a collage") }
+                            Text("Or choose which videos it shows.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            OutlinedButton(onClick = { choosingFrom = "collage" }, enabled = !busy) { Text("Choose videos…") }
                         }
                         CoverTab.INTERNET -> {
                             val allowed = settings.adultConsent || oneOff
@@ -599,6 +695,7 @@ private fun PhotoCollageTab(
     onFromPhone: () -> Unit,
     onFromStashDb: () -> Unit,
     onFromGoogle: () -> Unit,
+    onFromFolder: (() -> Unit)?,
     onMake: () -> Unit,
 ) {
     val max = com.deepak.videolibrary.artwork.PhotoCollage.MAX_PHOTOS
@@ -637,6 +734,7 @@ private fun PhotoCollageTab(
     }
     val full = pictures.size >= max
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (onFromFolder != null) OutlinedButton(onClick = onFromFolder, enabled = enabled && !full) { Text("From this folder") }
         OutlinedButton(onClick = onFromPhone, enabled = enabled && !full) { Text("From this phone") }
         OutlinedButton(onClick = onFromStashDb, enabled = enabled && !full) { Text("From StashDB") }
         OutlinedButton(onClick = onFromGoogle, enabled = enabled && !full) { Text("From Google Images") }
@@ -644,4 +742,53 @@ private fun PhotoCollageTab(
     Button(onClick = onMake, enabled = enabled && pictures.isNotEmpty()) {
         Text(if (pictures.size >= 2) "Make collage (${pictures.size})" else "Use this picture")
     }
+}
+
+/**
+ * The videos of the folder a cover belongs to, as a grid of thumbnails: tick up to [max] of them. Used to choose
+ * which videos a collage shows.
+ */
+@Composable
+private fun FolderVideoPicker(
+    vm: LibraryViewModel,
+    coverKey: String,
+    max: Int,
+    title: String,
+    onDismiss: () -> Unit,
+    onDone: (List<VideoEntity>) -> Unit,
+) {
+    val videos by produceState<List<VideoEntity>?>(null, coverKey) { value = vm.videosForCoverKey(coverKey) }
+    val chosen = remember { androidx.compose.runtime.mutableStateListOf<VideoEntity>() }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("$title (${chosen.size} of $max)") },
+        text = {
+            val list = videos
+            when {
+                list == null -> CircularProgressIndicator()
+                list.isEmpty() -> Text("No videos found in this folder yet.")
+                else -> androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                    columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(96.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.heightIn(max = 420.dp),
+                ) {
+                    items(list.size, key = { list[it].relativePath }) { index ->
+                        val video = list[index]
+                        val ticked = chosen.any { it.relativePath == video.relativePath }
+                        Box(
+                            Modifier.aspectRatio(16f / 10f).clip(RoundedCornerShape(10.dp)).clickable {
+                                if (ticked) chosen.removeAll { it.relativePath == video.relativePath } else if (chosen.size < max) chosen.add(video)
+                            },
+                        ) {
+                            FileImage(remember(video.id, video.thumbStatus) { vm.stillOf(video) }, Modifier.fillMaxSize())
+                            SelectionBadge(ticked, Modifier.align(Alignment.TopEnd).padding(4.dp))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(enabled = chosen.isNotEmpty(), onClick = { onDone(chosen.toList()) }) { Text("Use ${chosen.size}") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

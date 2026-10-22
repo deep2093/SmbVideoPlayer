@@ -34,6 +34,16 @@ internal object ArtworkHttp {
         return withContext(Dispatchers.Default) { decode(bytes, maxWidth) ?: throw ProviderException(ProviderFailure.BAD_RESPONSE) }
     }
 
+    /** Downloads a picture's bytes as they are (for animated GIFs), with the same checks as [downloadImage]. */
+    suspend fun downloadBytes(url: String, trustedHosts: Set<String> = emptySet()): ByteArray {
+        if (!ImageUrlPolicy.isAllowed(url, trustedHosts)) throw ProviderException(ProviderFailure.BAD_RESPONSE)
+        return request("GET", url, mapOf("Accept" to "image/*"), null, ImageUrlPolicy.MAX_IMAGE_BYTES, followHttpsRedirects = true, trustedHosts = trustedHosts)
+    }
+
+    /** True for GIF data ("GIF87a" or "GIF89a"). */
+    fun isGif(bytes: ByteArray): Boolean =
+        bytes.size > 6 && bytes[0] == 'G'.code.toByte() && bytes[1] == 'I'.code.toByte() && bytes[2] == 'F'.code.toByte() && bytes[3] == '8'.code.toByte()
+
     internal fun decode(bytes: ByteArray, maxWidth: Int): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)

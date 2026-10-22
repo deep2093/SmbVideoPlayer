@@ -1273,6 +1273,152 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         return downloadPortrait(text)
     }
 
+    /**
+     * The bytes of a picture from the web (an https address or an embedded data: picture), so an animated GIF can
+     * be kept moving. Throws ProviderException when it can't be used.
+     */
+    suspend fun pictureBytesFromWeb(address: String): ByteArray {
+        val text = address.trim()
+        val settings = artworkSettings.value
+        if (!com.deepak.videolibrary.artwork.online.NetworkPolicy.allowed(getApplication(), settings) && !text.startsWith("data:", ignoreCase = true)) {
+            throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.BLOCKED_BY_SETTINGS)
+        }
+        if (text.startsWith("data:image/", ignoreCase = true)) {
+            val encoded = text.substringAfter("base64,", "")
+            if (encoded.isEmpty() || encoded.length > 12_000_000) {
+                throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.BAD_RESPONSE)
+            }
+            return withContext(Dispatchers.Default) {
+                try {
+                    android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
+                } catch (e: IllegalArgumentException) {
+                    throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.BAD_RESPONSE, e)
+                }
+            }
+        }
+        return com.deepak.videolibrary.artwork.online.ArtworkHttp.downloadBytes(
+            text,
+            com.deepak.videolibrary.artwork.online.EndpointPolicy.hostsOf(settings.customEndpoints.values),
+        )
+    }
+
+    /** Saves a GIF (from the phone or the web) as the moving cover of [key]. */
+    suspend fun applyAnimatedCover(key: String, bytes: ByteArray) {
+        services.artwork.saveAnimated(key, bytes, "gif")
+        coverRevision++
+        notice = "Moving cover saved."
+    }
+
+    /**
+     * Makes a short moving cover from a video: eight frames spread over it, played one after another on the card.
+     * For a folder, the first video in it is used. Returns false when no frames could be read.
+     */
+    suspend fun makeMovingCover(key: String, video: VideoEntity?): Boolean {
+        val source = video ?: videosForCoverKey(key).firstOrNull() ?: return false
+        val grabber = com.deepak.videolibrary.thumbs.FrameGrabber(smbProfile(), source.relativePath, source.size)
+        try {
+            val info = grabber.open()
+            val length = info.durationMs.takeIf { it > 0 } ?: 60_000L
+            val frames = (1..MOVING_FRAMES).mapNotNull { i ->
+                try {
+                    grabber.frame(length * i / (MOVING_FRAMES + 1), exact = false, maxWidth = 480)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            if (frames.size < 2) return false
+            val bytes = withContext(Dispatchers.Default) {
+                val w = frames.first().width
+                val h = frames.first().height
+                val strip = android.graphics.Bitmap.createBitmap(w, h * frames.size, android.graphics.Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(strip)
+                frames.forEachIndexed { i, frame ->
+                    canvas.drawBitmap(frame, null, android.graphics.Rect(0, i * h, w, (i + 1) * h), null)
+                    frame.recycle()
+                }
+                java.io.ByteArrayOutputStream().also { out ->
+                    strip.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, out)
+                    strip.recycle()
+                }.toByteArray()
+            }
+            services.artwork.saveAnimated(key, bytes, "strip${frames.size}.jpg")
+            coverRevision++
+            notice = "Moving cover saved."
+            return true
+        } finally {
+            grabber.close()
+        }
+    }
+
+    /**
+     * The videos a cover belongs to, for choosing which ones a collage uses: a drive folder, a Virtual folder or
+     * subfolder, a Custom folder, or a group of single videos. At most [COLLAGE_CHOICES].
+     */
+    suspend fun videosForCoverKey(key: String): List<VideoEntity> = withContext(Dispatchers.IO) {
+        val ns = namespace.value
+        val list: List<VideoEntity> = when {
+            key.startsWith("original:") ->
+                stateDao.videoList(LibraryQueries.videos(LibraryScope(ns, directory = key.removePrefix("original:"), subtree = true)))
+            key.startsWith("vset:") -> {
+                val rest = key.removePrefix("vset:")
+                val set = virtualStore.load(ns).firstOrNull { rest == it.id || rest.startsWith(it.id + ":") }
+                if (set == null || set.isEmpty) {
+                    emptyList()
+                } else {
+                    val all = stateDao.videoList(LibraryQueries.videos(virtualSetScope(set)))
+                    val identity = rest.removePrefix(set.id).removePrefix(":")
+                    if (identity.isEmpty()) all else VirtualGroups.build(set, all, virtualGrouping).firstOrNull { it.identity == identity }?.videos.orEmpty()
+                }
+            }
+            key.startsWith("own:") ->
+                ownStore.load(ns).firstOrNull { ownFolderKey(it.id) == key }?.let { stateDao.videoList(LibraryQueries.videos(ownFolderScope(it))) }.orEmpty()
+            key.startsWith("match:") ->
+                stateDao.savedCollections(ns).firstOrNull { com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(it.id) == key }?.let { folder ->
+                    stateDao.videoList(
+                        LibraryQueries.videos(
+                            LibraryScope(ns, match = folder.takeIf { it.sourcePath == null }?.term, sourcePath = folder.sourcePath, includeSubfolders = folder.includeSubfolders),
+                        ),
+                    )
+                }.orEmpty()
+            key.startsWith("virtual:") -> {
+                // A group of single videos in a Custom folder (or an older Virtual folder).
+                val identity = key.removePrefix("virtual:")
+                val legacy = stateDao.videoList(LibraryQueries.videos(LibraryScope(ns, group = identity)))
+                legacy.ifEmpty {
+                    ownStore.load(ns).flatMap { own -> groupByNames(indexedVideos(own.files).values.toList(), customGrouping)[identity].orEmpty() }
+                        .distinctBy { it.relativePath }
+                }
+            }
+            else -> emptyList()
+        }
+        list.take(COLLAGE_CHOICES)
+    }
+
+    /** A picture of a video to put into a collage: its automatic thumbnail (never a moving cover). */
+    fun stillOf(video: VideoEntity): File? =
+        ThumbStore.thumbFile(services.artworkContext, video.id).takeIf { it.isFile }
+            ?: com.deepak.videolibrary.thumbs.CustomThumbs.fileFor(services.artworkContext, video.id)
+
+    /** A collage of the videos you picked, saved as this folder's cover. */
+    suspend fun applyChosenCollage(key: String, videos: List<VideoEntity>): Boolean {
+        val ids = videos.map { it.id }
+        if (ids.isEmpty()) return false
+        val file = services.covers.buildStyled(
+            "chosen:$key:${ids.hashCode()}", ids, com.deepak.videolibrary.artwork.ArtworkMode.COLLAGE, ids.size.coerceIn(2, 6),
+        ) ?: return false
+        val bitmap = withContext(Dispatchers.IO) { android.graphics.BitmapFactory.decodeFile(file.path) } ?: return false
+        try {
+            services.artwork.saveImage(key, com.deepak.videolibrary.artwork.ArtworkMode.CUSTOM, bitmap, manual = true, focusX = 0.5f, focusY = 0.5f)
+        } finally {
+            bitmap.recycle()
+        }
+        coverRevision++
+        notice = "Cover updated."
+        return true
+    }
+
     suspend fun applyCoverImage(
         key: String,
         mode: com.deepak.videolibrary.artwork.ArtworkMode,
@@ -1914,6 +2060,10 @@ private const val MAX_OWN_FILES = 500
 
 /** A cover is built from a few thumbnails, so a long subfolder is sampled to stay within SQLite's parameter limit. */
 private const val COVER_SAMPLE = 300
+
+/** Frames in a moving cover made from a video, and how many videos a collage can be chosen from. */
+private const val MOVING_FRAMES = 8
+private const val COLLAGE_CHOICES = 300
 
 /** A single folder download adds at most this many files, so a mistaken tap on the share root stays manageable. */
 private const val MAX_DOWNLOAD_FILES = 5000
