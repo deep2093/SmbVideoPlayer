@@ -570,6 +570,5 @@ private fun GroupingSwitchesSetting(
     SettingsLabel(place)
     SwitchRow("Stop at the first hyphen", "Only the text before \"-\" is used", rules.stopAtHyphen) { onChange(rules.copy(stopAtHyphen = it)) }
     SwitchRow("Split names at commas", "Each name gets a folder; the video shows in each", rules.splitAtCommas) { onChange(rules.copy(splitAtCommas = it)) }
-    SwitchRow("Otherwise the first two words", "When there is no hyphen or comma", rules.firstTwoWords) { onChange(rules.copy(firstTwoWords = it)) }
-    SwitchRow("Use the next two words instead", "\"tom cruise top gun movie\" becomes Top Gun", rules.nextTwoWords) { onChange(rules.copy(nextTwoWords = it)) }
+    SwitchRow("Otherwise the first two words", "\"tom cruise top gun movie\" becomes Tom Cruise", rules.firstTwoWords) { onChange(rules.copy(firstTwoWords = it)) }
 }
