@@ -14,7 +14,7 @@ object LibraryLayout {
     fun columns(preset: String): Int = normalize(preset).toInt()
 
     /** Narrowest card a grid may use, so even 5 columns fit on a phone. */
-    const val MIN_TILE_DP = 64
+    const val MIN_TILE_DP = 56
 
     /**
      * The number of columns you chose in Settings > App layout. It is only reduced when the screen is too narrow for

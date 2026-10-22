@@ -11,7 +11,7 @@ class ResponsiveLibraryTest {
 
     @Test fun aVeryNarrowScreenStillFits() {
         assertEquals(1, LibraryLayout.fittedColumns("5", 60))
-        assertEquals(3, LibraryLayout.fittedColumns("5", 3 * 64 + 2 * 12))
+        assertEquals(3, LibraryLayout.fittedColumns("5", 3 * 56 + 2 * 12))
     }
 
     @Test fun aTabletRespectsTheSavedDensity() {
