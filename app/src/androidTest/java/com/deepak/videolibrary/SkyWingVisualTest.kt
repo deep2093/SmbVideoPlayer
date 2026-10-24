@@ -53,6 +53,7 @@ class SkyWingVisualTest {
         val output = File(app.getExternalFilesDir(null), "skywing-visual").apply { mkdirs() }
         val device = args.getString("visualDevice", "phone")
         try {
+            ThumbStore.thumbDir(services.artworkContext).mkdirs()
             repeat(12) { i ->
                 val title = listOf("Mountain", "Ocean", "Night Sky")[i % 3]
                 val id = services.db.dao().insertVideo(VideoEntity(
@@ -70,6 +71,9 @@ class SkyWingVisualTest {
                 ThumbStore.thumbFile(services.artworkContext, id).outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
                 bitmap.recycle()
             }
+            val set = vm.createVirtualSet("Demo library")!!
+            vm.setVirtualSetMembers(set, listOf("Demo"), emptyList())
+            vm.openVirtualSetId = set
             rule.setContent {
                 if (showing.value) key(theme.value, player.value) {
                     VideoLibraryTheme {
