@@ -32,6 +32,8 @@ data class SmbProfile(
     val requireSigning: Boolean = false,
     val requireEncryption: Boolean = false,
     val groupingRule: com.deepak.videolibrary.scan.GroupingRule = com.deepak.videolibrary.scan.GroupingRule.COMMA_OR_HYPHEN,
+    /** Other addresses of the same server, tried in order when [host] does not answer. */
+    val alternateHosts: List<String> = emptyList(),
 )
 
 data class SmbEntry(
@@ -51,6 +53,23 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
     private var session: Session? = null
     private var share: DiskShare? = null
 
+    /**
+     * Connects to the server's main address, or to one of its other addresses when the main one does not answer.
+     * With only one address this is a plain connect. With several, each is first checked with a quick (2.5 s) look
+     * at the SMB port, starting with the one that answered last time, so a changed router address costs a moment
+     * rather than a long timeout. Wrong passwords and other server answers are never retried on another address.
+     */
+    private fun connectToAnswering(client: SMBClient): com.hierynomus.smbj.connection.Connection {
+        val candidates = HostFallback.order(profile.host, profile.alternateHosts, HostFallback.lastAnswered(profile.host))
+        if (candidates.size <= 1) return client.connect(profile.host.trim())
+        val answering = candidates.firstOrNull { HostFallback.answers(it) }
+        // Nobody answered the quick check: try the main address normally so the usual error explains why.
+        val target = answering ?: profile.host.trim()
+        val connection = client.connect(target)
+        HostFallback.remember(profile.host, target)
+        return connection
+    }
+
     fun open() {
         close()
         val config = SmbConfig
@@ -62,7 +81,7 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
             .build()
         val newClient = SMBClient(config)
         try {
-            val connection = newClient.connect(profile.host.trim())
+            val connection = connectToAnswering(newClient)
             val auth = if (profile.username.isBlank()) {
                 AuthenticationContext.anonymous()
             } else {

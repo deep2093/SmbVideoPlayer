@@ -196,6 +196,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
 
     val saved = vm.settings
     var host by remember { mutableStateOf(saved.host) }
+    var alternates by remember { mutableStateOf(saved.alternateHosts) }
     var share by remember { mutableStateOf(saved.share) }
     var root by remember { mutableStateOf(saved.rootPath) }
     var user by remember { mutableStateOf(saved.username) }
@@ -225,6 +226,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
         domain = domain,
         requireSigning = requireSigning,
         requireEncryption = requireEncryption,
+        alternateHosts = alternates,
     )
 
     val scroll = remember { androidx.compose.foundation.ScrollState(vm.ui.settingsScroll) }
@@ -276,6 +278,20 @@ fun SettingsScreen(vm: LibraryViewModel) {
                             }
                             Text(
                                 stringResource(R.string.ui_enter_your_server_address_and_share_name_ebe83d7),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                            // A router that moves the drive between addresses: the app tries these when the main one is silent.
+                            PillTextField(
+                                value = alternates,
+                                onValueChange = { alternates = it },
+                                label = "Other addresses (optional)",
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Text(
+                                "Tried when the server address doesn't answer, e.g. 192.168.71.249. Separate several with commas.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 16.dp),

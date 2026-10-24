@@ -127,6 +127,7 @@ fun PlayerScreen(
                 settings.domain,
                 settings.requireSigning,
                 settings.requireEncryption,
+                alternateHosts = com.deepak.videolibrary.smb.HostFallback.parse(settings.alternateHosts),
             )
         }
     // A virtual folder is a real ExoPlayer playlist: video N advances to N+1 automatically.

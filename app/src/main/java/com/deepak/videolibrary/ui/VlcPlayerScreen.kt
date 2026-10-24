@@ -173,6 +173,7 @@ internal fun VlcPlayerScreen(
                                 settings.domain,
                                 settings.requireSigning,
                                 settings.requireEncryption,
+                                alternateHosts = com.deepak.videolibrary.smb.HostFallback.parse(settings.alternateHosts),
                             ),
                             current.relativePath,
                             current.size,

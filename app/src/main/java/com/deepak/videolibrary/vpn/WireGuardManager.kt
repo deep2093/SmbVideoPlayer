@@ -297,7 +297,7 @@ class WireGuardManager private constructor(context: Context) {
             }
             else -> Unit
         }
-        val host = serverHost()
+        val host = serverHosts()
         if (host.isEmpty()) return AutoConnectOutcome.NO_SERVER
         if (!reachability.hasUnderlyingNetwork()) return AutoConnectOutcome.OFFLINE
         if (reachability.isDirectlyReachable(host)) return AutoConnectOutcome.DIRECT
@@ -414,7 +414,7 @@ class WireGuardManager private constructor(context: Context) {
 
     private suspend fun evaluateNetwork() {
         if (!prefs.autoConnect || !store.hasConfig() || manualOff) return
-        val host = serverHost()
+        val host = serverHosts()
         if (host.isEmpty() || !reachability.hasUnderlyingNetwork()) return // Offline: wait, do not retry.
         when (_state.value) {
             is VpnState.Connected -> {
@@ -464,7 +464,7 @@ class WireGuardManager private constructor(context: Context) {
                 failures = 0
                 _state.value = VpnState.Connected(null)
             }
-            val host = serverHost()
+            val host = serverHosts()
             if (host.isNotEmpty()) {
                 val reachable = waitUntilReachable(host)
                 // The state may have been changed by a revoke while we waited.
@@ -485,7 +485,7 @@ class WireGuardManager private constructor(context: Context) {
         return _state.value
     }
 
-    private suspend fun waitUntilReachable(host: String): Boolean {
+    private suspend fun waitUntilReachable(host: List<String>): Boolean {
         val deadline = System.currentTimeMillis() + REACHABLE_WAIT_MS
         while (true) {
             if (reachability.isReachableViaDefaultRoute(host, timeoutMs = 2000)) return true
@@ -504,11 +504,15 @@ class WireGuardManager private constructor(context: Context) {
     }
 
     /**
-     * Reads the host from the app's existing SMB settings. Only the non-secret host field is read, so
-     * no Keystore decryption is needed. Key names match SettingsStore ("smb_settings" / "host").
+     * Reads configured server addresses from existing SMB settings. Neither field is secret.
      */
-    private fun serverHost(): String =
-        SmbReachability.normalizeHost(app.getSharedPreferences("smb_settings", Context.MODE_PRIVATE).getString("host", "") ?: "")
+    private fun serverHosts(): List<String> {
+        val settings = app.getSharedPreferences("smb_settings", Context.MODE_PRIVATE)
+        val main = SmbReachability.normalizeHost(settings.getString("host", "") ?: "")
+        if (main.isEmpty()) return emptyList()
+        val others = com.deepak.videolibrary.smb.HostFallback.parse(settings.getString("alternate_hosts", "") ?: "")
+        return com.deepak.videolibrary.smb.HostFallback.order(main, others, null)
+    }
 
     private fun parse(text: String, appOnly: Boolean): Config {
         val effective = if (appOnly) ConfigText.restrictToApp(text, app.packageName) else text
