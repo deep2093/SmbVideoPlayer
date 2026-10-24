@@ -45,7 +45,7 @@ Hardware decoding, 4K throughput, actual user WMV files, PiP, headphone behavior
 
 ## Review follow-up
 
-Settings has separate Connection, Appearance, Playback, Library and Diagnostics pages. Dark grey uses a deeper charcoal palette. Optional connection settings support an account domain, required signing and required SMB3 encryption; defaults preserve previous connections. Required encryption fails rather than silently sending unencrypted traffic.
+Settings opens each category on its own page. Opening a page slides it in from the right; Back slides it out to the right and restores the Settings index. The Appearance page retains the four SkyWing glass themes, while both players use the earlier gradient and outlined-button controls. Optional connection settings support an account domain, required signing and required SMB3 encryption; defaults preserve previous connections. Required encryption fails rather than silently sending unencrypted traffic.
 
 Connection also accepts comma-separated **Other addresses** for the same SMB server. Keep the original server address as the primary one; when it stops answering on port 445, SkyWing checks the other addresses and remembers the one that answered for this app session. A server that answers but rejects authentication is reported as an error, without trying a different address. Adding or changing other addresses keeps the existing library, covers, and playback history because the primary server address remains its identity.
 

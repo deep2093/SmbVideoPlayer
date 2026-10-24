@@ -3,14 +3,18 @@ package com.deepak.videolibrary.ui
 import androidx.compose.ui.res.stringResource
 import com.deepak.videolibrary.R
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -40,8 +44,10 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.AlertDialog
@@ -120,65 +126,28 @@ private val SETTINGS_SECTIONS = listOf(
     SettingsSection("Diagnostics", "Backup & diagnostics", "Export, restore and reports"),
 )
 
-/** One settings group: a card whose content drops down in place when the header is tapped. */
+/** Settings index row. Each group opens its own page. */
 @Composable
-private fun SettingsAccordion(
-    title: String,
-    description: String,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    val rotation by animateFloatAsState(
-        targetValue = if (expanded) 90f else 0f,
-        animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "settings_chevron",
-    )
+private fun SettingsPageRow(entry: SettingsSection, onOpen: () -> Unit) {
     val cardShape = RoundedCornerShape(18.dp)
     Card(
-        modifier = Modifier.fillMaxWidth().themedOutline(cardShape),
+        modifier = Modifier.fillMaxWidth().themedOutline(cardShape).clickable(role = Role.Button, onClickLabel = "Open ${entry.title}", onClick = onOpen),
         shape = cardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
-        Column(Modifier.fillMaxWidth()) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(
-                        role = Role.Button,
-                        onClickLabel = if (expanded) "Collapse $title" else "Expand $title",
-                        onClick = onToggle,
-                    ).padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    )
-                }
-                Icon(
-                    Icons.Filled.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.rotate(rotation),
+        Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(entry.title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    entry.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
-            AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) + fadeIn(tween(300)),
-                exit = shrinkVertically(animationSpec = tween(300, easing = FastOutSlowInEasing)) + fadeOut(tween(150)),
-            ) {
-                Column(
-                    Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    content = content,
-                )
-            }
+            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -186,13 +155,13 @@ private fun SettingsAccordion(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(vm: LibraryViewModel) {
-    // The open section (one at a time) and the scroll position are kept while the app is open, so coming back
-    // from another page shows Settings as you left it.
+    // The selected page and index scroll position survive tab changes during this app session.
     var section by vm.ui::settingsSection
     if (vm.ui.flag("settings.hidden")) {
         HiddenItemsScreen(vm) { vm.ui.setFlag("settings.hidden", false) }
         return
     }
+    BackHandler(enabled = section != null) { section = null }
 
     val saved = vm.settings
     var host by remember { mutableStateOf(saved.host) }
@@ -231,35 +200,48 @@ fun SettingsScreen(vm: LibraryViewModel) {
 
     val scroll = remember { androidx.compose.foundation.ScrollState(vm.ui.settingsScroll) }
     androidx.compose.runtime.DisposableEffect(scroll) { onDispose { vm.ui.settingsScroll = scroll.value } }
-    OnScrollTopRequest(vm) { scroll.animateScrollTo(0) }
-    // The title line slides away while scrolling down and comes back on any scroll up.
-    val header = rememberCollapsingHeader()
-    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().nestedScroll(header.connection), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
-      Column(Modifier.widthIn(max = 920.dp).fillMaxSize()) {
-        CollapsingHeader(header, resetKey = Unit) {
-            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                // No download button here: Settings is only about settings.
-                Text("Settings", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-            }
-        }
-        Column(
-            Modifier
-                .fillMaxSize()
-                .imePadding()
-                .verticalScroll(
-                    scroll,
-                ).padding(horizontal = 12.dp, vertical = 12.dp)
-                .padding(bottom = if (floatingPadding(vm)) 100.dp else 0.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            SETTINGS_SECTIONS.forEach { entry ->
-                SettingsAccordion(
-                    title = entry.title,
-                    description = entry.description,
-                    expanded = section == entry.id,
-                    onToggle = { section = if (section == entry.id) null else entry.id },
+    AnimatedContent(
+        targetState = section,
+        modifier = Modifier.fillMaxSize(),
+        transitionSpec = {
+            val opening = initialState == null && targetState != null
+            slideInHorizontally(tween(320, easing = FastOutSlowInEasing)) { width -> if (opening) width else -width } togetherWith
+                slideOutHorizontally(tween(320, easing = FastOutSlowInEasing)) { width -> if (opening) -width else width }
+        },
+        label = "settings_page_slide",
+    ) { page ->
+        val pageScroll = rememberScrollState()
+        val activeScroll = if (page == null) scroll else pageScroll
+        OnScrollTopRequest(vm) { activeScroll.animateScrollTo(0) }
+        val header = rememberCollapsingHeader()
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().nestedScroll(header.connection), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
+            Column(Modifier.widthIn(max = 920.dp).fillMaxSize()) {
+                CollapsingHeader(header, resetKey = page) {
+                    Row(Modifier.fillMaxWidth().padding(start = if (page == null) 16.dp else 8.dp, end = 16.dp, top = 16.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        if (page != null) {
+                            IconButton(onClick = { section = null }) {
+                                Icon(Icons.Filled.ArrowBack, contentDescription = "Back to Settings")
+                            }
+                        }
+                        Text(
+                            if (page == null) "Settings" else SETTINGS_SECTIONS.first { it.id == page }.title,
+                            style = MaterialTheme.typography.headlineMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                Column(
+                    Modifier.fillMaxSize().imePadding().verticalScroll(activeScroll)
+                        .padding(horizontal = 12.dp, vertical = 12.dp)
+                        .padding(bottom = if (floatingPadding(vm)) 100.dp else 0.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    when (entry.id) {
+                    if (page == null) {
+                        SETTINGS_SECTIONS.forEach { entry -> SettingsPageRow(entry) { section = entry.id } }
+                    } else {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            when (page) {
                         "Connection" -> {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 PillTextField(
@@ -453,11 +435,12 @@ fun SettingsScreen(vm: LibraryViewModel) {
                             DiagnosticsSettings()
                         }
                         else -> Unit
+                            }
+                        }
                     }
                 }
             }
         }
-      }
     }
 }
 

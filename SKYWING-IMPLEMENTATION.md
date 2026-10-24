@@ -37,7 +37,7 @@ Local XML parsing and `git diff --check` pass. Local Android builds cannot start
 
 Added checks cover catalog uniqueness and old IDs, all four live persisted Appearance choices, system day/night icon resolution, shared player callbacks and unknown duration, and existing download URI lookup boundaries.
 
-`SkyWingVisualTest` is an opt-in capture of the real app composables with an isolated synthetic indexed library. The Android 15 device job captures Folders, Videos, Files, Settings and shared player chrome in all four themes on phone and tablet sizes. Player images are explicitly chrome previews on a synthetic background, not proof of Media3/LibVLC decoding. Files may show a disconnected state when no fixture connection is configured. The existing SMB fixture/playback checks remain separate.
+`SkyWingVisualTest` is an opt-in capture of the real app composables with an isolated synthetic indexed library. The Android 15 device job captures Folders, Videos, Files, Settings, Connection, Appearance and shared player controls in all four themes on phone and tablet sizes. The player controls now use the earlier gradient layout and outlined play button; queue and PiP actions remain. Player images are controls previews on a synthetic background, not proof of Media3/LibVLC decoding. Files may show a disconnected state when no fixture connection is configured. The existing SMB fixture/playback checks remain separate.
 
 ## Device acceptance still required
 

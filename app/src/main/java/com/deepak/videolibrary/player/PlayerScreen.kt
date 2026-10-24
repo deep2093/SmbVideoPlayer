@@ -1,7 +1,6 @@
 package com.deepak.videolibrary.ui
 
 import androidx.compose.ui.res.stringResource
-import com.deepak.videolibrary.ui.SkyWingGestureFeedback
 import com.deepak.videolibrary.ui.SkyWingQueueDialog
 import com.deepak.videolibrary.R
 
@@ -695,7 +694,13 @@ fun PlayerScreen(
                 gestureMessage = ""
             }
         }
-        SkyWingGestureFeedback(gestureMessage)
+        if (gestureMessage.isNotBlank()) {
+            Text(
+                gestureMessage,
+                color = Color.White,
+                modifier = Modifier.align(Alignment.Center).background(Color(0xA6000000), RoundedCornerShape(14.dp)).padding(12.dp),
+            )
+        }
         androidx.compose.animation.AnimatedVisibility(
             visible = controlsVisible && (activity as? com.deepak.videolibrary.MainActivity)?.playbackInPip != true,
             modifier = Modifier.fillMaxSize(),

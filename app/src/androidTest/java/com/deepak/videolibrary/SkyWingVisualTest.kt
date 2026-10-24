@@ -104,6 +104,13 @@ class SkyWingVisualTest {
                     rule.onAllNodesWithText(label).onLast().performClick()
                     capture(label.lowercase())
                 }
+                rule.onNodeWithText("Connection").performClick()
+                rule.onNodeWithText("Other addresses (optional)").assertExists()
+                capture("settings-connection")
+                rule.onNodeWithContentDescription("Back to Settings").performClick()
+                rule.onNodeWithText("Appearance").performClick()
+                capture("settings-appearance")
+                rule.onNodeWithContentDescription("Back to Settings").performClick()
                 rule.runOnIdle { player.value = true }
                 capture("player-chrome-preview")
             }
