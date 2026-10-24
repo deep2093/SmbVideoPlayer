@@ -301,7 +301,8 @@ private fun PasteDestinationDialog(vm: LibraryViewModel) {
         try {
             folders = withContext(Dispatchers.IO) {
                 SmbConnection(
-                    SmbProfile(s.host, s.share, s.rootPath, s.username, s.password, s.domain, s.requireSigning, s.requireEncryption),
+                    SmbProfile(s.host, s.share, s.rootPath, s.username, s.password, s.domain, s.requireSigning, s.requireEncryption,
+                        alternateHosts = com.deepak.videolibrary.smb.HostFallback.parse(s.alternateHosts)),
                 ).use { conn ->
                     conn.open()
                     conn

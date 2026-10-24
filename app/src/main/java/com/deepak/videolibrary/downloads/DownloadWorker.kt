@@ -32,7 +32,7 @@ import java.io.IOException
 import java.io.OutputStream
 
 /**
- * Copies queued files from the server into the device's Download/Veyra folder, keeping folder structure.
+ * Copies queued files from the server into the device's Download/SkyWing folder, keeping folder structure.
  * One file at a time by default, up to four at once when the user chooses (each over its own connection); the rest
  * wait in the queue. Progress is saved as it goes, so the Downloads screen shows a live bar and an interrupted file
  * continues where it stopped. Nothing on the server is changed.

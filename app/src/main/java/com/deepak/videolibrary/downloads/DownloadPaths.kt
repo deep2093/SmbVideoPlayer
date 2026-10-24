@@ -3,7 +3,9 @@ package com.deepak.videolibrary.downloads
 /** Naming rules for files saved to the device. */
 object DownloadPaths {
     /** Everything the app downloads goes under this folder in the device's Download folder. */
-    const val ROOT = "Veyra"
+    const val ROOT = "SkyWing"
+    // Completed and in-progress pre-rename downloads retain their stored MediaStore URI.
+    // No path rewrite, move or deletion is performed for the historical Download/Veyra directory.
 
     private val illegal = Regex("[\\\\/:*?\"<>|\\p{Cntrl}]")
 

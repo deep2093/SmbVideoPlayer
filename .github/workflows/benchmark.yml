@@ -35,10 +35,10 @@ jobs:
               # Workflow-only fixes can reuse the exact same APKs without recompiling the app.
               git cat-file -e "$candidate_sha^{commit}" 2>/dev/null || git fetch --no-tags origin "$candidate_sha"
               if ! git diff --quiet "$candidate_sha" "$GITHUB_SHA" -- app benchmarks gradle .ci gradlew gradlew.bat build.gradle.kts settings.gradle.kts gradle.properties; then continue; fi
-              profile_ready=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate_run/artifacts" --jq '[.artifacts[] | select(.expired==false) | .name] | (index("VideoLibrary-optimized-preview-apk")!=null and index("Benchmark-instrumentation")!=null and index("Profile-source-apk")!=null)')
+              profile_ready=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate_run/artifacts" --jq '[.artifacts[] | select(.expired==false) | .name] | (index("SkyWing-optimized-preview-apk")!=null and index("Benchmark-instrumentation")!=null and index("Profile-source-apk")!=null)')
               if [ "$profile_ready" = true ]; then
                 profile_source_run="$candidate_run"
-                gh run download "$profile_source_run" --name VideoLibrary-optimized-preview-apk --dir optimized
+                gh run download "$profile_source_run" --name SkyWing-optimized-preview-apk --dir optimized
                 gh run download "$profile_source_run" --name Benchmark-instrumentation --dir benchmark-apk
                 gh run download "$profile_source_run" --name Profile-source-apk --dir profile-source
                 printf '%s %s\n' "$profile_source_run" "$candidate_sha" > profile-source-run.txt

@@ -1,10 +1,10 @@
-# Video Library (Android)
+# SkyWing (Android)
 
 Personal SMB video player with an indexed library, virtual folders, original folders, live File Explorer and thumbnail collages. Development previews are reviewed in draft PR #2; do not merge before device testing.
 
 ## Install previews as updates
 
-Download **VideoLibrary-preview-apk** from a successful Android APK workflow run, extract `update.apk`, and install **Video Library Preview**. Keep the previous Preview installed to preserve its library, thumbnails and settings. This package is separate from the original Video Library app. The dedicated preview signing key is a public, non-production test identity and must remain stable. Never use it for production or regenerate it for each build.
+Download **SkyWing-preview-apk** from a successful Android APK workflow run, extract `update.apk`, and install **SkyWing Preview**. Keep the previous Preview installed to preserve its library, thumbnails and settings. This package is separate from the original SkyWing app. The dedicated preview signing key is a public, non-production test identity and must remain stable. Never use it for production or regenerate it for each build.
 
 ## Library and file actions
 
@@ -20,7 +20,7 @@ Download **VideoLibrary-preview-apk** from a successful Android APK workflow run
 
 Virtual folders use text before the first comma or hyphen by default. Settings → Library also offers comma-only or full cleaned filename grouping; changing it refreshes automatic groups and preserves manual assignments. The source-selection switch/picker has been removed; existing thumbnails and manual assignments remain. Original folder cards independently shorten the folder's leaf name at the first comma/hyphen and show only that label and item count. Physical paths stay unchanged and remain available through Details.
 
-Settings offers five persistent themes: Dark grey (default), AMOLED black, Midnight blue, Forest and Plum.
+Settings retains Dark grey (default), AMOLED black, Midnight blue, Forest, Plum and adaptive themes, and adds four SkyWing glass choices: Aurora Glass Dark/Light and Crystal Glass Dark/Light. Appearance shows selectable palette previews and a Reduce transparency option. See `SKYWING-IMPLEMENTATION.md` for migration and verification notes.
 Custom folders can pin any real SMB folder, including nested folders and folders outside the configured starting folder. Use **Add → Choose drive folders**, browse and tick folders, **Select all here**, or **Select all subfolders**. Choose whether each collection includes descendant videos. Selected locations are scanned automatically, and new videos appear after refresh. Display renames and removing a collection leave drive folders unchanged.
 
 Filename collections remain available under **Add → Create filename collection**. They match their name anywhere in indexed video filenames, ignoring case. A Peter collection matches both `Peter - Movie.mp4` and `Movie with Peter.mp4`; newly indexed matches appear automatically. Collections overlap without rewriting existing virtual assignments. They support thumbnails, search, Play all, selection, shared cut/copy/paste, rename, hide, details and removal. Merge assigns current matches into a virtual folder while keeping the automatic collection. Deleting a collection keeps originals; videos inside retain their individual permanent-delete actions.
@@ -45,10 +45,12 @@ Hardware decoding, 4K throughput, actual user WMV files, PiP, headphone behavior
 
 ## Review follow-up
 
-Settings has separate Connection, Appearance, Playback, Library and Diagnostics pages. Dark grey uses a deeper charcoal palette. Optional connection settings support an account domain, required signing and required SMB3 encryption; defaults preserve previous connections. Required encryption fails rather than silently sending unencrypted traffic.
+Settings opens each category on its own page. Opening a page slides it in from the right; Back slides it out to the right and restores the Settings index. The Appearance page retains the four SkyWing glass themes, while both players use the earlier gradient and outlined-button controls. Optional connection settings support an account domain, required signing and required SMB3 encryption; defaults preserve previous connections. Required encryption fails rather than silently sending unencrypted traffic.
+
+Connection also accepts comma-separated **Other addresses** for the same SMB server. Keep the original server address as the primary one; when it stops answering on port 445, SkyWing checks the other addresses and remembers the one that answered for this app session. A server that answers but rejects authentication is reported as an error, without trying a different address. Adding or changing other addresses keeps the existing library, covers, and playback history because the primary server address remains its identity.
 
 Startup opens the database and Keystore settings on an IO dispatcher. Scans retry connection failures, periodic sync resumes interrupted directory queues and schedules thumbnails, and linked/deep folder traversal is bounded. Thumbnail cancellation closes its file independently of the read-cache monitor; timeouts remain pending for retry. Folder covers use bounded per-group locking and publish before cleaning older covers. Image memory adapts to heap size and Android trim events.
 
 Media3 double-tap seeking no longer triggers a single tap, controls respect accessibility timeouts, seek targets are at least 48 dp, gesture system setters avoid redundant calls, and playlist items use their own saved resume points. Unsupported tracks are visible but disabled. Existing subtitle features are preserved; no new subtitle work or Windows port is included. The WMV decoder rollback remains; its only follow-up is passing the chosen connection security settings through to SMB.
 
-Diagnostics can collect 240-frame p95 render timing and the number of frames over the current display budget. Collection is off by default and stops when diagnostics is disabled. This is a device sample, not a claim of measured 120 Hz performance. `VideoLibrary-optimized-preview-apk` uses R8/resource shrinking with conservative SMB/crypto/JNI keep rules and the same Preview signing identity; CI smoke-tests an in-place upgrade and authenticated browsing. The separate Device profile and startup measurements workflow generates a baseline profile and records five cold-start samples. Emulator results are development measurements; physical-device Macrobenchmark results are still needed.
+Diagnostics can collect 240-frame p95 render timing and the number of frames over the current display budget. Collection is off by default and stops when diagnostics is disabled. This is a device sample, not a claim of measured 120 Hz performance. `SkyWing-optimized-preview-apk` uses R8/resource shrinking with conservative SMB/crypto/JNI keep rules and the same Preview signing identity; CI smoke-tests an in-place upgrade and authenticated browsing. The separate Device profile and startup measurements workflow generates a baseline profile and records five cold-start samples. Emulator results are development measurements; physical-device Macrobenchmark results are still needed.

@@ -1608,9 +1608,24 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             return
         }
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { items.chunked(500).forEach { downloadDao.insertAll(it) } }
-            com.deepak.videolibrary.downloads.DownloadWorker.enqueue(getApplication())
-            notice = "Downloading ${items.size} ${if (items.size == 1) "file" else "files"} to Download/${com.deepak.videolibrary.downloads.DownloadPaths.ROOT}. Tap the download button at the top to see progress."
+            val pending = withContext(Dispatchers.IO) {
+                val resolver = getApplication<android.app.Application>().contentResolver
+                items.filter { item ->
+                    val previous = downloadDao.completedAt(item.libraryId, item.sourcePath, item.targetFolder)
+                    val accessible = previous?.uri?.let { saved ->
+                        runCatching { resolver.openFileDescriptor(android.net.Uri.parse(saved), "r")?.use { descriptor ->
+                            descriptor.statSize >= 0 && descriptor.statSize == previous?.size && (item.size <= 0 || item.size == previous?.size)
+                        } == true }.getOrDefault(false)
+                    } ?: false
+                    !accessible
+                }.also { remaining -> remaining.chunked(500).forEach { downloadDao.insertAll(it) } }
+            }
+            if (pending.isNotEmpty()) com.deepak.videolibrary.downloads.DownloadWorker.enqueue(getApplication())
+            if (pending.isEmpty()) {
+                notice = "These files are already downloaded. Existing files stay in their original location."
+                return@launch
+            }
+            notice = "Downloading ${pending.size} ${if (pending.size == 1) "file" else "files"} to Download/${com.deepak.videolibrary.downloads.DownloadPaths.ROOT}. Tap the download button at the top to see progress."
         }
     }
 

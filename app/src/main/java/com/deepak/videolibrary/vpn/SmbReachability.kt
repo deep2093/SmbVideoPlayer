@@ -54,6 +54,9 @@ class SmbReachability(context: Context) {
         }
     }
 
+    suspend fun isDirectlyReachable(hosts: List<String>, timeoutMs: Int = 1500): Boolean =
+        hosts.any { isDirectlyReachable(it, timeoutMs) }
+
     /**
      * True when the server answers on this app's default route. With the app-only tunnel up
      * this is the route through WireGuard; with it down it is the normal network.
@@ -66,6 +69,9 @@ class SmbReachability(context: Context) {
             true
         }.getOrDefault(false)
     }
+
+    suspend fun isReachableViaDefaultRoute(hosts: List<String>, timeoutMs: Int = 2500): Boolean =
+        hosts.any { isReachableViaDefaultRoute(it, timeoutMs) }
 
     companion object {
         private const val SMB_PORT = 445

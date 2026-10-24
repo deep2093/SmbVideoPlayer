@@ -50,6 +50,8 @@ internal fun LibraryPlayerControls(
     onOptions: () -> Unit,
     onAspect: () -> Unit = {},
     onRotate: (() -> Unit)? = null,
+    onPip: (() -> Unit)? = null,
+    onQueue: (() -> Unit)? = null,
     onInteraction: () -> Unit = {},
 ) {
     var scrubbing by remember(title) { mutableStateOf(false) }
@@ -64,8 +66,8 @@ internal fun LibraryPlayerControls(
         IconButton(enabled = canPrevious, onClick = { onPrevious(); onInteraction() }) {
             Icon(Icons.Filled.SkipPrevious, "Previous video", tint = if (canPrevious) ink else disabled)
         }
-        IconButton(onClick = { onSeek((position - 10_000L).coerceAtLeast(0)); onInteraction() }) {
-            Icon(Icons.Filled.Replay10, "Rewind 10 seconds", tint = ink)
+        IconButton(enabled = duration > 0, onClick = { onSeek((position - 10_000L).coerceAtLeast(0)); onInteraction() }) {
+            Icon(Icons.Filled.Replay10, "Rewind 10 seconds", tint = if (duration > 0) ink else disabled)
         }
         // Outlined round play/pause, as in VLC.
         IconButton(
@@ -80,8 +82,8 @@ internal fun LibraryPlayerControls(
                 modifier = Modifier.size(32.dp),
             )
         }
-        IconButton(onClick = { onSeek((position + 10_000L).coerceAtMost(duration.coerceAtLeast(0))); onInteraction() }) {
-            Icon(Icons.Filled.Forward10, "Forward 10 seconds", tint = ink)
+        IconButton(enabled = duration > 0, onClick = { onSeek((position + 10_000L).coerceAtMost(duration)); onInteraction() }) {
+            Icon(Icons.Filled.Forward10, "Forward 10 seconds", tint = if (duration > 0) ink else disabled)
         }
         IconButton(enabled = canNext, onClick = { onNext(); onInteraction() }) {
             Icon(Icons.Filled.SkipNext, "Next video", tint = if (canNext) ink else disabled)
@@ -94,6 +96,12 @@ internal fun LibraryPlayerControls(
         }
     }
     val trailing: @Composable () -> Unit = {
+        onQueue?.let { callback ->
+            IconButton(onClick = { callback(); onInteraction() }) { Icon(Icons.Filled.QueuePlayNext, "Playback queue", tint = ink) }
+        }
+        onPip?.let { callback ->
+            IconButton(onClick = { callback(); onInteraction() }) { Icon(Icons.Filled.PictureInPictureAlt, "Picture in picture", tint = ink) }
+        }
         if (aspectLabel != null) {
             IconButton(onClick = { onAspect(); onInteraction() }) {
                 Icon(Icons.Filled.AspectRatio, "Zoom and aspect ratio: $aspectLabel", tint = ink)
@@ -139,13 +147,13 @@ internal fun LibraryPlayerControls(
                 Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 4.dp)) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(DateUtils.formatElapsedTime(shownPosition.coerceAtLeast(0) / 1000), color = ink, style = MaterialTheme.typography.labelLarge)
-                        Text(DateUtils.formatElapsedTime(duration.coerceAtLeast(0) / 1000), color = ink, style = MaterialTheme.typography.labelLarge)
+                        Text(if (duration > 0) DateUtils.formatElapsedTime(duration / 1000) else "--:--", color = ink, style = MaterialTheme.typography.labelLarge)
                     }
                     Slider(
                         value = if (scrubbing) fraction else (position.toDouble() / duration.coerceAtLeast(1)).coerceIn(0.0, 1.0).toFloat(),
                         onValueChange = { scrubbing = true; fraction = it; onInteraction() },
                         onValueChangeFinished = {
-                            onSeek((fraction.toDouble() * duration.coerceAtLeast(0)).toLong())
+                            if (duration > 0) onSeek((fraction.toDouble() * duration).toLong())
                             scrubbing = false
                             onInteraction()
                         },

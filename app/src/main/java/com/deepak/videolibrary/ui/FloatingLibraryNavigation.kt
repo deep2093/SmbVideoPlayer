@@ -47,7 +47,7 @@ internal fun FloatingLibraryNavigation(
         .shadow(if (glass) 20.dp else 12.dp, shape, ambientColor = Color.Black.copy(alpha = shadowAlpha), spotColor = Color.Black.copy(alpha = shadowAlpha))
         .clip(shape)
         .then(
-            if (glass && hazeState != null) {
+            if (glass && hazeState != null && !theme.reduceTransparency) {
                 Modifier.hazeEffect(
                     state = hazeState,
                     style = HazeStyle(
@@ -56,11 +56,11 @@ internal fun FloatingLibraryNavigation(
                         blurRadius = 26.dp,
                         noiseFactor = 0.04f,
                         // Android 10 and 11 cannot blur: fall back to a stronger tint.
-                        fallbackTint = HazeTint(theme.menu.copy(alpha = 0.92f)),
+                        fallbackTint = HazeTint(theme.menu.copy(alpha = if (theme.reduceTransparency) 1f else 0.92f)),
                     ),
                 )
             } else if (glass) {
-                Modifier.background(theme.menu.copy(alpha = 0.92f))
+                Modifier.background(theme.menu.copy(alpha = if (theme.reduceTransparency) 1f else 0.92f))
             } else {
                 Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)
             },
@@ -75,7 +75,7 @@ internal fun FloatingLibraryNavigation(
             val isSelected = selected == index
             val lensColor = when {
                 !isSelected -> Color.Transparent
-                glass && theme.light -> Color(0xFF5B4A2E).copy(alpha = 0.12f)
+                glass && theme.light -> theme.accent.copy(alpha = 0.14f)
                 glass -> Color.White.copy(alpha = 0.2f)
                 else -> theme.accent.copy(alpha = 0.22f)
             }
@@ -113,7 +113,10 @@ internal fun LibrarySidebar(
     modifier: Modifier = Modifier,
     onSelect: (Int) -> Unit,
 ) {
-    Column(modifier.background(MaterialTheme.colorScheme.background).padding(16.dp)) {
+    val theme = LocalLibraryTheme.current
+    Column(modifier.then(if (theme.glass) Modifier.skyWingGlassSurface(
+        shape = RoundedCornerShape(28.dp), liveBlur = false,
+    ) else Modifier.background(MaterialTheme.colorScheme.background)).padding(16.dp)) {
         AppIconMark(40.dp, Modifier.padding(top = 12.dp, bottom = 12.dp))
         Text(APP_NAME, style = MaterialTheme.typography.titleMedium)
         Text("SMB media", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -123,7 +126,7 @@ internal fun LibrarySidebar(
             val ink = if (selected == index) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(percent = 50))
-                    .background(if (selected == index) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.background)
+                    .background(if (selected == index) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
                     .selectable(selected = selected == index, role = Role.Tab, onClick = { onSelect(index) })
                     .padding(horizontal = 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,

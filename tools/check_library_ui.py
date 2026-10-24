@@ -76,10 +76,15 @@ def gone(label, wait=3):
     return not any(n.get('content-desc')==label or label in n.get('text','').splitlines() for n in tree().iter('node'))
 
 def open_section(name, probe):
-    """Settings keeps its open section and scroll position for the session: open [name] only if needed."""
+    """Open a Settings page, returning to the index if another page is selected."""
     try:
         find(probe, timeout=2)
         return
+    except AssertionError:
+        pass
+    try:
+        find('Back to Settings', timeout=1)
+        click('Back to Settings')
     except AssertionError:
         pass
     try:
@@ -88,6 +93,13 @@ def open_section(name, probe):
         scroll_to(name, up=True)
     click(name)
     scroll_to(probe)
+
+def settings_index():
+    try:
+        find('Back to Settings', timeout=1)
+        click('Back to Settings')
+    except AssertionError:
+        pass
 
 def click(label,long=False,last=False):
     node=find(label)
@@ -153,15 +165,15 @@ try:
     find('Hollywood')
     print('PASS: a virtual folder reads its chosen drive folder and shows the subfolder of the video filed there')
     click('Settings')
-    find('Connection');find('Playback');find('Sync & scanning')
-    # Diagnostics is the last section; it may sit below the fold on a phone.
+    find('Connection');scroll_to('Playback');scroll_to('Sync & scanning',up=True)
+    # Diagnostics is the last page; it may sit below the fold on a phone.
     scroll_to('Backup & diagnostics');scroll_to('Connection',up=True)
     screenshot('settings-categories')
     click('Connection');find('Server address');find('Share name');click('Advanced connection options');find('Domain (optional)');find('Require SMB encryption')
-    # The new Artwork section adds a row, so fold Connection away before opening the next section.
-    click('Connection')
-    click('Playback');find('Brightness and volume swipe')
-    click('Appearance')
+    click('Back to Settings')
+    scroll_to('Playback');click('Playback');find('Brightness and volume swipe')
+    click('Back to Settings')
+    scroll_to('Appearance',up=True);click('Appearance')
     current='Dark grey'
     for theme in ['AMOLED black','Midnight blue','Forest','Plum','Dark grey']:
         click('Theme: '+current);click(theme);find('Theme: '+theme)
@@ -209,7 +221,7 @@ try:
     assert gone(NAME), 'A hidden video must not be listed in Files'
     click('Settings');open_section('App layout','Unhide files and folders');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
     find('No hidden items.');screenshot('unhide')
-    adb('shell','input','keyevent','4')  # Back from Hidden items to the Settings list.
+    adb('shell','input','keyevent','4')  # Back from Hidden items to App layout.
     print('PASS: hidden video is left out of Files and can be restored in Settings')
     click('Folders');click('Custom folders');click('Add custom folder');click('Create filename collection')
     enter_text('Cruise');click('Create');find('Cruise')
@@ -273,7 +285,7 @@ try:
         screenshot('redesign-'+label+'-folders')
         click('Videos');find('Search')
         screenshot('redesign-'+label+'-videos')
-        click('Settings');find('Connection')
+        click('Settings');settings_index();find('Connection')
         screenshot('redesign-'+label+'-settings')
         print('PASS: native redesign renders at '+label)
     adb('shell','wm','size','2560x1600')

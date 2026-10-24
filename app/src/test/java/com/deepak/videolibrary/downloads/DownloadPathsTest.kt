@@ -7,8 +7,8 @@ import org.junit.Test
 
 class DownloadPathsTest {
     @Test fun filesGoUnderTheAppFolder() {
-        assertEquals("Download/Veyra/", DownloadPaths.relativePath(""))
-        assertEquals("Download/Veyra/Ann/S1/", DownloadPaths.relativePath("Ann/S1"))
+        assertEquals("Download/SkyWing/", DownloadPaths.relativePath(""))
+        assertEquals("Download/SkyWing/Ann/S1/", DownloadPaths.relativePath("Ann/S1"))
     }
 
     @Test fun wholeFolderKeepsItsNameAndStructure() {

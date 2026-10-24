@@ -21,6 +21,12 @@ data class SmbSettings(
     val domain: String = "",
     val requireSigning: Boolean = false,
     val requireEncryption: Boolean = false,
+    /**
+     * Other addresses of the same server (comma separated), tried when the main one does not answer, for a router
+     * that hands the drive a different address now and then (192.168.71.250 one day, 192.168.71.249 the next).
+     * They are not part of the library's identity, so the same library is used whichever address answers.
+     */
+    val alternateHosts: String = "",
 )
 
 /**
@@ -59,6 +65,7 @@ class SettingsStore(context: Context) {
             domain = prefs.getString("domain", "") ?: "",
             requireSigning = prefs.getBoolean("require_signing", false),
             requireEncryption = prefs.getBoolean("require_encryption", false),
+            alternateHosts = prefs.getString(KEY_ALTERNATE_HOSTS, "") ?: "",
         ).also { cached = it }
     }
 
@@ -76,6 +83,7 @@ class SettingsStore(context: Context) {
             .putString("domain", settings.domain.trim())
             .putBoolean("require_signing", settings.requireSigning)
             .putBoolean("require_encryption", settings.requireEncryption)
+            .putString(KEY_ALTERNATE_HOSTS, com.deepak.videolibrary.smb.HostFallback.parse(settings.alternateHosts).joinToString(", "))
         if (settings.savePassword) {
             editor.putString(KEY_PASSWORD, encrypted)
             sessionPassword = ""
@@ -91,6 +99,7 @@ class SettingsStore(context: Context) {
                 rootPath = normalizeRoot(settings.rootPath),
                 username = settings.username.trim(),
                 domain = settings.domain.trim(),
+                alternateHosts = com.deepak.videolibrary.smb.HostFallback.parse(settings.alternateHosts).joinToString(", "),
             )
     }
 
@@ -108,6 +117,7 @@ class SettingsStore(context: Context) {
             requireSigning = s.requireSigning,
             requireEncryption = s.requireEncryption,
             groupingRule = groupingRule(s),
+            alternateHosts = com.deepak.videolibrary.smb.HostFallback.parse(s.alternateHosts),
         )
     }
 
@@ -120,7 +130,8 @@ class SettingsStore(context: Context) {
         domain = s.domain,
         requireSigning = s.requireSigning,
         requireEncryption = s.requireEncryption,
-            groupingRule = groupingRule(s),
+        groupingRule = groupingRule(s),
+        alternateHosts = com.deepak.videolibrary.smb.HostFallback.parse(s.alternateHosts),
     )
 
     fun groupingRule(s: SmbSettings): com.deepak.videolibrary.scan.GroupingRule =
@@ -177,6 +188,7 @@ class SettingsStore(context: Context) {
         private const val GCM_IV_BYTES = 12
 
         private const val KEY_HOST = "host"
+        private const val KEY_ALTERNATE_HOSTS = "alternate_hosts"
         private const val KEY_SHARE = "share"
         private const val KEY_ROOT = "root"
         private const val KEY_USER = "user"

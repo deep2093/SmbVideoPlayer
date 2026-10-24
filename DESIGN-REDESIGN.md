@@ -1,4 +1,4 @@
-# Video Library: cinema-dark redesign
+# SkyWing: cinema-dark redesign
 
 Base: confirmed v0.11 commit ffeea817ca4e80ebbc4ed7b650964c39e97179bf.
 

@@ -9,13 +9,13 @@ import androidx.compose.runtime.setValue
 
 /**
  * Screen state that should survive moving between pages for as long as the app is open (but not a restart):
- * which Settings sections are open and where the Settings page was scrolled to.
+ * which Settings page is selected and where the Settings index was scrolled to.
  */
 class UiSession {
     /** Open/closed state of expandable parts, by name. */
     val flags = mutableStateMapOf<String, Boolean>()
 
-    /** The open Settings section, or null when all are closed. */
+    /** Selected Settings page, or null for the Settings index. */
     var settingsSection by mutableStateOf<String?>(null)
 
     /** Settings scroll position in pixels. */

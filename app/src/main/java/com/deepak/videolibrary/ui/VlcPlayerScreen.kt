@@ -82,6 +82,7 @@ internal fun VlcPlayerScreen(
     var controlsInteraction by remember { mutableIntStateOf(0) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var tracks by remember { mutableStateOf(false) }
+    var showQueue by remember { mutableStateOf(false) }
     var options by remember { mutableStateOf(false) }
     var attempt by remember { mutableIntStateOf(0) }
     var videoOutput by remember { mutableStateOf(false) }
@@ -172,6 +173,7 @@ internal fun VlcPlayerScreen(
                                 settings.domain,
                                 settings.requireSigning,
                                 settings.requireEncryption,
+                                alternateHosts = com.deepak.videolibrary.smb.HostFallback.parse(settings.alternateHosts),
                             ),
                             current.relativePath,
                             current.size,
@@ -397,7 +399,9 @@ internal fun VlcPlayerScreen(
         }
     }
     BackHandler {
-        if (tracks) {
+        if (showQueue) {
+            showQueue = false
+        } else if (tracks) {
             tracks = false
         } else if (options) {
             options = false
@@ -474,7 +478,12 @@ internal fun VlcPlayerScreen(
                     })
                 },
         )
-        if (controls || !playing) {
+        androidx.compose.animation.AnimatedVisibility(
+            visible = (controls || !playing) && (activity as? MainActivity)?.playbackInPip != true,
+            modifier = Modifier.fillMaxSize(),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)),
+        ) {
             LibraryPlayerControls(
                 title = current.name,
                 position = position,
@@ -492,6 +501,12 @@ internal fun VlcPlayerScreen(
                 onTracks = { tracks = true },
                 onOptions = { options = true },
                 onRotate = { orientation.rotate() },
+                aspectLabel = "Zoom ${(zoom * 100).toInt()}%",
+                onAspect = { zoom = if (zoom > 1f) 1f else 1.5f },
+                onPip = if (activity?.packageManager?.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE) == true) ({
+                    runCatching { activity.enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()) }
+                }) else null,
+                onQueue = { showQueue = true },
                 onInteraction = { controls = true; controlsInteraction++ },
             )
         }
@@ -504,6 +519,11 @@ internal fun VlcPlayerScreen(
                 TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.ui_retry_9f5cd8a)) }
             }
         }
+    }
+    if (showQueue) {
+        SkyWingQueueDialog(queue.map { it.name }, index, vm.playbackHasMore,
+            onDismiss = { showQueue = false; controls = true; controlsInteraction++ },
+            onSelect = { save(); index = it; showQueue = false; controls = true; controlsInteraction++ })
     }
     if (tracks) {
         AlertDialog(onDismissRequest = { tracks = false }, title = { Text(stringResource(R.string.ui_audio_and_subtitles_57d12f7)) }, text = {
