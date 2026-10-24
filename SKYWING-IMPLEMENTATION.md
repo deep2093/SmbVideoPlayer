@@ -9,8 +9,9 @@ This branch implements the supplied SkyWing handoff on top of `aa47bb0`.
 - Four actual app themes: Aurora Glass Dark (`LIQUID`), Aurora Glass Light (`SKYWING_AURORA_LIGHT`), Crystal Glass Dark (`SKYWING_CRYSTAL_DARK`), Crystal Glass Light (`LIQUID_GLASS`). Every other theme remains available. Appearance includes selectable native palette/dock previews. Preferences retain the same file and key.
 - The existing content/wallpaper hierarchy, themed cards and Haze 1.6.1 floating dock use the new palettes. Glass themes show the dock on phones and a translucent sidebar when the tablet sidebar layout is selected. The stored navigation preference is retained.
 - Reduce transparency replaces panels with opaque tints and disables dock backdrop blur. Existing Compose animation scale handling remains in place.
-- `LibraryPlayerControls` keeps its existing contract and forwards to shared `SkyWingPlayerChrome` for both Media3 and LibVLC. Glass title/back/action chips, central play/pause and skip controls, floating timeline and action dock replace the old VLC-style presentation. Both engines expose queue and direct PiP actions. Media3's existing brightness/volume feedback becomes transient side rails.
-- Player overlays use dark translucent tints even in light app themes, with no video frame capture or blur. The engines, data sources, gesture recognizers, decoding, track dialogs and auto-hide ownership remain in place. Playback state is not created by the chrome.
+- `LibraryPlayerControls` presents the earlier VLC-style gradient overlay for both Media3 and LibVLC: centered title, outlined play button, slim timeline and bottom actions. Queue and direct PiP remain available. Media3's existing brightness/volume feedback uses the earlier compact text overlay.
+- Player overlays keep white controls over dark gradients even in light app themes, with no video frame capture or blur. The engines, data sources, gesture recognizers, decoding, track dialogs and auto-hide ownership remain in place.
+- The Settings index opens each category as a separate page with full-width horizontal slides and a back button. The app themes and stored appearance choices remain available.
 - New downloads go to `Download/SkyWing`. Existing completed and in-progress items keep their saved MediaStore URIs. Enqueue checks for an accessible completed file in the same server/source/destination before downloading it again. No files are moved, renamed or deleted during the brand change.
 
 ## Compatibility boundaries
@@ -23,7 +24,8 @@ All existing original/custom/virtual folders, artwork, accounts, history, VPN co
 
 - `Theme.kt`, `SkyWingThemes.kt`, `SkyWingThemeChoices.kt`: catalog, persistence, color mapping and Appearance.
 - `FloatingLibraryNavigation.kt`, `SkyWingGlassSurface.kt`, `AppRoot.kt`: material and responsive navigation.
-- `LibraryPlayerControls.kt`, `SkyWingPlayerChrome.kt`, `SkyWingQueueDialog.kt`: shared playback presentation.
+- `LibraryPlayerControls.kt`, `SkyWingQueueDialog.kt`: shared playback presentation.
+- `SettingsScreen.kt`, `UiSession.kt`: Settings index, page transitions and back navigation.
 - `player/PlayerScreen.kt`, `ui/VlcPlayerScreen.kt`, `MainActivity.kt`: existing engine callback integration and PiP overlay visibility.
 - `LaunchIntro.kt`, `res/drawable*`, `res/mipmap*`, `app/build.gradle.kts`: branding and icons.
 - `DownloadPaths.kt`, `DownloadStore.kt`, `LibraryViewModel.kt`: non-destructive download compatibility.
@@ -41,6 +43,6 @@ Added checks cover catalog uniqueness and old IDs, all four live persisted Appea
 
 ## Device acceptance still required
 
-Not tested on the user's physical device/server: a 10-minute 4K SMB stream, HDR, actual WMV files, remote WireGuard, dropped frames/battery, headset/audio focus, physical launcher masks and system light/dark icon refresh. Emulator tests cannot establish those results. Inspect bright/dark scenes, large fonts, landscape, PiP, track switching, gestures, resumes and queue boundaries in both engines before merging. Existing VLC gesture capabilities are preserved; the new side-rail display is driven by Media3's existing brightness/volume recognizer.
+Not tested on the user's physical device/server: a 10-minute 4K SMB stream, HDR, actual WMV files, remote WireGuard, dropped frames/battery, headset/audio focus, physical launcher masks and system light/dark icon refresh. Emulator tests cannot establish those results. Inspect bright/dark scenes, large fonts, landscape, PiP, track switching, gestures, resumes and queue boundaries in both engines before merging. Existing VLC gesture capabilities are preserved.
 
 No exact pixel match to conceptual reference artwork or measured playback performance is claimed. The real screenshot artifacts and test results are the evidence to review. Keep this as a draft until build, visual and device review are satisfactory.
