@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,6 +50,7 @@ data class LibraryTheme(
     val adaptive: AdaptiveStyle? = null,
     /** The phone's own wallpaper shows through the app (with a veil for readable text). */
     val showsWallpaper: Boolean = false,
+    val reduceTransparency: Boolean = false,
 )
 
 /** The look shared by the adaptive themes: smoky dark glass over a wallpaper made from the covers on screen. */
@@ -182,9 +185,28 @@ private fun rememberThemeChoice(): State<String> {
 }
 
 @Composable
+private fun rememberAppearanceFlag(key: String): State<Boolean> {
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("appearance", Context.MODE_PRIVATE) }
+    val value = remember(prefs, key) { mutableStateOf(prefs.getBoolean(key, false)) }
+    DisposableEffect(prefs, key) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changed ->
+            if (changed == key) value.value = prefs.getBoolean(key, false)
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    return value
+}
+
+@Composable
 fun VideoLibraryTheme(content: @Composable () -> Unit) {
     val choice by rememberThemeChoice()
-    val chosen = libraryThemes.first { it.id == choice }
+    val reduceTransparency by rememberAppearanceFlag("reduce_transparency")
+    val selected = libraryThemes.first { it.id == choice }
+    val chosen = if (reduceTransparency && selected.glass) selected.copy(
+        card = selected.menu, surface = selected.menu, glassTint = selected.menu, reduceTransparency = true,
+    ) else selected
     // Adaptive themes: colours follow the covers on screen, and so does the accent.
     val adaptiveStyle = chosen.adaptive
     val adaptiveColors = if (adaptiveStyle != null) rememberAdaptiveColors(adaptiveStyle) else null
@@ -327,10 +349,20 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
 internal fun ThemeSettings() {
     val context = LocalContext.current
     val choice by rememberThemeChoice()
+    val reduceTransparency by rememberAppearanceFlag("reduce_transparency")
     var expanded by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SkyWingThemeChoices(choice) { id ->
             context.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit().putString("theme", id).apply()
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Reduce transparency", style = MaterialTheme.typography.bodyLarge)
+                Text("Solid panels and no backdrop blur", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = reduceTransparency, onCheckedChange = { value ->
+                context.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit().putBoolean("reduce_transparency", value).apply()
+            }, modifier = Modifier.semantics { contentDescription = "Reduce transparency" })
         }
         OutlinedButton(onClick = {
             expanded = true

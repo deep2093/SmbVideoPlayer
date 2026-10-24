@@ -2,7 +2,7 @@ name: Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, master, "codex/**", "feature/skywing-brand-and-glass"]
+    branches: [main, master, "codex/**"]
   pull_request:
     branches: [main]
 concurrency:
@@ -245,12 +245,13 @@ jobs:
           # Avoid the Android 10 profile's oversized default userdata image.
           disk-size: 4096M
           disable-animations: true
-          script: bash tools/ci_device_checks.sh
+          script: SKYWING_VISUALS=${{ matrix.api == 35 }} bash tools/ci_device_checks.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Preview-device-check-${{ matrix.api }}
           path: |
+            preview/skywing-visual/
             preview/device-*.png
             preview/storage-tests.txt
             preview/device-*.xml

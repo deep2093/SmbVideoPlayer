@@ -38,10 +38,11 @@ fun Modifier.skyWingGlassSurface(
     if (!theme.glass) {
         return this.clip(shape).background(theme.card)
     }
+    val solid = reduceTransparency || theme.reduceTransparency
     val crystal = theme.skyWingGlassFamily() == "CRYSTAL"
     val edge = if (theme.light) Color(0x6654708C) else Color(0x70D7EEFF)
     val tint = when {
-        reduceTransparency -> if (theme.light) Color(0xFFF6FAFF) else Color(0xFF122038)
+        solid -> if (theme.light) Color(0xFFF6FAFF) else Color(0xFF122038)
         theme.light && crystal -> Color(0xCFFFFFFF)
         theme.light -> Color(0xBDECF5FF)
         crystal -> Color(0xB8203347)
@@ -51,7 +52,7 @@ fun Modifier.skyWingGlassSurface(
         .then(if (elevated) Modifier.shadow(12.dp, shape) else Modifier)
         .clip(shape)
         .then(
-            if (liveBlur && hazeState != null && !reduceTransparency) {
+            if (liveBlur && hazeState != null && !solid) {
                 Modifier.hazeEffect(
                     state = hazeState,
                     style = HazeStyle(

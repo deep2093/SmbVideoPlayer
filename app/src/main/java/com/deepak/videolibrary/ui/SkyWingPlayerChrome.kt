@@ -58,7 +58,7 @@ internal fun SkyWingPlayerChrome(
     // White foreground always, even when the surrounding library uses a light theme.
     val ink = Color.White
     val accent = if (aurora) Color(0xFF8CD4FF) else Color(0xFFCEE6F7)
-    val tint = if (aurora) Color(0xC0101940) else Color(0xC01A2736)
+    val tint = (if (aurora) Color(0xC0101940) else Color(0xC01A2736)).let { if (theme.reduceTransparency) it.copy(alpha = 1f) else it }
     val rim = Brush.linearGradient(listOf(Color(0x99FFFFFF), accent.copy(alpha = 0.15f), Color(0x55FFFFFF)))
     val pill = RoundedCornerShape(28.dp)
     fun Modifier.lens() = clip(pill).background(tint).border(1.dp, rim, pill)

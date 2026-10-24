@@ -399,11 +399,8 @@ internal fun VlcPlayerScreen(
     }
     BackHandler {
         if (showQueue) {
-        SkyWingQueueDialog(queue.map { it.name }, index, vm.playbackHasMore,
-            onDismiss = { showQueue = false; controls = true; controlsInteraction++ },
-            onSelect = { save(); index = it; showQueue = false; controls = true; controlsInteraction++ })
-    }
-    if (tracks) {
+            showQueue = false
+        } else if (tracks) {
             tracks = false
         } else if (options) {
             options = false

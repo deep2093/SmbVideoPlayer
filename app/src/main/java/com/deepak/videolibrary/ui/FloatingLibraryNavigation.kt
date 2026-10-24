@@ -47,7 +47,7 @@ internal fun FloatingLibraryNavigation(
         .shadow(if (glass) 20.dp else 12.dp, shape, ambientColor = Color.Black.copy(alpha = shadowAlpha), spotColor = Color.Black.copy(alpha = shadowAlpha))
         .clip(shape)
         .then(
-            if (glass && hazeState != null) {
+            if (glass && hazeState != null && !theme.reduceTransparency) {
                 Modifier.hazeEffect(
                     state = hazeState,
                     style = HazeStyle(
@@ -56,11 +56,11 @@ internal fun FloatingLibraryNavigation(
                         blurRadius = 26.dp,
                         noiseFactor = 0.04f,
                         // Android 10 and 11 cannot blur: fall back to a stronger tint.
-                        fallbackTint = HazeTint(theme.menu.copy(alpha = 0.92f)),
+                        fallbackTint = HazeTint(theme.menu.copy(alpha = if (theme.reduceTransparency) 1f else 0.92f)),
                     ),
                 )
             } else if (glass) {
-                Modifier.background(theme.menu.copy(alpha = 0.92f))
+                Modifier.background(theme.menu.copy(alpha = if (theme.reduceTransparency) 1f else 0.92f))
             } else {
                 Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)
             },

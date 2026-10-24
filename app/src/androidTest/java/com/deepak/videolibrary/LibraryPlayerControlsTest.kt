@@ -46,4 +46,24 @@ class LibraryPlayerControlsTest {
             assertEquals(1, options)
         }
     }
+    @Test fun unknownLengthDisablesSeekingButKeepsEngineActions() {
+        var seeks = 0
+        var pip = 0
+        var queue = 0
+        rule.setContent {
+            VideoLibraryTheme {
+                LibraryPlayerControls(title = "Unknown duration", position = 0, duration = 0,
+                    isPlaying = false, canPlay = false, onBack = {}, onTogglePlayback = {},
+                    onSeek = { seeks++ }, onTracks = {}, onOptions = {},
+                    onPip = { pip++ }, onQueue = { queue++ })
+            }
+        }
+        rule.onNodeWithContentDescription("Play").assertIsNotEnabled()
+        rule.onNodeWithContentDescription("Forward 10 seconds").assertIsNotEnabled()
+        rule.onNodeWithContentDescription("Rewind 10 seconds").assertIsNotEnabled()
+        rule.onNodeWithContentDescription("Picture in picture").performClick()
+        rule.onNodeWithContentDescription("Playback queue").performClick()
+        rule.runOnIdle { assertEquals(0, seeks); assertEquals(1, pip); assertEquals(1, queue) }
+    }
+
 }
