@@ -50,6 +50,14 @@ class MainActivity : ComponentActivity() {
         if (isFinishing) vpn.onAppClosed()
         super.onDestroy()
     }
+    var playbackInPip by mutableStateOf(false)
+        private set
+
+    override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(inPip, newConfig)
+        playbackInPip = inPip
+    }
+
     var onLeavePlayback: (() -> Unit)? = null
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()

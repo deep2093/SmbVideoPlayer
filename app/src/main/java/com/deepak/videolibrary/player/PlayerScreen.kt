@@ -1,6 +1,8 @@
 package com.deepak.videolibrary.ui
 
 import androidx.compose.ui.res.stringResource
+import com.deepak.videolibrary.ui.SkyWingGestureFeedback
+import com.deepak.videolibrary.ui.SkyWingQueueDialog
 import com.deepak.videolibrary.R
 
 import android.app.Activity
@@ -189,6 +191,7 @@ fun PlayerScreen(
     var controlsVisible by remember { mutableStateOf(true) }
     var controlsInteraction by remember { mutableIntStateOf(0) }
     var showTracks by remember { mutableStateOf(false) }
+    var showQueue by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     fun revealControls() {
         controlsVisible = true
@@ -691,14 +694,8 @@ fun PlayerScreen(
                 gestureMessage = ""
             }
         }
-        if (gestureMessage.isNotBlank()) {
-            Text(
-                gestureMessage,
-                color = Color.White,
-                modifier = Modifier.align(Alignment.Center).background(Color(0xA6000000), RoundedCornerShape(14.dp)).padding(12.dp),
-            )
-        }
-        if (controlsVisible) {
+        SkyWingGestureFeedback(gestureMessage)
+        if (controlsVisible && (activity as? com.deepak.videolibrary.MainActivity)?.playbackInPip != true) {
             LibraryPlayerControls(
                 title = activeVideo.name,
                 position = position,
@@ -720,8 +717,20 @@ fun PlayerScreen(
                 onTracks = { showTracks = !showTracks; showSettings = false; revealControls() },
                 onOptions = { showSettings = !showSettings; showTracks = false; revealControls() },
                 onAspect = { aspectIndex = (aspectIndex + 1) % aspectModes.size; zoom = 1f; revealControls() },
+                onPip = if (activity?.packageManager?.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE) == true) ({
+                    val size = player.videoSize
+                    val ratio = if (size.height > 0) size.width.toFloat() * size.pixelWidthHeightRatio / size.height else 16f / 9f
+                    runCatching { activity.enterPictureInPictureMode(PictureInPictureParams.Builder()
+                        .setAspectRatio(Rational((ratio.coerceIn(0.42f, 2.39f) * 1000).roundToInt(), 1000)).build()) }
+                }) else null,
+                onQueue = { showQueue = true; revealControls() },
                 onInteraction = ::revealControls,
             )
+        }
+        if (showQueue) {
+            SkyWingQueueDialog(queue.map { it.name }, currentIndex, vm.playbackHasMore,
+                onDismiss = { showQueue = false; revealControls() },
+                onSelect = { player.seekTo(it, 0L); showQueue = false; revealControls() })
         }
         if (showTracks && controlsVisible) {
             val trackGroups = player.currentTracks.groups

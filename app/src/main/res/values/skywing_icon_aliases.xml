@@ -1,0 +1,5 @@
+<resources>
+    <item name="ic_launcher_background" type="drawable">@drawable/ic_skywing_background</item>
+    <item name="ic_launcher_foreground" type="drawable">@drawable/ic_skywing_foreground</item>
+    <item name="ic_launcher_monochrome" type="drawable">@drawable/ic_skywing_monochrome</item>
+</resources>

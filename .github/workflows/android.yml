@@ -2,7 +2,7 @@ name: Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, master, "codex/**"]
+    branches: [main, master, "codex/**", "feature/skywing-brand-and-glass"]
   pull_request:
     branches: [main]
 concurrency:
@@ -38,7 +38,7 @@ jobs:
               if [ "$(build_recipe "$candidate_sha")" != "$current_recipe" ]; then continue; fi
               candidate_built=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate_run/jobs" --jq 'any(.jobs[]; .name=="build" and .conclusion=="success")')
               if [ "$candidate_built" != true ]; then continue; fi
-              candidate_ready=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate_run/artifacts" --jq '[.artifacts[] | select(.expired==false) | .name] | (index("Preview-update-test-apks")!=null and index("Preview-storage-tests")!=null and index("VideoLibrary-optimized-preview-apk")!=null)')
+              candidate_ready=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate_run/artifacts" --jq '[.artifacts[] | select(.expired==false) | .name] | (index("Preview-update-test-apks")!=null and index("Preview-storage-tests")!=null and index("SkyWing-optimized-preview-apk")!=null)')
               if [ "$candidate_ready" = true ]; then
                 source_run="$candidate_run"
                 echo "Reusing signed APKs and successful unit/lint build from run $candidate_run ($candidate_sha)"
@@ -151,8 +151,8 @@ jobs:
           mkdir -p optimized
           cp app/build/outputs/apk/optimized/app-universal-optimized.apk optimized/update.apk
           # The download for phones and tablets: 64-bit ARM only, same signing so it updates the installed app.
-          cp app/build/outputs/apk/optimized/app-arm64-v8a-optimized.apk optimized/Veyra-arm64.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs optimized/Veyra-arm64.apk | grep 'Signer #1 certificate SHA-256 digest:' > optimized/arm64-cert.txt
+          cp app/build/outputs/apk/optimized/app-arm64-v8a-optimized.apk optimized/SkyWing-arm64.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs optimized/SkyWing-arm64.apk | grep 'Signer #1 certificate SHA-256 digest:' > optimized/arm64-cert.txt
           diff -u preview/update-cert.txt optimized/arm64-cert.txt
           mkdir -p profile-out && cp app/build/outputs/apk/profile/app-universal-profile.apk profile-out/app-profile.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs optimized/update.apk > optimized/signing.txt
@@ -160,19 +160,19 @@ jobs:
           diff -u preview/update-cert.txt optimized/cert.txt
       - name: Report APK size by part
         run: |
-          total=$(stat -c %s optimized/Veyra-arm64.apk)
-          echo "::notice title=APK size::Veyra-arm64.apk $((total / 1048576)) MB (universal test APK $(( $(stat -c %s optimized/update.apk) / 1048576 )) MB)"
-          unzip -lv optimized/Veyra-arm64.apk | awk 'NR>3 && $8 != "" { split($8, p, "/"); key = (p[1] == "lib") ? "lib/" p[2] : (p[1] ~ /\.dex$/ ? "dex" : p[1]); size[key] += $3 } END { for (k in size) printf "%s %d\n", k, size[k] / 1048576 }' | sort -k2 -n -r | head -8 | while read part mb; do echo "::notice title=APK part::$part ${mb} MB (stored)"; done
+          total=$(stat -c %s optimized/SkyWing-arm64.apk)
+          echo "::notice title=APK size::SkyWing-arm64.apk $((total / 1048576)) MB (universal test APK $(( $(stat -c %s optimized/update.apk) / 1048576 )) MB)"
+          unzip -lv optimized/SkyWing-arm64.apk | awk 'NR>3 && $8 != "" { split($8, p, "/"); key = (p[1] == "lib") ? "lib/" p[2] : (p[1] ~ /\.dex$/ ? "dex" : p[1]); size[key] += $3 } END { for (k in size) printf "%s %d\n", k, size[k] / 1048576 }' | sort -k2 -n -r | head -8 | while read part mb; do echo "::notice title=APK part::$part ${mb} MB (stored)"; done
       - uses: actions/upload-artifact@v4
         with:
-          # Internal only: the emulator tests need the x86_64 build. Phones use Veyra-arm64-apk.
-          name: VideoLibrary-optimized-preview-apk
+          # Internal only: the emulator tests need the x86_64 build. Phones use SkyWing-arm64-apk.
+          name: SkyWing-optimized-preview-apk
           path: optimized/update.apk
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: Veyra-arm64-apk
-          path: optimized/Veyra-arm64.apk
+          name: SkyWing-arm64-apk
+          path: optimized/SkyWing-arm64.apk
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
@@ -226,7 +226,7 @@ jobs:
           path: preview/legacy
       - uses: actions/download-artifact@v4
         with:
-          name: VideoLibrary-optimized-preview-apk
+          name: SkyWing-optimized-preview-apk
           path: optimized
           run-id: ${{ needs['select-build'].outputs.source_run || github.run_id }}
           github-token: ${{ github.token }}

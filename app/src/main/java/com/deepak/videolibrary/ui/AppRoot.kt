@@ -238,12 +238,13 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     val hazeState = androidx.compose.runtime.remember { dev.chrisbanes.haze.HazeState() }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val tabletLayout = maxWidth >= 700.dp
+        val useDock = floating || (glassTheme && !tabletLayout)
         Scaffold(
             // The player hides the system bars; using their size even while hidden keeps the library from
             // jumping when it comes back after a video (most visible on tablets in landscape).
             contentWindowInsets = androidx.compose.foundation.layout.WindowInsets.systemBarsIgnoringVisibility,
             bottomBar = {
-                if (!tabletLayout && !floating) {
+                if (!tabletLayout && !useDock) {
                     NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp) {
                         TAB_LABELS.forEachIndexed { index, label ->
                             NavigationBarItem(
@@ -267,9 +268,9 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                 // Glass themes: the content is the source the floating bar blurs.
                 Row(
                     Modifier.padding(padding).fillMaxSize()
-                        .then(if (glassTheme && floating) Modifier.hazeSource(hazeState) else Modifier),
+                        .then(if (glassTheme && useDock) Modifier.hazeSource(hazeState) else Modifier),
                 ) {
-                    if (tabletLayout && !floating) {
+                    if (tabletLayout && !useDock) {
                         LibrarySidebar(selected = tab, labels = TAB_LABELS, icons = TAB_ICONS, modifier = Modifier.width(SIDEBAR_WIDTH).fillMaxHeight(), onSelect = onTabTapped)
                     }
                     Column(Modifier.weight(1f).fillMaxHeight()) {
@@ -319,7 +320,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                     playing =
                                         video
                                     playQueue = queue
-                                }, onOpenSettings = { tab = SETTINGS_TAB }, showBrand = !tabletLayout || floating)
+                                }, onOpenSettings = { tab = SETTINGS_TAB }, showBrand = !tabletLayout || useDock)
                                 1 -> VideosScreen(
                                     vm,
                                     gridState = if (folderDetails) folderVideosScrollState else videosScrollState,
@@ -348,7 +349,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         }
                     }
                 }
-                if (floating) {
+                if (useDock) {
                     FloatingLibraryNavigation(
                         tab,
                         TAB_LABELS,
@@ -363,4 +364,6 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     }
 }
 
-internal fun floatingPadding(vm: LibraryViewModel) = vm.navigationPosition == "FLOATING"
+@androidx.compose.runtime.Composable
+internal fun floatingPadding(vm: LibraryViewModel): Boolean = vm.navigationPosition == "FLOATING" ||
+    (LocalLibraryTheme.current.glass && androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 700)

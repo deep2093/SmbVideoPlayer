@@ -66,33 +66,8 @@ val libraryThemes = listOf(
     LibraryTheme("SLATE", "Midnight blue", Color(0xFF141C29), Color(0xFF1B2738), Color(0xFF26364D), Color(0xFF3569AA)),
     LibraryTheme("FOREST", "Forest", Color(0xFF14221D), Color(0xFF1D3028), Color(0xFF2A4036), Color(0xFF26715B)),
     LibraryTheme("PLUM", "Plum", Color(0xFF241A2B), Color(0xFF30233A), Color(0xFF40304D), Color(0xFF884EAA)),
-    // The first glass theme, renamed: a deep navy, indigo and teal gradient under smoky glass.
-    // (The id stays "LIQUID" so people who picked it keep it.)
-    LibraryTheme(
-        "LIQUID", "Aurora Glass", Color.Transparent, Color(0x2E060B22), Color(0x24FFFFFF), Color(0xFF8CD4FF),
-        glass = true,
-        wallpaper = listOf(Color(0xFF0B1B3A), Color(0xFF2A1F5C), Color(0xFF0E4A5E)),
-        glows = listOf(WallpaperGlow(0.85f, 0.1f, 0.7f, Color(0x403FB8D6)), WallpaperGlow(0.1f, 0.85f, 0.8f, Color(0x40653CB4))),
-        glassTint = Color(0x8C14112E),
-        menu = Color(0xFF1E1E44),
-    ),
-    // Transparent (formerly Liquid Glass; the id is kept so a saved choice still works): a soft, light wallpaper
-    // inside the app, with clear glass panels that let it show through. Text is dark ink, and a fine rim marks each
-    // panel so it stays easy to read.
-    LibraryTheme(
-        "LIQUID_GLASS", "Transparent", Color.Transparent, Color(0x40FFFFFF), Color(0x73FFFFFF), Color(0xFF0A6CD6),
-        glass = true,
-        wallpaper = listOf(Color(0xFFFDF8EE), Color(0xFFEFF4FB), Color(0xFFFBF1F4), Color(0xFFF1F6EF)),
-        glows = listOf(
-            WallpaperGlow(0.9f, 0.05f, 0.7f, Color(0x55FFD2A0)),
-            WallpaperGlow(0.05f, 0.55f, 0.75f, Color(0x4DA9CFF5)),
-            WallpaperGlow(0.65f, 1.0f, 0.8f, Color(0x4DF2B8C8)),
-            WallpaperGlow(0.35f, 0.25f, 0.45f, Color(0x66FFFFFF)),
-        ),
-        glassTint = Color(0x80FFFBF3),
-        menu = Color(0xFFFFFBF3),
-        light = true,
-    ),
+    // Preserve saved LIQUID / LIQUID_GLASS selections while adding both new variants.
+    *skyWingGlassThemes.toTypedArray(),
     // Each adapts in its own way: Glow lays the cover colours in a diagonal gradient with a bright accent of the
     // same colour; Midnight washes one soft colour down from the top over near-black with a pale accent; Vivid paints
     // bright aurora blobs with the opposite colour as accent. Panels are clear glass, so the colours show through them.
@@ -161,7 +136,7 @@ fun Modifier.themedOutline(shape: Shape, emphasised: Boolean = false): Modifier 
     val theme = LocalLibraryTheme.current
     return if (theme.glass && theme.light) {
         // On a light wallpaper a white rim vanishes, so the edge is a fine warm-grey line with a bright glint.
-        val edge = Color(0xFF5B4A2E)
+        val edge = Color(0xFF54708C)
         this.border(
             1.dp,
             Brush.linearGradient(
@@ -214,7 +189,7 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
     val adaptiveStyle = chosen.adaptive
     val adaptiveColors = if (adaptiveStyle != null) rememberAdaptiveColors(adaptiveStyle) else null
     val theme = if (adaptiveStyle != null) chosen.copy(accent = rememberAdaptiveAccent(adaptiveStyle)) else chosen
-    val ink = Color(0xFF1F1B13)
+    val ink = Color(0xFF14243A)
     val colors = if (theme.light) lightColorScheme(
         primary = ink,
         onPrimary = Color.White,
@@ -228,15 +203,15 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         onTertiary = Color.White,
         tertiaryContainer = theme.card,
         onTertiaryContainer = ink,
-        background = Color(0xFFFFFBF1),
+        background = if (theme.glass) Color.Transparent else theme.background,
         onBackground = ink,
         surface = theme.surface,
         onSurface = ink,
         surfaceVariant = theme.card,
-        onSurfaceVariant = Color(0xFF4F4A3E),
+        onSurfaceVariant = Color(0xFF43556B),
         surfaceTint = Color.Transparent,
-        outline = Color(0xFF6B6455),
-        outlineVariant = Color(0x335B4A2E),
+        outline = Color(0xFF5C7088),
+        outlineVariant = Color(0x3354708C),
         error = Color(0xFFC62828),
         onError = Color.White,
         errorContainer = Color(0xFFFFDAD6),
@@ -246,10 +221,10 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         inversePrimary = theme.accent,
         // Menus and dialogs float above the content, so they stay opaque for legibility.
         surfaceContainer = theme.menu,
-        surfaceContainerLow = Color(0xFFFFFBF1),
+        surfaceContainerLow = theme.menu,
         surfaceContainerHigh = theme.menu,
         surfaceContainerHighest = theme.menu,
-        surfaceContainerLowest = Color(0xFFFFFBF1),
+        surfaceContainerLowest = theme.menu,
     ) else darkColorScheme(
         primary = Color(0xFFF5F5F5),
         onPrimary = Color(0xFF101010),
@@ -263,7 +238,7 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         onTertiary = Color.Black,
         tertiaryContainer = theme.card,
         onTertiaryContainer = Color.White,
-        background = theme.background,
+        background = if (theme.glass) Color.Transparent else theme.background,
         onBackground = Color.White,
         surface = theme.surface,
         onSurface = Color.White,
@@ -353,7 +328,10 @@ internal fun ThemeSettings() {
     val context = LocalContext.current
     val choice by rememberThemeChoice()
     var expanded by remember { mutableStateOf(false) }
-    Box {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SkyWingThemeChoices(choice) { id ->
+            context.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit().putString("theme", id).apply()
+        }
         OutlinedButton(onClick = {
             expanded = true
         }, modifier = Modifier.fillMaxWidth()) { Text("Theme: ${libraryThemes.first {it.id == choice}.label}") }

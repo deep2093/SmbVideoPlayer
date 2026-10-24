@@ -95,27 +95,11 @@ internal fun LaunchIntro(content: @Composable (reveal: () -> Float) -> Unit) {
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Canvas(
-                        Modifier.size(56.dp).graphicsLayer {
-                            alpha = play.value
-                            val s = 0.7f + 0.3f * play.value
-                            scaleX = s
-                            scaleY = s
-                        },
-                    ) {
-                        // A soft rounded play triangle in the icon's blue-to-purple.
-                        val w = size.width
-                        val h = size.height
-                        val path = Path().apply {
-                            moveTo(w * 0.24f, h * 0.14f)
-                            lineTo(w * 0.86f, h * 0.5f)
-                            lineTo(w * 0.24f, h * 0.86f)
-                            close()
-                        }
-                        val brush = Brush.linearGradient(listOf(IntroBlue, IntroPurple), Offset.Zero, Offset(w, h))
-                        drawPath(path, brush, style = Fill)
-                        drawPath(path, brush, style = Stroke(width = w * 0.08f, join = StrokeJoin.Round))
-                    }
+                    AppIconMark(80.dp, Modifier.graphicsLayer {
+                        alpha = play.value
+                        scaleX = 0.7f + 0.3f * play.value
+                        scaleY = scaleX
+                    })
                     Spacer(Modifier.height(22.dp))
                     Canvas(Modifier.width(132.dp).height(4.dp).graphicsLayer { alpha = play.value }) {
                         val r = CornerRadius(size.height / 2, size.height / 2)
@@ -136,18 +120,17 @@ internal fun LaunchIntro(content: @Composable (reveal: () -> Float) -> Unit) {
 }
 
 /** The app name shown in the app's own headers. */
-internal const val APP_NAME = "Veyra"
+internal const val APP_NAME = "SkyWing"
 
 /** The launcher icon, drawn small inside the app (headers, sidebar): its background and foreground layers, round. */
 @Composable
 internal fun AppIconMark(size: androidx.compose.ui.unit.Dp = 30.dp, modifier: Modifier = Modifier) {
     Box(modifier.size(size).clip(androidx.compose.foundation.shape.CircleShape)) {
-        androidx.compose.foundation.Image(
-            androidx.compose.ui.res.painterResource(com.deepak.videolibrary.R.drawable.ic_launcher_background),
-            contentDescription = null,
-            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
+        val dark = androidx.compose.foundation.isSystemInDarkTheme()
+        Box(Modifier.fillMaxSize().background(Brush.linearGradient(
+            if (dark) listOf(Color(0xFF12356A), Color(0xFF08132F), Color(0xFF25134F))
+            else listOf(Color(0xFFF8FBFF), Color(0xFFD9F3FF), Color(0xFFEAE4FF)),
+        )))
         // The foreground layer keeps its art inside the middle two-thirds; enlarge it to fill the round mark.
         androidx.compose.foundation.Image(
             androidx.compose.ui.res.painterResource(com.deepak.videolibrary.R.drawable.ic_launcher_foreground),

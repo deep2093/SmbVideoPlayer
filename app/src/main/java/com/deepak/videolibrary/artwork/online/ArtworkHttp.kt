@@ -78,7 +78,7 @@ internal object ArtworkHttp {
                 connection.useCaches = false
                 // Credentials only go to the host they were meant for.
                 headers.forEach { (k, v) -> connection.setRequestProperty(k, v) }
-                connection.setRequestProperty("User-Agent", "VideoLibrary-Artwork/1.0")
+                connection.setRequestProperty("User-Agent", "SkyWing-Artwork/1.0")
                 if (body != null) {
                     connection.doOutput = true
                     connection.setRequestProperty("Content-Type", "application/json")

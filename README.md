@@ -1,10 +1,10 @@
-# Video Library (Android)
+# SkyWing (Android)
 
 Personal SMB video player with an indexed library, virtual folders, original folders, live File Explorer and thumbnail collages. Development previews are reviewed in draft PR #2; do not merge before device testing.
 
 ## Install previews as updates
 
-Download **VideoLibrary-preview-apk** from a successful Android APK workflow run, extract `update.apk`, and install **Video Library Preview**. Keep the previous Preview installed to preserve its library, thumbnails and settings. This package is separate from the original Video Library app. The dedicated preview signing key is a public, non-production test identity and must remain stable. Never use it for production or regenerate it for each build.
+Download **SkyWing-preview-apk** from a successful Android APK workflow run, extract `update.apk`, and install **SkyWing Preview**. Keep the previous Preview installed to preserve its library, thumbnails and settings. This package is separate from the original SkyWing app. The dedicated preview signing key is a public, non-production test identity and must remain stable. Never use it for production or regenerate it for each build.
 
 ## Library and file actions
 
@@ -51,4 +51,4 @@ Startup opens the database and Keystore settings on an IO dispatcher. Scans retr
 
 Media3 double-tap seeking no longer triggers a single tap, controls respect accessibility timeouts, seek targets are at least 48 dp, gesture system setters avoid redundant calls, and playlist items use their own saved resume points. Unsupported tracks are visible but disabled. Existing subtitle features are preserved; no new subtitle work or Windows port is included. The WMV decoder rollback remains; its only follow-up is passing the chosen connection security settings through to SMB.
 
-Diagnostics can collect 240-frame p95 render timing and the number of frames over the current display budget. Collection is off by default and stops when diagnostics is disabled. This is a device sample, not a claim of measured 120 Hz performance. `VideoLibrary-optimized-preview-apk` uses R8/resource shrinking with conservative SMB/crypto/JNI keep rules and the same Preview signing identity; CI smoke-tests an in-place upgrade and authenticated browsing. The separate Device profile and startup measurements workflow generates a baseline profile and records five cold-start samples. Emulator results are development measurements; physical-device Macrobenchmark results are still needed.
+Diagnostics can collect 240-frame p95 render timing and the number of frames over the current display budget. Collection is off by default and stops when diagnostics is disabled. This is a device sample, not a claim of measured 120 Hz performance. `SkyWing-optimized-preview-apk` uses R8/resource shrinking with conservative SMB/crypto/JNI keep rules and the same Preview signing identity; CI smoke-tests an in-place upgrade and authenticated browsing. The separate Device profile and startup measurements workflow generates a baseline profile and records five cold-start samples. Emulator results are development measurements; physical-device Macrobenchmark results are still needed.

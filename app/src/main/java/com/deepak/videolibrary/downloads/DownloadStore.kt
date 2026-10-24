@@ -21,7 +21,7 @@ data class DownloadItem(
     /** Path inside the share (forward slashes). */
     val sourcePath: String,
     val name: String,
-    /** Sub-folder under Download/Veyra on the device ("" for the top level). */
+    /** Sub-folder under Download/SkyWing on the device ("" for the top level). */
     val targetFolder: String,
     /** Size in bytes; 0 until known. */
     val size: Long = 0,
@@ -50,6 +50,9 @@ data class DownloadItem(
 interface DownloadDao {
     @Query("SELECT * FROM downloads ORDER BY id DESC LIMIT 500")
     fun observeRecent(): Flow<List<DownloadItem>>
+
+    @Query("SELECT * FROM downloads WHERE libraryId = :libraryId AND sourcePath = :sourcePath AND targetFolder = :targetFolder AND status = 'DONE' AND uri IS NOT NULL ORDER BY id DESC LIMIT 1")
+    suspend fun completedAt(libraryId: String, sourcePath: String, targetFolder: String): DownloadItem?
 
     @Insert
     suspend fun insertAll(items: List<DownloadItem>): List<Long>

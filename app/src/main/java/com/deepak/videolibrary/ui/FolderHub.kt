@@ -45,7 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /*
- * The Folders section shows the page buttons (search, card shape, add, download…) on the "Veyra" line
+ * The Folders section shows the page buttons (search, card shape, add, download…) on the "SkyWing" line
  * instead of a second title row under the tabs. Each folder page hands its top bar to the hub, and the hub shows
  * the bar of the page that is in view.
  */
@@ -55,7 +55,7 @@ internal class HubBarSlot(val bars: MutableMap<Int, @Composable () -> Unit>, val
 
 internal val LocalHubBarSlot = compositionLocalOf<HubBarSlot?> { null }
 
-/** Title used by a top bar that sits on the hub line ("Veyra"), or null for the page's own title. */
+/** Title used by a top bar that sits on the hub line ("SkyWing"), or null for the page's own title. */
 internal val LocalHubTitle = compositionLocalOf<String?> { null }
 
 /** A page's top bar: handed to the hub when there is one, otherwise drawn in place. */
