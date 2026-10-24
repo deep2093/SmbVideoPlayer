@@ -695,7 +695,12 @@ fun PlayerScreen(
             }
         }
         SkyWingGestureFeedback(gestureMessage)
-        if (controlsVisible && (activity as? com.deepak.videolibrary.MainActivity)?.playbackInPip != true) {
+        androidx.compose.animation.AnimatedVisibility(
+            visible = controlsVisible && (activity as? com.deepak.videolibrary.MainActivity)?.playbackInPip != true,
+            modifier = Modifier.fillMaxSize(),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)),
+        ) {
             LibraryPlayerControls(
                 title = activeVideo.name,
                 position = position,

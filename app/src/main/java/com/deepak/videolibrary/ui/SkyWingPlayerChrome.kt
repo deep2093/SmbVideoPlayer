@@ -65,7 +65,7 @@ internal fun SkyWingPlayerChrome(
     var scrubbing by remember(title) { mutableStateOf(false) }
     var fraction by remember(title) { mutableFloatStateOf(0f) }
     val length = duration.coerceAtLeast(0L)
-    val shown = if (scrubbing) (fraction.toDouble() * length).toLong() else position.coerceIn(0L, length)
+    val shown = if (scrubbing) (fraction.toDouble() * length).toLong() else if (length > 0) position.coerceIn(0L, length) else position.coerceAtLeast(0L)
 
     val action: @Composable (androidx.compose.ui.graphics.vector.ImageVector, String, Boolean, () -> Unit) -> Unit = { icon, description, enabled, callback ->
         IconButton(onClick = { callback(); onInteraction() }, enabled = enabled, modifier = Modifier.size(48.dp)) {
