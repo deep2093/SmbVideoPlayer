@@ -44,7 +44,7 @@ jobs:
                 echo "Reusing signed APKs and successful unit/lint build from run $candidate_run ($candidate_sha)"
                 break
               fi
-            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=$GITHUB_REF_NAME&per_page=30" --jq '.workflow_runs[] | select(.name=="Android APK") | "\(.id) \(.head_sha)"')
+            done < <(gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}&per_page=30" --jq '.workflow_runs[] | select(.name=="Android APK") | "\(.id) \(.head_sha)"')
           fi
           echo "source_run=$source_run" >> "$GITHUB_OUTPUT"
   build:
