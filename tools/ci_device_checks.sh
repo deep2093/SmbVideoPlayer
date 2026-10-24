@@ -21,8 +21,10 @@ if ! grep -Eq '^OK \([0-9]+ tests?\)' preview/storage-tests.txt; then
   exit 1
 fi
 step library-ui python3 tools/check_library_ui.py
-step optimized-smoke python3 tools/check_optimized_smoke.py
 
 if [ "${SKYWING_VISUALS:-false}" = true ]; then
   step skywing-visuals bash tools/capture_skywing_visuals.sh
 fi
+
+# Compose capture needs the debug-only test host before optimized smoke installs the R8 build.
+step optimized-smoke python3 tools/check_optimized_smoke.py
