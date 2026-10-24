@@ -351,10 +351,25 @@ internal fun ThemeSettings() {
     val choice by rememberThemeChoice()
     val reduceTransparency by rememberAppearanceFlag("reduce_transparency")
     var expanded by remember { mutableStateOf(false) }
+    fun select(id: String) {
+        context.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit().putString("theme", id).apply()
+    }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SkyWingThemeChoices(choice) { id ->
-            context.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit().putString("theme", id).apply()
+        // Keep all saved themes easy to reach before the richer glass previews.
+        Box {
+            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                Text("Theme: ${libraryThemes.first { it.id == choice }.label}")
+            }
+            DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
+                libraryThemes.forEach { theme ->
+                    DropdownMenuItem(text = { Text(theme.label + if (theme.id == choice) " ✓" else "") }, onClick = {
+                        select(theme.id)
+                        expanded = false
+                    })
+                }
+            }
         }
+        SkyWingThemeChoices(choice, onSelect = ::select)
         Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Reduce transparency", style = MaterialTheme.typography.bodyLarge)
@@ -363,21 +378,6 @@ internal fun ThemeSettings() {
             Switch(checked = reduceTransparency, onCheckedChange = { value ->
                 context.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit().putBoolean("reduce_transparency", value).apply()
             }, modifier = Modifier.semantics { contentDescription = "Reduce transparency" })
-        }
-        OutlinedButton(onClick = {
-            expanded = true
-        }, modifier = Modifier.fillMaxWidth()) { Text("Theme: ${libraryThemes.first {it.id == choice}.label}") }
-        DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-            libraryThemes.forEach { theme ->
-                DropdownMenuItem(text = { Text(theme.label + if (theme.id == choice)" ✓" else "") }, onClick = {
-                    context
-                        .getSharedPreferences("appearance", Context.MODE_PRIVATE)
-                        .edit()
-                        .putString("theme", theme.id)
-                        .apply()
-                    expanded = false
-                })
-            }
         }
     }
 }
