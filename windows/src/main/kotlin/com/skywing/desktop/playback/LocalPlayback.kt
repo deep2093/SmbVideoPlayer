@@ -24,7 +24,9 @@ class LocalPlayback : Closeable {
             process = ProcessBuilder(
                 "mpv.exe", "--force-window=yes", "--keep-open=no", "--hwdec=auto-safe",
                 "--input-ipc-server=$ipc", "--", file.absolutePath,
-            ).redirectErrorStream(true).start()
+            ).redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start()
             pipe = ipc
             "Opened ${file.name} in mpv."
         } catch (ex: Exception) {
