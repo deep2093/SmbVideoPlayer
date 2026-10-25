@@ -103,7 +103,7 @@ private fun SkyWingDesktopShell(fullscreen: Boolean, onFullscreenChange: (Boolea
             else -> false
         }
     }) {
-        Column(
+        if (!fullscreen) Column(
             modifier = Modifier.width(230.dp).fillMaxHeight().background(Color(0xFF1B1E26)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -113,15 +113,15 @@ private fun SkyWingDesktopShell(fullscreen: Boolean, onFullscreenChange: (Boolea
             }
         }
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+            modifier = if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            Text(selected, color = Color.White, style = MaterialTheme.typography.headlineLarge)
+            if (!fullscreen) Text(selected, color = Color.White, style = MaterialTheme.typography.headlineLarge)
             // Keep the AWT Canvas HWND alive across navigation. Removing SwingPanel
             // destroys the native window while libmpv still renders into it.
             // A one-dp placeholder preserves the component's lifecycle in other tabs.
             SwingPanel(
-                modifier = Modifier.fillMaxWidth().height(if (selected == "Videos") 320.dp else 1.dp),
+                modifier = if (fullscreen) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(if (selected == "Videos") 320.dp else 1.dp),
                 factory = {
                     Canvas().apply {
                         background = java.awt.Color.BLACK
@@ -143,7 +143,12 @@ private fun SkyWingDesktopShell(fullscreen: Boolean, onFullscreenChange: (Boolea
                     }
                 },
             )
-            if (selected == "Videos") {
+            if (fullscreen) {
+                Button(onClick = { onFullscreenChange(false) }, modifier = Modifier.padding(8.dp)) {
+                    Text("Exit fullscreen (Esc)")
+                }
+            }
+            if (selected == "Videos" && !fullscreen) {
                 Button(onClick = {
                     val dialog = FileDialog(null as Frame?, "Open local video", FileDialog.LOAD)
                     dialog.isVisible = true
