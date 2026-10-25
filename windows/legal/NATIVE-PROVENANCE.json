@@ -1,0 +1,40 @@
+{
+  "auditStatus": "incomplete-see-SOURCE-STATUS.md",
+  "binary": "libmpv-2.dll",
+  "archive": "mpv-dev-x86_64-20261021-git-e471496c56.7z",
+  "archiveUrl": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-dev-x86_64-20261021-git-e471496c56.7z",
+  "archiveSha256": "efc719eff3dc5954b4a5efc800632808bcec01cc9034940dd14e5eb7fe9ea633",
+  "dllSha256": "04e4d27dc385dc18ddd93fbe69c75e635b864f3c6ec53a9122df54c2f7842f4a",
+  "mpvRevision": "e471496c56f0f49c133bd88b50aed62b845f1909",
+  "builderRevision": "1f8d2e76255abc48f0456d9be99b4cab9c6566e6",
+  "builderRun": "https://github.com/shinchiro/mpv-winbuild-cmake/actions/runs/39518569492",
+  "builderRecipe": "https://github.com/shinchiro/mpv-winbuild-cmake/blob/1f8d2e76255abc48f0456d9be99b4cab9c6566e6/packages/ffmpeg.cmake",
+  "sameReleaseFfmpegRevision": "9a861e9687d30e657d59521817cad18405995983",
+  "sameReleaseFfmpegRevisionVerifiedInsideDll": false,
+  "licenceTextSources": [
+    {
+      "path": "windows/legal/licenses/GPL-3.0.txt",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/9a861e968/COPYING.GPLv3"
+    },
+    {
+      "path": "windows/legal/licenses/GPL-2.0.txt",
+      "url": "https://raw.githubusercontent.com/mpv-player/mpv/e471496c56/LICENSE.GPL"
+    },
+    {
+      "path": "windows/legal/licenses/LGPL-2.1.txt",
+      "url": "https://raw.githubusercontent.com/mpv-player/mpv/e471496c56/LICENSE.LGPL"
+    },
+    {
+      "path": "windows/legal/licenses/LGPL-3.0.txt",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/9a861e968/COPYING.LGPLv3"
+    },
+    {
+      "path": "windows/legal/upstream/mpv-Copyright.txt",
+      "url": "https://raw.githubusercontent.com/mpv-player/mpv/e471496c56/Copyright"
+    },
+    {
+      "path": "windows/legal/upstream/FFmpeg-LICENSE.md",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/9a861e968/LICENSE.md"
+    }
+  ]
+}
