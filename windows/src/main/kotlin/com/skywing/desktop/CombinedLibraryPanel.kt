@@ -36,6 +36,7 @@ internal fun CombinedLibraryPanel(
     var sourceFilter by remember { mutableStateOf("All") }
     var view by remember { mutableStateOf("Videos") }
     var query by remember { mutableStateOf("") }
+    var appliedQuery by remember { mutableStateOf("") }
     var customName by remember { mutableStateOf("") }
     var selectedPaths by remember { mutableStateOf(emptySet<String>()) }
     var openedVirtual by remember { mutableStateOf<String?>(null) }
@@ -60,9 +61,9 @@ internal fun CombinedLibraryPanel(
         }
     }
     var matchingEntries by remember { mutableStateOf(emptyList<WindowsMediaEntry>()) }
-    LaunchedEffect(entries, query) {
+    LaunchedEffect(entries, appliedQuery) {
         matchingEntries = withContext(Dispatchers.Default) {
-            val term = query.trim()
+            val term = appliedQuery.trim()
             if (term.isEmpty()) entries else entries.filter { it.file.name.contains(term, ignoreCase = true) }
         }
     }
@@ -118,14 +119,17 @@ internal fun CombinedLibraryPanel(
                 }) { Text(option + if (option == view) " ✓" else "") }
             }
         }
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            label = { Text("Search library") },
-            singleLine = true,
-            colors = fieldColors,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Search library") },
+                singleLine = true,
+                colors = fieldColors,
+                modifier = Modifier.weight(1f),
+            )
+            Button(onClick = { appliedQuery = query }) { Text("Search") }
+        }
         when (view) {
             "Virtual folders" -> {
                 if (openedVirtualGroup != null) {
@@ -135,13 +139,13 @@ internal fun CombinedLibraryPanel(
                         Button(enabled = openedVirtualGroup.entries.isNotEmpty(), onClick = { queue(openedVirtualGroup.entries) }) { Text("Play all") }
                     }
                     val groupVideos = openedVirtualGroup.entries.filter { entry ->
-                        query.isBlank() || entry.file.name.contains(query.trim(), ignoreCase = true)
+                        appliedQuery.isBlank() || entry.file.name.contains(appliedQuery.trim(), ignoreCase = true)
                     }
                     LibraryMediaList(groupVideos, emptySet(), {}, onPlayQueue)
                 } else {
                     val matchingGroups = virtualGroups.filter { group ->
-                        query.isBlank() || group.title.contains(query.trim(), ignoreCase = true) ||
-                            group.entries.any { it.file.name.contains(query.trim(), ignoreCase = true) }
+                        appliedQuery.isBlank() || group.title.contains(appliedQuery.trim(), ignoreCase = true) ||
+                            group.entries.any { it.file.name.contains(appliedQuery.trim(), ignoreCase = true) }
                     }
                     Text(matchingGroups.size.toString() + " virtual folders", color = Color(0xFFE5CB87))
                     LazyColumn(modifier = Modifier.fillMaxWidth().height(280.dp)) {
@@ -160,7 +164,7 @@ internal fun CombinedLibraryPanel(
                         Text(openedCustomFolder.name, color = Color.White)
                         val customEntries = openedCustomFolder.paths.mapNotNull { path ->
                             entries.firstOrNull { it.path.equals(path, ignoreCase = true) }
-                        }.filter { query.isBlank() || it.file.name.contains(query.trim(), ignoreCase = true) }
+                        }.filter { appliedQuery.isBlank() || it.file.name.contains(appliedQuery.trim(), ignoreCase = true) }
                         Button(enabled = customEntries.isNotEmpty(), onClick = { queue(customEntries) }) { Text("Play all") }
                         Button(onClick = {
                             customFolders = customStore.delete(openedCustomFolder.name)
@@ -169,7 +173,7 @@ internal fun CombinedLibraryPanel(
                     }
                     val customEntries = openedCustomFolder.paths.mapNotNull { path ->
                         entries.firstOrNull { it.path.equals(path, ignoreCase = true) }
-                    }.filter { query.isBlank() || it.file.name.contains(query.trim(), ignoreCase = true) }
+                    }.filter { appliedQuery.isBlank() || it.file.name.contains(appliedQuery.trim(), ignoreCase = true) }
                     LibraryMediaList(customEntries, emptySet(), {}, onPlayQueue)
                 } else {
                     Text(customFolders.size.toString() + " custom folders", color = Color(0xFFE5CB87))
