@@ -98,6 +98,7 @@ private fun SkyWingDesktopShell() {
                     }
                 }) { Text("Open video from PC") }
                 Text(current ?: "No video selected", color = Color.White)
+                Text("Playback diagnostics: $message", color = Color(0xFFE5CB87))
                 Text(embedded.lastError ?: "Embedded player ready. Open a video from your PC.", color = Color.White)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { message = if (embedded.togglePause()) "Pause toggled" else "Embedded not ready" }) { Text("Play / Pause") }
@@ -120,7 +121,7 @@ private fun SkyWingDesktopShell() {
                     Button(onClick = { message = if (embedded.seekPercent(50)) "Jumped to 50%" else "Player not ready" }) { Text("50%") }
                     Button(onClick = { message = if (embedded.seekPercent(75)) "Jumped to 75%" else "Player not ready" }) { Text("75%") }
                 }
-                Text(message, color = Color(0xFFC6C8D1))
+
                 Text("Phase 2 preview: requires mpv.exe installed and available on PATH. Playback opens in mpv's native window.", color = Color(0xFF9FA7B7))
             } else {
                 Text(
