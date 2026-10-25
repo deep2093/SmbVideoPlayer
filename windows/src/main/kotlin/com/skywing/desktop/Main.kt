@@ -56,7 +56,6 @@ fun main() = application {
         onCloseRequest = ::exitApplication,
         title = "SkyWing for Windows (Development Preview)",
         state = state,
-        undecorated = fullscreen,
     ) {
         MaterialTheme { SkyWingDesktopShell(fullscreen, { fullscreen = it; state.placement = if (it) WindowPlacement.Fullscreen else WindowPlacement.Floating }) }
     }
