@@ -34,7 +34,11 @@ class EmbeddedMpv : Closeable {
             return false
         }
         return try {
-            val native = Native.load("mpv-2", Api::class.java)
+            val resources = System.getProperty("compose.application.resources.dir")
+            val packaged = resources?.let { File(it, "libmpv-2.dll") }
+            val native = if (packaged?.isFile == true)
+                Native.load(packaged.absolutePath, Api::class.java)
+            else Native.load("mpv-2", Api::class.java)
             val context = native.mpv_create() ?: error("mpv_create failed")
             val handle = Native.getComponentPointer(canvas)
             require(handle != null && Pointer.nativeValue(handle) != 0L) { "No native window handle" }
