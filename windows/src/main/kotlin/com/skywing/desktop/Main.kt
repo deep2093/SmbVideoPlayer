@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -20,12 +21,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.skywing.desktop.playback.LocalPlayback
+import com.skywing.desktop.playback.EmbeddedMpv
+import java.awt.Canvas
 import java.awt.FileDialog
+import javax.swing.SwingUtilities
 import java.awt.Frame
 import java.io.File
 
@@ -46,7 +51,10 @@ private fun SkyWingDesktopShell() {
     var message by remember { mutableStateOf("Choose a local video to play.") }
     var current by remember { mutableStateOf<String?>(null) }
     val playback = remember { LocalPlayback() }
-    DisposableEffect(playback) { onDispose { playback.close() } }
+    val embedded = remember { EmbeddedMpv() }
+    var experimental by remember { mutableStateOf(false) }
+    var videoCanvas by remember { mutableStateOf<Canvas?>(null) }
+    DisposableEffect(playback, embedded) { onDispose { playback.close(); embedded.close() } }
 
     Row(Modifier.fillMaxSize().background(Color(0xFF101217))) {
         Column(
@@ -71,15 +79,37 @@ private fun SkyWingDesktopShell() {
                     dialog.dispose()
                     if (file != null) {
                         current = file.name
-                        message = playback.play(file)
+                        message = if (experimental) {
+                            val canvas = videoCanvas
+                            if (canvas != null && embedded.attach(canvas)) {
+                                if (embedded.open(file)) "Embedded video opened" else "Embedded load failed"
+                            } else embedded.lastError ?: "Video surface not ready"
+                        } else playback.play(file)
                     }
                 }) { Text("Open video from PC") }
                 Text(current ?: "No video selected", color = Color.White)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { message = playback.togglePause() }) { Text("Play / Pause") }
-                    Button(onClick = { message = playback.seek(-10) }) { Text("-10 sec") }
-                    Button(onClick = { message = playback.seek(10) }) { Text("+10 sec") }
-                    Button(onClick = { message = playback.stop() }) { Text("Stop") }
+                    Button(onClick = { experimental = false }) { Text("External (stable)") }
+                    Button(onClick = { experimental = true; playback.stop() }) { Text("Embedded (experimental)") }
+                }
+                if (experimental) {
+                    SwingPanel(
+                        modifier = Modifier.fillMaxWidth().height(320.dp),
+                        factory = {
+                            Canvas().apply {
+                                background = java.awt.Color.BLACK
+                                videoCanvas = this
+                                SwingUtilities.invokeLater { embedded.attach(this) }
+                            }
+                        },
+                    )
+                    Text("Experimental preview requires libmpv-2.dll. Native dependencies are not bundled yet.", color = Color.White)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { message = if (experimental) if (embedded.togglePause()) "Pause toggled" else "Embedded not ready" else playback.togglePause() }) { Text("Play / Pause") }
+                    Button(onClick = { message = if (experimental) if (embedded.seek(-10)) "Seek -10" else "Embedded not ready" else playback.seek(-10) }) { Text("-10 sec") }
+                    Button(onClick = { message = if (experimental) if (embedded.seek(10)) "Seek +10" else "Embedded not ready" else playback.seek(10) }) { Text("+10 sec") }
+                    Button(onClick = { message = if (experimental) if (embedded.stop()) "Stopped" else "Embedded not ready" else playback.stop() }) { Text("Stop") }
                 }
                 Text(message, color = Color(0xFFC6C8D1))
                 Text("Phase 2 preview: requires mpv.exe installed and available on PATH. Playback opens in mpv's native window.", color = Color(0xFF9FA7B7))
