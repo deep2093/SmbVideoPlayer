@@ -14,6 +14,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
@@ -96,13 +100,27 @@ internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: Embedded
                 }
             }
         }
-        MaterialTheme { SkyWingDesktopShell(awtWindow, embedded, fullscreen, closing, changeFullscreen, initialFile) }
+        MaterialTheme(
+            colorScheme = darkColorScheme(
+                primary = Color(0xFF8BCEFF),
+                onPrimary = Color(0xFF06213A),
+                primaryContainer = Color(0xFF173B58),
+                onPrimaryContainer = Color(0xFFD4EAFF),
+                secondary = Color(0xFF9ED7C0),
+                background = Color(0xFF0B1118),
+                onBackground = Color(0xFFE9EFF7),
+                surface = Color(0xFF111A24),
+                onSurface = Color(0xFFE9EFF7),
+                surfaceVariant = Color(0xFF1A2633),
+                onSurfaceVariant = Color(0xFFB7C4D2),
+            ),
+        ) { SkyWingDesktopShell(awtWindow, embedded, fullscreen, closing, changeFullscreen, initialFile) }
 }
 
 @Composable
 private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMpv, fullscreen: Boolean, closing: Boolean, onFullscreenChange: (Boolean) -> Unit, initialFile: File?) {
     val sections = listOf("Folders", "Videos", "Continue Watching", "Settings")
-    var selected by remember { mutableStateOf("Videos") }
+    var selected by remember { mutableStateOf("Folders") }
     var message by remember { mutableStateOf("Choose a local video to play.") }
     var current by remember { mutableStateOf<String?>(null) }
     var currentFile by remember { mutableStateOf<File?>(null) }
@@ -270,21 +288,69 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
     }
 
 
-    Row(Modifier.fillMaxSize().background(Color(0xFF101217))) {
+    Row(Modifier.fillMaxSize().background(Color(0xFF0B1118))) {
         if (!fullscreen) Column(
-            modifier = Modifier.width(230.dp).fillMaxHeight().background(Color(0xFF1B1E26)).padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.width(248.dp).fillMaxHeight().background(Color(0xFF101923)).padding(horizontal = 18.dp, vertical = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("SkyWing", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                androidx.compose.material3.Surface(color = Color(0xFF214D70), shape = RoundedCornerShape(14.dp)) {
+                    Text("S", color = Color(0xFFD4EAFF), modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp), style = MaterialTheme.typography.titleLarge)
+                }
+                Column {
+                    Text("SkyWing", color = Color(0xFFF1F6FC), style = MaterialTheme.typography.titleLarge)
+                    Text("VIDEO LIBRARY", color = Color(0xFF8FA4B8), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("YOUR LIBRARY", color = Color(0xFF8FA4B8), style = MaterialTheme.typography.labelMedium)
             sections.forEach { section ->
-                Button(onClick = { selected = section }, modifier = Modifier.fillMaxWidth()) { Text(section) }
+                NavigationDrawerItem(
+                    label = { Text(section, style = MaterialTheme.typography.labelLarge) },
+                    selected = selected == section,
+                    onClick = { selected = section },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = NavigationDrawerItemDefaults.colors(
+                        selectedContainerColor = Color(0xFF1B3449),
+                        selectedTextColor = Color(0xFFD4EAFF),
+                        unselectedContainerColor = Color.Transparent,
+                        unselectedTextColor = Color(0xFFB7C4D2),
+                    ),
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            androidx.compose.material3.Surface(color = Color(0xFF162330), shape = RoundedCornerShape(14.dp)) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Windows preview", color = Color(0xFFD4EAFF), style = MaterialTheme.typography.labelLarge)
+                    Text("Your videos stay on your devices and shares.", color = Color(0xFF9BAFC1), style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
         Column(
-            modifier = if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            modifier = if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 22.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            if (!fullscreen) Text(selected, color = Color.White, style = MaterialTheme.typography.headlineLarge)
+            if (!fullscreen) Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(selected, color = Color(0xFFF1F6FC), style = MaterialTheme.typography.headlineMedium)
+                    Text(
+                        when (selected) {
+                            "Folders" -> "Browse videos from this PC and your network shares."
+                            "Videos" -> "Play and control your current video."
+                            "Continue Watching" -> "Pick up where you left off."
+                            else -> "Personalise your SkyWing experience."
+                        },
+                        color = Color(0xFF9BAFC1),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                if (selected == "Folders") {
+                    androidx.compose.material3.Surface(color = Color(0xFF142333), shape = RoundedCornerShape(50)) {
+                        Text("LOCAL  •  NETWORK", color = Color(0xFF9ED7C0), modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
             // Keep the AWT Canvas HWND alive across navigation. Removing SwingPanel
             // destroys the native window while libmpv still renders into it.
             // A one-dp placeholder preserves the component's lifecycle in other tabs.
@@ -366,3 +432,4 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
         }
     }
 }
+
