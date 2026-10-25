@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.skywing.desktop.playback.EmbeddedMpv
@@ -49,17 +50,20 @@ import java.awt.Frame
 import java.io.File
 
 fun main() = application {
+    val state = rememberWindowState(width = 1200.dp, height = 760.dp)
+    var fullscreen by remember { mutableStateOf(false) }
     Window(
         onCloseRequest = ::exitApplication,
         title = "SkyWing for Windows (Development Preview)",
-        state = rememberWindowState(width = 1200.dp, height = 760.dp),
+        state = state,
+        undecorated = fullscreen,
     ) {
-        MaterialTheme { SkyWingDesktopShell() }
+        MaterialTheme { SkyWingDesktopShell(fullscreen, { fullscreen = it; state.placement = if (it) WindowPlacement.Fullscreen else WindowPlacement.Floating }) }
     }
 }
 
 @Composable
-private fun SkyWingDesktopShell() {
+private fun SkyWingDesktopShell(fullscreen: Boolean, onFullscreenChange: (Boolean) -> Unit) {
     val sections = listOf("Folders", "Videos", "Continue Watching", "Settings")
     var selected by remember { mutableStateOf("Videos") }
     var message by remember { mutableStateOf("Choose a local video to play.") }
@@ -95,6 +99,8 @@ private fun SkyWingDesktopShell() {
             Key.DirectionUp -> { embedded.volumeUp(); true }
             Key.DirectionDown -> { embedded.volumeDown(); true }
             Key.M -> { embedded.toggleMute(); true }
+            Key.F -> { onFullscreenChange(!fullscreen); true }
+            Key.Escape -> if (fullscreen) { onFullscreenChange(false); true } else false
             else -> false
         }
     }) {
@@ -153,6 +159,11 @@ private fun SkyWingDesktopShell() {
                     }
                 }) { Text("Open video from PC") }
                 Text(current ?: "No video selected", color = Color.White)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { onFullscreenChange(!fullscreen) }) {
+                        Text(if (fullscreen) "Exit fullscreen (Esc)" else "Fullscreen (F)")
+                    }
+                }
                 Text("Playback diagnostics: $message", color = Color(0xFFE5CB87))
                 Text(embedded.lastError ?: "Embedded player ready. Open a video from your PC.", color = Color.White)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
