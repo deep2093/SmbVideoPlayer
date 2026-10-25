@@ -66,7 +66,7 @@ class FullscreenWindowTest {
             ComposeWindow().apply {
                 title = "SkyWing fullscreen regression"
                 setBounds(80, 80, 1000, 720)
-                setContent { SkyWingWindowContent(window, player, false, initialSection = "Videos") }
+                setContent { SkyWingWindowContent(window, player, false, initialSection = "Now Playing") }
                 isVisible = true
                 toFront()
             }
