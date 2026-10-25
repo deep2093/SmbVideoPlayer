@@ -120,11 +120,11 @@ internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: Embedded
 
 @Composable
 private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMpv, fullscreen: Boolean, closing: Boolean, onFullscreenChange: (Boolean) -> Unit, initialFile: File?, initialSection: String) {
-    val sections = listOf("Home", "Search", "Library", "Settings") + if (currentFile != null) listOf("Now Playing") else emptyList()
     var selected by remember { mutableStateOf(if (initialSection == "Folders") "Home" else if (initialSection == "Videos") "Now Playing" else initialSection) }
     var message by remember { mutableStateOf("Choose a local video to play.") }
     var current by remember { mutableStateOf<String?>(null) }
     var currentFile by remember { mutableStateOf<File?>(null) }
+    val sections = listOf("Home", "Search", "Library", "Settings") + if (currentFile != null) listOf("Now Playing") else emptyList()
     var queue by remember { mutableStateOf<List<File>>(emptyList()) }
     var queueIndex by remember { mutableStateOf(-1) }
     val historyStore = remember { WindowsPlaybackHistoryStore() }
