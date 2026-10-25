@@ -18,11 +18,21 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isAltPressed
+import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.unit.dp
@@ -57,9 +67,37 @@ private fun SkyWingDesktopShell() {
     val embedded = remember { EmbeddedMpv() }
     var videoCanvas by remember { mutableStateOf<Canvas?>(null) }
     var seekTarget by remember { mutableStateOf(0f) }
+    var dragging by remember { mutableStateOf(false) }
+    var playbackTime by remember { mutableStateOf(0.0) }
+    var duration by remember { mutableStateOf(0.0) }
+    LaunchedEffect(embedded) {
+        while (true) {
+            val d = embedded.playbackDuration() ?: 0.0
+            val p = embedded.playbackPosition() ?: 0.0
+            duration = d.coerceAtLeast(0.0)
+            playbackTime = p.coerceAtLeast(0.0)
+            if (!dragging && duration > 0) seekTarget = (playbackTime / duration * 100.0).toFloat().coerceIn(0f, 100f)
+            delay(500)
+        }
+    }
+    fun clock(seconds: Double): String {
+        val n = seconds.toLong().coerceAtLeast(0)
+        return "%d:%02d:%02d".format(n / 3600, (n / 60) % 60, n % 60)
+    }
     DisposableEffect(embedded) { onDispose { embedded.close() } }
 
-    Row(Modifier.fillMaxSize().background(Color(0xFF101217))) {
+    Row(Modifier.fillMaxSize().background(Color(0xFF101217)).onPreviewKeyEvent { e ->
+        if (selected != "Videos" || e.type != KeyEventType.KeyDown || e.isCtrlPressed || e.isAltPressed) false
+        else when (e.key) {
+            Key.Spacebar, Key.K -> { embedded.togglePause(); true }
+            Key.DirectionLeft -> { embedded.seek(-5); true }
+            Key.DirectionRight -> { embedded.seek(10); true }
+            Key.DirectionUp -> { embedded.volumeUp(); true }
+            Key.DirectionDown -> { embedded.volumeDown(); true }
+            Key.M -> { embedded.toggleMute(); true }
+            else -> false
+        }
+    }) {
         Column(
             modifier = Modifier.width(230.dp).fillMaxHeight().background(Color(0xFF1B1E26)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -133,13 +171,14 @@ private fun SkyWingDesktopShell() {
                     Button(onClick = { message = if (embedded.nextSubtitleTrack()) "Subtitle track changed" else "No subtitle track" }) { Text("Next subtitles") }
                     Button(onClick = { message = if (embedded.subtitleOff()) "Subtitles off" else "Player not ready" }) { Text("Subtitles off") }
                 }
-                Text("Seek to ${seekTarget.toInt()}% of video", color = Color.White)
+                Text("Timeline  ${clock(playbackTime)} / ${clock(duration)}", color = Color.White)
                 Slider(
                     value = seekTarget,
-                    onValueChange = { seekTarget = it },
+                    onValueChange = { dragging = true; seekTarget = it },
                     valueRange = 0f..100f,
                     onValueChangeFinished = {
-                        message = if (embedded.seekPercent(seekTarget.toInt())) "Jumped to ${seekTarget.toInt()}%" else "Player not ready"
+                        message = if (duration > 0 && embedded.seekAbsolute(duration * seekTarget / 100.0)) "Seeked to ${seekTarget.toInt()}%" else "Duration unavailable"
+                        dragging = false
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
