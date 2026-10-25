@@ -20,6 +20,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -137,28 +140,50 @@ private sealed class Incoming {
     class Address(val url: String) : Incoming()
 }
 
-/** Reads a picture, a picture file or a picture address from the clipboard or a drop. */
-private fun readIncoming(t: Transferable): Incoming? = runCatching {
-    if (t.isDataFlavorSupported(DataFlavor.javaFileListFlavor)) {
-        val file = (t.getTransferData(DataFlavor.javaFileListFlavor) as? List<*>)?.firstOrNull() as? File
-        if (file != null && file.isFile && file.length() in 1..ArtworkRepository.MAX_ANIMATED_BYTES) return@runCatching Incoming.Bytes(file.readBytes())
+/** HTML flavors browsers put on a dragged or copied picture. */
+private val htmlFlavors = listOf(DataFlavor.allHtmlFlavor, DataFlavor.fragmentHtmlFlavor, DataFlavor.selectionHtmlFlavor)
+private val uriListFlavor = runCatching { DataFlavor("text/uri-list;class=java.lang.String") }.getOrNull()
+private val imageSource = Regex("""<img[^>]*?\ssrc\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+
+/** A picture address from text: a web or data address; a Google result link gives the picture it points to. */
+internal fun pictureAddress(text: String?): String? {
+    val line = text?.lineSequence()?.map { it.trim() }?.firstOrNull { it.isNotEmpty() && !it.startsWith("#") } ?: return null
+    val address = line.replace("&amp;", "&")
+    if (address.startsWith("data:image/", ignoreCase = true)) return address
+    if (!address.startsWith("https://", ignoreCase = true) && !address.startsWith("http://", ignoreCase = true)) return null
+    // "google.com/imgres?imgurl=<picture>&imgrefurl=<page>": use the picture itself.
+    val query = runCatching { URI(address).rawQuery }.getOrNull().orEmpty()
+    query.split('&').firstOrNull { it.startsWith("imgurl=") }?.let { param ->
+        return runCatching { java.net.URLDecoder.decode(param.removePrefix("imgurl="), "UTF-8") }.getOrNull()
     }
-    if (t.isDataFlavorSupported(DataFlavor.stringFlavor)) {
-        val text = (t.getTransferData(DataFlavor.stringFlavor) as? String)?.trim()?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim()
-        if (text != null && (text.startsWith("https://", true) || text.startsWith("http://", true) || text.startsWith("data:image/", true))) {
-            return@runCatching Incoming.Address(text)
-        }
+    return address
+}
+
+/** The first picture address in a piece of HTML (the <img> a browser hands over when a picture is dragged). */
+internal fun pictureInHtml(html: String?): String? = html?.let { imageSource.find(it)?.groupValues?.get(1) }?.let(::pictureAddress)
+
+/**
+ * Reads a picture handed over by pasting or dropping: a picture file, the picture itself, or its address (from the
+ * HTML, link list or plain text browsers provide). Null when there is no picture in it.
+ */
+private fun readIncoming(t: Transferable): Incoming? {
+    fun <T> read(flavor: DataFlavor?, cast: (Any?) -> T?): T? =
+        if (flavor != null && t.isDataFlavorSupported(flavor)) runCatching { cast(t.getTransferData(flavor)) }.getOrNull() else null
+    read(DataFlavor.javaFileListFlavor) { it as? List<*> }?.firstOrNull()?.let { it as? File }?.let { file ->
+        if (file.isFile && file.length() in 1..ArtworkRepository.MAX_ANIMATED_BYTES) return Incoming.Bytes(file.readBytes())
     }
-    if (t.isDataFlavorSupported(DataFlavor.imageFlavor)) {
-        val image = t.getTransferData(DataFlavor.imageFlavor) as? java.awt.Image ?: return@runCatching null
+    htmlFlavors.firstNotNullOfOrNull { flavor -> pictureInHtml(read(flavor) { it as? String }) }?.let { return Incoming.Address(it) }
+    pictureAddress(read(uriListFlavor) { it as? String })?.let { return Incoming.Address(it) }
+    pictureAddress(read(DataFlavor.stringFlavor) { it as? String })?.let { return Incoming.Address(it) }
+    read(DataFlavor.imageFlavor) { it as? java.awt.Image }?.let { image ->
         val buffered = BufferedImage(image.getWidth(null).coerceAtLeast(1), image.getHeight(null).coerceAtLeast(1), BufferedImage.TYPE_INT_RGB)
         buffered.createGraphics().apply { drawImage(image, 0, 0, null); dispose() }
         val out = ByteArrayOutputStream()
         ImageIO.write(buffered, "png", out)
-        return@runCatching Incoming.Bytes(out.toByteArray())
+        return Incoming.Bytes(out.toByteArray())
     }
-    null
-}.getOrNull()
+    return null
+}
 
 /** Preview pictures of StashDB results, downloaded once. */
 private object RemotePictures {
@@ -282,8 +307,7 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
     val drop = remember {
         object : DragAndDropTarget {
             override fun onDrop(event: DragAndDropEvent): Boolean {
-                val incoming = readIncoming(event.awtTransferable) ?: return false
-                receive(incoming)
+                receive(readIncoming(event.awtTransferable))
                 return true
             }
         }
@@ -306,7 +330,7 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
     ) {
         LaunchedEffect(theme) { WindowChrome.apply(window, theme) }
         Box(
-            Modifier.fillMaxSize().drawBehind { drawSkyWallpaper(theme) }
+            Modifier.fillMaxSize().skyWallpaper(theme)
                 .dragAndDropTarget(shouldStartDragAndDrop = { true }, target = drop),
         ) {
             val scroll = rememberScrollState()
@@ -317,7 +341,38 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
                 Text("Change cover", color = theme.ink, style = MaterialTheme.typography.titleLarge)
                 Text(target.title, color = theme.muted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 val image = pending
-                if (image != null) {
+                val purpose = choosingVideos
+                if (purpose != null) {
+                    VideoChooser(
+                        title = if (purpose == "photos") "Pick pictures for the photo collage" else "Pick videos for the collage",
+                        videos = target.videos,
+                        max = if (purpose == "photos") (PhotoCollage.MAX_PHOTOS - collage.size).coerceAtLeast(1) else 6,
+                        onDismiss = { choosingVideos = null },
+                    ) { chosen ->
+                        choosingVideos = null
+                        run {
+                            if (purpose == "photos") {
+                                val pictures = withContext(Dispatchers.IO) {
+                                    chosen.mapNotNull { v -> ThumbnailStore.fileFor(v.file, v.modified)?.let { Pictures.decode(it.readBytes()) } }
+                                }
+                                if (pictures.isEmpty()) throw IllegalStateException("Those videos have no thumbnails yet.")
+                                collage.addAll(pictures.take(PhotoCollage.MAX_PHOTOS - collage.size))
+                                if (pictures.size < chosen.size) error = "Some videos have no thumbnail yet."
+                            } else {
+                                val pictures = FolderCoverFiles.collagePictures(art, chosen, maxOf(settings.collageTiles, chosen.size))
+                                try {
+                                    if (pictures.isEmpty()) throw IllegalStateException("No pictures could be read from those videos.")
+                                    val bytes = withContext(Dispatchers.Default) { FolderCovers.compose(pictures, grid = pictures.size >= 4) }
+                                    val made = Pictures.decode(bytes) ?: throw IllegalStateException("Couldn't make the collage.")
+                                    art.saveImage(target.key, ArtworkMode.CUSTOM, made, manual = true, focusX = 0.5f, focusY = 0.5f)
+                                    onDismiss()
+                                } finally {
+                                    pictures.forEach { it.close() }
+                                }
+                            }
+                        }
+                    }
+                } else if (image != null) {
                     PositionStep(image, saving = busy, onCancel = { pending = null }) { fx, fy, zoom ->
                         run {
                             val candidate = pendingCandidate
@@ -338,17 +393,20 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
                     when (tab) {
                         CoverTab.AUTO -> AutoFrameTab(target, art, busy, ::run, onDone = onDismiss, onNotice = { notice = it })
                         CoverTab.COLLAGE -> {
-                            Hint("A collage of ${settings.collageTiles} frames from this folder (change the number in Settings > Artwork).")
-                            SkyButton("Use a collage", { run { art.setMode(target.key, ArtworkMode.COLLAGE); onDismiss() } }, enabled = !busy, icon = SkyIcon.Grid)
-                            Hint("Or choose which videos it shows.")
-                            SkyButton("Choose videos…", { choosingVideos = "collage" }, enabled = !busy && target.videos.size > 1, primary = false)
+                            Hint(
+                                "A collage of ${settings.collageTiles} pictures from this folder (change the number in Settings > Artwork). " +
+                                    "A folder with fewer videos uses several moments of each video.",
+                            )
+                            SkyButton("Use a collage", { run { art.setMode(target.key, ArtworkMode.COLLAGE); onDismiss() } }, enabled = !busy && target.videos.isNotEmpty(), icon = SkyIcon.Grid)
+                            Hint("Or pick the videos it shows. Pick one video to make the collage from its moments.")
+                            SkyButton("Choose videos…", { choosingVideos = "collage" }, enabled = !busy && target.videos.isNotEmpty(), primary = false)
                         }
                         CoverTab.PHOTOS -> PhotoCollageTab(
                             collage = collage,
                             enabled = !busy,
                             fromFolder = if (target.videos.isNotEmpty()) ({ choosingVideos = "photos" }) else null,
                             fromPc = {
-                                val files = chooseImages(multiple = true)
+                                val files = chooseImages(window, multiple = true)
                                 run {
                                     val room = PhotoCollage.MAX_PHOTOS - collage.size
                                     val read = withContext(Dispatchers.IO) { files.take(room).mapNotNull { Pictures.decode(it.readBytes()) } }
@@ -391,7 +449,7 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
                         CoverTab.IMAGE -> {
                             Hint("Use a picture from this PC (JPG, PNG, WebP or a moving GIF). Your original file is not changed or moved. You can also drag a picture onto this window.")
                             SkyButton("Choose a picture…", {
-                                chooseImages(multiple = false).firstOrNull()?.let { file ->
+                                chooseImages(window, multiple = false).firstOrNull()?.let { file ->
                                     run {
                                         val bytes = withContext(Dispatchers.IO) { file.readBytes() }
                                         useBytes(bytes, null)
@@ -421,32 +479,6 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
         }
     }
 
-    choosingVideos?.let { purpose ->
-        val max = if (purpose == "photos") (PhotoCollage.MAX_PHOTOS - collage.size).coerceAtLeast(1) else 6
-        VideoChooser(
-            title = if (purpose == "photos") "Pictures for the collage" else "Videos for the collage",
-            videos = target.videos,
-            max = max,
-            onDismiss = { choosingVideos = null },
-        ) { chosen ->
-            choosingVideos = null
-            run {
-                val pictures = withContext(Dispatchers.IO) {
-                    chosen.mapNotNull { v -> ThumbnailStore.fileFor(v.file, v.modified)?.let { Pictures.decode(it.readBytes()) } }
-                }
-                if (pictures.isEmpty()) throw IllegalStateException("Those videos have no thumbnails yet.")
-                if (purpose == "photos") {
-                    collage.addAll(pictures.take(PhotoCollage.MAX_PHOTOS - collage.size))
-                    if (pictures.size < chosen.size) error = "Some videos have no thumbnail yet."
-                } else {
-                    val bytes = withContext(Dispatchers.Default) { FolderCovers.compose(pictures, grid = pictures.size >= 4) }
-                    val made = Pictures.decode(bytes) ?: throw IllegalStateException("Couldn't make the collage.")
-                    art.saveImage(target.key, ArtworkMode.CUSTOM, made, manual = true, focusX = 0.5f, focusY = 0.5f)
-                    onDismiss()
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -455,8 +487,8 @@ private fun Hint(text: String) {
 }
 
 /** Picture files from this PC. */
-private fun chooseImages(multiple: Boolean): List<File> {
-    val dialog = FileDialog(null as java.awt.Frame?, "Choose a picture", FileDialog.LOAD)
+private fun chooseImages(owner: java.awt.Dialog, multiple: Boolean): List<File> {
+    val dialog = FileDialog(owner, "Choose a picture", FileDialog.LOAD)
     dialog.isMultipleMode = multiple
     dialog.file = "*.jpg;*.jpeg;*.png;*.gif;*.webp;*.bmp"
     dialog.isVisible = true
@@ -754,35 +786,44 @@ internal fun RemoteThumb(url: String?, trusted: Set<String>, modifier: Modifier)
     }
 }
 
-/** Ticks up to [max] videos of the folder. */
+/** Ticks up to [max] videos of the folder, shown with their thumbnails, inside the cover window. */
 @Composable
 private fun VideoChooser(title: String, videos: List<WindowsMediaEntry>, max: Int, onDismiss: () -> Unit, onDone: (List<WindowsMediaEntry>) -> Unit) {
     val theme = LocalSkyTheme.current
     val chosen = remember { mutableStateListOf<WindowsMediaEntry>() }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = theme.menu,
-        titleContentColor = theme.ink,
-        textContentColor = theme.ink,
-        title = { Text("$title (${chosen.size} of $max)") },
-        text = {
-            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                videos.take(300).forEach { video ->
-                    val ticked = video in chosen
-                    Row(
-                        Modifier.width(420.dp).clip(RoundedCornerShape(10.dp))
-                            .skyClickable({ if (ticked) chosen.remove(video) else if (chosen.size < max) chosen.add(video) }).padding(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(checked = ticked, onCheckedChange = null)
-                        Text(video.file.nameWithoutExtension, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("$title (${chosen.size} of $max)", color = theme.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        SkyButton("Cancel", onDismiss, primary = false)
+        SkyButton("Use ${chosen.size}", { onDone(chosen.toList()) }, enabled = chosen.isNotEmpty(), icon = SkyIcon.Check)
+    }
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(160.dp),
+        modifier = Modifier.fillMaxWidth().height(520.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items(videos.take(500), key = { it.path.lowercase() }) { video ->
+            val index = chosen.indexOf(video)
+            Column(
+                Modifier.clip(RoundedCornerShape(12.dp))
+                    .border(2.dp, if (index >= 0) theme.accent else theme.ink.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                    .skyClickable({ if (index >= 0) chosen.remove(video) else if (chosen.size < max) chosen.add(video) })
+                    .padding(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp))) {
+                    Thumb(video.file, video.modified, Modifier.fillMaxSize())
+                    if (index >= 0) {
+                        Box(
+                            Modifier.align(Alignment.TopEnd).padding(6.dp).size(26.dp).clip(RoundedCornerShape(50)).background(theme.accent),
+                            contentAlignment = Alignment.Center,
+                        ) { Text("${index + 1}", color = theme.onAccent, style = MaterialTheme.typography.labelMedium) }
                     }
                 }
+                Text(video.file.nameWithoutExtension, color = theme.ink, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-        },
-        confirmButton = { SkyButton("Use ${chosen.size}", { onDone(chosen.toList()) }, enabled = chosen.isNotEmpty()) },
-        dismissButton = { SkyButton("Cancel", onDismiss, primary = false) },
-    )
+        }
+    }
 }
 
 /**

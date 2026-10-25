@@ -29,6 +29,8 @@ import com.skywing.desktop.artwork.ArtworkRepository
 import com.skywing.desktop.artwork.ArtworkSource
 import com.skywing.desktop.artwork.FolderCovers
 import com.skywing.desktop.artwork.Pictures
+import com.skywing.desktop.playback.ThumbnailExtractor
+import org.jetbrains.skia.Image
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -70,6 +72,7 @@ internal fun CoverImage(file: File, modifier: Modifier = Modifier) {
         strip != null && strip > 1 -> FlipBookImage(file, strip, modifier)
         else -> {
             val picture by produceState(PictureCache.get(file), file) { value = withContext(Dispatchers.IO) { PictureCache.load(file) } }
+            ReportScreenColor(file.path, picture)
             picture?.let { Image(it, null, modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
         }
     }
@@ -174,18 +177,19 @@ internal object FolderCoverFiles {
                 val picks = FolderCovers.picks(videos, style, tiles)
                 if (picks.isEmpty()) return@withContext null
                 // One video: its thumbnail is the cover.
-                if (picks.size == 1) return@withContext ThumbnailStore.fileFor(picks[0].file, picks[0].modified)
+                if (picks.size == 1 && style != ArtworkMode.COLLAGE) return@withContext ThumbnailStore.fileFor(picks[0].file, picks[0].modified)
                 val prefix = ArtworkRepository.hash(key)
                 val tag = when (style) {
                     ArtworkMode.FIRST_FRAME -> "f"
-                    ArtworkMode.COLLAGE -> "c${picks.size}"
+                    ArtworkMode.COLLAGE -> "c"
                     else -> "e"
                 }
-                val fingerprint = ArtworkRepository.hash(picks.joinToString("|") { it.path.lowercase() + ":" + it.modified })
+                val fingerprint = ArtworkRepository.hash(picks.joinToString("|") { it.path.lowercase() + ":" + it.modified } + "|" + tiles)
                 val dir = art.coverDir.apply { mkdirs() }
                 val target = File(dir, "${prefix}_${tag}_$fingerprint.jpg")
                 if (target.isFile) return@withContext target
-                val images = picks.mapNotNull { v -> ThumbnailStore.fileFor(v.file, v.modified)?.let { Pictures.decode(it.readBytes()) } }
+                val images = if (style == ArtworkMode.COLLAGE) collagePictures(art, videos, tiles.coerceIn(2, 6))
+                else picks.mapNotNull { v -> ThumbnailStore.fileFor(v.file, v.modified)?.let { Pictures.decode(it.readBytes()) } }
                 if (images.isEmpty()) return@withContext null
                 try {
                     val bytes = FolderCovers.compose(images, grid = style == ArtworkMode.COLLAGE)
@@ -199,6 +203,25 @@ internal object FolderCoverFiles {
                 }
             }
         }
+
+    /**
+     * [count] pictures for a collage of [videos]: one thumbnail per video when there are enough videos, otherwise
+     * several moments of each video (made once and kept). The caller closes the pictures.
+     */
+    suspend fun collagePictures(art: ArtworkRepository, videos: List<WindowsMediaEntry>, count: Int): List<Image> = withContext(Dispatchers.IO) {
+        if (videos.isEmpty()) return@withContext emptyList()
+        if (videos.size >= count) {
+            return@withContext FolderCovers.evenly(videos, count).mapNotNull { v -> ThumbnailStore.fileFor(v.file, v.modified)?.let { Pictures.decode(it.readBytes()) } }
+        }
+        val rounds = (count + videos.size - 1) / videos.size
+        List(count) { i ->
+            val video = videos[i % videos.size]
+            val moment = (i / videos.size + 1) * 100 / (rounds + 1)
+            val file = File(art.coverDir.apply { mkdirs() }, "m_" + ArtworkRepository.hash(video.path.lowercase() + ":" + video.modified + ":" + moment) + ".jpg")
+            if (!(file.isFile && file.length() > 0)) ThumbnailExtractor.extract(video.file, file, start = "$moment%", exact = false, width = 480)
+            file.takeIf { it.isFile && it.length() > 0 }?.let { Pictures.decode(it.readBytes()) }
+        }.filterNotNull()
+    }
 }
 
 /** A folder's cover: the picture chosen for it, its portrait, or one made from its videos' thumbnails. */

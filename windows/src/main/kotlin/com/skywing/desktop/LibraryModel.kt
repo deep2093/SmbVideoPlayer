@@ -53,6 +53,12 @@ internal class SelectionState {
         paths = emptySet()
         active = false
     }
+
+    /** Ticks exactly [chosen] (a drag box or a Shift range); ticking nothing ends selecting. */
+    fun set(chosen: Set<String>) {
+        paths = chosen
+        active = chosen.isNotEmpty()
+    }
 }
 
 /** Where the user is inside the Folders page, kept while they visit other pages or play a video. */

@@ -22,8 +22,9 @@ import java.util.prefs.Preferences
 internal data class SkyGlow(val x: Float, val y: Float, val radius: Float, val color: Color)
 
 /**
- * The four SkyWing glass themes, with the same ids, colours and wallpapers as the Android app so
- * a theme looks the same on both. (Aurora = vivid, Crystal = restrained.)
+ * The SkyWing themes, with the same ids, colours and wallpapers as the Android app so a theme looks the same on
+ * both: four glass themes (Aurora = vivid, Crystal = restrained), AMOLED black, Midnight blue and three adaptive
+ * themes whose wallpaper takes its colours from the covers on screen.
  */
 internal data class SkyTheme(
     val id: String,
@@ -38,11 +39,53 @@ internal data class SkyTheme(
     val menu: Color,
     val light: Boolean,
     val crystal: Boolean,
+    /** Panel colour for themes that are not glass (solid and adaptive themes); null uses the glass tint. */
+    val panel: Color? = null,
+    /** Text on the accent colour, when the usual one does not read well on it. */
+    val onAccentColor: Color? = null,
+    /** Adaptive themes: how the wallpaper and accent follow the covers on screen. */
+    val adaptive: AdaptiveStyle? = null,
 ) {
     val ink: Color get() = if (light) Color(0xFF14202E) else Color(0xFFEAF2FF)
     val muted: Color get() = ink.copy(alpha = if (light) 0.66f else 0.70f)
-    val onAccent: Color get() = if (light) Color.White else Color(0xFF06213A)
+    val onAccent: Color get() = onAccentColor ?: if (light) Color.White else Color(0xFF06213A)
 }
+
+/** A solid dark theme from Android: one background colour, plain panels, no glass. */
+private fun solidTheme(id: String, label: String, background: Color, surface: Color, card: Color, accent: Color, onAccent: Color? = null) = SkyTheme(
+    id = id,
+    label = label,
+    background = background,
+    surface = surface,
+    card = card,
+    accent = accent,
+    wallpaper = listOf(background, background),
+    glows = emptyList(),
+    glassTint = surface.copy(alpha = 0.94f),
+    menu = surface,
+    light = false,
+    crystal = false,
+    panel = surface,
+    onAccentColor = onAccent,
+)
+
+/** An adaptive theme from Android: smoky dark glass over a wallpaper made from the covers on screen. */
+private fun adaptiveTheme(id: String, label: String, style: AdaptiveStyle, card: Color, panel: Color, menu: Color) = SkyTheme(
+    id = id,
+    label = label,
+    background = Color(0xFF101014),
+    surface = Color(0x1F000000),
+    card = card,
+    accent = style.fallbackAccent,
+    wallpaper = style.fallback,
+    glows = emptyList(),
+    glassTint = panel,
+    menu = menu,
+    light = false,
+    crystal = false,
+    panel = panel,
+    adaptive = style,
+)
 
 internal val skyThemes: List<SkyTheme> = listOf(
     SkyTheme(
@@ -116,6 +159,38 @@ internal val skyThemes: List<SkyTheme> = listOf(
         light = true,
         crystal = true,
     ),
+    solidTheme("AMOLED", "AMOLED black", Color.Black, Color(0xFF0B0B0B), Color(0xFF161616), Color(0xFFFF837A)),
+    solidTheme("SLATE", "Midnight blue", Color(0xFF141C29), Color(0xFF1B2738), Color(0xFF26364D), Color(0xFF5B8FD6), onAccent = Color.White),
+    // Each adapts in its own way: Glow lays the cover colours in a diagonal gradient with a bright accent of the same
+    // colour; Midnight washes one soft colour down from the top over near-black with a pale accent; Vivid paints bright
+    // aurora blobs with the opposite colour as accent.
+    adaptiveTheme(
+        "ADAPTIVE_GLOW", "Adaptive Glow",
+        AdaptiveStyle(
+            listOf(0.36f, 0.26f, 0.16f), 0.35f, 0.75f, glow = 0.32f, scrim = 0.22f,
+            fallback = listOf(Color(0xFF3A2A5A), Color(0xFF1E3A4A), Color(0xFF241A30)),
+            layout = AdaptiveLayout.GLOW, accent = AdaptiveAccent.SAME_HUE, fallbackAccent = Color(0xFFFFC27A),
+        ),
+        card = Color(0x1FFFFFFF), panel = Color(0x8C101016), menu = Color(0xFF1B1B24),
+    ),
+    adaptiveTheme(
+        "ADAPTIVE_MIDNIGHT", "Adaptive Midnight",
+        AdaptiveStyle(
+            listOf(0.22f, 0.15f, 0.30f), 0.25f, 0.55f, glow = 0.30f, scrim = 0.30f,
+            fallback = listOf(Color(0xFF1C2333), Color(0xFF14202A), Color(0xFF2A3550)),
+            layout = AdaptiveLayout.WASH, accent = AdaptiveAccent.SOFT, fallbackAccent = Color(0xFFCFE3FF),
+        ),
+        card = Color(0x14FFFFFF), panel = Color(0xB3060609), menu = Color(0xFF111117),
+    ),
+    adaptiveTheme(
+        "ADAPTIVE_VIVID", "Adaptive Vivid",
+        AdaptiveStyle(
+            listOf(0.62f, 0.55f, 0.20f), 0.6f, 0.95f, glow = 0.55f, scrim = 0.34f,
+            fallback = listOf(Color(0xFF8A2C7C), Color(0xFF1F6F9E), Color(0xFF2A1240)),
+            layout = AdaptiveLayout.AURORA, accent = AdaptiveAccent.OPPOSITE, fallbackAccent = Color(0xFF5CF2C2),
+        ),
+        card = Color(0x29FFFFFF), panel = Color(0x80180A24), menu = Color(0xFF221430),
+    ),
 )
 
 internal val LocalSkyTheme = staticCompositionLocalOf { skyThemes.first() }
@@ -175,6 +250,14 @@ internal fun SkyTheme.colorScheme(): ColorScheme =
 
 /** Paints the theme's wallpaper: base gradient, its glows and a faint diagonal sheen (as on Android). */
 internal fun DrawScope.drawSkyWallpaper(theme: SkyTheme) {
+    theme.adaptive?.let { style ->
+        drawAdaptiveWallpaper(theme.wallpaper, style)
+        return
+    }
+    if (theme.glows.isEmpty() && theme.wallpaper.distinct().size == 1) {
+        drawRect(theme.wallpaper.first())
+        return
+    }
     drawRect(Brush.linearGradient(theme.wallpaper, start = Offset.Zero, end = Offset(size.width, size.height)))
     theme.glows.forEach { glow ->
         drawRect(
@@ -199,6 +282,7 @@ internal fun DrawScope.drawSkyWallpaper(theme: SkyTheme) {
 
 /** Glass tint used for panels, taken from the Android glass surface so the two apps match. */
 internal fun SkyTheme.panelTint(): Color = when {
+    panel != null -> panel
     light && crystal -> Color(0xCFFFFFFF)
     light -> Color(0xBDECF5FF)
     crystal -> Color(0xB8203347)
@@ -210,6 +294,9 @@ internal fun SkyTheme.panelTint(): Color = when {
 internal fun Modifier.skyGlass(shape: Shape = RoundedCornerShape(22.dp), tint: Color? = null): Modifier {
     val theme = LocalSkyTheme.current
     val edge = if (theme.light) Color(0x6654708C) else Color(0x70D7EEFF)
+    if (theme.panel != null && theme.adaptive == null) {
+        return this.clip(shape).background(tint ?: theme.panelTint()).border(1.dp, theme.ink.copy(alpha = 0.10f), shape)
+    }
     return this
         .clip(shape)
         .background(tint ?: theme.panelTint())

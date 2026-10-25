@@ -33,6 +33,15 @@ internal class PortraitLookup(private val repo: ArtworkRepository) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
 
+    /** What the last lookup did, shown in Settings. */
+    var note by mutableStateOf(repo.preferences.lastNote)
+        private set
+
+    private fun say(text: String) {
+        repo.preferences.lastNote = text
+        note = text
+    }
+
     /** (done, total) while a lookup runs, otherwise null. */
     var progress by mutableStateOf<Pair<Int, Int>?>(null)
         private set
@@ -42,13 +51,14 @@ internal class PortraitLookup(private val repo: ArtworkRepository) {
         val s = repo.settings
         if (!s.enabled || !s.adultConsent) return
         if (!forced && !s.autoFetchOnScan) return
+        if (forced) say("Looking up portraits…")
         if (job?.isActive == true && !forced) return
         job?.cancel()
         job = scope.launch {
             val since = System.currentTimeMillis()
             val list = targets().filter { wanted(it, forced, since) }.distinctBy { it.key }
             if (list.isEmpty()) {
-                repo.preferences.lastNote = "Last lookup: nothing new to look up."
+                say("Last lookup: nothing new to look up. Folders that already have a portrait or a cover you chose are skipped.")
                 return@launch
             }
             var applied = 0
@@ -65,7 +75,7 @@ internal class PortraitLookup(private val repo: ArtworkRepository) {
                     }
                     when (outcome) {
                         is Outcome.Failed -> {
-                            repo.preferences.lastNote = "Stopped: ${outcome.failure.message}"
+                            say("Stopped: ${outcome.failure.message}")
                             return@launch
                         }
                         Outcome.Applied -> applied++
@@ -76,7 +86,7 @@ internal class PortraitLookup(private val repo: ArtworkRepository) {
                     // Gentle pace: well under StashDB's rate limit.
                     delay(PACE_MS)
                 }
-                repo.preferences.lastNote = "Last lookup: $applied applied" + if (unclear > 0) ", $unclear waiting in Review suggestions." else "."
+                say("Last lookup: $applied applied" + if (unclear > 0) ", $unclear waiting in Review suggestions." else ".")
             } finally {
                 progress = null
             }

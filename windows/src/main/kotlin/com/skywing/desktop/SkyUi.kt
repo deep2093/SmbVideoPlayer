@@ -59,6 +59,7 @@ import androidx.compose.foundation.v2.ScrollbarAdapter
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.areAnyPressed
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
@@ -75,7 +76,15 @@ internal fun Modifier.skyClickable(onClick: () -> Unit, onLongClick: (() -> Unit
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent()
-                        if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) onLongClick()
+                        if (event.type != PointerEventType.Press || !event.buttons.isSecondaryPressed) continue
+                        // Opens on release, so a right-button drag can draw a selection box instead.
+                        var taken = false
+                        while (true) {
+                            val next = awaitPointerEvent()
+                            if (next.changes.any { it.isConsumed }) taken = true
+                            if (next.type == PointerEventType.Release || !next.buttons.areAnyPressed) break
+                        }
+                        if (!taken) onLongClick()
                     }
                 }
             },
@@ -274,6 +283,7 @@ internal fun Thumb(file: File?, stamp: Long, modifier: Modifier = Modifier, glyp
         contentAlignment = Alignment.Center,
     ) {
         val bitmap = picture
+        ReportScreenColor(file?.path ?: "", bitmap)
         if (bitmap != null) {
             Image(bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         } else {

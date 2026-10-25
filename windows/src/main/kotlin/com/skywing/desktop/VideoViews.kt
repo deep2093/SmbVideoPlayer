@@ -27,6 +27,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -133,7 +137,42 @@ internal fun TileGrid(
 ) {
     val prefs = organizer.data.prefs
     val tall = prefs.isTall(page)
-    Box(modifier.fillMaxSize().ctrlWheel { organizer.stepCardSize(page, it) }) {
+    val current by rememberUpdatedState(tiles)
+    var anchor by remember { mutableStateOf<String?>(null) }
+    var boxBase by remember { mutableStateOf(emptySet<String>()) }
+    fun ticked(tile: Tile) = (tile as? FolderTile)?.selected ?: (tile as? VideoTile)?.selected ?: false
+    fun pick(tile: Tile) = (tile as? FolderTile)?.onSelect ?: (tile as? VideoTile)?.onSelect
+    /** Ticks exactly the cards whose keys are in [wanted], among the cards that can be ticked. */
+    fun tickExactly(wanted: Set<String>) {
+        current.forEach { tile -> if (pick(tile) != null && (tile.key in wanted) != ticked(tile)) pick(tile)?.invoke() }
+    }
+    /** Ctrl+click ticks one card, Shift+click a range from the last card clicked; true when the click was used. */
+    fun clicked(tile: Tile, ctrl: Boolean, shift: Boolean): Boolean {
+        val from = anchor?.let { key -> current.indexOfFirst { it.key == key } } ?: -1
+        val at = current.indexOf(tile)
+        return when {
+            shift && from >= 0 && at >= 0 -> {
+                val range = current.subList(minOf(from, at), maxOf(from, at) + 1).map { it.key }.toSet()
+                tickExactly((if (ctrl) current.filter(::ticked).map { it.key }.toSet() else emptySet()) + range)
+                true
+            }
+            ctrl || shift -> {
+                pick(tile)?.invoke()
+                anchor = tile.key
+                true
+            }
+            else -> {
+                anchor = tile.key
+                false
+            }
+        }
+    }
+    Box(
+        modifier.fillMaxSize().ctrlWheel { organizer.stepCardSize(page, it) }.boxSelect(state) { inside, additive, started ->
+            if (started) boxBase = if (additive) current.filter(::ticked).map { it.key }.toSet() else emptySet()
+            tickExactly(boxBase + inside.map { it.toString() })
+        },
+    ) {
         LazyVerticalGrid(
             columns = prefs.cells(page),
             state = state,
@@ -146,7 +185,7 @@ internal fun TileGrid(
                 item(span = { GridItemSpan(maxLineSpan) }) { EmptyNote(emptyText) }
             }
             items(tiles, key = { it.key }, span = { if (it is LabelTile) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { tile ->
-                TileView(tile, prefs.listMode, tall, history, onPlay)
+                TileView(tile, prefs.listMode, tall, history, onPlay, ::clicked)
             }
             if (footer != null && tiles.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "total") { ListTotal(footer) }
@@ -161,14 +200,24 @@ internal fun TileGrid(
 }
 
 @Composable
-private fun TileView(tile: Tile, listMode: Boolean, tall: Boolean, history: Map<String, WindowsWatchRecord>, onPlay: (File, List<File>) -> Unit) {
+private fun TileView(
+    tile: Tile,
+    listMode: Boolean,
+    tall: Boolean,
+    history: Map<String, WindowsWatchRecord>,
+    onPlay: (File, List<File>) -> Unit,
+    /** Ctrl and Shift clicks tick cards as in Windows; returns true when the click was used for that. */
+    onModifiedClick: (Tile, Boolean, Boolean) -> Boolean,
+) {
     var menu by remember { mutableStateOf(false) }
+    val window = LocalWindowInfo.current
+    fun modified(): Boolean = onModifiedClick(tile, window.keyboardModifiers.isCtrlPressed, window.keyboardModifiers.isShiftPressed)
     when (tile) {
         is LabelTile -> SectionLabel(tile.title, Modifier.padding(top = 4.dp))
         is FolderTile -> Box {
             FolderCard(
                 tile.title, tile.detail, tile.coverKey, tile.coverVideos,
-                onClick = { if (tile.selected != null) tile.onSelect?.invoke() else tile.onOpen() },
+                onClick = { if (!modified()) { if (tile.selected != null) tile.onSelect?.invoke() else tile.onOpen() } },
                 onLongClick = {
                     if (tile.selected != null) tile.onSelect?.invoke()
                     else if (tile.menu.isNotEmpty()) menu = true
@@ -188,8 +237,10 @@ private fun TileView(tile: Tile, listMode: Boolean, tall: Boolean, history: Map<
                 listMode = listMode,
                 tall = tall,
                 onClick = {
-                    if (tile.selected != null) tile.onSelect?.invoke()
-                    else onPlay(tile.entry.file, tile.queue.map { it.file })
+                    if (!modified()) {
+                        if (tile.selected != null) tile.onSelect?.invoke()
+                        else onPlay(tile.entry.file, tile.queue.map { it.file })
+                    }
                 },
                 onLongClick = {
                     if (tile.selected != null) tile.onSelect?.invoke()
@@ -231,7 +282,40 @@ internal fun VideoGridView(
 ) {
     val prefs = organizer.data.prefs
     val tall = prefs.isTall(VIDEOS_PAGE)
-    Box(modifier.fillMaxSize().ctrlWheel { organizer.stepCardSize(VIDEOS_PAGE, it) }) {
+    val shown by rememberUpdatedState(entries)
+    val window = LocalWindowInfo.current
+    var anchor by remember { mutableStateOf<String?>(null) }
+    var boxBase by remember { mutableStateOf(emptySet<String>()) }
+    /** Ctrl+click ticks one video, Shift+click a range from the last one clicked; true when the click was used. */
+    fun modifiedClick(entry: WindowsMediaEntry): Boolean {
+        val ctrl = window.keyboardModifiers.isCtrlPressed
+        val shift = window.keyboardModifiers.isShiftPressed
+        val from = anchor?.let { a -> shown.indexOfFirst { it.path == a } } ?: -1
+        val at = shown.indexOf(entry)
+        return when {
+            shift && from >= 0 && at >= 0 -> {
+                val range = shown.subList(minOf(from, at), maxOf(from, at) + 1).map { it.path }.toSet()
+                selection.set((if (ctrl) selection.paths else emptySet()) + range)
+                true
+            }
+            ctrl || shift -> {
+                selection.set(if (entry.path in selection.paths) selection.paths - entry.path else selection.paths + entry.path)
+                anchor = entry.path
+                true
+            }
+            else -> {
+                anchor = entry.path
+                false
+            }
+        }
+    }
+    Box(
+        modifier.fillMaxSize().ctrlWheel { organizer.stepCardSize(VIDEOS_PAGE, it) }.boxSelect(state) { inside, additive, started ->
+            if (started) boxBase = if (additive) selection.paths else emptySet()
+            val byKey = shown.associateBy { it.path.lowercase() }
+            selection.set(boxBase + inside.mapNotNull { byKey[it.toString()]?.path })
+        },
+    ) {
         LazyVerticalGrid(
             columns = prefs.cells(VIDEOS_PAGE),
             state = state,
@@ -254,7 +338,8 @@ internal fun VideoGridView(
                         listMode = prefs.listMode,
                         tall = tall,
                         onClick = {
-                            if (selection.active) selection.toggle(entry.path)
+                            if (modifiedClick(entry)) Unit
+                            else if (selection.active) selection.toggle(entry.path)
                             else onPlay(entry.file, entries.map { it.file })
                         },
                         onLongClick = {

@@ -165,6 +165,12 @@ internal class ArtworkRepository(
 
     suspend fun clearAll(): Int = clear(rows.keys.toList())
 
+    /** Removes every cover and portrait of folders; pictures chosen for videos stay. */
+    suspend fun clearFolderArtwork(): Int = clear(rows.keys.filter { !it.startsWith("video:") })
+
+    /** Removes every picture chosen for a video (frames, moving covers, pictures), so its thumbnail shows again. */
+    suspend fun clearVideoArtwork(): Int = clear(rows.keys.filter { it.startsWith("video:") })
+
     /** Removes only automatically found portraits; pictures you chose are kept. */
     suspend fun clearFetchedPortraits(): Int = clear(rows.values.filter { !it.manual && it.imageName != null }.map { it.key })
 

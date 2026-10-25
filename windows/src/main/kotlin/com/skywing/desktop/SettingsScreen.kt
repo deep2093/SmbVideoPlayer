@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -45,9 +46,10 @@ private class SettingsPage(val title: String, val subtitle: String, val icon: Sk
 private val PAGES = listOf(
     SettingsPage("Appearance", "Glass theme", SkyIcon.Palette),
     SettingsPage("Library", "Sources and what is indexed", SkyIcon.VideoLibrary),
+    SettingsPage("Sync & scanning", "Automatic rescan and library scan", SkyIcon.Refresh),
     SettingsPage("Auto grouping", "How file names become folders", SkyIcon.Grid),
     SettingsPage("App layout", "Folder tabs, columns, list or grid", SkyIcon.Folder),
-    SettingsPage("Artwork", "Covers, moving covers and internet portraits", SkyIcon.Image),
+    SettingsPage("Artwork", "Covers, portraits and thumbnails", SkyIcon.Image),
     SettingsPage("Playback", "Keyboard shortcuts", SkyIcon.Keyboard),
     SettingsPage("About", "SkyWing for Windows", SkyIcon.Info),
 )
@@ -63,6 +65,7 @@ internal fun SettingsScreen(
     library: LibraryModel,
     organizer: Organizer,
     portraits: PortraitLookup,
+    sync: LibrarySync,
     onOpenFiles: () -> Unit,
 ) {
     var open by remember { mutableStateOf<String?>(null) }
@@ -103,6 +106,7 @@ internal fun SettingsScreen(
                             "Auto grouping" -> GroupingPage(organizer)
                             "App layout" -> LayoutPage(organizer)
                             "Artwork" -> ArtworkPage(library, organizer, portraits)
+                            "Sync & scanning" -> SyncPage(library, sync)
                             "Playback" -> PlaybackPage()
                             else -> AboutPage()
                         }
@@ -136,7 +140,8 @@ private fun AppearancePage(current: SkyTheme, onTheme: (SkyTheme) -> Unit) {
     val theme = LocalSkyTheme.current
     Text("Theme", color = theme.ink, style = MaterialTheme.typography.titleMedium)
     Text(
-        "The same four glass themes as the Android app. Aurora is vivid; Crystal is calm.",
+        "The same themes as the Android app. Aurora is vivid, Crystal is calm, AMOLED black and Midnight blue are solid, " +
+            "and the Adaptive themes take their colours from the covers on screen.",
         color = theme.muted, style = MaterialTheme.typography.bodySmall,
     )
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -318,4 +323,57 @@ private fun AboutPage() {
             "licences and sources are installed in the app's legal folder.",
         color = theme.muted, style = MaterialTheme.typography.bodyMedium,
     )
+}
+
+/**
+ * Settings › Sync & scanning, as on Android: automatic rescan, then the library scan with its numbers, Refresh
+ * library and the problems of the last scan.
+ */
+@Composable
+private fun SyncPage(library: LibraryModel, sync: LibrarySync) {
+    val theme = LocalSkyTheme.current
+    var showProblems by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Automatic sync", color = theme.ink, style = MaterialTheme.typography.titleMedium)
+        SwitchRow(
+            "Rescan automatically",
+            if (sync.auto) "While SkyWing is open: when it starts if the last scan is over 12 hours old, then every 12 hours. Your names and covers are kept."
+            else "Off. Use Refresh library to scan.",
+            sync.auto,
+        ) { sync.updateAuto(it) }
+        Text(
+            (if (sync.running) "Syncing…" else sync.status) + "  ·  last finished scan " + LibrarySync.ago(sync.lastSuccess),
+            color = theme.muted, style = MaterialTheme.typography.bodySmall,
+        )
+    }
+    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Library scan", color = theme.ink, style = MaterialTheme.typography.titleMedium)
+        val pc = library.all.count { it.sourceType == "PC" }
+        val shares = library.all.filter { it.sourceType == "SMB" }
+        Text(
+            "${library.all.size} videos  ·  $pc on this PC  ·  ${shares.size} on ${shares.map { it.sourceId }.distinct().size} network share(s)",
+            color = theme.ink, style = MaterialTheme.typography.bodyMedium,
+        )
+        if (sync.running) {
+            LinearProgressIndicator(Modifier.fillMaxWidth(), color = theme.accent)
+            if (sync.current.isNotEmpty()) Text("Scanning: ${sync.current}", color = theme.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+        }
+        Text(
+            "Scans the folders added under This PC and every network share in your library. A share or drive that can't be reached keeps its list.",
+            color = theme.muted, style = MaterialTheme.typography.bodySmall,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SkyButton("Refresh library", { sync.refresh() }, enabled = !sync.running, icon = SkyIcon.Refresh)
+            if (sync.running) SkyButton("Stop", { sync.stop() }, primary = false, icon = SkyIcon.Stop)
+        }
+        if (sync.problems.isNotEmpty()) {
+            SkyButton(if (showProblems) "Hide scan errors" else "View scan errors (${sync.problems.size})", { showProblems = !showProblems }, primary = false)
+            if (showProblems) sync.problems.forEach { problem ->
+                Column {
+                    Text(problem.place, color = theme.ink, style = MaterialTheme.typography.labelMedium)
+                    Text(problem.message, color = theme.accent, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
 }

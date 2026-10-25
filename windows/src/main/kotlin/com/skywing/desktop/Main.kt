@@ -117,11 +117,13 @@ internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: Embedded
             delay(100)
         }
     }
-    CompositionLocalProvider(LocalSkyTheme provides theme, LocalContentColor provides theme.ink) {
-        MaterialTheme(colorScheme = theme.colorScheme()) {
+    // Adaptive themes take their accent from the covers on screen.
+    val shownTheme = rememberShownTheme(theme)
+    CompositionLocalProvider(LocalSkyTheme provides shownTheme, LocalContentColor provides shownTheme.ink) {
+        MaterialTheme(colorScheme = shownTheme.colorScheme()) {
             SkyWingDesktopShell(
                 awtWindow, embedded, fullscreen, closing, changeFullscreen, initialFile, initialSection,
-                theme, { chosen -> theme = chosen; SkyThemeStore.save(chosen) },
+                shownTheme, { chosen -> theme = chosen; SkyThemeStore.save(chosen) },
             )
         }
     }
@@ -238,6 +240,14 @@ private fun SkyWingDesktopShell(
     val organizer = remember { Organizer(FolderOrganizerStore()) { WindowsCustomFolderStore().load() } }
     // Covers and portraits: one store for the app, and the background portrait lookup after each scan.
     val artwork = remember { ArtworkRepository() }
+    // Automatic sync: when the app starts if the last scan is old, then every 12 hours while it is open.
+    val sync = remember { LibrarySync(library) }
+    LaunchedEffect(sync) {
+        while (true) {
+            if (sync.due()) sync.refresh()
+            delay(15 * 60 * 1000L)
+        }
+    }
     val portraits = remember { PortraitLookup(artwork) }
     val covers = remember(artwork, organizer.data.prefs.virtualRules) { CoverContext(artwork, organizer.data.prefs.virtualRules) }
     LaunchedEffect(library.all) {
@@ -454,7 +464,7 @@ private fun SkyWingDesktopShell(
     }
     val playerShown = selected == "Now Playing"
 
-    Box(Modifier.fillMaxSize().drawBehind { drawSkyWallpaper(theme) }) {
+    Box(Modifier.fillMaxSize().skyWallpaper(theme)) {
         Row(Modifier.fillMaxSize()) {
             if (!fullscreen) {
                 Sidebar(
@@ -476,7 +486,7 @@ private fun SkyWingDesktopShell(
                             "Folders" -> FoldersScreen(library, organizer, hub, history, playOne)
                             "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne) { file, position -> openVideo(file, listOf(file), position) }
                             "Files" -> FilesScreen(library, playOne)
-                            else -> SettingsScreen(theme, onTheme, library, organizer, portraits) { go("Files") }
+                            else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync) { go("Files") }
                         } }
                     }
                 }

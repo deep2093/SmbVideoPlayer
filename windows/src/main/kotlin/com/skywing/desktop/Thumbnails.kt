@@ -78,6 +78,41 @@ internal object ThumbnailStore {
         return if (ThumbnailExtractor.extract(video, target)) target else null
     }
 
+    /** How many of [videos] have a picture, still wait for one, or could not get one. Blocking. */
+    data class Stats(val ready: Int, val waiting: Int, val failed: List<File>)
+
+    fun stats(videos: List<Pair<File, Long>>): Stats {
+        var ready = 0
+        val bad = ArrayList<File>()
+        for ((video, stamp) in videos) {
+            val key = keyOf(video.path, stamp)
+            when {
+                File(directory, "$key.jpg").let { it.isFile && it.length() > 0 } -> ready++
+                key in failed -> bad += video
+            }
+        }
+        return Stats(ready, videos.size - ready - bad.size, bad)
+    }
+
+    /** True while the background run is making pictures. */
+    val working: Boolean get() = backgroundJob?.isActive == true
+
+    /** Lets videos whose picture failed be tried again by the next run. */
+    fun retryFailed() = failed.clear()
+
+    /** Stops the background run. */
+    fun stop() {
+        backgroundJob?.cancel()
+    }
+
+    /** Deletes every stored picture; they are made again when shown. Returns how many were deleted. */
+    fun clearCache(): Int {
+        stop()
+        synchronized(memory) { memory.clear() }
+        failed.clear()
+        return directory.listFiles { f -> f.isFile && f.name.endsWith(".jpg") }?.count { it.delete() } ?: 0
+    }
+
     /**
      * Makes the missing pictures of [videos] in the background, one at a time and only while no card on screen is
      * waiting. A newer call replaces the previous run.
