@@ -84,12 +84,31 @@ internal data class FolderPrefs(
     val listMode: Boolean = false,
     /** 0 fits as many cards as the window allows; 2 to 5 is a fixed number of columns. */
     val columns: Int = 0,
-    /** Visible Folders tabs in order: 0 Custom, 1 Virtual, 2 Original. */
+    /** Visible Folders tabs in order: 0 Custom, 1 Virtual. */
     val tabs: List<Int> = FolderTabs.ALL,
     val tabNames: Map<Int, String> = emptyMap(),
     val virtualRules: GroupingSwitches = GroupingSwitches(),
     val customRules: GroupingSwitches = GroupingSwitches(),
+    /** Card width in dp chosen with the grid size buttons on the Videos page and on Folders pages; 0 is the usual size. */
+    val videoCardSize: Int = 0,
+    val folderCardSize: Int = 0,
+    /** Pages whose cards are taller (3:4) instead of landscape, like the card shape button on Android. */
+    val tallPages: Set<String> = emptySet(),
 )
+
+/** The grid sizes the - and + buttons step through, in dp of card width. */
+internal object CardSizes {
+    const val NORMAL = 188
+    val STEPS = listOf(120, 150, NORMAL, 230, 280, 340, 420)
+
+    fun of(saved: Int): Int = if (saved in STEPS) saved else NORMAL
+
+    /** The next size in [direction] (-1 smaller, +1 larger), or the same at either end. */
+    fun step(saved: Int, direction: Int): Int {
+        val i = STEPS.indexOf(of(saved))
+        return STEPS[(i + direction).coerceIn(0, STEPS.lastIndex)]
+    }
+}
 
 internal data class OrganizerData(
     val own: List<OwnFolder> = emptyList(),
@@ -101,16 +120,16 @@ internal data class OrganizerData(
 )
 
 internal object FolderTabs {
-    val ALL = listOf(0, 1, 2)
-    val DEFAULTS = listOf("Custom folders", "Virtual folders", "Original folders")
+    val ALL = listOf(0, 1)
+    val DEFAULTS = listOf("Custom folders", "Virtual folders")
 
     fun clean(tabs: List<Int>): List<Int> = tabs.filter { it in ALL }.distinct().ifEmpty { ALL }
 
-    /** All three in display order: shown ones first in their order, then hidden ones. */
+    /** All tabs in display order: shown ones first in their order, then hidden ones. */
     fun arranged(shown: List<Int>): List<Int> = shown + ALL.filterNot { it in shown }
 }
 
-internal fun FolderPrefs.tabName(tab: Int): String = tabNames[tab]?.takeIf { it.isNotBlank() } ?: FolderTabs.DEFAULTS[tab]
+internal fun FolderPrefs.tabName(tab: Int): String = tabNames[tab]?.takeIf { it.isNotBlank() } ?: FolderTabs.DEFAULTS.getOrElse(tab) { "Folders" }
 
 /* ---------- Grouping and membership ---------- */
 
@@ -293,10 +312,13 @@ internal class FolderOrganizerStore(private val testPath: Path? = null) {
         out.writeInt(p.tabs.size); p.tabs.forEach(out::writeInt)
         out.writeInt(p.tabNames.size); p.tabNames.forEach { (k, v) -> out.writeInt(k); out.writeUTF(v) }
         out.rules(p.virtualRules); out.rules(p.customRules)
+        out.writeInt(p.videoCardSize); out.writeInt(p.folderCardSize); out.strings(p.tallPages.toList())
     }
 
     private fun read(input: DataInputStream): OrganizerData {
-        if (input.readInt() != MAGIC || input.readInt() != VERSION) return OrganizerData()
+        if (input.readInt() != MAGIC) return OrganizerData()
+        val version = input.readInt()
+        if (version !in 1..VERSION) return OrganizerData()
         val own = List(input.count()) {
             OwnFolder(input.readUTF(), input.readUTF(), input.strings(), input.strings(), input.readUTF().ifEmpty { null }, input.readBoolean())
         }
@@ -321,8 +343,11 @@ internal class FolderOrganizerStore(private val testPath: Path? = null) {
             tabNames = HashMap<Int, String>().apply { repeat(input.count()) { put(input.readInt(), input.readUTF()) } },
             virtualRules = input.rules(),
             customRules = input.rules(),
-        )
-        return OrganizerData(own, match, sets, assignments, prefs)
+        ).let { p ->
+            // Version 2 added the grid sizes and the taller pages.
+            if (version < 2) p else p.copy(videoCardSize = input.readInt(), folderCardSize = input.readInt(), tallPages = input.strings().toSet())
+        }
+        return OrganizerData(own, match, sets, assignments, prefs.copy(tabNames = prefs.tabNames.filterKeys { it in FolderTabs.ALL }))
     }
 
     private fun DataInputStream.count(): Int = readInt().also { require(it in 0..MAX_ITEMS) { "Damaged folders file" } }
@@ -333,7 +358,7 @@ internal class FolderOrganizerStore(private val testPath: Path? = null) {
 
     companion object {
         private const val MAGIC = 0x53574644
-        private const val VERSION = 1
+        private const val VERSION = 2
         private const val MAX_ITEMS = 200_000
     }
 }

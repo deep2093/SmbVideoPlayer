@@ -81,6 +81,14 @@ internal class WindowsMediaIndex(private val testIndexPath: Path? = null) {
         write(load().filterNot { it.sourceId == sourceId } + fresh)
     }
 
+    /** Drops entries matching [unwanted]; returns how many were dropped. */
+    fun removeWhere(unwanted: (WindowsMediaEntry) -> Boolean): Int {
+        val all = load()
+        val kept = all.filterNot(unwanted)
+        if (kept.size != all.size) write(kept)
+        return all.size - kept.size
+    }
+
     private fun write(entries: List<WindowsMediaEntry>) {
         require(entries.size <= MAX_ENTRIES) { "The library index is too large to save" }
         val target = indexPath

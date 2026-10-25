@@ -59,6 +59,7 @@ import androidx.compose.foundation.v2.ScrollbarAdapter
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import java.io.File
@@ -210,6 +211,8 @@ internal fun SkyField(
     placeholder: String,
     modifier: Modifier = Modifier,
     leading: SkyIcon? = null,
+    /** Hides what is typed (keys). */
+    secret: Boolean = false,
 ) {
     val theme = LocalSkyTheme.current
     OutlinedTextField(
@@ -217,6 +220,7 @@ internal fun SkyField(
         onValueChange = onValueChange,
         modifier = modifier,
         singleLine = true,
+        visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         shape = RoundedCornerShape(50),
         placeholder = { Text(placeholder, color = theme.muted, maxLines = 1) },
         leadingIcon = if (leading != null) ({ SkyIconView(leading, theme.muted) }) else null,
@@ -293,26 +297,28 @@ internal fun SelectionMark(selected: Boolean, modifier: Modifier = Modifier) {
 }
 
 /**
- * One folder card, the same for Custom, Virtual and Original folders: the cover (a picture from the first
- * video), the name and a short detail line. Clicking opens it; holding (or a right click) opens its options.
+ * One folder card, the same for Custom, Virtual and drive folders: the cover (chosen in Change cover, a portrait, or
+ * made from its videos), the name and a short detail line. Clicking opens it; holding (or a right click) opens its options.
  * [listMode] shows it as a row; [selected] is null when folders are not being selected.
  */
 @Composable
 internal fun FolderCard(
     title: String,
     detail: String,
-    cover: WindowsMediaEntry?,
+    coverKey: String?,
+    coverVideos: List<WindowsMediaEntry>,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
     listMode: Boolean = false,
     selected: Boolean? = null,
+    tall: Boolean = false,
 ) {
     val theme = LocalSkyTheme.current
     val picture: @Composable (Modifier) -> Unit = { pictureModifier ->
         Box(pictureModifier) {
-            if (cover != null) {
-                Thumb(cover.file, cover.modified, Modifier.fillMaxSize(), glyph = SkyIcon.Folder)
+            if (coverVideos.isNotEmpty() || coverKey != null) {
+                FolderPicture(coverKey, coverVideos, tall, listMode, Modifier.fillMaxSize())
             } else {
                 Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(theme.card, theme.surface))), contentAlignment = Alignment.Center) {
                     SkyIconView(SkyIcon.Folder, theme.muted.copy(alpha = 0.6f), size = if (listMode) 26.dp else 40.dp)
@@ -321,7 +327,7 @@ internal fun FolderCard(
             if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
     }
-    CardFrame(modifier, selected == true, listMode, onClick, onLongClick, picture) {
+    CardFrame(modifier, selected == true, listMode, tall, onClick, onLongClick, picture) {
         Text(title, color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(detail, color = theme.muted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -338,11 +344,12 @@ internal fun VideoCard(
     onLongClick: (() -> Unit)? = null,
     detail: String? = null,
     listMode: Boolean = false,
+    tall: Boolean = false,
 ) {
     val theme = LocalSkyTheme.current
     val picture: @Composable (Modifier) -> Unit = { pictureModifier ->
         Box(pictureModifier) {
-            Thumb(entry.file, entry.modified, Modifier.fillMaxSize())
+            VideoPicture(entry, tall, Modifier.fillMaxSize())
             if (progress != null && progress > 0f) {
                 Box(
                     Modifier.align(Alignment.BottomStart).fillMaxWidth(progress.coerceIn(0f, 1f)).height(3.dp)
@@ -352,7 +359,7 @@ internal fun VideoCard(
             if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
     }
-    CardFrame(modifier, selected == true, listMode, onClick, onLongClick, picture) {
+    CardFrame(modifier, selected == true, listMode, tall, onClick, onLongClick, picture) {
         Text(entry.title(), color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
             detail ?: listOf(formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }.joinToString("  ·  "),
@@ -361,12 +368,16 @@ internal fun VideoCard(
     }
 }
 
-/** The frame shared by folder and video cards: a 16:9 picture over the text, or a row with a small picture in list mode. */
+/**
+ * The frame shared by folder and video cards: a 16:9 picture (3:4 when [tall]) over the text, or a row with a small
+ * picture in list mode.
+ */
 @Composable
 private fun CardFrame(
     modifier: Modifier,
     highlighted: Boolean,
     listMode: Boolean,
+    tall: Boolean,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
     picture: @Composable (Modifier) -> Unit,
@@ -378,12 +389,12 @@ private fun CardFrame(
         .skyClickable(onClick, onLongClick)
     if (listMode) {
         Row(frame.padding(6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            picture(Modifier.width(128.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)))
+            picture(Modifier.width(if (tall) 72.dp else 128.dp).aspectRatio(if (tall) 3f / 4f else 16f / 9f).clip(RoundedCornerShape(10.dp)))
             Column(Modifier.weight(1f)) { text() }
         }
     } else {
         Column(frame) {
-            picture(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+            picture(Modifier.fillMaxWidth().aspectRatio(if (tall) 3f / 4f else 16f / 9f))
             Column(Modifier.padding(start = 10.dp, end = 8.dp, top = 7.dp, bottom = 9.dp)) { text() }
         }
     }
@@ -516,4 +527,17 @@ internal fun ListScrollbar(state: LazyListState, modifier: Modifier = Modifier) 
 @Composable
 internal fun ColumnScrollbar(state: ScrollState, modifier: Modifier = Modifier) {
     SkyScrollbar(rememberScrollbarAdapter(state), modifier)
+}
+
+/** Ctrl + mouse wheel over a grid: [onStep] gets +1 (wheel up, larger cards) or -1. The grid does not scroll meanwhile. */
+internal fun Modifier.ctrlWheel(onStep: (Int) -> Unit): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+            if (event.type != PointerEventType.Scroll || !event.keyboardModifiers.isCtrlPressed) continue
+            val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
+            if (dy != 0f) onStep(if (dy < 0f) 1 else -1)
+            event.changes.forEach { it.consume() }
+        }
+    }
 }

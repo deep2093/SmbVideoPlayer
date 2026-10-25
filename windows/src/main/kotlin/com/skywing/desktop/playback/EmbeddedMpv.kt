@@ -128,6 +128,7 @@ class EmbeddedMpv : Closeable {
         seconds.isFinite() && command("seek", seconds.coerceAtLeast(0.0).toString(), "absolute")
 
     fun togglePause(): Boolean = command("cycle", "pause")
+    fun pause(): Boolean = command("set", "pause", "yes")
     fun seek(seconds: Int): Boolean = command("seek", seconds.toString(), "relative")
     fun stop(): Boolean = command("stop")
     fun volumeUp(): Boolean = command("add", "volume", "5")

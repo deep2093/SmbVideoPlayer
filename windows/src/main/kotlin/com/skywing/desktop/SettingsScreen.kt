@@ -1,5 +1,7 @@
 package com.skywing.desktop
 
+import com.skywing.desktop.artwork.PortraitLookup
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -45,6 +47,7 @@ private val PAGES = listOf(
     SettingsPage("Library", "Sources and what is indexed", SkyIcon.VideoLibrary),
     SettingsPage("Auto grouping", "How file names become folders", SkyIcon.Grid),
     SettingsPage("App layout", "Folder tabs, columns, list or grid", SkyIcon.Folder),
+    SettingsPage("Artwork", "Covers, moving covers and internet portraits", SkyIcon.Image),
     SettingsPage("Playback", "Keyboard shortcuts", SkyIcon.Keyboard),
     SettingsPage("About", "SkyWing for Windows", SkyIcon.Info),
 )
@@ -59,6 +62,7 @@ internal fun SettingsScreen(
     onTheme: (SkyTheme) -> Unit,
     library: LibraryModel,
     organizer: Organizer,
+    portraits: PortraitLookup,
     onOpenFiles: () -> Unit,
 ) {
     var open by remember { mutableStateOf<String?>(null) }
@@ -98,6 +102,7 @@ internal fun SettingsScreen(
                             "Library" -> LibraryPage(library, organizer, onOpenFiles)
                             "Auto grouping" -> GroupingPage(organizer)
                             "App layout" -> LayoutPage(organizer)
+                            "Artwork" -> ArtworkPage(library, organizer, portraits)
                             "Playback" -> PlaybackPage()
                             else -> AboutPage()
                         }
@@ -191,7 +196,7 @@ private fun LibraryPage(library: LibraryModel, organizer: Organizer, onOpenFiles
 
 /** A labelled on/off switch with a line of explanation, as on the Android settings pages. */
 @Composable
-private fun SwitchRow(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SwitchRow(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     val theme = LocalSkyTheme.current
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         Column(Modifier.weight(1f)) {

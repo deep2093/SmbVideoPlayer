@@ -21,7 +21,11 @@ internal class LibraryModel(val store: WindowsMediaIndex) {
 
     suspend fun reload() {
         loading = true
-        val loaded = withContext(Dispatchers.IO) { store.load() }
+        val loaded = withContext(Dispatchers.IO) {
+            // Videos on a network drive added under This PC (a mapped drive) are listed under Network only.
+            store.removeWhere { it.sourceType == "PC" && NetworkPaths.isNetwork(it.path) }
+            store.load()
+        }
         val distinct = withContext(Dispatchers.Default) {
             loaded.distinctBy { it.path.lowercase() }.sortedBy { it.file.name.lowercase() }
         }
@@ -53,7 +57,7 @@ internal class SelectionState {
 
 /** Where the user is inside the Folders page, kept while they visit other pages or play a video. */
 internal class HubState {
-    /** The shown tab: 0 Custom, 1 Virtual, 2 Original. */
+    /** The shown tab: 0 Custom, 1 Virtual. */
     var tab by mutableStateOf(0)
     var query by mutableStateOf("")
 
@@ -67,8 +71,6 @@ internal class HubState {
     var setId by mutableStateOf<String?>(null)
     var setGroup by mutableStateOf<String?>(null)
 
-    var original by mutableStateOf<String?>(null)
-
     /** Folder cards ticked on the page named [folderPage]; empty when not selecting folders. */
     var folderPage by mutableStateOf<String?>(null)
     var folderKeys by mutableStateOf(emptySet<String>())
@@ -79,9 +81,21 @@ internal class HubState {
     var videoSort by mutableStateOf(0)
 
     private val states = HashMap<String, LazyGridState>()
+    private val results = HashMap<String, Any?>()
 
     /** One scroll position per list, so coming back from a video lands where the user was. */
     fun grid(key: String): LazyGridState = states.getOrPut(key) { LazyGridState() }
+
+    /**
+     * The last list worked out for a page. A page shown again starts with it instead of an empty list, which would
+     * move its grid back to the top.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun <T> lastResult(name: String): T? = synchronized(results) { results[name] as T? }
+
+    fun keepResult(name: String, value: Any?) {
+        synchronized(results) { results[name] = value }
+    }
 
     fun ticked(page: String, key: String): Boolean? = if (folderPage == page) key in folderKeys else null
 

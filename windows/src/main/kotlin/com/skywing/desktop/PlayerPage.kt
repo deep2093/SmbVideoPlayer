@@ -79,6 +79,7 @@ internal fun PlayerControls(
     onSeekChange: (Float) -> Unit,
     onSeekFinished: () -> Unit,
     onTogglePause: () -> Unit,
+    onStop: () -> Unit,
     onBack10: () -> Unit,
     onForward10: () -> Unit,
     onPrevious: () -> Unit,
@@ -138,6 +139,7 @@ internal fun PlayerControls(
                     tint = PLAYER_INK, box = 56.dp, glyph = 30.dp, outlined = true,
                 )
                 TextControl("+10", onForward10, enabled = hasDuration)
+                SkyIconButton(SkyIcon.Stop, "Stop (S)", onStop, tint = PLAYER_INK)
                 SkyIconButton(SkyIcon.SkipNext, "Next video", onNext, enabled = canNext, tint = PLAYER_INK)
             }
             Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {

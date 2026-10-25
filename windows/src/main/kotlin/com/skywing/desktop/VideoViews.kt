@@ -34,13 +34,48 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import java.io.File
 
-internal val GRID_MIN_CARD = 188.dp
+/** The page of the Videos section, for its grid size and card shape. */
+internal const val VIDEOS_PAGE = "videos"
 
-/** The grid columns chosen in Settings: as many as fit, a fixed number, or one row per item in list mode. */
-internal fun FolderPrefs.cells(): GridCells = when {
+/**
+ * The grid columns: one row per item in list mode, a fixed number chosen in Settings, otherwise as many cards of
+ * the size picked with the grid size buttons as fit.
+ */
+internal fun FolderPrefs.cells(page: String): GridCells = when {
     listMode -> GridCells.Fixed(1)
     columns in 2..5 -> GridCells.Fixed(columns)
-    else -> GridCells.Adaptive(GRID_MIN_CARD)
+    else -> GridCells.Adaptive(CardSizes.of(cardSizeFor(page)).dp)
+}
+
+internal fun FolderPrefs.cardSizeFor(page: String): Int = if (page == VIDEOS_PAGE) videoCardSize else folderCardSize
+
+internal fun FolderPrefs.isTall(page: String): Boolean = page in tallPages
+
+/** Smaller (-1) or larger (+1) cards on [page]; a fixed column count from Settings gives way to the chosen size. */
+internal fun Organizer.stepCardSize(page: String, direction: Int) = updatePrefs { p ->
+    val next = CardSizes.step(p.cardSizeFor(page), direction)
+    if (page == VIDEOS_PAGE) p.copy(videoCardSize = next, columns = 0) else p.copy(folderCardSize = next, columns = 0)
+}
+
+internal fun Organizer.toggleTall(page: String) = updatePrefs { p ->
+    p.copy(tallPages = if (page in p.tallPages) p.tallPages - page else p.tallPages + page)
+}
+
+/** The grid size buttons and the card shape button, shown on the Videos page and on every Folders page. */
+@Composable
+internal fun GridControls(organizer: Organizer, page: String) {
+    val prefs = organizer.data.prefs
+    val size = CardSizes.of(prefs.cardSizeFor(page))
+    val tall = prefs.isTall(page)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        SkyIconButton(SkyIcon.ZoomOut, "Smaller cards (Ctrl + mouse wheel)", { organizer.stepCardSize(page, -1) }, enabled = !prefs.listMode && size > CardSizes.STEPS.first())
+        SkyIconButton(SkyIcon.ZoomIn, "Larger cards (Ctrl + mouse wheel)", { organizer.stepCardSize(page, 1) }, enabled = !prefs.listMode && size < CardSizes.STEPS.last())
+        SkyIconButton(
+            if (tall) SkyIcon.CropLandscape else SkyIcon.CropPortrait,
+            if (tall) "Show landscape cards" else "Show taller portrait cards",
+            { organizer.toggleTall(page) },
+        )
+    }
 }
 
 /** One card or line in a folder page grid. */
@@ -54,7 +89,10 @@ internal data class FolderTile(
     override val key: String,
     override val title: String,
     val detail: String,
-    val cover: WindowsMediaEntry?,
+    /** The folder's cover key in the artwork store (null: the first video's thumbnail). */
+    val coverKey: String?,
+    /** The videos the cover may be made from. */
+    val coverVideos: List<WindowsMediaEntry>,
     val onOpen: () -> Unit,
     val menu: List<MenuAction> = emptyList(),
     val selected: Boolean? = null,
@@ -84,7 +122,8 @@ internal data class LabelTile(override val key: String, override val title: Stri
 internal fun TileGrid(
     tiles: List<Tile>,
     state: LazyGridState,
-    prefs: FolderPrefs,
+    organizer: Organizer,
+    page: String,
     history: Map<String, WindowsWatchRecord>,
     onPlay: (File, List<File>) -> Unit,
     modifier: Modifier = Modifier,
@@ -92,9 +131,11 @@ internal fun TileGrid(
     footer: String? = null,
     letters: Boolean = true,
 ) {
-    Box(modifier.fillMaxSize()) {
+    val prefs = organizer.data.prefs
+    val tall = prefs.isTall(page)
+    Box(modifier.fillMaxSize().ctrlWheel { organizer.stepCardSize(page, it) }) {
         LazyVerticalGrid(
-            columns = prefs.cells(),
+            columns = prefs.cells(page),
             state = state,
             modifier = Modifier.fillMaxSize().padding(end = 14.dp),
             contentPadding = PaddingValues(bottom = 28.dp),
@@ -105,7 +146,7 @@ internal fun TileGrid(
                 item(span = { GridItemSpan(maxLineSpan) }) { EmptyNote(emptyText) }
             }
             items(tiles, key = { it.key }, span = { if (it is LabelTile) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { tile ->
-                TileView(tile, prefs.listMode, history, onPlay)
+                TileView(tile, prefs.listMode, tall, history, onPlay)
             }
             if (footer != null && tiles.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "total") { ListTotal(footer) }
@@ -120,13 +161,13 @@ internal fun TileGrid(
 }
 
 @Composable
-private fun TileView(tile: Tile, listMode: Boolean, history: Map<String, WindowsWatchRecord>, onPlay: (File, List<File>) -> Unit) {
+private fun TileView(tile: Tile, listMode: Boolean, tall: Boolean, history: Map<String, WindowsWatchRecord>, onPlay: (File, List<File>) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     when (tile) {
         is LabelTile -> SectionLabel(tile.title, Modifier.padding(top = 4.dp))
         is FolderTile -> Box {
             FolderCard(
-                tile.title, tile.detail, tile.cover,
+                tile.title, tile.detail, tile.coverKey, tile.coverVideos,
                 onClick = { if (tile.selected != null) tile.onSelect?.invoke() else tile.onOpen() },
                 onLongClick = {
                     if (tile.selected != null) tile.onSelect?.invoke()
@@ -134,6 +175,7 @@ private fun TileView(tile: Tile, listMode: Boolean, history: Map<String, Windows
                     else tile.onSelect?.invoke()
                 },
                 listMode = listMode,
+                tall = tall,
                 selected = tile.selected,
             )
             SkyMenu(menu, { menu = false }, tile.menu)
@@ -144,6 +186,7 @@ private fun TileView(tile: Tile, listMode: Boolean, history: Map<String, Windows
                 progress = watchedFraction(history, tile.entry),
                 selected = tile.selected,
                 listMode = listMode,
+                tall = tall,
                 onClick = {
                     if (tile.selected != null) tile.onSelect?.invoke()
                     else onPlay(tile.entry.file, tile.queue.map { it.file })
@@ -177,17 +220,20 @@ internal fun ListTotal(text: String) {
 internal fun VideoGridView(
     entries: List<WindowsMediaEntry>,
     state: LazyGridState,
-    prefs: FolderPrefs,
+    organizer: Organizer,
     selection: SelectionState,
     history: Map<String, WindowsWatchRecord>,
     onPlay: (File, List<File>) -> Unit,
     modifier: Modifier = Modifier,
     header: (LazyGridScope.() -> Unit)? = null,
     emptyText: String = "No videos here yet.",
+    menu: (WindowsMediaEntry) -> List<MenuAction> = { emptyList() },
 ) {
-    Box(modifier.fillMaxSize()) {
+    val prefs = organizer.data.prefs
+    val tall = prefs.isTall(VIDEOS_PAGE)
+    Box(modifier.fillMaxSize().ctrlWheel { organizer.stepCardSize(VIDEOS_PAGE, it) }) {
         LazyVerticalGrid(
-            columns = prefs.cells(),
+            columns = prefs.cells(VIDEOS_PAGE),
             state = state,
             modifier = Modifier.fillMaxSize().padding(end = 14.dp),
             contentPadding = PaddingValues(bottom = 28.dp),
@@ -199,17 +245,27 @@ internal fun VideoGridView(
                 item(span = { GridItemSpan(maxLineSpan) }) { EmptyNote(emptyText) }
             }
             items(entries, key = { it.path.lowercase() }) { entry ->
-                VideoCard(
-                    entry = entry,
-                    progress = watchedFraction(history, entry),
-                    selected = if (selection.active) entry.path in selection.paths else null,
-                    listMode = prefs.listMode,
-                    onClick = {
-                        if (selection.active) selection.toggle(entry.path)
-                        else onPlay(entry.file, entries.map { it.file })
-                    },
-                    onLongClick = { selection.toggle(entry.path) },
-                )
+                var open by remember { mutableStateOf(false) }
+                Box {
+                    VideoCard(
+                        entry = entry,
+                        progress = watchedFraction(history, entry),
+                        selected = if (selection.active) entry.path in selection.paths else null,
+                        listMode = prefs.listMode,
+                        tall = tall,
+                        onClick = {
+                            if (selection.active) selection.toggle(entry.path)
+                            else onPlay(entry.file, entries.map { it.file })
+                        },
+                        onLongClick = {
+                            // Hold or right click: the card's options, or picking while selecting.
+                            if (selection.active) selection.toggle(entry.path)
+                            else if (menu(entry).isNotEmpty()) open = true
+                            else selection.toggle(entry.path)
+                        },
+                    )
+                    if (open) SkyMenu(true, { open = false }, menu(entry))
+                }
             }
         }
         GridScrollbar(state, Modifier.align(Alignment.CenterEnd))

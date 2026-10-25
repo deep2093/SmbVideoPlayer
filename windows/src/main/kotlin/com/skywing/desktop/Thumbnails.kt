@@ -10,11 +10,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * Thumbnails for video cards. A picture is made once per video (a frame about a tenth of the way in),
- * kept on disk, and shown from memory afterwards. Making them runs two at a time in the background.
+ * kept on disk, and shown from memory afterwards. Cards on screen are made first, three at a time; the rest of the
+ * library is worked through one by one in the background while nothing on screen is waiting, like the Android app
+ * does after a scan.
  */
 internal object ThumbnailStore {
     private val directory: File by lazy {
@@ -25,7 +28,10 @@ internal object ThumbnailStore {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean = size > 400
     }
     private val failed = java.util.Collections.synchronizedSet(HashSet<String>())
-    private val gate = Semaphore(2)
+    private val gate = Semaphore(3)
+    private val waiting = java.util.concurrent.atomic.AtomicInteger()
+    private val background = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    private var backgroundJob: kotlinx.coroutines.Job? = null
 
     private fun keyOf(path: String, stamp: Long): String {
         val digest = MessageDigest.getInstance("SHA-1").digest((path.lowercase() + "|" + stamp).toByteArray(Charsets.UTF_8))
@@ -50,7 +56,12 @@ internal object ThumbnailStore {
             remember(key, it)
             return it
         }
-        return gate.withPermit {
+        waiting.incrementAndGet()
+        return try { make(key, video, target) } finally { waiting.decrementAndGet() }
+    }
+
+    private suspend fun make(key: String, video: File, target: File): ImageBitmap? =
+        gate.withPermit {
             synchronized(memory) { memory[key] }?.let { return@withPermit it }
             val made = withContext(NonCancellable + Dispatchers.IO) {
                 if (target.isFile && target.length() > 0) true else ThumbnailExtractor.extract(video, target)
@@ -58,6 +69,31 @@ internal object ThumbnailStore {
             val bitmap = if (made) withContext(Dispatchers.IO) { decode(target) } else null
             if (bitmap != null) remember(key, bitmap) else failed.add(key)
             bitmap
+        }
+
+    /** Picture file of a video, made now if missing. Blocking; for covers built from video frames. */
+    fun fileFor(video: File, stamp: Long): File? {
+        val target = File(directory, keyOf(video.path, stamp) + ".jpg")
+        if (target.isFile && target.length() > 0) return target
+        return if (ThumbnailExtractor.extract(video, target)) target else null
+    }
+
+    /**
+     * Makes the missing pictures of [videos] in the background, one at a time and only while no card on screen is
+     * waiting. A newer call replaces the previous run.
+     */
+    fun prefetch(videos: List<Pair<File, Long>>) {
+        backgroundJob?.cancel()
+        backgroundJob = background.launch {
+            for ((video, stamp) in videos) {
+                val key = keyOf(video.path, stamp)
+                if (key in failed) continue
+                val target = File(directory, "$key.jpg")
+                if (target.isFile && target.length() > 0) continue
+                while (waiting.get() > 0) kotlinx.coroutines.delay(400)
+                val made = withContext(NonCancellable) { ThumbnailExtractor.extract(video, target) }
+                if (!made) failed.add(key)
+            }
         }
     }
 }

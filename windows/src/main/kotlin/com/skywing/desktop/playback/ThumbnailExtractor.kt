@@ -33,8 +33,12 @@ internal object ThumbnailExtractor {
     private const val EVENT_SHUTDOWN = 1
     private const val EVENT_END_FILE = 7
 
-    /** Saves a JPEG of the video (about a tenth of the way in) to [target]. Returns true when it was written. */
-    fun extract(video: File, target: File): Boolean {
+    /**
+     * Saves a JPEG of the video to [target]: by default about a tenth of the way in, at the nearest key frame.
+     * [start] is an mpv position ("10%" or seconds); [exact] decodes the precise frame (slower, for a frame the user
+     * picks); [width] is the picture width. Returns true when it was written.
+     */
+    fun extract(video: File, target: File, start: String = "10%", exact: Boolean = false, width: Int = 480): Boolean {
         val native = api ?: return false
         if (!video.isFile) return false
         val work = runCatching { Files.createTempDirectory("skywing-thumb").toFile() }.getOrNull() ?: return false
@@ -61,12 +65,20 @@ internal object ThumbnailExtractor {
             set("sid", "no")
             set("hwdec", "no")
             set("frames", "1")
-            set("start", "10%")
-            set("hr-seek", "yes")
-            set("vf", "lavfi=[scale=480:-2]")
+            set("start", start)
+            // Like the Android app: jump to the nearest key frame instead of decoding up to the exact moment, and
+            // read only what the decoder needs (no read-ahead), so a network file costs a few small reads.
+            set("hr-seek", if (exact) "yes" else "no")
+            set("cache", "no")
+            set("demuxer-readahead-secs", "0")
+            set("demuxer-max-bytes", "4MiB")
+            set("demuxer-max-back-bytes", "0")
+            set("vd-lavc-skiploopfilter", "all")
+            set("vd-lavc-fast", "yes")
+            set("vf", "lavfi=[scale=${width.coerceIn(64, 1920)}:-2]")
             if (native.mpv_initialize(ctx) < 0) return false
             if (native.mpv_command(ctx, arrayOf("loadfile", video.absolutePath, "replace", null)) < 0) return false
-            val deadline = System.nanoTime() + 25_000_000_000L
+            val deadline = System.nanoTime() + 20_000_000_000L
             while (System.nanoTime() < deadline) {
                 val event = native.mpv_wait_event(ctx, 0.25) ?: break
                 val id = event.getInt(0)

@@ -72,7 +72,8 @@ class FolderOrganizerTest {
         organizer.addDriveFolders(listOf("C:\\Videos\\Films", "C:\\Videos\\Films"), includeSubfolders = true)
         organizer.createCollection("Peter")
         organizer.assign(listOf("C:\\Videos\\Other\\Holiday with peter.mp4"), "Peter")
-        organizer.updatePrefs { it.copy(columns = 4, listMode = true, tabs = listOf(2, 0), tabNames = mapOf(2 to "Drive")) }
+        organizer.updatePrefs { it.copy(columns = 4, listMode = true, tabs = listOf(1, 0), tabNames = mapOf(1 to "Drive"), tallPages = setOf("custom")) }
+        organizer.stepCardSize(VIDEOS_PAGE, 1)
         organizer.selectSort("SIZE")
         organizer.selectSort("SIZE")
 
@@ -82,15 +83,24 @@ class FolderOrganizerTest {
         assertEquals(listOf("C:\\Videos\\Other\\Peter - holiday.mp4"), own.files)
         assertEquals(mapOf("nicole kidman" to "Nicole"), again.data.sets.first().renames)
         assertEquals(1, again.data.match.count { it.sourcePath != null })
-        assertEquals(listOf(2, 0), again.data.prefs.tabs)
-        assertEquals("Drive", again.data.prefs.tabName(2))
-        assertEquals(4, again.data.prefs.columns)
+        assertEquals(listOf(1, 0), again.data.prefs.tabs)
+        assertEquals("Drive", again.data.prefs.tabName(1))
+        // A grid size button gives way over a fixed column count.
+        assertEquals(0, again.data.prefs.columns)
+        assertEquals(230, again.data.prefs.videoCardSize)
+        assertTrue(again.data.prefs.isTall("custom"))
         assertTrue(again.data.prefs.descending)
         assertEquals("Peter", again.data.assignments["c:\\videos\\other\\holiday with peter.mp4"])
 
         again.deleteOwn(id)
         assertNull(again.data.own.firstOrNull { it.id == id })
         assertNull(again.createOwn("bad/name"))
+    }
+
+    @Test fun cardSizesStepWithinTheirRange() {
+        assertEquals(150, CardSizes.step(0, -1))
+        assertEquals(420, CardSizes.step(420, 1))
+        assertEquals(120, CardSizes.step(120, -1))
     }
 
     @Test fun otherAddressesAreTriedAndPathsKeepTheMainAddress() {

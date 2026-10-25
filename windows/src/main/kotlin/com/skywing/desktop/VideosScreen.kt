@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -34,7 +36,8 @@ internal fun VideosScreen(
     onPlay: (File, List<File>) -> Unit,
     onResume: (File, Double) -> Unit,
 ) {
-    val shown by produceState(emptyList<WindowsMediaEntry>(), library.all, hub.videoSource, hub.videoSort, hub.videoQuery) {
+    // Starts with the last list shown, so the grid keeps its place when coming back from a video.
+    val shown by produceState(hub.lastResult<List<WindowsMediaEntry>>(VIDEOS_PAGE) ?: emptyList(), library.all, hub.videoSource, hub.videoSort, hub.videoQuery) {
         val source = hub.videoSource
         val sort = hub.videoSort
         val term = hub.videoQuery.trim()
@@ -48,9 +51,12 @@ internal fun VideosScreen(
                 2 -> filtered.sortedByDescending { it.size }
                 else -> filtered
             }
-        }
+        }.also { hub.keepResult(VIDEOS_PAGE, it) }
     }
     val byPath = remember(library.all) { library.all.associateBy { it.path.lowercase() } }
+    val artworkOn = LocalCovers.current?.artwork?.settings?.enabled == true
+    var cover by remember { mutableStateOf<CoverTarget?>(null) }
+    var filing by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     val continueItems = remember(history, byPath) {
         history.values.sortedByDescending { it.updated }.mapNotNull { record ->
             byPath[record.path.lowercase()]?.let { it to record }
@@ -75,6 +81,7 @@ internal fun VideosScreen(
                 SkyButton("Sort: " + SORT_NAMES[hub.videoSort.coerceIn(0, SORT_NAMES.lastIndex)], {
                     hub.videoSort = (hub.videoSort + 1) % SORT_NAMES.size
                 }, primary = false, icon = SkyIcon.Sort)
+                GridControls(organizer, VIDEOS_PAGE)
                 SkyButton("Select", { selection.active = true }, primary = false, icon = SkyIcon.Check, enabled = shown.isNotEmpty())
                 SkyButton("Play all", {
                     shown.firstOrNull()?.let { onPlay(it.file, shown.map { e -> e.file }) }
@@ -91,6 +98,7 @@ internal fun VideosScreen(
                         progress = (record.position / record.duration).toFloat().coerceIn(0f, 1f),
                         detail = formatClock(record.position) + " of " + formatClock(record.duration),
                         listMode = organizer.data.prefs.listMode,
+                        tall = organizer.data.prefs.isTall(VIDEOS_PAGE),
                         onClick = { onResume(entry.file, record.position) },
                     )
                 }
@@ -99,14 +107,24 @@ internal fun VideosScreen(
         }
         VideoGridView(
             entries = shown,
-            state = hub.grid("videos"),
-            prefs = organizer.data.prefs,
+            state = hub.grid(VIDEOS_PAGE),
+            organizer = organizer,
             selection = selection,
             history = history,
             onPlay = onPlay,
             modifier = Modifier.weight(1f),
             header = header,
             emptyText = if (library.loading) "Loading…" else "No videos yet. Add folders or a network share in Files.",
+            menu = { entry ->
+                listOfNotNull(
+                    MenuAction("Play", SkyIcon.Play) { onPlay(entry.file, shown.map { it.file }) },
+                    MenuAction("Add to folder…", SkyIcon.Folder) { filing = false to entry.path },
+                    MenuAction("Add to virtual folder…", SkyIcon.Grid) { filing = true to entry.path },
+                    if (artworkOn) MenuAction("Change cover", SkyIcon.Image) { cover = videoCoverTarget(entry) } else null,
+                )
+            },
         )
     }
+    cover?.let { target -> ChangeCoverDialog(target) { cover = null } }
+    filing?.let { (virtual, path) -> FileIntoFolderDialog(organizer, virtual, listOf(path), onDismiss = { filing = null }, onDone = {}) }
 }

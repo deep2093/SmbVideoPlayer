@@ -10,18 +10,41 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
+/**
+ * Tells folders on this PC from network drives. A network share reached through a drive letter (a mapped drive such
+ * as Y:) or a \server address belongs under Network shares, so This PC never lists those videos a second time.
+ */
+internal object NetworkPaths {
+    private interface Kernel32 : com.sun.jna.Library {
+        fun GetDriveTypeW(root: com.sun.jna.WString): Int
+    }
+
+    private val kernel: Kernel32? by lazy { runCatching { com.sun.jna.Native.load("kernel32", Kernel32::class.java) }.getOrNull() }
+    private val drives = java.util.concurrent.ConcurrentHashMap<Char, Boolean>()
+    private const val DRIVE_REMOTE = 4
+
+    fun isNetwork(path: String): Boolean {
+        val p = path.trim()
+        if (p.startsWith("\\\\") || p.startsWith("//")) return true
+        if (p.length < 2 || p[1] != ':' || !p[0].isLetter()) return false
+        val letter = p[0].uppercaseChar()
+        return drives.getOrPut(letter) { kernel?.GetDriveTypeW(com.sun.jna.WString("$letter:\\")) == DRIVE_REMOTE }
+    }
+}
+
 internal class LocalFolderStore {
     private val preferences = Preferences.userNodeForPackage(LocalFolderStore::class.java).node("local-library-folders")
 
     @Synchronized
     fun load(): List<String> {
         val count = preferences.getInt("count", 0).coerceIn(0, MAX_FOLDERS)
-        return (0 until count).mapNotNull { preferences.get("folder." + it, null) }
+        return (0 until count).mapNotNull { preferences.get("folder." + it, null) }.filterNot(NetworkPaths::isNetwork)
     }
 
     @Synchronized
     fun add(folder: String): List<String> {
         val path = Paths.get(folder).toAbsolutePath().normalize().toString()
+        require(!NetworkPaths.isNetwork(path)) { "That folder is on a network drive. Add the share under Network shares instead, so its videos are listed once." }
         val folders = (load() + path).distinctBy { it.lowercase() }
         require(folders.size <= MAX_FOLDERS) { "You can add up to " + MAX_FOLDERS + " folders" }
         write(folders)
@@ -98,7 +121,7 @@ internal object LocalVideoScanner {
         var truncated = false
         val context = currentCoroutineContext()
         for (folder in folders) {
-            val root = runCatching { Paths.get(folder) }.getOrNull()
+            val root = runCatching { Paths.get(folder) }.getOrNull()?.takeUnless { NetworkPaths.isNetwork(folder) }
             if (root == null || !Files.isDirectory(root)) {
                 unavailable++
                 continue

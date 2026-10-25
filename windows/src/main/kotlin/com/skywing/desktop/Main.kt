@@ -50,6 +50,10 @@ import java.awt.event.KeyEvent
 import java.io.File
 import javax.swing.SwingUtilities
 import javax.swing.text.JTextComponent
+import com.skywing.desktop.artwork.ArtworkKeys
+import com.skywing.desktop.artwork.ArtworkRepository
+import com.skywing.desktop.artwork.LookupTarget
+import com.skywing.desktop.artwork.PortraitLookup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -101,6 +105,16 @@ internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: Embedded
                 fullscreen = controller.isFullscreen
                 System.err.println("Fullscreen transition failed: ${failure.message}")
             }
+        }
+    }
+    // The Windows title bar follows the theme.
+    LaunchedEffect(awtWindow, theme) {
+        repeat(20) {
+            if (awtWindow.isDisplayable) {
+                SwingUtilities.invokeLater { WindowChrome.apply(awtWindow, theme) }
+                return@LaunchedEffect
+            }
+            delay(100)
         }
     }
     CompositionLocalProvider(LocalSkyTheme provides theme, LocalContentColor provides theme.ink) {
@@ -219,7 +233,16 @@ private fun SkyWingDesktopShell(
     // What the pages show.
     val library = remember { LibraryModel(WindowsMediaIndex()) }
     LaunchedEffect(library.revision) { library.reload() }
+    // Thumbnails for the whole library are made in the background, cards on screen first.
+    LaunchedEffect(library.all) { ThumbnailStore.prefetch(library.all.map { it.file to it.modified }) }
     val organizer = remember { Organizer(FolderOrganizerStore()) { WindowsCustomFolderStore().load() } }
+    // Covers and portraits: one store for the app, and the background portrait lookup after each scan.
+    val artwork = remember { ArtworkRepository() }
+    val portraits = remember { PortraitLookup(artwork) }
+    val covers = remember(artwork, organizer.data.prefs.virtualRules) { CoverContext(artwork, organizer.data.prefs.virtualRules) }
+    LaunchedEffect(library.all) {
+        if (library.all.isNotEmpty()) portraits.start(forced = false) { lookupTargets(library.all, organizer.data) }
+    }
     // Saved network shares: learn their other addresses, and find the one that answers if the main one is down.
     LaunchedEffect(Unit) {
         val switched = withContext(Dispatchers.IO) {
@@ -237,7 +260,8 @@ private fun SkyWingDesktopShell(
 
     fun go(section: String) {
         if (section == selected) return
-        if (selected != "Now Playing") previous = selected
+        // Leaving the player pauses the video; Now playing in the sidebar brings it back.
+        if (selected == "Now Playing") embedded.pause() else previous = selected
         selected = section
         selection.clear()
         hub.endFolderSelection()
@@ -275,6 +299,23 @@ private fun SkyWingDesktopShell(
                 }
             }
         }
+    }
+    /** Stops the video, keeps where it was for Continue watching, and goes back to the page it was played from. */
+    fun stopPlayback() {
+        val file = currentFile ?: return
+        val position = embedded.playbackPosition() ?: 0.0
+        val length = embedded.playbackDuration() ?: 0.0
+        embedded.stop()
+        currentFile = null
+        queue = emptyList()
+        queueIndex = -1
+        message = ""
+        playbackScope.launch(Dispatchers.IO) {
+            runCatching { historyStore.saveProgress(file, position, length) }
+            historyRevision++
+        }
+        if (fullscreen) onFullscreenChange(false)
+        if (selected == "Now Playing") selected = previous
     }
     fun openQueueAt(index: Int) {
         val files = queue
@@ -341,6 +382,7 @@ private fun SkyWingDesktopShell(
             delay(500)
         }
     }
+    val latestStop by rememberUpdatedState<() -> Unit>({ stopPlayback() })
     val currentSection by rememberUpdatedState(selected)
     val currentFullscreen by rememberUpdatedState(fullscreen)
     val currentFullscreenChange by rememberUpdatedState(onFullscreenChange)
@@ -381,6 +423,7 @@ private fun SkyWingDesktopShell(
                     KeyEvent.VK_UP -> { embedded.volumeUp(); true }
                     KeyEvent.VK_DOWN -> { embedded.volumeDown(); true }
                     KeyEvent.VK_M -> { embedded.toggleMute(); true }
+                    KeyEvent.VK_S -> { latestStop(); true }
                     else -> false
                 }
             }
@@ -429,19 +472,19 @@ private fun SkyWingDesktopShell(
             ) {
                 if (!fullscreen && !playerShown) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
-                        when (selected) {
+                        CompositionLocalProvider(LocalCovers provides covers) { when (selected) {
                             "Folders" -> FoldersScreen(library, organizer, hub, history, playOne)
                             "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne) { file, position -> openVideo(file, listOf(file), position) }
                             "Files" -> FilesScreen(library, playOne)
-                            else -> SettingsScreen(theme, onTheme, library, organizer) { go("Files") }
-                        }
+                            else -> SettingsScreen(theme, onTheme, library, organizer, portraits) { go("Files") }
+                        } }
                     }
                 }
                 if (playerShown && !fullscreen) {
                     PlayerTopBar(
                         title = currentFile?.nameWithoutExtension ?: "Nothing playing",
                         queueLabel = if (queueIndex >= 0 && queue.size > 1) "Queue " + (queueIndex + 1) + " / " + queue.size else null,
-                        onBack = { selected = previous },
+                        onBack = { go(previous) },
                     )
                 }
                 // Keep the AWT Canvas HWND alive across navigation. Removing SwingPanel
@@ -474,6 +517,7 @@ private fun SkyWingDesktopShell(
                             dragging = false
                         },
                         onTogglePause = { message = if (embedded.togglePause()) "" else "Embedded not ready" },
+                        onStop = { stopPlayback() },
                         onBack10 = { embedded.seek(-10) },
                         onForward10 = { embedded.seek(10) },
                         onPrevious = { openQueueAt(queueIndex - 1) },
@@ -491,4 +535,17 @@ private fun SkyWingDesktopShell(
             }
         }
     }
+}
+
+/**
+ * What a portrait lookup may cover: filename collections, every name found in the video names (which also gives the
+ * videos and the virtual subfolders of that name their portrait), and the drive folders holding videos.
+ */
+internal fun lookupTargets(all: List<WindowsMediaEntry>, data: OrganizerData): List<LookupTarget> {
+    val matches = data.match.filter { !it.hidden }.map { LookupTarget(ArtworkKeys.matchFolder(it.id), it.name) }
+    val names = FolderLogic.groupByNames(all, data.prefs.virtualRules, data.assignments).keys
+        .map { LookupTarget(ArtworkKeys.virtualFolder(it), FolderLogic.groupTitle(it)) }
+    val drives = all.mapNotNull { it.file.parentFile }.distinctBy { it.path.lowercase() }
+        .map { LookupTarget(driveCoverKey(it.path), FolderLogic.originalLabel(it.name)) }
+    return matches + names + drives
 }
