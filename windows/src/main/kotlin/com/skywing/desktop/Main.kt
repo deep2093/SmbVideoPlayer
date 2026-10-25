@@ -57,6 +57,11 @@ fun main() = application {
         title = "SkyWing for Windows (Development Preview)",
         state = state,
     ) {
+        val awtWindow = window
+        LaunchedEffect(fullscreen) {
+            // Preserve the existing AWT/libmpv child window throughout the transition.
+            BorderlessFullscreen.set(awtWindow, fullscreen)
+        }
         MaterialTheme { SkyWingDesktopShell(fullscreen, { fullscreen = it; state.placement = if (it) WindowPlacement.Fullscreen else WindowPlacement.Floating }) }
     }
 }
@@ -143,11 +148,6 @@ private fun SkyWingDesktopShell(fullscreen: Boolean, onFullscreenChange: (Boolea
                     }
                 },
             )
-            if (fullscreen) {
-                Button(onClick = { onFullscreenChange(false) }, modifier = Modifier.padding(8.dp)) {
-                    Text("Exit fullscreen (Esc)")
-                }
-            }
             if (selected == "Videos" && !fullscreen) {
                 Button(onClick = {
                     val dialog = FileDialog(null as Frame?, "Open local video", FileDialog.LOAD)
@@ -204,7 +204,7 @@ private fun SkyWingDesktopShell(fullscreen: Boolean, onFullscreenChange: (Boolea
                 }
 
                 Text("Phase 2 preview: requires mpv.exe installed and available on PATH. Playback opens in mpv's native window.", color = Color(0xFF9FA7B7))
-            } else {
+            } else if (!fullscreen) {
                 Text(
                     when (selected) {
                         "Folders" -> "PC folder indexing and SMB sources are planned for Phase 3."
