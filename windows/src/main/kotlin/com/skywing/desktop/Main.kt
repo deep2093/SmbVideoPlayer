@@ -37,11 +37,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.LocalWindow
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.skywing.desktop.playback.EmbeddedMpv
 import java.awt.Canvas
+import java.awt.KeyboardFocusManager
+import java.awt.KeyEventDispatcher
+import javax.swing.text.JTextComponent
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.FileDialog
@@ -93,21 +97,43 @@ private fun SkyWingDesktopShell(fullscreen: Boolean, onFullscreenChange: (Boolea
         return "%d:%02d:%02d".format(n / 3600, (n / 60) % 60, n % 60)
     }
     DisposableEffect(embedded) { onDispose { embedded.close() } }
-
-    Row(Modifier.fillMaxSize().background(Color(0xFF101217)).onPreviewKeyEvent { e ->
-        if (selected != "Videos" || e.type != KeyEventType.KeyDown || e.isCtrlPressed || e.isAltPressed) false
-        else when (e.key) {
-            Key.Spacebar, Key.K -> { embedded.togglePause(); true }
-            Key.DirectionLeft -> { embedded.seek(-5); true }
-            Key.DirectionRight -> { embedded.seek(10); true }
-            Key.DirectionUp -> { embedded.volumeUp(); true }
-            Key.DirectionDown -> { embedded.volumeDown(); true }
-            Key.M -> { embedded.toggleMute(); true }
-            Key.F -> { onFullscreenChange(!fullscreen); true }
-            Key.Escape -> if (fullscreen) { onFullscreenChange(false); true } else false
-            else -> false
+    val awtWindow = LocalWindow.current
+    val currentSection by rememberUpdatedState(selected)
+    val currentFullscreen by rememberUpdatedState(fullscreen)
+    val currentFullscreenChange by rememberUpdatedState(onFullscreenChange)
+    // AWT dispatch works regardless of whether Compose controls or Canvas own focus.
+    DisposableEffect(awtWindow, embedded) {
+        val manager = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+        val dispatcher = KeyEventDispatcher { event ->
+            if (event.id != KeyEvent.KEY_PRESSED || !awtWindow.isFocused ||
+                event.isControlDown || event.isAltDown || event.isMetaDown ||
+                manager.focusOwner is JTextComponent
+            ) {
+                false
+            } else if (currentFullscreen && event.keyCode == KeyEvent.VK_ESCAPE) {
+                currentFullscreenChange(false)
+                true
+            } else if (currentSection != "Videos") {
+                false
+            } else {
+                when (event.keyCode) {
+                    KeyEvent.VK_F -> { currentFullscreenChange(!currentFullscreen); true }
+                    KeyEvent.VK_SPACE, KeyEvent.VK_K -> { embedded.togglePause(); true }
+                    KeyEvent.VK_LEFT -> { embedded.seek(-5); true }
+                    KeyEvent.VK_RIGHT -> { embedded.seek(10); true }
+                    KeyEvent.VK_UP -> { embedded.volumeUp(); true }
+                    KeyEvent.VK_DOWN -> { embedded.volumeDown(); true }
+                    KeyEvent.VK_M -> { embedded.toggleMute(); true }
+                    else -> false
+                }
+            }
         }
-    }) {
+        manager.addKeyEventDispatcher(dispatcher)
+        onDispose { manager.removeKeyEventDispatcher(dispatcher) }
+    }
+
+
+    Row(Modifier.fillMaxSize().background(Color(0xFF101217))) {
         if (!fullscreen) Column(
             modifier = Modifier.width(230.dp).fillMaxHeight().background(Color(0xFF1B1E26)).padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -131,18 +157,6 @@ private fun SkyWingDesktopShell(fullscreen: Boolean, onFullscreenChange: (Boolea
                     Canvas().apply {
                         background = java.awt.Color.BLACK
                         isFocusable = true
-                        addKeyListener(object : KeyAdapter() {
-                            override fun keyPressed(event: KeyEvent) {
-                                when (event.keyCode) {
-                                    KeyEvent.VK_SPACE, KeyEvent.VK_K -> embedded.togglePause()
-                                    KeyEvent.VK_LEFT -> embedded.seek(-5)
-                                    KeyEvent.VK_RIGHT -> embedded.seek(10)
-                                    KeyEvent.VK_UP -> embedded.volumeUp()
-                                    KeyEvent.VK_DOWN -> embedded.volumeDown()
-                                    KeyEvent.VK_M -> embedded.toggleMute()
-                                }
-                            }
-                        })
                         videoCanvas = this
                         SwingUtilities.invokeLater { embedded.attach(this) }
                     }
