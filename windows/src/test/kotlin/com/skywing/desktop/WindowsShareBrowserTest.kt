@@ -17,22 +17,24 @@ class WindowsShareBrowserTest {
     }
 
     @Test
-    fun listsOnlyVideosAndFoldersWithinSelectedRoot() = runBlocking {
-        val root = Files.createTempDirectory("skywing-share-test")
-        val sub = Files.createDirectory(root.resolve("Films"))
-        Files.createFile(root.resolve("sample.mkv"))
-        Files.createFile(root.resolve("notes.txt"))
-        try {
-            val listing = WindowsShareBrowser().list(root, root)
-            assertEquals(listOf("Films", "sample.mkv"), listing.entries.map { it.file.name })
-            assertThrows(IllegalArgumentException::class.java) {
-                runBlocking { WindowsShareBrowser().list(root, root.parent) }
+    fun listsOnlyVideosAndFoldersWithinSelectedRoot() {
+        runBlocking {
+            val root = Files.createTempDirectory("skywing-share-test")
+            val sub = Files.createDirectory(root.resolve("Films"))
+            Files.createFile(root.resolve("sample.mkv"))
+            Files.createFile(root.resolve("notes.txt"))
+            try {
+                val listing = WindowsShareBrowser().list(root, root)
+                assertEquals(listOf("Films", "sample.mkv"), listing.entries.map { it.file.name })
+                assertThrows(IllegalArgumentException::class.java) {
+                    runBlocking { WindowsShareBrowser().list(root, root.parent) }
+                }
+            } finally {
+                Files.deleteIfExists(root.resolve("sample.mkv"))
+                Files.deleteIfExists(root.resolve("notes.txt"))
+                Files.deleteIfExists(sub)
+                Files.deleteIfExists(root)
             }
-        } finally {
-            Files.deleteIfExists(root.resolve("sample.mkv"))
-            Files.deleteIfExists(root.resolve("notes.txt"))
-            Files.deleteIfExists(sub)
-            Files.deleteIfExists(root)
         }
     }
 }
