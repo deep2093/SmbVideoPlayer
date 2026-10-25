@@ -19,6 +19,7 @@ kotlin {
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
+    implementation("net.java.dev.jna:jna:5.14.0")
     testImplementation(kotlin("test-junit"))
     testImplementation("junit:junit:4.13.2")
 }
