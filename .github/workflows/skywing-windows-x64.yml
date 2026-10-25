@@ -30,6 +30,24 @@ jobs:
           java-version: "17"
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+      - name: Fetch pinned Windows x64 libmpv and validate archive
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = 'mpv-dev-x86_64-20261021-git-e471496c56.7z'
+          $expected = 'efc719eff3dc5954b4a5efc800632808bcec01cc9034940dd14e5eb7fe9ea633'
+          $url = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/$asset"
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\\libmpv.7z"
+          $actual = (Get-FileHash "$env:RUNNER_TEMP\\libmpv.7z" -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $expected) { throw "libmpv checksum mismatch: $actual" }
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\\libmpv-expanded" | Out-Null
+          7z x "$env:RUNNER_TEMP\\libmpv.7z" "-o$env:RUNNER_TEMP\\libmpv-expanded" -y | Out-Null
+          $dll = Get-ChildItem "$env:RUNNER_TEMP\\libmpv-expanded" -Filter 'libmpv-2.dll' -File -Recurse | Select-Object -First 1
+          if (-not $dll) { throw 'libmpv-2.dll was not found in the archive' }
+          $target = 'windows/build/native-resources/windows'
+          New-Item -ItemType Directory -Force $target | Out-Null
+          Copy-Item $dll.FullName "$target/libmpv-2.dll"
+          Write-Host "Bundled libmpv: $($dll.Length) bytes"
       - name: Unit tests
         shell: pwsh
         run: .\gradlew.bat -p windows test --no-daemon --stacktrace
