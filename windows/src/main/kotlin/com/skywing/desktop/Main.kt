@@ -103,6 +103,21 @@ private fun SkyWingDesktopShell() {
                     Button(onClick = { message = if (embedded.seek(10)) "Seek +10" else "Embedded not ready" }) { Text("+10 sec") }
                     Button(onClick = { message = if (embedded.stop()) "Stopped" else "Embedded not ready" }) { Text("Stop") }
                 }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { message = if (embedded.volumeDown()) "Volume -5" else "Player not ready" }) { Text("Vol -") }
+                    Button(onClick = { message = if (embedded.volumeUp()) "Volume +5" else "Player not ready" }) { Text("Vol +") }
+                    Button(onClick = { message = if (embedded.toggleMute()) "Mute toggled" else "Player not ready" }) { Text("Mute") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { message = if (embedded.nextAudioTrack()) "Audio track changed" else "No audio track" }) { Text("Next audio") }
+                    Button(onClick = { message = if (embedded.nextSubtitleTrack()) "Subtitle track changed" else "No subtitle track" }) { Text("Next subtitles") }
+                    Button(onClick = { message = if (embedded.subtitleOff()) "Subtitles off" else "Player not ready" }) { Text("Subtitles off") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { message = if (embedded.seekPercent(25)) "Jumped to 25%" else "Player not ready" }) { Text("25%") }
+                    Button(onClick = { message = if (embedded.seekPercent(50)) "Jumped to 50%" else "Player not ready" }) { Text("50%") }
+                    Button(onClick = { message = if (embedded.seekPercent(75)) "Jumped to 75%" else "Player not ready" }) { Text("75%") }
+                }
                 Text(message, color = Color(0xFFC6C8D1))
                 Text("Phase 2 preview: requires mpv.exe installed and available on PATH. Playback opens in mpv's native window.", color = Color(0xFF9FA7B7))
             } else {
