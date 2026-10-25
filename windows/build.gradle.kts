@@ -1,5 +1,11 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
+// Preview MSIs use a monotonically increasing Windows-compatible version.
+// Never generate a new upgrade UUID for subsequent installers.
+val ciBuild = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+val previewBuild = (ciBuild ?: 1).also { require(it in 1..65535) { "Windows MSI build version must be 1..65535" } }
+val previewVersion = "0.1.$previewBuild"
+
 plugins {
     kotlin("jvm") version "2.1.21"
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.21"
@@ -24,10 +30,11 @@ compose.desktop {
             // Build these packages on Windows x64. ARM/32-bit variants are intentionally excluded.
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
             packageName = "SkyWing"
-            packageVersion = "0.1.0"
+            packageVersion = previewVersion
             description = "SkyWing Windows x64 media player (development preview)"
             vendor = "SkyWing"
             windows {
+                upgradeUuid = "f40c59ef-e520-4e10-b7a2-b86e7458f923"
                 menu = true
                 menuGroup = "SkyWing"
                 shortcut = true
