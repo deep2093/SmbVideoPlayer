@@ -54,6 +54,16 @@ jobs:
       - name: Build Windows installers
         shell: pwsh
         run: .\gradlew.bat -p windows packageExe packageMsi --no-daemon --stacktrace
+      - name: Verify bundled libmpv in app image
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\gradlew.bat -p windows createDistributable --no-daemon --stacktrace
+          if ($LASTEXITCODE -ne 0) { throw 'createDistributable failed' }
+          $image = 'windows/build/compose/binaries/main/app'
+          $dll = Get-ChildItem $image -Recurse -Filter 'libmpv-2.dll' -File | Select-Object -First 1
+          if (-not $dll) { throw 'libmpv-2.dll missing from packaged app image' }
+          Write-Host "Embedded libmpv packaged: $($dll.FullName)"
       - name: Upload Windows installers
         uses: actions/upload-artifact@v4
         with:
