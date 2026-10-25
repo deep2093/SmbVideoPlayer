@@ -87,7 +87,7 @@ fun main(args: Array<String>) = application {
 }
 
 @Composable
-internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: EmbeddedMpv, closing: Boolean, initialFile: File? = null) {
+internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: EmbeddedMpv, closing: Boolean, initialFile: File? = null, initialSection: String = "Folders") {
         var fullscreen by remember { mutableStateOf(false) }
         val controller = remember(awtWindow) { BorderlessFullscreen(awtWindow) }
         val changeFullscreen: (Boolean) -> Unit = { enabled ->
@@ -115,13 +115,13 @@ internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: Embedded
                 surfaceVariant = Color(0xFF1A2633),
                 onSurfaceVariant = Color(0xFFB7C4D2),
             ),
-        ) { SkyWingDesktopShell(awtWindow, embedded, fullscreen, closing, changeFullscreen, initialFile) }
+        ) { SkyWingDesktopShell(awtWindow, embedded, fullscreen, closing, changeFullscreen, initialFile, initialSection) }
 }
 
 @Composable
-private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMpv, fullscreen: Boolean, closing: Boolean, onFullscreenChange: (Boolean) -> Unit, initialFile: File?) {
+private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMpv, fullscreen: Boolean, closing: Boolean, onFullscreenChange: (Boolean) -> Unit, initialFile: File?, initialSection: String) {
     val sections = listOf("Folders", "Videos", "Continue Watching", "Settings")
-    var selected by remember { mutableStateOf("Folders") }
+    var selected by remember { mutableStateOf(initialSection) }
     var message by remember { mutableStateOf("Choose a local video to play.") }
     var current by remember { mutableStateOf<String?>(null) }
     var currentFile by remember { mutableStateOf<File?>(null) }
