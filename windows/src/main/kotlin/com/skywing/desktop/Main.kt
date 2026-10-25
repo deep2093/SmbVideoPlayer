@@ -68,6 +68,19 @@ private fun SkyWingDesktopShell() {
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             Text(selected, color = Color.White, style = MaterialTheme.typography.headlineLarge)
+            // Keep the AWT Canvas HWND alive across navigation. Removing SwingPanel
+            // destroys the native window while libmpv still renders into it.
+            // A one-dp placeholder preserves the component's lifecycle in other tabs.
+            SwingPanel(
+                modifier = Modifier.fillMaxWidth().height(if (selected == "Videos") 320.dp else 1.dp),
+                factory = {
+                    Canvas().apply {
+                        background = java.awt.Color.BLACK
+                        videoCanvas = this
+                        SwingUtilities.invokeLater { embedded.attach(this) }
+                    }
+                },
+            )
             if (selected == "Videos") {
                 Button(onClick = {
                     val dialog = FileDialog(null as Frame?, "Open local video", FileDialog.LOAD)
@@ -83,16 +96,6 @@ private fun SkyWingDesktopShell() {
                     }
                 }) { Text("Open video from PC") }
                 Text(current ?: "No video selected", color = Color.White)
-                SwingPanel(
-                    modifier = Modifier.fillMaxWidth().height(320.dp),
-                    factory = {
-                        Canvas().apply {
-                            background = java.awt.Color.BLACK
-                            videoCanvas = this
-                            SwingUtilities.invokeLater { embedded.attach(this) }
-                        }
-                    },
-                )
                 Text(embedded.lastError ?: "Embedded player ready. Open a video from your PC.", color = Color.White)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { message = if (embedded.togglePause()) "Pause toggled" else "Embedded not ready" }) { Text("Play / Pause") }
