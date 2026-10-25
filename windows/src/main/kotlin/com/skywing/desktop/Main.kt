@@ -120,8 +120,8 @@ internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: Embedded
 
 @Composable
 private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMpv, fullscreen: Boolean, closing: Boolean, onFullscreenChange: (Boolean) -> Unit, initialFile: File?, initialSection: String) {
-    val sections = listOf("Folders", "Videos", "Continue Watching", "Settings")
-    var selected by remember { mutableStateOf(initialSection) }
+    val sections = listOf("Home", "Search", "Library", "Settings") + if (currentFile != null) listOf("Now Playing") else emptyList()
+    var selected by remember { mutableStateOf(if (initialSection == "Folders") "Home" else if (initialSection == "Videos") "Now Playing" else initialSection) }
     var message by remember { mutableStateOf("Choose a local video to play.") }
     var current by remember { mutableStateOf<String?>(null) }
     var currentFile by remember { mutableStateOf<File?>(null) }
@@ -151,7 +151,7 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
         val selectedIndex = safeQueue.indexOfFirst { it.absolutePath.equals(file.absolutePath, ignoreCase = true) }
         queue = if (selectedIndex >= 0) safeQueue else listOf(file)
         queueIndex = if (selectedIndex >= 0) selectedIndex else 0
-        selected = "Videos"
+        selected = "Now Playing"
         current = file.name
         currentFile = file
         val canvas = videoCanvas
@@ -258,7 +258,7 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
                 manager.focusOwner is JTextComponent
             ) {
                 false
-            } else if (currentSection != "Videos") {
+            } else if (currentSection != "Now Playing") {
                 false
             } else {
                 when (event.keyCode) {
@@ -337,16 +337,18 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
                     Text(selected, color = Color(0xFFF1F6FC), style = MaterialTheme.typography.headlineMedium)
                     Text(
                         when (selected) {
-                            "Folders" -> "Browse videos from this PC and your network shares."
-                            "Videos" -> "Play and control your current video."
-                            "Continue Watching" -> "Pick up where you left off."
+                            "Home" -> "Your videos, ready to play."
+                            "Search" -> "Find a video in your library."
+                            "Library" -> "Browse this PC and your network shares."
+                            "Now Playing" -> "Play and control your current video."
+                            
                             else -> "Personalise your SkyWing experience."
                         },
                         color = Color(0xFF9BAFC1),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
-                if (selected == "Folders") {
+                if (selected == "Library") {
                     androidx.compose.material3.Surface(color = Color(0xFF142333), shape = RoundedCornerShape(50)) {
                         Text("LOCAL  •  NETWORK", color = Color(0xFF9ED7C0), modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp), style = MaterialTheme.typography.labelSmall)
                     }
@@ -356,7 +358,7 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
             // destroys the native window while libmpv still renders into it.
             // A one-dp placeholder preserves the component's lifecycle in other tabs.
             SwingPanel(
-                modifier = if (fullscreen) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(if (selected == "Videos") 320.dp else 1.dp),
+                modifier = if (fullscreen) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(if (selected == "Now Playing") 320.dp else 1.dp),
                 factory = {
                     Canvas().apply {
                         background = java.awt.Color.BLACK
@@ -366,7 +368,7 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
                     }
                 },
             )
-            if (selected == "Videos" && !fullscreen) {
+            if (selected == "Now Playing" && !fullscreen) {
                 Button(onClick = {
                     val dialog = FileDialog(null as Frame?, "Open local video", FileDialog.LOAD)
                     dialog.isVisible = true
@@ -423,10 +425,9 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
                 Text("Phase 2 preview: video uses the bundled embedded libmpv player.", color = Color(0xFF9FA7B7))
             } else if (!fullscreen) {
                 when (selected) {
-                    "Folders" -> FoldersPanel { file, files -> openVideo(file, files) }
-                    "Continue Watching" -> ContinueWatchingPanel(historyRevision) { file, position ->
-                        openVideo(file, listOf(file), position)
-                    }
+                    "Home" -> WindowsHomePanel(historyRevision, onOpen = { file, position -> openVideo(file, listOf(file), position) })
+                    "Search" -> WindowsSearchPanel(onPlayQueue = { file, files -> openVideo(file, files) })
+                    "Library" -> FoldersPanel { file, files -> openVideo(file, files) }
                     else -> Text("Desktop playback settings and HDR options will be added in subsequent milestones.", color = Color(0xFFC6C8D1))
                 }
             }
