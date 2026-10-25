@@ -64,7 +64,7 @@ private fun SkyWingDesktopShell() {
                     "Folders" -> "Windows SMB and virtual folders are scheduled for milestones W2-W3."
                     "Videos" -> "Local playback and the native libmpv engine are scheduled for W1."
                     "Continue Watching" -> "Watch history is scheduled for W3."
-                    else -> "HDR10, HDR10+, HLG and Dolby Vision compatibility arrive in W4-W5.",
+                    else -> "HDR10, HDR10+, HLG and Dolby Vision compatibility arrive in W4-W5."
                 },
                 color = Color(0xFFC6C8D1),
                 style = MaterialTheme.typography.bodyLarge,
