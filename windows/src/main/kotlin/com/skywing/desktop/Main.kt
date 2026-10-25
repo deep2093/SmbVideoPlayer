@@ -37,7 +37,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.LocalWindow
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -66,12 +65,12 @@ fun main() = application {
             // Preserve the existing AWT/libmpv child window throughout the transition.
             BorderlessFullscreen.set(awtWindow, fullscreen)
         }
-        MaterialTheme { SkyWingDesktopShell(fullscreen, { fullscreen = it; state.placement = if (it) WindowPlacement.Fullscreen else WindowPlacement.Floating }) }
+        MaterialTheme { SkyWingDesktopShell(awtWindow, fullscreen, { fullscreen = it; state.placement = if (it) WindowPlacement.Fullscreen else WindowPlacement.Floating }) }
     }
 }
 
 @Composable
-private fun SkyWingDesktopShell(fullscreen: Boolean, onFullscreenChange: (Boolean) -> Unit) {
+private fun SkyWingDesktopShell(awtWindow: java.awt.Window, fullscreen: Boolean, onFullscreenChange: (Boolean) -> Unit) {
     val sections = listOf("Folders", "Videos", "Continue Watching", "Settings")
     var selected by remember { mutableStateOf("Videos") }
     var message by remember { mutableStateOf("Choose a local video to play.") }
@@ -97,7 +96,6 @@ private fun SkyWingDesktopShell(fullscreen: Boolean, onFullscreenChange: (Boolea
         return "%d:%02d:%02d".format(n / 3600, (n / 60) % 60, n % 60)
     }
     DisposableEffect(embedded) { onDispose { embedded.close() } }
-    val awtWindow = LocalWindow.current
     val currentSection by rememberUpdatedState(selected)
     val currentFullscreen by rememberUpdatedState(fullscreen)
     val currentFullscreenChange by rememberUpdatedState(onFullscreenChange)
