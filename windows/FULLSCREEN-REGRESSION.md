@@ -69,6 +69,11 @@ hardware-decoded video, HDR, multi-monitor DPI or a particular GPU driver.
 GitHub Windows CI runs this native path, publishes test reports even on failure,
 builds EXE/MSI and verifies libmpv is in the app image. MSI identity, upgrade UUID,
 bundling and Android code are unchanged.
+The pinned libmpv directly imports vulkan-1.dll. CI provisions a checksum-pinned
+official Vulkan loader in its test PATH because the hosted runner has no GPU
+driver installation. This does not change the MSI's existing runtime dependency:
+the target PC still needs a working Vulkan loader (normally supplied by its GPU
+driver/runtime). The test deliberately does not skip native initialization failures.
 
 ## Manual acceptance on the reporter's machine
 

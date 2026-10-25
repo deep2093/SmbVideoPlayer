@@ -48,6 +48,24 @@ jobs:
           New-Item -ItemType Directory -Force $target | Out-Null
           Copy-Item $dll.FullName "$target/libmpv-2.dll"
           Write-Host "Bundled libmpv: $($dll.Length) bytes"
+      - name: Provision Vulkan loader for native tests on the hosted runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # The pinned libmpv statically imports vulkan-1.dll. Hosted runners have
+          # no GPU driver/runtime installation; provision only the test environment.
+          $url = 'https://sdk.lunarg.com/sdk/download/1.4.363.0/windows/VulkanRT-X64-1.4.363.0-Components.zip'
+          $archive = "$env:RUNNER_TEMP/vulkan-runtime.zip"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $expected = 'a25a927aa8b9f0371048f1861cf88ac3b9bc9b1fb332c42d897c8ab32695769a'
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw 'Vulkan runtime checksum mismatch'
+          }
+          Expand-Archive $archive -DestinationPath "$env:RUNNER_TEMP/vulkan-runtime" -Force
+          $loader = Get-ChildItem "$env:RUNNER_TEMP/vulkan-runtime" -Recurse -Filter vulkan-1.dll |
+            Where-Object { $_.Directory.Name -eq 'x64' } | Select-Object -First 1
+          if (-not $loader) { throw 'x64 Vulkan loader not found' }
+          $loader.Directory.FullName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Unit tests
         shell: pwsh
         env:
