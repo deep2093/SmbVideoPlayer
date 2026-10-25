@@ -25,3 +25,22 @@ Embedded libmpv is the default. Legacy external mpv is retained temporarily for 
 - Fullscreen, keyboard shortcuts, track selection, drag-and-drop and failure recovery.
 - Replace legacy external player only after packaged native playback passes release gates.
 - HDR10, Dolby Vision, SMB and debrid are separate later milestones.
+
+## Verification update (2026-10-25)
+
+The owner confirmed playback on a second PC without a separate mpv install.
+Windows displayed an unknown-publisher warning before installation. This passes
+the reported no-separate-mpv smoke check; it does not certify signing, an
+otherwise-clean Java environment, every supported Windows version or all native
+dependencies. Fullscreen restoration, closing, switching videos, maximized
+windows and Alt-Tab passed on the owner's PC. The owner also confirmed audio/
+subtitle switching and MP4/MKV/HEVC playback.
+
+Explorer Open With registration and drag-and-drop remain missing. Opening a
+video using SkyWing's file picker is not an Explorer association test.
+
+Windows application licensing is now GPL-3.0-or-later; see LICENSING.md.
+Packaging preserves legal files and runtime hashes, and CI verifies their
+presence. **The licensing release gate remains open** pending the corresponding
+native dependency sources and remaining component notices in
+legal/SOURCE-STATUS.md. Do not call this a completed distribution audit.

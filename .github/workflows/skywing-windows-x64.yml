@@ -84,7 +84,7 @@ jobs:
       - name: Build Windows installers
         shell: pwsh
         run: .\gradlew.bat -p windows packageExe packageMsi --no-daemon --stacktrace
-      - name: Verify bundled libmpv in app image
+      - name: Verify bundled libmpv and legal files in app image
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -94,6 +94,33 @@ jobs:
           $dll = Get-ChildItem $image -Recurse -Filter 'libmpv-2.dll' -File | Select-Object -First 1
           if (-not $dll) { throw 'libmpv-2.dll missing from packaged app image' }
           Write-Host "Embedded libmpv packaged: $($dll.FullName)"
+          $legal = Join-Path $dll.Directory.FullName 'legal'
+          $required = @('README.txt', 'SkyWing-Windows-GPL-3.0.txt', 'licenses/GPL-3.0.txt',
+            'upstream/mpv-Copyright.txt', 'upstream/FFmpeg-LICENSE.md',
+            'upstream/skiko-NOTICE.txt', 'upstream/Skia-LICENSE.txt',
+            'JVM-RUNTIME-INVENTORY.tsv', 'NATIVE-PROVENANCE.json',
+            'SOURCE-STATUS.md', 'SKYWING-SOURCE.txt', 'java-runtime/BUILD-RELEASE.txt')
+          foreach ($relative in $required) {
+            $path = Join-Path $legal $relative
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Packaged legal file missing: $relative" }
+            if ((Get-Item -LiteralPath $path).Length -eq 0) { throw "Packaged legal file empty: $relative" }
+          }
+          $native = Get-Content (Join-Path $legal 'NATIVE-PROVENANCE.json') -Raw | ConvertFrom-Json
+          if ((Get-FileHash $dll.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -ne $native.dllSha256) {
+            throw 'Packaged libmpv does not match its legal provenance'
+          }
+          $inventory = Import-Csv (Join-Path $legal 'JVM-RUNTIME-INVENTORY.tsv') -Delimiter "	"
+          if ($inventory.Count -lt 10) { throw 'Runtime licence inventory is unexpectedly incomplete' }
+          if (-not (Get-ChildItem (Join-Path $legal 'jvm') -Recurse -File |
+            Where-Object { $_.Name -match 'LICENSE|NOTICE|COPYING' })) {
+            throw 'No embedded JVM notices were preserved'
+          }
+      - name: Archive matching Windows application source
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force 'windows/build/legal' | Out-Null
+          git archive --format=zip --output=windows/build/legal/skywing-windows-source.zip HEAD windows gradle/wrapper gradlew gradlew.bat .github/workflows/skywing-windows-x64.yml
+          if ($LASTEXITCODE -ne 0) { throw 'Windows source archive failed' }
       - name: Upload Windows installers
         uses: actions/upload-artifact@v4
         with:
@@ -101,5 +128,6 @@ jobs:
           path: |
             windows/build/compose/binaries/main/exe/*.exe
             windows/build/compose/binaries/main/msi/*.msi
+            windows/build/legal/skywing-windows-source.zip
           if-no-files-found: error
           retention-days: 7
