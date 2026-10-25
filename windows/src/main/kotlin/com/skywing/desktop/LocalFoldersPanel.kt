@@ -23,23 +23,34 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import java.io.File
 import javax.swing.JFileChooser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
-internal fun FoldersPanel(onVideo: (File) -> Unit) {
+internal fun FoldersPanel(onPlayQueue: (File, List<File>) -> Unit) {
+    val indexStore = remember { WindowsMediaIndex() }
+    var indexRevision by remember { mutableStateOf(0) }
+    fun refreshIndex() { indexRevision++ }
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        LocalFolderLibraryPanel(onVideo)
+        LocalFolderLibraryPanel(indexStore, { refreshIndex() }, onPlayQueue)
         Text("Network shares", color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.titleLarge)
-        SmbSharePanel(onVideo)
+        SmbSharePanel(indexStore, { refreshIndex() }, onPlayQueue)
+        CombinedLibraryPanel(indexStore, indexRevision, onPlayQueue)
     }
 }
 
 @Composable
-private fun LocalFolderLibraryPanel(onVideo: (File) -> Unit) {
+private fun LocalFolderLibraryPanel(
+    indexStore: WindowsMediaIndex,
+    onIndexUpdated: () -> Unit,
+    onPlayQueue: (File, List<File>) -> Unit,
+) {
     val store = remember { LocalFolderStore() }
     val scope = rememberCoroutineScope()
     var folders by remember { mutableStateOf(runCatching { store.load() }.getOrDefault(emptyList())) }
     var videos by remember { mutableStateOf(emptyList<File>()) }
+    var openedFolder by remember { mutableStateOf<File?>(null) }
     var query by remember { mutableStateOf("") }
     var message by remember { mutableStateOf("Choose folders on this PC. SkyWing scans only the folders you add.") }
     var scanning by remember { mutableStateOf(false) }
@@ -62,7 +73,9 @@ private fun LocalFolderLibraryPanel(onVideo: (File) -> Unit) {
         scope.launch {
             try {
                 val result = LocalVideoScanner.scan(paths)
+                withContext(Dispatchers.IO) { indexStore.replaceSource("PC", "PC", "This PC", result.files) }
                 videos = result.files
+                onIndexUpdated()
                 message = buildString {
                     append(result.files.size).append(" videos found")
                     if (result.unavailableFolders > 0) append("; ").append(result.unavailableFolders).append(" folder(s) unavailable")
@@ -77,7 +90,12 @@ private fun LocalFolderLibraryPanel(onVideo: (File) -> Unit) {
     }
 
     LaunchedEffect(folders) {
-        if (folders.isNotEmpty()) scan(folders)
+        if (folders.isEmpty()) {
+            videos = emptyList()
+            return@LaunchedEffect
+        }
+        videos = withContext(Dispatchers.IO) { indexStore.load().filter { it.sourceType == "PC" }.map { it.file } }
+        scan(folders)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -93,6 +111,7 @@ private fun LocalFolderLibraryPanel(onVideo: (File) -> Unit) {
                     val folder = chooser.selectedFile
                     try {
                         folders = store.add(folder.absolutePath)
+                        openedFolder = null
                         message = "Folder added. Scanning videos…"
                     } catch (error: Exception) {
                         message = error.message ?: "Could not add folder"
@@ -107,8 +126,13 @@ private fun LocalFolderLibraryPanel(onVideo: (File) -> Unit) {
                 Button(enabled = !scanning, onClick = {
                     try {
                         folders = store.remove(folder)
+                        openedFolder = null
                         if (folders.isEmpty()) {
                             videos = emptyList()
+                            scope.launch {
+                                withContext(Dispatchers.IO) { indexStore.replaceSource("PC", "PC", "This PC", emptyList()) }
+                                onIndexUpdated()
+                            }
                             message = "No local folders selected."
                         }
                     } catch (error: Exception) {
@@ -126,15 +150,47 @@ private fun LocalFolderLibraryPanel(onVideo: (File) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         )
         Text(message, color = Color(0xFFE5CB87))
-        val visibleVideos = remember(videos, query) {
-            val term = query.trim()
-            if (term.isEmpty()) videos else videos.filter { it.name.contains(term, ignoreCase = true) }
+        val current = openedFolder
+        if (current != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(enabled = !scanning, onClick = {
+                    val currentPath = current.toPath().toAbsolutePath().normalize()
+                    val selectedRoot = folders.mapNotNull { runCatching { File(it).toPath().toAbsolutePath().normalize() }.getOrNull() }
+                        .filter { currentPath.startsWith(it) }
+                        .maxByOrNull { it.nameCount }
+                    if (selectedRoot == currentPath) openedFolder = null
+                    else openedFolder = current.parentFile?.takeIf { parent -> selectedRoot == null || parent.toPath().toAbsolutePath().normalize().startsWith(selectedRoot) }
+                }) { Text("Back") }
+                Text(current.absolutePath, color = Color.White)
+            }
         }
-        LazyColumn(modifier = Modifier.fillMaxWidth().height(300.dp)) {
-            items(visibleVideos, key = { it.absolutePath.lowercase() }) { video ->
+        val folderContents = remember(videos, folders, current) { localOriginalFolderContents(folders, current, videos) }
+        val visibleVideos = remember(videos, query, current) {
+            val term = query.trim()
+            videos.filter { video ->
+                val videoPath = video.toPath().toAbsolutePath().normalize()
+                val inFolder = when {
+                    current == null -> term.isNotEmpty()
+                    term.isEmpty() -> videoPath.parent == current.toPath().toAbsolutePath().normalize()
+                    else -> videoPath.startsWith(current.toPath().toAbsolutePath().normalize())
+                }
+                inFolder && (term.isEmpty() || video.name.contains(term, ignoreCase = true))
+            }
+        }
+        LazyColumn(modifier = Modifier.fillMaxWidth().height(340.dp)) {
+            if (query.isBlank()) {
+                items(folderContents.folders, key = { "folder:" + it.absolutePath.lowercase() }) { folder ->
+                    Button(
+                        enabled = !scanning,
+                        onClick = { openedFolder = folder },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Folder  " + if (current == null) folder.absolutePath else folder.name) }
+                }
+            }
+            items(visibleVideos, key = { "video:" + it.absolutePath.lowercase() }) { video ->
                 Button(
                     enabled = !scanning,
-                    onClick = { onVideo(video) },
+                    onClick = { onPlayQueue(video, visibleVideos) },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(video.name) }
             }

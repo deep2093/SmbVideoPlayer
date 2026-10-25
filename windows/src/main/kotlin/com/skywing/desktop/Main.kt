@@ -105,25 +105,53 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
     var selected by remember { mutableStateOf("Videos") }
     var message by remember { mutableStateOf("Choose a local video to play.") }
     var current by remember { mutableStateOf<String?>(null) }
+    var currentFile by remember { mutableStateOf<File?>(null) }
+    var queue by remember { mutableStateOf<List<File>>(emptyList()) }
+    var queueIndex by remember { mutableStateOf(-1) }
+    val historyStore = remember { WindowsPlaybackHistoryStore() }
+    var historyRevision by remember { mutableStateOf(0) }
+    val playbackScope = rememberCoroutineScope()
     var videoCanvas by remember { mutableStateOf<Canvas?>(null) }
     var seekTarget by remember { mutableStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     var playbackTime by remember { mutableStateOf(0.0) }
     var duration by remember { mutableStateOf(0.0) }
     var initialFilePending by remember { mutableStateOf(initialFile) }
-    fun openVideo(file: File) {
+    fun openVideo(file: File, queuedFiles: List<File> = listOf(file), resumePosition: Double? = null) {
         if (closing) return
         if (!file.isFile) {
-            message = "File not available: ${file.name}"
+            message = "File not available: " + file.name
             return
         }
+        currentFile?.let { previous ->
+            val previousPosition = embedded.playbackPosition() ?: 0.0
+            val previousDuration = embedded.playbackDuration() ?: 0.0
+            playbackScope.launch(Dispatchers.IO) { historyStore.saveProgress(previous, previousPosition, previousDuration) }
+        }
+        val safeQueue = queuedFiles.ifEmpty { listOf(file) }
+        val selectedIndex = safeQueue.indexOfFirst { it.absolutePath.equals(file.absolutePath, ignoreCase = true) }
+        queue = if (selectedIndex >= 0) safeQueue else listOf(file)
+        queueIndex = if (selectedIndex >= 0) selectedIndex else 0
         selected = "Videos"
         current = file.name
+        currentFile = file
         val canvas = videoCanvas
-        message = if (canvas != null && embedded.attach(canvas)) {
-            if (embedded.open(file)) "Load request accepted in ${embedded.lastLoadCommandMillis} ms (not first-frame time)"
-            else "Embedded load failed"
-        } else embedded.lastError ?: "Video surface not ready"
+        val accepted = canvas != null && embedded.attach(canvas) && embedded.open(file)
+        message = if (accepted) {
+            if (embedded.lastLoadCommandMillis >= 0) "Load request accepted in " + embedded.lastLoadCommandMillis + " ms (not first-frame time)" else "Load request accepted"
+        } else embedded.lastError ?: "Embedded load failed"
+        if (accepted && resumePosition != null && resumePosition > 0) {
+            playbackScope.launch {
+                delay(1200)
+                if (currentFile?.absolutePath.equals(file.absolutePath, ignoreCase = true)) {
+                    embedded.seekAbsolute(resumePosition)
+                }
+            }
+        }
+    }
+    fun openQueueAt(index: Int) {
+        val files = queue
+        files.getOrNull(index)?.let { openVideo(it, files) }
     }
     val latestOpenVideo by rememberUpdatedState<(File) -> Unit>({ file -> openVideo(file) })
     // The Canvas is a heavyweight child; both it and the frame need drop targets.
@@ -141,6 +169,24 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
             canvasTarget?.removeDropTargetListener(listener)
         }
     }
+    LaunchedEffect(currentFile, closing) {
+        val file = currentFile ?: return@LaunchedEffect
+        suspend fun savePosition() {
+            val position = embedded.playbackPosition() ?: return
+            val length = embedded.playbackDuration() ?: return
+            runCatching { withContext(Dispatchers.IO) { historyStore.saveProgress(file, position, length) } }
+                .onSuccess { historyRevision++ }
+        }
+        if (closing) {
+            savePosition()
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(5000)
+            savePosition()
+        }
+    }
+
     LaunchedEffect(videoCanvas, initialFilePending) {
         val file = initialFilePending ?: return@LaunchedEffect
         val canvas = videoCanvas ?: return@LaunchedEffect
@@ -263,6 +309,11 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
                 }) { Text("Open video from PC") }
                 Text(current ?: "No video selected", color = Color.White)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(enabled = queueIndex > 0, onClick = { openQueueAt(queueIndex - 1) }) { Text("Previous") }
+                    Text(if (queueIndex >= 0) "Queue " + (queueIndex + 1) + " / " + queue.size else "Queue empty", color = Color.White)
+                    Button(enabled = queueIndex >= 0 && queueIndex + 1 < queue.size, onClick = { openQueueAt(queueIndex + 1) }) { Text("Next") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { onFullscreenChange(!fullscreen) }) {
                         Text(if (fullscreen) "Exit fullscreen (Esc)" else "Fullscreen (F)")
                     }
@@ -304,15 +355,13 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
 
                 Text("Phase 2 preview: video uses the bundled embedded libmpv player.", color = Color(0xFF9FA7B7))
             } else if (!fullscreen) {
-                if (selected == "Folders") FoldersPanel { file -> openVideo(file) }
-                else Text(
-                    when (selected) {
-                        "Folders" -> "PC folder indexing and SMB sources are planned for Phase 3."
-                        "Continue Watching" -> "History and resume are planned for Phase 3."
-                        else -> "Desktop playback settings and HDR options will be added in subsequent milestones."
-                    },
-                    color = Color(0xFFC6C8D1),
-                )
+                when (selected) {
+                    "Folders" -> FoldersPanel { file, files -> openVideo(file, files) }
+                    "Continue Watching" -> ContinueWatchingPanel(historyRevision) { file, position ->
+                        openVideo(file, listOf(file), position)
+                    }
+                    else -> Text("Desktop playback settings and HDR options will be added in subsequent milestones.", color = Color(0xFFC6C8D1))
+                }
             }
         }
     }

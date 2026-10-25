@@ -54,6 +54,41 @@ internal data class LocalVideoScanResult(
     val truncated: Boolean,
 )
 
+internal data class LocalOriginalFolderContents(val folders: List<File>, val videos: List<File>)
+
+internal fun localOriginalFolderContents(
+    selectedRoots: List<String>,
+    currentFolder: File?,
+    videos: List<File>,
+): LocalOriginalFolderContents {
+    val currentPath = currentFolder?.toPath()?.toAbsolutePath()?.normalize()
+    if (currentPath == null) {
+        val roots = selectedRoots.mapNotNull { runCatching { Paths.get(it).toAbsolutePath().normalize() }.getOrNull() }
+            .filter { root -> videos.any { it.toPath().toAbsolutePath().normalize().startsWith(root) } }
+            .distinctBy { it.toString().lowercase() }
+            .map { it.toFile() }
+            .sortedBy { it.name.lowercase() }
+        return LocalOriginalFolderContents(roots, emptyList())
+    }
+    val childFolders = linkedMapOf<String, Path>()
+    val directVideos = videos.filter { video ->
+        video.toPath().toAbsolutePath().normalize().parent == currentPath
+    }
+    videos.forEach { video ->
+        val parent = video.toPath().toAbsolutePath().normalize().parent ?: return@forEach
+        if (parent == currentPath || !parent.startsWith(currentPath)) return@forEach
+        val relative = currentPath.relativize(parent)
+        if (relative.nameCount > 0) {
+            val child = currentPath.resolve(relative.getName(0))
+            childFolders.putIfAbsent(child.toString().lowercase(), child)
+        }
+    }
+    return LocalOriginalFolderContents(
+        childFolders.values.map { it.toFile() }.sortedBy { it.name.lowercase() },
+        directVideos.sortedBy { it.name.lowercase() },
+    )
+}
+
 internal object LocalVideoScanner {
     private val extensions = setOf("mp4", "m4v", "mkv", "webm", "mov", "avi", "wmv", "ts", "m2ts", "hevc", "flv", "mpg", "mpeg")
 

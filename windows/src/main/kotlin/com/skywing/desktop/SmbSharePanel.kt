@@ -22,10 +22,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import java.io.File
 import java.nio.file.Path
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
-internal fun SmbSharePanel(onVideo: (File) -> Unit) {
+internal fun SmbSharePanel(
+    indexStore: WindowsMediaIndex,
+    onIndexUpdated: () -> Unit,
+    onPlayQueue: (File, List<File>) -> Unit,
+) {
     val browser = remember { WindowsShareBrowser() }
     val profileStore = remember { WindowsShareProfileStore() }
     val scope = rememberCoroutineScope()
@@ -40,6 +46,7 @@ internal fun SmbSharePanel(onVideo: (File) -> Unit) {
     var listing by remember { mutableStateOf(WindowsShareBrowser.Listing(emptyList(), false)) }
     var message by remember { mutableStateOf("Enter a network share path. SkyWing uses your Windows sign-in.") }
     var loading by remember { mutableStateOf(false) }
+    var indexedCount by remember { mutableStateOf<Int?>(null) }
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = Color.White,
         unfocusedTextColor = Color.White,
@@ -186,13 +193,32 @@ internal fun SmbSharePanel(onVideo: (File) -> Unit) {
                 Button(enabled = !loading, onClick = { load(share, folder) }) { Text("Refresh") }
             }
             Text(folder.toString(), color = Color.White)
+            Button(enabled = !loading, onClick = {
+                loading = true
+                message = "Scanning this share into the library…"
+                scope.launch {
+                    try {
+                        val result = browser.scan(share, share)
+                        val sourceName = profileName.ifBlank { share.toString() }
+                        val sourceId = "SMB:" + sourceName.trim().lowercase()
+                        withContext(Dispatchers.IO) { indexStore.replaceSource(sourceId, "SMB", sourceName, result.files) }
+                        indexedCount = result.files.size
+                        onIndexUpdated()
+                        message = if (result.truncated) "Indexed the first 20,000 videos from this share." else "Indexed " + result.files.size + " videos from this share."
+                    } catch (error: Exception) {
+                        message = error.message ?: "Could not scan this share"
+                    } finally {
+                        loading = false
+                    }
+                }
+            }) { Text(if (indexedCount == null) "Scan share into library" else "Refresh share index") }
             LazyColumn(modifier = Modifier.fillMaxWidth().height(360.dp)) {
                 items(listing.entries, key = { it.file.absolutePath }) { entry ->
                     Button(
                         enabled = !loading,
                         onClick = {
                             if (entry.directory) load(share, entry.file.toPath())
-                            else onVideo(entry.file)
+                            else onPlayQueue(entry.file, listing.entries.filter { !it.directory }.map { it.file })
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
