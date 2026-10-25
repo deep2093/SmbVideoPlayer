@@ -30,28 +30,39 @@ internal class WindowsMediaIndex {
     }
 
     @Synchronized
-    fun load(): List<WindowsMediaEntry> = try {
-        if (!Files.isRegularFile(indexPath)) return emptyList()
-        DataInputStream(BufferedInputStream(Files.newInputStream(indexPath))).use { input ->
-            if (input.readInt() != MAGIC || input.readInt() != VERSION) return emptyList()
-            val count = input.readInt()
-            if (count !in 0..MAX_ENTRIES) return emptyList()
-            buildList(count) {
-                repeat(count) {
-                    val path = input.readUTF()
-                    val sourceId = input.readUTF()
-                    val sourceType = input.readUTF()
-                    val sourceName = input.readUTF()
-                    val size = input.readLong()
-                    val modified = input.readLong()
-                    if (path.isNotBlank() && sourceId.isNotBlank() && sourceType in setOf("PC", "SMB")) {
-                        add(WindowsMediaEntry(path, sourceId, sourceType, sourceName, size, modified))
+    fun load(): List<WindowsMediaEntry> {
+        return try {
+            if (!Files.isRegularFile(indexPath)) {
+                emptyList()
+            } else {
+                DataInputStream(BufferedInputStream(Files.newInputStream(indexPath))).use { input ->
+                    if (input.readInt() != MAGIC || input.readInt() != VERSION) {
+                        emptyList()
+                    } else {
+                        val count = input.readInt()
+                        if (count !in 0..MAX_ENTRIES) {
+                            emptyList()
+                        } else {
+                            buildList(count) {
+                                repeat(count) {
+                                    val path = input.readUTF()
+                                    val sourceId = input.readUTF()
+                                    val sourceType = input.readUTF()
+                                    val sourceName = input.readUTF()
+                                    val size = input.readLong()
+                                    val modified = input.readLong()
+                                    if (path.isNotBlank() && sourceId.isNotBlank() && sourceType in setOf("PC", "SMB")) {
+                                        add(WindowsMediaEntry(path, sourceId, sourceType, sourceName, size, modified))
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
+        } catch (_: Exception) {
+            emptyList()
         }
-    } catch (_: Exception) {
-        emptyList()
     }
 
     @Synchronized
