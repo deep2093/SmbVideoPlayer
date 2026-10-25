@@ -82,3 +82,6 @@ Implement **P0 as a small Windows-only proof**: connect a user-provided StashDB 
 - https://guidelines.stashdb.org/docs/faq_getting-started/stashdb/accessing-stashdb/
 - https://guidelines.stashdb.org/docs/faq_getting-started/stashdb/accessing-stash-boxes/
 - https://docs.stashapp.cc/in-app-manual/tasks/jsonspec/
+
+## PC local library parity and legacy filter preservation
+The Windows Smart Performer experiment must scan **user-selected PC local folders and removable drives** as well as SMB libraries, without depending on an SMB connection. Use the same filename matcher, performer IDs and optional portrait pipeline for both local and network sources. For the initial desktop launch, retain existing Android-style comma/hyphen/first-two-words grouping for **both local and SMB files**. Run smart grouping side-by-side in an opt-in mode. Never destroy previous virtual folders, manual assignments or artwork when toggling modes. Do not rename or move PC files automatically.
