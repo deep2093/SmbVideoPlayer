@@ -23,19 +23,29 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import java.io.File
 import javax.swing.JFileChooser
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
-internal fun FoldersPanel(onVideo: (File) -> Unit) {
+internal fun FoldersPanel(onPlayQueue: (File, List<File>) -> Unit) {
+    val indexStore = remember { WindowsMediaIndex() }
+    var indexRevision by remember { mutableStateOf(0) }
+    fun refreshIndex() { indexRevision++ }
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        LocalFolderLibraryPanel(onVideo)
+        LocalFolderLibraryPanel(indexStore, { refreshIndex() }, onPlayQueue)
         Text("Network shares", color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.titleLarge)
-        SmbSharePanel(onVideo)
+        SmbSharePanel(indexStore, { refreshIndex() }, onPlayQueue)
+        CombinedLibraryPanel(indexStore, indexRevision, onPlayQueue)
     }
 }
 
 @Composable
-private fun LocalFolderLibraryPanel(onVideo: (File) -> Unit) {
+private fun LocalFolderLibraryPanel(
+    indexStore: WindowsMediaIndex,
+    onIndexUpdated: () -> Unit,
+    onPlayQueue: (File, List<File>) -> Unit,
+) {
     val store = remember { LocalFolderStore() }
     val scope = rememberCoroutineScope()
     var folders by remember { mutableStateOf(runCatching { store.load() }.getOrDefault(emptyList())) }
@@ -63,7 +73,9 @@ private fun LocalFolderLibraryPanel(onVideo: (File) -> Unit) {
         scope.launch {
             try {
                 val result = LocalVideoScanner.scan(paths)
+                withContext(Dispatchers.IO) { indexStore.replaceSource("PC", "PC", "This PC", result.files) }
                 videos = result.files
+                onIndexUpdated()
                 message = buildString {
                     append(result.files.size).append(" videos found")
                     if (result.unavailableFolders > 0) append("; ").append(result.unavailableFolders).append(" folder(s) unavailable")
@@ -78,7 +90,12 @@ private fun LocalFolderLibraryPanel(onVideo: (File) -> Unit) {
     }
 
     LaunchedEffect(folders) {
-        if (folders.isNotEmpty()) scan(folders)
+        if (folders.isEmpty()) {
+            videos = emptyList()
+            return@LaunchedEffect
+        }
+        videos = withContext(Dispatchers.IO) { indexStore.load().filter { it.sourceType == "PC" }.map { it.file } }
+        scan(folders)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -112,6 +129,10 @@ private fun LocalFolderLibraryPanel(onVideo: (File) -> Unit) {
                         openedFolder = null
                         if (folders.isEmpty()) {
                             videos = emptyList()
+                            scope.launch {
+                                withContext(Dispatchers.IO) { indexStore.replaceSource("PC", "PC", "This PC", emptyList()) }
+                                onIndexUpdated()
+                            }
                             message = "No local folders selected."
                         }
                     } catch (error: Exception) {
@@ -169,7 +190,7 @@ private fun LocalFolderLibraryPanel(onVideo: (File) -> Unit) {
             items(visibleVideos, key = { "video:" + it.absolutePath.lowercase() }) { video ->
                 Button(
                     enabled = !scanning,
-                    onClick = { onVideo(video) },
+                    onClick = { onPlayQueue(video, visibleVideos) },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(video.name) }
             }
