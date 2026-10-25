@@ -93,7 +93,7 @@ private fun SkyWingDesktopShell() {
                         current = file.name
                         val canvas = videoCanvas
                         message = if (canvas != null && embedded.attach(canvas)) {
-                            if (embedded.open(file)) "Embedded video opened" else "Embedded load failed"
+                            if (embedded.open(file)) "Load request accepted in ${embedded.lastLoadCommandMillis} ms (not first-frame time)" else "Embedded load failed"
                         } else embedded.lastError ?: "Video surface not ready"
                     }
                 }) { Text("Open video from PC") }
