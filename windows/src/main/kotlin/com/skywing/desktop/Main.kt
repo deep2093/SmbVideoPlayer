@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -30,6 +31,8 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.skywing.desktop.playback.EmbeddedMpv
 import java.awt.Canvas
+import java.awt.event.KeyAdapter
+import java.awt.event.KeyEvent
 import java.awt.FileDialog
 import javax.swing.SwingUtilities
 import java.awt.Frame
@@ -53,6 +56,7 @@ private fun SkyWingDesktopShell() {
     var current by remember { mutableStateOf<String?>(null) }
     val embedded = remember { EmbeddedMpv() }
     var videoCanvas by remember { mutableStateOf<Canvas?>(null) }
+    var seekTarget by remember { mutableStateOf(0f) }
     DisposableEffect(embedded) { onDispose { embedded.close() } }
 
     Row(Modifier.fillMaxSize().background(Color(0xFF101217))) {
@@ -78,6 +82,19 @@ private fun SkyWingDesktopShell() {
                 factory = {
                     Canvas().apply {
                         background = java.awt.Color.BLACK
+                        isFocusable = true
+                        addKeyListener(object : KeyAdapter() {
+                            override fun keyPressed(event: KeyEvent) {
+                                when (event.keyCode) {
+                                    KeyEvent.VK_SPACE, KeyEvent.VK_K -> embedded.togglePause()
+                                    KeyEvent.VK_LEFT -> embedded.seek(-5)
+                                    KeyEvent.VK_RIGHT -> embedded.seek(10)
+                                    KeyEvent.VK_UP -> embedded.volumeUp()
+                                    KeyEvent.VK_DOWN -> embedded.volumeDown()
+                                    KeyEvent.VK_M -> embedded.toggleMute()
+                                }
+                            }
+                        })
                         videoCanvas = this
                         SwingUtilities.invokeLater { embedded.attach(this) }
                     }
@@ -116,6 +133,16 @@ private fun SkyWingDesktopShell() {
                     Button(onClick = { message = if (embedded.nextSubtitleTrack()) "Subtitle track changed" else "No subtitle track" }) { Text("Next subtitles") }
                     Button(onClick = { message = if (embedded.subtitleOff()) "Subtitles off" else "Player not ready" }) { Text("Subtitles off") }
                 }
+                Text("Seek to ${seekTarget.toInt()}% of video", color = Color.White)
+                Slider(
+                    value = seekTarget,
+                    onValueChange = { seekTarget = it },
+                    valueRange = 0f..100f,
+                    onValueChangeFinished = {
+                        message = if (embedded.seekPercent(seekTarget.toInt())) "Jumped to ${seekTarget.toInt()}%" else "Player not ready"
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { message = if (embedded.seekPercent(25)) "Jumped to 25%" else "Player not ready" }) { Text("25%") }
                     Button(onClick = { message = if (embedded.seekPercent(50)) "Jumped to 50%" else "Player not ready" }) { Text("50%") }
