@@ -27,6 +27,11 @@ compose.desktop {
             packageVersion = "0.1.0"
             description = "SkyWing Windows x64 media player (development preview)"
             vendor = "SkyWing"
+            windows {
+                menu = true
+                menuGroup = "SkyWing"
+                shortcut = true
+            }
         }
     }
 }
