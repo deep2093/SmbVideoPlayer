@@ -5,7 +5,7 @@
 **Release strategy:** Developer Preview -> Alpha -> Beta -> v1.0. No merging until Windows build/test verification.
 
 ## Product goal
-Native-feeling, hardware-accelerated Windows media player for local files, SMB video shares and optionally direct debrid playback. Match SkyWing's library concepts rather than copying its phone layout. Responsive 4K playback, correct subtitles/audio tracks, watch history, virtual/custom/original folders, fast indexing and seek, HDR10/HDR10+/HLG, and best-effort Dolby Vision content processing with clearly stated output limits.
+Native-feeling, hardware-accelerated Windows media player for PC local files and folders, SMB video shares and optionally direct debrid playback. Match SkyWing's library concepts rather than copying its phone layout. Responsive 4K playback, correct subtitles/audio tracks, watch history, virtual/custom/original folders, fast indexing and seek, HDR10/HDR10+/HLG, and best-effort Dolby Vision content processing with clearly stated output limits.
 
 ## Existing repository audit (Oct 25, 2026)
 - Android is a Kotlin/JVM 17 Gradle 8.11.1 project with Compose, SMBJ 0.14.0, Room, WorkManager, Media3 ExoPlayer 1.6.1 and LibVLC 3.6.5.
@@ -25,9 +25,9 @@ Native-feeling, hardware-accelerated Windows media player for local files, SMB v
 | ID | Scope | Rough effort (one experienced developer) | Gate |
 |---|---|---|---|
 | W0 | Isolated Windows x64 skeleton, roadmap, versioned dependencies | 1-3 days | Desktop UI builds/runs on a Windows x64 machine; Android build unchanged |
-| W1 | libmpv x64 binding, video surface, local-file open, play/pause/seek, audio/subtitle switching | 1-2 weeks | Local MP4/MKV/HEVC plays correctly; no leaks/crashes on repeated open |
+| W1 | libmpv x64 binding, video surface, Open File dialog, Explorer Open With, drag-and-drop local files, play/pause/seek, audio/subtitle switching | 1-2 weeks | Local MP4/MKV/HEVC plays correctly; no leaks/crashes on repeated open |
 | W2 | SMB connection profiles, alternate addresses, secure credentials, directory browsing, streaming seek | 1-3 weeks | Seek and resume from a real SMB share; no full-file download |
-| W3 | Indexed original/custom/virtual folders, search, thumbs, queue, history, desktop UI/shortcuts | 2-3 weeks | Folder grouping parity tests, 10k+ library indexing and restart persistence |
+| W3 | Indexed PC local folders/drives AND SMB original/custom/virtual folders; optional folder selection, search, thumbs, queue, history, desktop UI/shortcuts | 2-3 weeks | Folder grouping parity tests, 10k+ library indexing and restart persistence |
 | W4 | HDR10, HLG, HDR10+ support and SDR tone mapping, 10-bit output options | 1-2 weeks | Correct SDR/HDR playback on SDR+HDR screens, no forced clipping or crushed blacks |
 | W5 | Dolby Vision profiles 5/7/8 handling via libmpv/libplacebo, fallbacks and user diagnostics | 1-3+ weeks | Profile-specific matrix validated. Distinguish DV metadata processing from native DV passthrough |
 | W6 | Optional debrid providers using user-authorized accounts, direct HTTPS URL playback, expired-link recovery | 1-2 weeks | Authorized files can be browsed, played, sought, resumed, canceled; no keys in logs |
@@ -72,3 +72,13 @@ Windows ARM, x86 32-bit, Windows 7/8, embedded app-only WireGuard, native licens
 - Player: libmpv x64; native D3D11 render path must be proven before production.
 - Storage: SQLite for desktop indexing; secure OS credentials; reuse tested pure-Kotlin rules, not Android UI or Room.
 - Deliverables: Windows-x64 native installer, portable artifact if practical, separate versioning from Android, a tested HDR/DV support matrix.
+
+## Explicit PC local-file and folder support (required)
+- Support **Open File** for individual videos stored on internal/external PC drives, and **Open Folder / Add Library Folder** for one or multiple user-selected local directories, including optional recursive scanning of subfolders.
+- Support drag-and-drop of video files and folders from Windows File Explorer, with non-destructive default operations. Add Open With/file associations after installer integration.
+- Local files play directly from disk (no SMB server, debrid account or internet connection required), using the same player, subtitles, queue, resume positions and bookmarks as network sources.
+- Support local original folders, manual/custom collections and virtual folders using the **existing Android grouping rules** initially (commas, hyphens and first-two-words behaviour as applicable). Smart Performer Detection is an **opt-in experimental addition**, not a replacement until proven accurate, and the old filters remain available for rollback.
+- Index only user-selected locations, avoid scanning entire drives without consent, track moved/missing files and removable/offline drives, and avoid deleting source files automatically. Cache thumbnails with bounded storage; avoid rescanning unchanged files.
+- Provide source filters in the library: **All**, **This PC**, **SMB**, **Debrid** (once integrated), with shared search and optional combined Continue Watching. Multiple folders from different drives can coexist.
+- Verify MP4, MKV, AVI, WMV, MOV (where codecs permit) for local file playback, audio/subtitle switching, 4K seek, permissions and locked-file handling. Local file read should stay operational if an SMB connection fails.
+- Phase gates: W1 must play at least one actual local video and handle drag-and-drop; W3 must index user-selected PC folders and provide original/custom/virtual folders before local library can be called complete.
