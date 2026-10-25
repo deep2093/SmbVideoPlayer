@@ -4,6 +4,7 @@ import com.sun.jna.Library
 import com.sun.jna.Native
 import com.sun.jna.Pointer
 import com.sun.jna.ptr.DoubleByReference
+import com.sun.jna.ptr.IntByReference
 import java.awt.Canvas
 import java.io.Closeable
 import java.io.File
@@ -19,6 +20,7 @@ class EmbeddedMpv : Closeable {
         fun mpv_set_option_string(ctx: Pointer, name: String, value: String): Int
         fun mpv_initialize(ctx: Pointer): Int
         fun mpv_get_property(ctx: Pointer, name: String, format: Int, data: DoubleByReference): Int
+        fun mpv_get_property(ctx: Pointer, name: String, format: Int, data: IntByReference): Int
         fun mpv_command(ctx: Pointer, args: Array<String?>): Int
         fun mpv_terminate_destroy(ctx: Pointer)
     }
@@ -110,12 +112,23 @@ class EmbeddedMpv : Closeable {
             value.value.takeIf { it.isFinite() }
         } else null
     }
+    // MPV_FORMAT_FLAG = 3. True or false once the player exists, otherwise null.
+    @Synchronized
+    private fun flagProperty(name: String): Boolean? {
+        val native = api ?: return null
+        val ctx = instance ?: return null
+        val value = IntByReference()
+        return if (native.mpv_get_property(ctx, name, 3, value) >= 0) value.value != 0 else null
+    }
+    fun isPaused(): Boolean? = flagProperty("pause")
+    fun isMuted(): Boolean? = flagProperty("mute")
     fun playbackPosition(): Double? = numberProperty("time-pos")
     fun playbackDuration(): Double? = numberProperty("duration")
     fun seekAbsolute(seconds: Double): Boolean =
         seconds.isFinite() && command("seek", seconds.coerceAtLeast(0.0).toString(), "absolute")
 
     fun togglePause(): Boolean = command("cycle", "pause")
+    fun pause(): Boolean = command("set", "pause", "yes")
     fun seek(seconds: Int): Boolean = command("seek", seconds.toString(), "relative")
     fun stop(): Boolean = command("stop")
     fun volumeUp(): Boolean = command("add", "volume", "5")

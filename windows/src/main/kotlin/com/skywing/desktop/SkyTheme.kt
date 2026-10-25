@@ -1,0 +1,312 @@
+package com.skywing.desktop
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.unit.dp
+import java.util.prefs.Preferences
+
+/** A soft light in the wallpaper: position and radius are fractions of the window. */
+internal data class SkyGlow(val x: Float, val y: Float, val radius: Float, val color: Color)
+
+/**
+ * The SkyWing themes, with the same ids, colours and wallpapers as the Android app so a theme looks the same on
+ * both: four glass themes (Aurora = vivid, Crystal = restrained), AMOLED black, Midnight blue and three adaptive
+ * themes whose wallpaper takes its colours from the covers on screen.
+ */
+internal data class SkyTheme(
+    val id: String,
+    val label: String,
+    val background: Color,
+    val surface: Color,
+    val card: Color,
+    val accent: Color,
+    val wallpaper: List<Color>,
+    val glows: List<SkyGlow>,
+    val glassTint: Color,
+    val menu: Color,
+    val light: Boolean,
+    val crystal: Boolean,
+    /** Panel colour for themes that are not glass (solid and adaptive themes); null uses the glass tint. */
+    val panel: Color? = null,
+    /** Text on the accent colour, when the usual one does not read well on it. */
+    val onAccentColor: Color? = null,
+    /** Adaptive themes: how the wallpaper and accent follow the covers on screen. */
+    val adaptive: AdaptiveStyle? = null,
+) {
+    val ink: Color get() = if (light) Color(0xFF14202E) else Color(0xFFEAF2FF)
+    val muted: Color get() = ink.copy(alpha = if (light) 0.66f else 0.70f)
+    val onAccent: Color get() = onAccentColor ?: if (light) Color.White else Color(0xFF06213A)
+}
+
+/** A solid dark theme from Android: one background colour, plain panels, no glass. */
+private fun solidTheme(id: String, label: String, background: Color, surface: Color, card: Color, accent: Color, onAccent: Color? = null) = SkyTheme(
+    id = id,
+    label = label,
+    background = background,
+    surface = surface,
+    card = card,
+    accent = accent,
+    wallpaper = listOf(background, background),
+    glows = emptyList(),
+    glassTint = surface.copy(alpha = 0.94f),
+    menu = surface,
+    light = false,
+    crystal = false,
+    panel = surface,
+    onAccentColor = onAccent,
+)
+
+/** An adaptive theme from Android: smoky dark glass over a wallpaper made from the covers on screen. */
+private fun adaptiveTheme(id: String, label: String, style: AdaptiveStyle, card: Color, panel: Color, menu: Color) = SkyTheme(
+    id = id,
+    label = label,
+    background = Color(0xFF101014),
+    surface = Color(0x1F000000),
+    card = card,
+    accent = style.fallbackAccent,
+    wallpaper = style.fallback,
+    glows = emptyList(),
+    glassTint = panel,
+    menu = menu,
+    light = false,
+    crystal = false,
+    panel = panel,
+    adaptive = style,
+)
+
+internal val skyThemes: List<SkyTheme> = listOf(
+    SkyTheme(
+        id = "LIQUID",
+        label = "Aurora Glass · Dark",
+        background = Color(0xFF070D26),
+        surface = Color(0x7A111C46),
+        card = Color(0x3D86A8F9),
+        accent = Color(0xFF7FCDFF),
+        wallpaper = listOf(Color(0xFF050B22), Color(0xFF192562), Color(0xFF271458), Color(0xFF071B39)),
+        glows = listOf(
+            SkyGlow(0.00f, 0.08f, 0.60f, Color(0x8B243FBD)),
+            SkyGlow(0.98f, 0.22f, 0.70f, Color(0x804E28B8)),
+            SkyGlow(0.48f, 0.95f, 0.65f, Color(0x5520C6E9)),
+        ),
+        glassTint = Color(0x9A10173A),
+        menu = Color(0xFF15234C),
+        light = false,
+        crystal = false,
+    ),
+    SkyTheme(
+        id = "SKYWING_AURORA_LIGHT",
+        label = "Aurora Glass · Light",
+        background = Color(0xFFF0F4FE),
+        surface = Color(0xBCE9F5FF),
+        card = Color(0xA6FFFFFF),
+        accent = Color(0xFF1468EF),
+        wallpaper = listOf(Color(0xFFEDF6FF), Color(0xFFE6EEFF), Color(0xFFF5EAFD), Color(0xFFDBF7FC)),
+        glows = listOf(
+            SkyGlow(0.10f, 0.00f, 0.58f, Color(0x9996DFFF)),
+            SkyGlow(0.92f, 0.62f, 0.58f, Color(0x80C3A8FF)),
+            SkyGlow(0.25f, 0.93f, 0.55f, Color(0x66A8F0FF)),
+        ),
+        glassTint = Color(0x98E9F4FF),
+        menu = Color(0xFFF1F5FF),
+        light = true,
+        crystal = false,
+    ),
+    SkyTheme(
+        id = "SKYWING_CRYSTAL_DARK",
+        label = "Crystal Glass · Dark",
+        background = Color(0xFF101B28),
+        surface = Color(0x7C172C3C),
+        card = Color(0x3C8CACB9),
+        accent = Color(0xFF96CFFF),
+        wallpaper = listOf(Color(0xFF0A1622), Color(0xFF1E3548), Color(0xFF101C2A), Color(0xFF293F51)),
+        glows = listOf(
+            SkyGlow(0.62f, 0.16f, 0.76f, Color(0x557DAAC8)),
+            SkyGlow(0.08f, 0.92f, 0.75f, Color(0x4D4B7DA0)),
+        ),
+        glassTint = Color(0xA21A2A3D),
+        menu = Color(0xFF203348),
+        light = false,
+        crystal = true,
+    ),
+    SkyTheme(
+        id = "LIQUID_GLASS",
+        label = "Crystal Glass · Light",
+        background = Color(0xFFF6F9FC),
+        surface = Color(0xB8FFFFFF),
+        card = Color(0xACFFFFFF),
+        accent = Color(0xFF2774D6),
+        wallpaper = listOf(Color(0xFFFAFCFE), Color(0xFFEBF3F9), Color(0xFFF6F5F2), Color(0xFFE8F2F7)),
+        glows = listOf(
+            SkyGlow(0.88f, 0.05f, 0.70f, Color(0x66C8E9FB)),
+            SkyGlow(0.12f, 0.75f, 0.78f, Color(0x669ECBDD)),
+            SkyGlow(0.65f, 1.00f, 0.68f, Color(0x55E8D4C4)),
+        ),
+        glassTint = Color(0xA8F4FAFF),
+        menu = Color(0xFFF6F9FC),
+        light = true,
+        crystal = true,
+    ),
+    solidTheme("AMOLED", "AMOLED black", Color.Black, Color(0xFF0B0B0B), Color(0xFF161616), Color(0xFFFF837A)),
+    solidTheme("SLATE", "Midnight blue", Color(0xFF141C29), Color(0xFF1B2738), Color(0xFF26364D), Color(0xFF5B8FD6), onAccent = Color.White),
+    // Each adapts in its own way: Glow lays the cover colours in a diagonal gradient with a bright accent of the same
+    // colour; Midnight washes one soft colour down from the top over near-black with a pale accent; Vivid paints bright
+    // aurora blobs with the opposite colour as accent.
+    adaptiveTheme(
+        "ADAPTIVE_GLOW", "Adaptive Glow",
+        AdaptiveStyle(
+            listOf(0.36f, 0.26f, 0.16f), 0.35f, 0.75f, glow = 0.32f, scrim = 0.22f,
+            fallback = listOf(Color(0xFF3A2A5A), Color(0xFF1E3A4A), Color(0xFF241A30)),
+            layout = AdaptiveLayout.GLOW, accent = AdaptiveAccent.SAME_HUE, fallbackAccent = Color(0xFFFFC27A),
+        ),
+        card = Color(0x1FFFFFFF), panel = Color(0x8C101016), menu = Color(0xFF1B1B24),
+    ),
+    adaptiveTheme(
+        "ADAPTIVE_MIDNIGHT", "Adaptive Midnight",
+        AdaptiveStyle(
+            listOf(0.22f, 0.15f, 0.30f), 0.25f, 0.55f, glow = 0.30f, scrim = 0.30f,
+            fallback = listOf(Color(0xFF1C2333), Color(0xFF14202A), Color(0xFF2A3550)),
+            layout = AdaptiveLayout.WASH, accent = AdaptiveAccent.SOFT, fallbackAccent = Color(0xFFCFE3FF),
+        ),
+        card = Color(0x14FFFFFF), panel = Color(0xB3060609), menu = Color(0xFF111117),
+    ),
+    adaptiveTheme(
+        "ADAPTIVE_VIVID", "Adaptive Vivid",
+        AdaptiveStyle(
+            listOf(0.62f, 0.55f, 0.20f), 0.6f, 0.95f, glow = 0.55f, scrim = 0.34f,
+            fallback = listOf(Color(0xFF8A2C7C), Color(0xFF1F6F9E), Color(0xFF2A1240)),
+            layout = AdaptiveLayout.AURORA, accent = AdaptiveAccent.OPPOSITE, fallbackAccent = Color(0xFF5CF2C2),
+        ),
+        card = Color(0x29FFFFFF), panel = Color(0x80180A24), menu = Color(0xFF221430),
+    ),
+)
+
+internal val LocalSkyTheme = staticCompositionLocalOf { skyThemes.first() }
+
+internal object SkyThemeStore {
+    private val preferences = Preferences.userNodeForPackage(SkyThemeStore::class.java).node("appearance")
+
+    fun load(): SkyTheme {
+        val id = runCatching { preferences.get("theme", skyThemes.first().id) }.getOrDefault(skyThemes.first().id)
+        return skyThemes.firstOrNull { it.id == id } ?: skyThemes.first()
+    }
+
+    fun save(theme: SkyTheme) {
+        runCatching {
+            preferences.put("theme", theme.id)
+            preferences.flush()
+        }
+    }
+}
+
+internal fun SkyTheme.colorScheme(): ColorScheme =
+    if (light) {
+        lightColorScheme(
+            primary = accent,
+            onPrimary = onAccent,
+            primaryContainer = accent.copy(alpha = 0.18f),
+            onPrimaryContainer = ink,
+            secondary = accent,
+            tertiary = accent,
+            background = background,
+            onBackground = ink,
+            surface = surface,
+            onSurface = ink,
+            surfaceVariant = card,
+            onSurfaceVariant = muted,
+            outline = ink.copy(alpha = 0.35f),
+            outlineVariant = ink.copy(alpha = 0.16f),
+        )
+    } else {
+        darkColorScheme(
+            primary = accent,
+            onPrimary = onAccent,
+            primaryContainer = accent.copy(alpha = 0.26f),
+            onPrimaryContainer = ink,
+            secondary = accent,
+            tertiary = accent,
+            background = background,
+            onBackground = ink,
+            surface = surface,
+            onSurface = ink,
+            surfaceVariant = card,
+            onSurfaceVariant = muted,
+            outline = ink.copy(alpha = 0.35f),
+            outlineVariant = ink.copy(alpha = 0.16f),
+        )
+    }
+
+/** Paints the theme's wallpaper: base gradient, its glows and a faint diagonal sheen (as on Android). */
+internal fun DrawScope.drawSkyWallpaper(theme: SkyTheme) {
+    theme.adaptive?.let { style ->
+        drawAdaptiveWallpaper(theme.wallpaper, style)
+        return
+    }
+    if (theme.glows.isEmpty() && theme.wallpaper.distinct().size == 1) {
+        drawRect(theme.wallpaper.first())
+        return
+    }
+    drawRect(Brush.linearGradient(theme.wallpaper, start = Offset.Zero, end = Offset(size.width, size.height)))
+    theme.glows.forEach { glow ->
+        drawRect(
+            Brush.radialGradient(
+                listOf(glow.color, Color.Transparent),
+                center = Offset(size.width * glow.x, size.height * glow.y),
+                radius = size.maxDimension * glow.radius,
+            ),
+        )
+    }
+    drawRect(
+        Brush.linearGradient(
+            0f to Color.Transparent,
+            0.45f to Color(0x0FFFFFFF),
+            0.55f to Color(0x14FFFFFF),
+            0.65f to Color.Transparent,
+            start = Offset(0f, size.height * 0.2f),
+            end = Offset(size.width, size.height * 0.6f),
+        ),
+    )
+}
+
+/** Glass tint used for panels, taken from the Android glass surface so the two apps match. */
+internal fun SkyTheme.panelTint(): Color = when {
+    panel != null -> panel
+    light && crystal -> Color(0xCFFFFFFF)
+    light -> Color(0xBDECF5FF)
+    crystal -> Color(0xB8203347)
+    else -> Color(0xB3162050)
+}
+
+/** A rounded glass panel: translucent tint with a bright rim, like light catching the edge of glass. */
+@Composable
+internal fun Modifier.skyGlass(shape: Shape = RoundedCornerShape(22.dp), tint: Color? = null): Modifier {
+    val theme = LocalSkyTheme.current
+    val edge = if (theme.light) Color(0x6654708C) else Color(0x70D7EEFF)
+    if (theme.panel != null && theme.adaptive == null) {
+        return this.clip(shape).background(tint ?: theme.panelTint()).border(1.dp, theme.ink.copy(alpha = 0.10f), shape)
+    }
+    return this
+        .clip(shape)
+        .background(tint ?: theme.panelTint())
+        .border(
+            1.dp,
+            Brush.linearGradient(
+                0f to Color.White.copy(alpha = if (theme.light) 0.96f else 0.72f),
+                0.42f to edge.copy(alpha = 0.45f),
+                1f to edge.copy(alpha = 0.28f),
+            ),
+            shape,
+        )
+}

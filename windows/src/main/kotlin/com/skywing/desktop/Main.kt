@@ -1,56 +1,66 @@
 package com.skywing.desktop
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import kotlinx.coroutines.delay
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.awt.SwingPanel
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.skywing.desktop.playback.EmbeddedMpv
 import java.awt.Canvas
-import java.awt.KeyboardFocusManager
-import java.awt.KeyEventDispatcher
-import javax.swing.text.JTextComponent
-import java.awt.event.KeyEvent
 import java.awt.FileDialog
+import java.awt.Frame
+import java.awt.KeyEventDispatcher
+import java.awt.KeyboardFocusManager
 import java.awt.dnd.DnDConstants
 import java.awt.dnd.DropTarget
-import javax.swing.SwingUtilities
-import java.awt.Frame
+import java.awt.event.KeyEvent
 import java.io.File
+import javax.swing.SwingUtilities
+import javax.swing.text.JTextComponent
+import com.skywing.desktop.artwork.ArtworkKeys
+import com.skywing.desktop.artwork.ArtworkRepository
+import com.skywing.desktop.artwork.LookupTarget
+import com.skywing.desktop.artwork.PortraitLookup
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 fun main(args: Array<String>) = application {
-    val state = rememberWindowState(width = 1200.dp, height = 760.dp)
+    val state = rememberWindowState(width = 1280.dp, height = 800.dp)
     var closing by remember { mutableStateOf(false) }
     val embedded = remember { EmbeddedMpv() }
     val initialFile = remember { args.firstOrNull()?.let(::File) }
@@ -82,29 +92,131 @@ fun main(args: Array<String>) = application {
 }
 
 @Composable
-internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: EmbeddedMpv, closing: Boolean, initialFile: File? = null) {
-        var fullscreen by remember { mutableStateOf(false) }
-        val controller = remember(awtWindow) { BorderlessFullscreen(awtWindow) }
-        val changeFullscreen: (Boolean) -> Unit = { enabled ->
-            if (!closing) {
-                // One EDT transaction; never set WindowPlacement.Fullscreen or
-                // undecorated (either can dispose/recreate the native AWT peer).
-                try { fullscreen = controller.set(enabled) }
-                catch (failure: Exception) {
-                    fullscreen = controller.isFullscreen
-                    System.err.println("Fullscreen transition failed: ${failure.message}")
-                }
+internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: EmbeddedMpv, closing: Boolean, initialFile: File? = null, initialSection: String = "Folders") {
+    var fullscreen by remember { mutableStateOf(false) }
+    var theme by remember { mutableStateOf(SkyThemeStore.load()) }
+    val controller = remember(awtWindow) { BorderlessFullscreen(awtWindow) }
+    val changeFullscreen: (Boolean) -> Unit = { enabled ->
+        if (!closing) {
+            // One EDT transaction; never set WindowPlacement.Fullscreen or
+            // undecorated (either can dispose/recreate the native AWT peer).
+            try { fullscreen = controller.set(enabled) }
+            catch (failure: Exception) {
+                fullscreen = controller.isFullscreen
+                System.err.println("Fullscreen transition failed: ${failure.message}")
             }
         }
-        MaterialTheme { SkyWingDesktopShell(awtWindow, embedded, fullscreen, closing, changeFullscreen, initialFile) }
+    }
+    // The Windows title bar follows the theme.
+    LaunchedEffect(awtWindow, theme) {
+        repeat(20) {
+            if (awtWindow.isDisplayable) {
+                SwingUtilities.invokeLater { WindowChrome.apply(awtWindow, theme) }
+                return@LaunchedEffect
+            }
+            delay(100)
+        }
+    }
+    // Adaptive themes take their accent from the covers on screen.
+    val shownTheme = rememberShownTheme(theme)
+    CompositionLocalProvider(LocalSkyTheme provides shownTheme, LocalContentColor provides shownTheme.ink) {
+        MaterialTheme(colorScheme = shownTheme.colorScheme()) {
+            SkyWingDesktopShell(
+                awtWindow, embedded, fullscreen, closing, changeFullscreen, initialFile, initialSection,
+                shownTheme, { chosen -> theme = chosen; SkyThemeStore.save(chosen) },
+            )
+        }
+    }
+}
+
+private fun chooseLocalVideo(): File? {
+    val dialog = FileDialog(null as Frame?, "Open local video", FileDialog.LOAD)
+    dialog.isVisible = true
+    val file = dialog.file?.let { File(dialog.directory, it) }
+    dialog.dispose()
+    return file
+}
+
+private class NavEntry(val section: String, val icon: SkyIcon)
+
+private val TOP_NAV = listOf(
+    NavEntry("Folders", SkyIcon.Folder),
+    NavEntry("Videos", SkyIcon.VideoLibrary),
+    NavEntry("Files", SkyIcon.Cloud),
+)
+
+@Composable
+private fun NavRow(label: String, icon: SkyIcon, selected: Boolean, onClick: () -> Unit) {
+    val theme = LocalSkyTheme.current
+    val ink = if (selected) theme.ink else theme.muted
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(50))
+            .background(if (selected) theme.card else Color.Transparent)
+            .skyClickable(onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SkyIconView(icon, if (selected) theme.accent else ink)
+        Text(label, color = ink, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+    }
+}
+
+/** The sidebar, like the Android tablet sidebar: mark and name, the pages, Settings at the bottom. */
+@Composable
+private fun Sidebar(
+    selected: String,
+    nowPlaying: String?,
+    paused: Boolean,
+    onSelect: (String) -> Unit,
+    onTogglePause: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val theme = LocalSkyTheme.current
+    Column(modifier.skyGlass(RoundedCornerShape(28.dp)).padding(16.dp)) {
+        SkyMark(40.dp, Modifier.padding(top = 12.dp, bottom = 12.dp))
+        Text("SkyWing", color = theme.ink, style = MaterialTheme.typography.titleMedium)
+        Text("Video library", color = theme.muted, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(28.dp))
+        TOP_NAV.forEach { entry ->
+            NavRow(entry.section, entry.icon, selected == entry.section) { onSelect(entry.section) }
+            Spacer(Modifier.height(4.dp))
+        }
+        Spacer(Modifier.weight(1f))
+        if (nowPlaying != null) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    .skyGlass(RoundedCornerShape(20.dp), tint = theme.card)
+                    .skyClickable({ onSelect("Now Playing") })
+                    .padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Now playing", color = if (selected == "Now Playing") theme.accent else theme.muted, style = MaterialTheme.typography.labelSmall)
+                    Text(nowPlaying, color = theme.ink, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                SkyIconButton(if (paused) SkyIcon.Play else SkyIcon.Pause, if (paused) "Play" else "Pause", onTogglePause, box = 36.dp, glyph = 20.dp)
+            }
+        }
+        NavRow("Settings", SkyIcon.Settings, selected == "Settings") { onSelect("Settings") }
+    }
 }
 
 @Composable
-private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMpv, fullscreen: Boolean, closing: Boolean, onFullscreenChange: (Boolean) -> Unit, initialFile: File?) {
-    val sections = listOf("Folders", "Videos", "Continue Watching", "Settings")
-    var selected by remember { mutableStateOf("Videos") }
-    var message by remember { mutableStateOf("Choose a local video to play.") }
-    var current by remember { mutableStateOf<String?>(null) }
+private fun SkyWingDesktopShell(
+    awtWindow: java.awt.Window,
+    embedded: EmbeddedMpv,
+    fullscreen: Boolean,
+    closing: Boolean,
+    onFullscreenChange: (Boolean) -> Unit,
+    initialFile: File?,
+    initialSection: String,
+    theme: SkyTheme,
+    onTheme: (SkyTheme) -> Unit,
+) {
+    var selected by remember { mutableStateOf(initialSection) }
+    var previous by remember { mutableStateOf("Folders") }
+    var message by remember { mutableStateOf("") }
     var currentFile by remember { mutableStateOf<File?>(null) }
     var queue by remember { mutableStateOf<List<File>>(emptyList()) }
     var queueIndex by remember { mutableStateOf(-1) }
@@ -116,24 +228,73 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
     var dragging by remember { mutableStateOf(false) }
     var playbackTime by remember { mutableStateOf(0.0) }
     var duration by remember { mutableStateOf(0.0) }
+    var paused by remember { mutableStateOf(false) }
+    var muted by remember { mutableStateOf(false) }
     var initialFilePending by remember { mutableStateOf(initialFile) }
+
+    // What the pages show.
+    val library = remember { LibraryModel(WindowsMediaIndex()) }
+    LaunchedEffect(library.revision) { library.reload() }
+    // Thumbnails for the whole library are made in the background, cards on screen first.
+    LaunchedEffect(library.all) { ThumbnailStore.prefetch(library.all.map { it.file to it.modified }) }
+    val organizer = remember { Organizer(FolderOrganizerStore()) { WindowsCustomFolderStore().load() } }
+    // Covers and portraits: one store for the app, and the background portrait lookup after each scan.
+    val artwork = remember { ArtworkRepository() }
+    // Automatic sync: when the app starts if the last scan is old, then every 12 hours while it is open.
+    val sync = remember { LibrarySync(library) }
+    LaunchedEffect(sync) {
+        while (true) {
+            if (sync.due()) sync.refresh()
+            delay(15 * 60 * 1000L)
+        }
+    }
+    val portraits = remember { PortraitLookup(artwork) }
+    val covers = remember(artwork, organizer.data.prefs.virtualRules) { CoverContext(artwork, organizer.data.prefs.virtualRules) }
+    LaunchedEffect(library.all) {
+        if (library.all.isNotEmpty()) portraits.start(forced = false) { lookupTargets(library.all, organizer.data) }
+    }
+    // Saved network shares: learn their other addresses, and find the one that answers if the main one is down.
+    LaunchedEffect(Unit) {
+        val switched = withContext(Dispatchers.IO) {
+            runCatching { WindowsShareProfileStore().load() }.getOrDefault(emptyList()).count { profile ->
+                ShareHosts.register(profile.primaryAddress, profile.alternateAddress)
+                val host = ShareHosts.hostOf(profile.primaryAddress) ?: return@count false
+                ShareHosts.parse(profile.alternateAddress).isNotEmpty() && ShareHosts.resolve(host)?.equals(host, ignoreCase = true) == false
+            }
+        }
+        if (switched > 0) library.changed()
+    }
+    val hub = remember { HubState() }
+    val selection = remember { SelectionState() }
+    val history = remember(historyRevision) { historyStore.load().associateBy { it.path.lowercase() } }
+
+    fun go(section: String) {
+        if (section == selected) return
+        // Leaving the player pauses the video; Now playing in the sidebar brings it back.
+        if (selected == "Now Playing") embedded.pause() else previous = selected
+        selected = section
+        selection.clear()
+        hub.endFolderSelection()
+    }
+
     fun openVideo(file: File, queuedFiles: List<File> = listOf(file), resumePosition: Double? = null) {
         if (closing) return
         if (!file.isFile) {
             message = "File not available: " + file.name
             return
         }
-        currentFile?.let { previous ->
+        currentFile?.let { earlier ->
             val previousPosition = embedded.playbackPosition() ?: 0.0
             val previousDuration = embedded.playbackDuration() ?: 0.0
-            playbackScope.launch(Dispatchers.IO) { historyStore.saveProgress(previous, previousPosition, previousDuration) }
+            playbackScope.launch(Dispatchers.IO) { historyStore.saveProgress(earlier, previousPosition, previousDuration) }
         }
         val safeQueue = queuedFiles.ifEmpty { listOf(file) }
         val selectedIndex = safeQueue.indexOfFirst { it.absolutePath.equals(file.absolutePath, ignoreCase = true) }
         queue = if (selectedIndex >= 0) safeQueue else listOf(file)
         queueIndex = if (selectedIndex >= 0) selectedIndex else 0
-        selected = "Videos"
-        current = file.name
+        if (selected != "Now Playing") previous = selected
+        selected = "Now Playing"
+        selection.clear()
         currentFile = file
         val canvas = videoCanvas
         val accepted = canvas != null && embedded.attach(canvas) && embedded.open(file)
@@ -148,6 +309,23 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
                 }
             }
         }
+    }
+    /** Stops the video, keeps where it was for Continue watching, and goes back to the page it was played from. */
+    fun stopPlayback() {
+        val file = currentFile ?: return
+        val position = embedded.playbackPosition() ?: 0.0
+        val length = embedded.playbackDuration() ?: 0.0
+        embedded.stop()
+        currentFile = null
+        queue = emptyList()
+        queueIndex = -1
+        message = ""
+        playbackScope.launch(Dispatchers.IO) {
+            runCatching { historyStore.saveProgress(file, position, length) }
+            historyRevision++
+        }
+        if (fullscreen) onFullscreenChange(false)
+        if (selected == "Now Playing") selected = previous
     }
     fun openQueueAt(index: Int) {
         val files = queue
@@ -208,14 +386,13 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
             val p = embedded.playbackPosition() ?: 0.0
             duration = d.coerceAtLeast(0.0)
             playbackTime = p.coerceAtLeast(0.0)
+            paused = embedded.isPaused() ?: true
+            muted = embedded.isMuted() ?: false
             if (!dragging && duration > 0) seekTarget = (playbackTime / duration * 100.0).toFloat().coerceIn(0f, 100f)
             delay(500)
         }
     }
-    fun clock(seconds: Double): String {
-        val n = seconds.toLong().coerceAtLeast(0)
-        return "%d:%02d:%02d".format(n / 3600, (n / 60) % 60, n % 60)
-    }
+    val latestStop by rememberUpdatedState<() -> Unit>({ stopPlayback() })
     val currentSection by rememberUpdatedState(selected)
     val currentFullscreen by rememberUpdatedState(fullscreen)
     val currentFullscreenChange by rememberUpdatedState(onFullscreenChange)
@@ -239,7 +416,7 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
                 manager.focusOwner is JTextComponent
             ) {
                 false
-            } else if (currentSection != "Videos") {
+            } else if (currentSection != "Now Playing") {
                 false
             } else {
                 when (event.keyCode) {
@@ -256,6 +433,7 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
                     KeyEvent.VK_UP -> { embedded.volumeUp(); true }
                     KeyEvent.VK_DOWN -> { embedded.volumeDown(); true }
                     KeyEvent.VK_M -> { embedded.toggleMute(); true }
+                    KeyEvent.VK_S -> { latestStop(); true }
                     else -> false
                 }
             }
@@ -269,100 +447,115 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
         }
     }
 
-
-    Row(Modifier.fillMaxSize().background(Color(0xFF101217))) {
-        if (!fullscreen) Column(
-            modifier = Modifier.width(230.dp).fillMaxHeight().background(Color(0xFF1B1E26)).padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text("SkyWing", color = Color.White, style = MaterialTheme.typography.headlineMedium)
-            sections.forEach { section ->
-                Button(onClick = { selected = section }, modifier = Modifier.fillMaxWidth()) { Text(section) }
+    // A video on a network drive whose address stopped answering is tried again through the drive's other addresses.
+    val playOne: (File, List<File>) -> Unit = { file, files ->
+        if (ShareHosts.hostOf(file.path) == null) {
+            openVideo(file, files)
+        } else {
+            playbackScope.launch {
+                val again = withContext(Dispatchers.IO) {
+                    if (file.isFile) false
+                    else ShareHosts.hostOf(ShareHosts.canonical(file.path))?.let { ShareHosts.resolve(it) } != null
+                }
+                fun reach(f: File) = if (again) File(ShareHosts.reachable(ShareHosts.canonical(f.path))) else f
+                openVideo(reach(file), files.map(::reach))
             }
         }
-        Column(
-            modifier = if (fullscreen) Modifier.fillMaxSize() else Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            if (!fullscreen) Text(selected, color = Color.White, style = MaterialTheme.typography.headlineLarge)
-            // Keep the AWT Canvas HWND alive across navigation. Removing SwingPanel
-            // destroys the native window while libmpv still renders into it.
-            // A one-dp placeholder preserves the component's lifecycle in other tabs.
-            SwingPanel(
-                modifier = if (fullscreen) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(if (selected == "Videos") 320.dp else 1.dp),
-                factory = {
-                    Canvas().apply {
-                        background = java.awt.Color.BLACK
-                        isFocusable = true
-                        videoCanvas = this
-                        SwingUtilities.invokeLater { embedded.attach(this) }
-                    }
-                },
-            )
-            if (selected == "Videos" && !fullscreen) {
-                Button(onClick = {
-                    val dialog = FileDialog(null as Frame?, "Open local video", FileDialog.LOAD)
-                    dialog.isVisible = true
-                    val file = dialog.file?.let { File(dialog.directory, it) }
-                    dialog.dispose()
-                    if (file != null) openVideo(file)
-                }) { Text("Open video from PC") }
-                Text(current ?: "No video selected", color = Color.White)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(enabled = queueIndex > 0, onClick = { openQueueAt(queueIndex - 1) }) { Text("Previous") }
-                    Text(if (queueIndex >= 0) "Queue " + (queueIndex + 1) + " / " + queue.size else "Queue empty", color = Color.White)
-                    Button(enabled = queueIndex >= 0 && queueIndex + 1 < queue.size, onClick = { openQueueAt(queueIndex + 1) }) { Text("Next") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onFullscreenChange(!fullscreen) }) {
-                        Text(if (fullscreen) "Exit fullscreen (Esc)" else "Fullscreen (F)")
-                    }
-                }
-                Text("Playback diagnostics: $message", color = Color(0xFFE5CB87))
-                Text(embedded.lastError ?: "Embedded player ready. Open a video from your PC.", color = Color.White)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { message = if (embedded.togglePause()) "Pause toggled" else "Embedded not ready" }) { Text("Play / Pause") }
-                    Button(onClick = { message = if (embedded.seek(-10)) "Seek -10" else "Embedded not ready" }) { Text("-10 sec") }
-                    Button(onClick = { message = if (embedded.seek(10)) "Seek +10" else "Embedded not ready" }) { Text("+10 sec") }
-                    Button(onClick = { message = if (embedded.stop()) "Stopped" else "Embedded not ready" }) { Text("Stop") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { message = if (embedded.volumeDown()) "Volume -5" else "Player not ready" }) { Text("Vol -") }
-                    Button(onClick = { message = if (embedded.volumeUp()) "Volume +5" else "Player not ready" }) { Text("Vol +") }
-                    Button(onClick = { message = if (embedded.toggleMute()) "Mute toggled" else "Player not ready" }) { Text("Mute") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { message = if (embedded.nextAudioTrack()) "Audio track changed" else "No audio track" }) { Text("Next audio") }
-                    Button(onClick = { message = if (embedded.nextSubtitleTrack()) "Subtitle track changed" else "No subtitle track" }) { Text("Next subtitles") }
-                    Button(onClick = { message = if (embedded.subtitleOff()) "Subtitles off" else "Player not ready" }) { Text("Subtitles off") }
-                }
-                Text("Timeline  ${clock(playbackTime)} / ${clock(duration)}", color = Color.White)
-                Slider(
-                    value = seekTarget,
-                    onValueChange = { dragging = true; seekTarget = it },
-                    valueRange = 0f..100f,
-                    onValueChangeFinished = {
-                        message = if (duration > 0 && embedded.seekAbsolute(duration * seekTarget / 100.0)) "Seeked to ${seekTarget.toInt()}%" else "Duration unavailable"
-                        dragging = false
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { message = if (embedded.seekPercent(25)) "Jumped to 25%" else "Player not ready" }) { Text("25%") }
-                    Button(onClick = { message = if (embedded.seekPercent(50)) "Jumped to 50%" else "Player not ready" }) { Text("50%") }
-                    Button(onClick = { message = if (embedded.seekPercent(75)) "Jumped to 75%" else "Player not ready" }) { Text("75%") }
-                }
+    }
+    val playerShown = selected == "Now Playing"
 
-                Text("Phase 2 preview: video uses the bundled embedded libmpv player.", color = Color(0xFF9FA7B7))
-            } else if (!fullscreen) {
-                when (selected) {
-                    "Folders" -> FoldersPanel { file, files -> openVideo(file, files) }
-                    "Continue Watching" -> ContinueWatchingPanel(historyRevision) { file, position ->
-                        openVideo(file, listOf(file), position)
+    Box(Modifier.fillMaxSize().skyWallpaper(theme)) {
+        Row(Modifier.fillMaxSize()) {
+            if (!fullscreen) {
+                Sidebar(
+                    selected = selected,
+                    nowPlaying = currentFile?.nameWithoutExtension,
+                    paused = paused,
+                    onSelect = { go(it) },
+                    onTogglePause = { embedded.togglePause() },
+                    modifier = Modifier.width(240.dp).fillMaxHeight().padding(12.dp),
+                )
+            }
+            Column(
+                modifier = if (fullscreen) Modifier.weight(1f).fillMaxHeight()
+                else Modifier.weight(1f).fillMaxHeight().padding(start = 8.dp, end = 20.dp, top = 20.dp, bottom = 16.dp),
+            ) {
+                if (!fullscreen && !playerShown) {
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        CompositionLocalProvider(LocalCovers provides covers) { when (selected) {
+                            "Folders" -> FoldersScreen(library, organizer, hub, history, playOne)
+                            "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne) { file, position -> openVideo(file, listOf(file), position) }
+                            "Files" -> FilesScreen(library, playOne)
+                            else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync) { go("Files") }
+                        } }
                     }
-                    else -> Text("Desktop playback settings and HDR options will be added in subsequent milestones.", color = Color(0xFFC6C8D1))
+                }
+                if (playerShown && !fullscreen) {
+                    PlayerTopBar(
+                        title = currentFile?.nameWithoutExtension ?: "Nothing playing",
+                        queueLabel = if (queueIndex >= 0 && queue.size > 1) "Queue " + (queueIndex + 1) + " / " + queue.size else null,
+                        onBack = { go(previous) },
+                    )
+                }
+                // Keep the AWT Canvas HWND alive across navigation. Removing SwingPanel
+                // destroys the native window while libmpv still renders into it.
+                // A one-dp placeholder preserves the component's lifecycle in other pages.
+                SwingPanel(
+                    modifier = if (fullscreen || playerShown) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(1.dp),
+                    factory = {
+                        Canvas().apply {
+                            background = java.awt.Color.BLACK
+                            isFocusable = true
+                            videoCanvas = this
+                            SwingUtilities.invokeLater { embedded.attach(this) }
+                        }
+                    },
+                )
+                if (playerShown && !fullscreen) {
+                    PlayerControls(
+                        position = playbackTime,
+                        duration = duration,
+                        seekFraction = seekTarget,
+                        paused = paused,
+                        muted = muted,
+                        canPrevious = queueIndex > 0,
+                        canNext = queueIndex >= 0 && queueIndex + 1 < queue.size,
+                        status = message,
+                        onSeekChange = { dragging = true; seekTarget = it },
+                        onSeekFinished = {
+                            message = if (duration > 0 && embedded.seekAbsolute(duration * seekTarget / 100.0)) "Seeked to ${seekTarget.toInt()}%" else "Duration unavailable"
+                            dragging = false
+                        },
+                        onTogglePause = { message = if (embedded.togglePause()) "" else "Embedded not ready" },
+                        onStop = { stopPlayback() },
+                        onBack10 = { embedded.seek(-10) },
+                        onForward10 = { embedded.seek(10) },
+                        onPrevious = { openQueueAt(queueIndex - 1) },
+                        onNext = { openQueueAt(queueIndex + 1) },
+                        onAudio = { message = if (embedded.nextAudioTrack()) "Audio track changed" else "No audio track" },
+                        onSubtitles = { message = if (embedded.nextSubtitleTrack()) "Subtitle track changed" else "No subtitle track" },
+                        onSubtitlesOff = { message = if (embedded.subtitleOff()) "Subtitles off" else "Player not ready" },
+                        onVolumeDown = { message = if (embedded.volumeDown()) "Volume -5" else "Player not ready" },
+                        onVolumeUp = { message = if (embedded.volumeUp()) "Volume +5" else "Player not ready" },
+                        onMute = { embedded.toggleMute() },
+                        onFullscreen = { onFullscreenChange(true) },
+                        onOpenFile = { chooseLocalVideo()?.let { openVideo(it) } },
+                    )
                 }
             }
         }
     }
+}
+
+/**
+ * What a portrait lookup may cover: filename collections, every name found in the video names (which also gives the
+ * videos and the virtual subfolders of that name their portrait), and the drive folders holding videos.
+ */
+internal fun lookupTargets(all: List<WindowsMediaEntry>, data: OrganizerData): List<LookupTarget> {
+    val matches = data.match.filter { !it.hidden }.map { LookupTarget(ArtworkKeys.matchFolder(it.id), it.name) }
+    val names = FolderLogic.groupByNames(all, data.prefs.virtualRules, data.assignments).keys
+        .map { LookupTarget(ArtworkKeys.virtualFolder(it), FolderLogic.groupTitle(it)) }
+    val drives = all.mapNotNull { it.file.parentFile }.distinctBy { it.path.lowercase() }
+        .map { LookupTarget(driveCoverKey(it.path), FolderLogic.originalLabel(it.name)) }
+    return matches + names + drives
 }

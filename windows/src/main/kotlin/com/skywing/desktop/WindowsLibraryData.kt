@@ -20,13 +20,16 @@ internal data class WindowsMediaEntry(
     val size: Long,
     val modified: Long,
 ) {
-    val file: File get() = File(path)
+    /** Where the file is read from now: under another address of its network drive when the main one is down. */
+    val file: File get() = File(ShareHosts.reachable(path))
 }
 
-internal class WindowsMediaIndex {
+internal class WindowsMediaIndex(private val testIndexPath: Path? = null) {
     private val indexPath: Path by lazy {
-        val base = System.getenv("LOCALAPPDATA")?.takeIf { it.isNotBlank() } ?: System.getProperty("user.home")
-        Paths.get(base, "SkyWing", "library", "media-index.bin")
+        testIndexPath ?: run {
+            val base = System.getenv("LOCALAPPDATA")?.takeIf { it.isNotBlank() } ?: System.getProperty("user.home")
+            Paths.get(base, "SkyWing", "library", "media-index.bin")
+        }
     }
 
     @Synchronized
@@ -66,15 +69,24 @@ internal class WindowsMediaIndex {
     }
 
     @Synchronized
-    fun replaceSource(sourceId: String, sourceType: String, sourceName: String, files: List<File>) {
+    fun replaceSource(sourceId: String, sourceType: String, sourceName: String, files: List<File>, keep: (String) -> String = { it }) {
         require(sourceType == "PC" || sourceType == "SMB")
         val seen = HashSet<String>()
         val fresh = files.mapNotNull { file ->
-            val path = runCatching { file.toPath().toAbsolutePath().normalize().toString() }.getOrNull() ?: return@mapNotNull null
+            // [keep] turns the path that was read into the one the library keeps (the drive's main address).
+            val path = runCatching { keep(file.toPath().toAbsolutePath().normalize().toString()) }.getOrNull() ?: return@mapNotNull null
             if (!seen.add(path.lowercase(Locale.ROOT))) return@mapNotNull null
             WindowsMediaEntry(path, sourceId, sourceType, sourceName, file.length(), file.lastModified())
         }
         write(load().filterNot { it.sourceId == sourceId } + fresh)
+    }
+
+    /** Drops entries matching [unwanted]; returns how many were dropped. */
+    fun removeWhere(unwanted: (WindowsMediaEntry) -> Boolean): Int {
+        val all = load()
+        val kept = all.filterNot(unwanted)
+        if (kept.size != all.size) write(kept)
+        return all.size - kept.size
     }
 
     private fun write(entries: List<WindowsMediaEntry>) {
@@ -119,19 +131,19 @@ internal object WindowsVirtualNames {
     fun display(name: String): String = name.trim().replace(spaces, " ").split(' ')
         .joinToString(" ") { it.lowercase(Locale.ROOT).replaceFirstChar { c -> c.titlecase(Locale.ROOT) } }
 
-    fun of(fileName: String): List<String> {
+    fun of(fileName: String, rules: GroupingSwitches = GroupingSwitches()): List<String> {
         var text = fileName.substringBeforeLast('.', fileName).trim()
         while (true) {
             val tag = leadingTag.find(text) ?: break
             text = text.substring(tag.range.last + 1).trimStart()
         }
         val hyphen = text.indexOf('-')
-        val cutAtHyphen = hyphen >= 0
+        val cutAtHyphen = rules.stopAtHyphen && hyphen >= 0
         val head = if (cutAtHyphen) text.substring(0, hyphen) else text
-        val splitAtComma = ',' in head
+        val splitAtComma = rules.splitAtCommas && ',' in head
         var names = (if (splitAtComma) head.split(',') else listOf(head))
             .map(::clean).filter(String::isNotBlank)
-        if (!cutAtHyphen && !splitAtComma) {
+        if (rules.firstTwoWords && !cutAtHyphen && !splitAtComma) {
             names = names.map { it.split(' ').filter(String::isNotBlank).take(2).joinToString(" ") }
         }
         val seen = HashSet<String>()
@@ -222,7 +234,8 @@ internal class WindowsPlaybackHistoryStore {
     @Synchronized
     fun saveProgress(file: File, position: Double, duration: Double) {
         if (!position.isFinite() || !duration.isFinite() || duration <= 0) return
-        val path = file.absolutePath
+        // Kept under the drive's main address, so Continue watching finds it whichever address played it.
+        val path = ShareHosts.canonical(file.absolutePath)
         val current = load().filterNot { it.path.equals(path, ignoreCase = true) }
         val next = if (position < duration - 30 && position > 5) {
             listOf(WindowsWatchRecord(path, position, duration, System.currentTimeMillis())) + current
@@ -252,3 +265,4 @@ internal class WindowsPlaybackHistoryStore {
         private const val MAX_RECORDS = 100
     }
 }
+
