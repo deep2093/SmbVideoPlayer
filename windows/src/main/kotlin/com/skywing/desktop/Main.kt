@@ -52,7 +52,7 @@ private fun SkyWingDesktopShell() {
     var current by remember { mutableStateOf<String?>(null) }
     val playback = remember { LocalPlayback() }
     val embedded = remember { EmbeddedMpv() }
-    var experimental by remember { mutableStateOf(false) }
+    var experimental by remember { mutableStateOf(true) }
     var videoCanvas by remember { mutableStateOf<Canvas?>(null) }
     DisposableEffect(playback, embedded) { onDispose { playback.close(); embedded.close() } }
 
@@ -89,8 +89,8 @@ private fun SkyWingDesktopShell() {
                 }) { Text("Open video from PC") }
                 Text(current ?: "No video selected", color = Color.White)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { experimental = false }) { Text("External (stable)") }
-                    Button(onClick = { experimental = true; playback.stop() }) { Text("Embedded (experimental)") }
+                    Button(onClick = { embedded.stop(); experimental = false }) { Text("External (legacy)") }
+                    Button(onClick = { experimental = true; playback.stop() }) { Text("Embedded (default)") }
                 }
                 if (experimental) {
                     SwingPanel(
@@ -103,7 +103,7 @@ private fun SkyWingDesktopShell() {
                             }
                         },
                     )
-                    Text(embedded.lastError ?: "Experimental libmpv: open a video to test playback inside SkyWing.", color = Color.White)
+                    Text(embedded.lastError ?: "Embedded player ready. Open a video from your PC.", color = Color.White)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { message = if (experimental) if (embedded.togglePause()) "Pause toggled" else "Embedded not ready" else playback.togglePause() }) { Text("Play / Pause") }
