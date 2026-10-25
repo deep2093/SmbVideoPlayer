@@ -26,6 +26,13 @@ dependencies {
 
 tasks.test {
     systemProperty("skywing.test.runtimeClasspath", sourceSets.main.get().runtimeClasspath.asPath)
+    if (System.getenv("SKYWING_TEST_MPV") == "true") {
+        val nativeDir = requireNotNull(System.getenv("SKYWING_TEST_MPV_DIR")) {
+            "Set SKYWING_TEST_MPV_DIR to the directory containing the pinned libmpv-2.dll"
+        }
+        require(file("$nativeDir/libmpv-2.dll").isFile) { "Pinned libmpv-2.dll is missing" }
+        systemProperty("compose.application.resources.dir", file(nativeDir).absolutePath)
+    }
 }
 
 compose.desktop {

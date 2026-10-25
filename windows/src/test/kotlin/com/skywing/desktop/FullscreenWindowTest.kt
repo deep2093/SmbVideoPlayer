@@ -19,10 +19,11 @@ import java.awt.Robot
 import java.awt.event.KeyEvent
 import java.io.File
 import java.util.concurrent.FutureTask
-import javax.sound.sampled.AudioFileFormat
-import javax.sound.sampled.AudioFormat
-import javax.sound.sampled.AudioInputStream
-import javax.sound.sampled.AudioSystem
+import java.awt.image.BufferedImage
+import javax.imageio.ImageIO
+import javax.imageio.ImageTypeSpecifier
+import javax.imageio.IIOImage
+import javax.imageio.metadata.IIOMetadataNode
 import javax.swing.SwingUtilities
 import kotlin.test.*
 
@@ -89,12 +90,31 @@ class FullscreenWindowTest {
 
             // Optional real libmpv playback is required by CI; no external media downloads.
             val nativePlayback = System.getenv("SKYWING_TEST_MPV") == "true"
-            val media = File.createTempFile("skywing-fullscreen-", ".wav")
+            val media = File.createTempFile("skywing-fullscreen-", ".gif")
             try {
                 if (nativePlayback) {
-                    val format = AudioFormat(8000f, 16, 1, true, false)
-                    AudioInputStream(ByteArray(8000 * 2 * 60).inputStream(), format, 8000L * 60).use {
-                        AudioSystem.write(it, AudioFileFormat.Type.WAVE, media)
+                    // Exercise decoded video, without depending on an audio endpoint
+                    // on a hosted Windows runner. Sixty alternating one-second frames.
+                    val writer = ImageIO.getImageWritersByFormatName("gif").next()
+                    try {
+                        ImageIO.createImageOutputStream(media).use { output ->
+                            writer.output = output
+                            writer.prepareWriteSequence(null)
+                            repeat(60) { frame ->
+                                val image = BufferedImage(32, 32, BufferedImage.TYPE_INT_RGB)
+                                for (x in 0 until 32) for (y in 0 until 32) image.setRGB(x, y,
+                                    if (frame % 2 == 0) 0x2255AA else 0xAA5522)
+                                val metadata = writer.getDefaultImageMetadata(ImageTypeSpecifier.createFromRenderedImage(image), null)
+                                val tree = metadata.getAsTree("javax_imageio_gif_image_1.0") as IIOMetadataNode
+                                val control = tree.getElementsByTagName("GraphicControlExtension").item(0) as IIOMetadataNode
+                                control.setAttribute("delayTime", "100")
+                                metadata.setFromTree("javax_imageio_gif_image_1.0", tree)
+                                writer.writeToSequence(IIOImage(image, null, metadata), null)
+                            }
+                            writer.endWriteSequence()
+                        }
+                    } finally {
+                        writer.dispose()
                     }
                     assertTrue(edt { player.attach(canvas) }, player.lastError)
                     assertTrue(player.open(media))
@@ -182,6 +202,7 @@ class FullscreenWindowTest {
         val log = File.createTempFile("skywing-close-", ".log")
         val process = ProcessBuilder(
             File(System.getProperty("java.home"), "bin/java.exe").absolutePath,
+            "-Dcompose.application.resources.dir=${System.getProperty("compose.application.resources.dir", "")}",
             "-cp", System.getProperty("skywing.test.runtimeClasspath"), "com.skywing.desktop.MainKt"
         ).redirectErrorStream(true).redirectOutput(log).start()
         try {

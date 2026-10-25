@@ -53,7 +53,8 @@ jobs:
         env:
           SKYWING_TEST_MPV: "true"
         run: |
-          $env:PATH = "$(Resolve-Path 'windows/build/native-resources/windows');$env:PATH"
+          $env:SKYWING_TEST_MPV_DIR = (Resolve-Path 'windows/build/native-resources/windows').Path
+          $env:PATH = "$env:SKYWING_TEST_MPV_DIR;$env:PATH"
           .\gradlew.bat -p windows test --no-daemon --stacktrace
       - name: Upload test reports
         if: always()

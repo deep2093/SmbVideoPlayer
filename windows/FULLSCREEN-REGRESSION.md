@@ -57,11 +57,13 @@ Another test launches the production application in a separate JVM, sends
 WM_CLOSE only to a visible window belonging to that child process, and requires
 exit within 20 seconds with code zero (no lingering background process).
 
-Set SKYWING_TEST_MPV=true with the pinned libmpv DLL on PATH to require real
-libmpv initialization/playback. The test generates a 60-second WAV locally,
-uses force-window embedded output, checks playback across transitions, then
+Set SKYWING_TEST_MPV=true and SKYWING_TEST_MPV_DIR to the pinned libmpv DLL's
+directory (not a generic library search path) to require real
+libmpv initialization/playback. The test generates a 60-second animated GIF locally,
+uses decoded video in the embedded output, checks playback across transitions, then
 pause/seek/mute/resume and advancing playback, and destroys mpv before the
-frame. This checks native embedding and audio playback; it does not certify
+frame. It needs no audio endpoint on hosted runners. This checks native embedding
+and video playback; it does not certify
 hardware-decoded video, HDR, multi-monitor DPI or a particular GPU driver.
 
 GitHub Windows CI runs this native path, publishes test reports even on failure,
