@@ -28,6 +28,7 @@ compose.desktop {
     application {
         mainClass = "com.skywing.desktop.MainKt"
         nativeDistributions {
+            appResourcesRootDir.set(layout.buildDirectory.dir("native-resources"))
             // Build these packages on Windows x64. ARM/32-bit variants are intentionally excluded.
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
             packageName = "SkyWing"
