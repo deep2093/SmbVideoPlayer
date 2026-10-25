@@ -49,6 +49,22 @@ compose.desktop {
             packageVersion = previewVersion
             description = "SkyWing Windows x64 media player (development preview)"
             vendor = "SkyWing"
+            // Offer SkyWing in Explorer's Open with menu without taking over defaults.
+            val videoAssociations = mapOf(
+                "mp4" to "video/mp4",
+                "m4v" to "video/x-m4v",
+                "mkv" to "video/x-matroska",
+                "webm" to "video/webm",
+                "mov" to "video/quicktime",
+                "avi" to "video/x-msvideo",
+                "wmv" to "video/x-ms-wmv",
+                "ts" to "video/mp2t",
+                "m2ts" to "video/mp2t",
+                "hevc" to "video/hevc",
+            )
+            videoAssociations.forEach { (extension, mimeType) ->
+                windows.fileAssociation(mimeType, extension, "SkyWing video")
+            }
             windows {
                 upgradeUuid = "f40c59ef-e520-4e10-b7a2-b86e7458f923"
                 menu = true

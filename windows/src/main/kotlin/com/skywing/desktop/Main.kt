@@ -43,14 +43,17 @@ import java.awt.KeyEventDispatcher
 import javax.swing.text.JTextComponent
 import java.awt.event.KeyEvent
 import java.awt.FileDialog
+import java.awt.dnd.DnDConstants
+import java.awt.dnd.DropTarget
 import javax.swing.SwingUtilities
 import java.awt.Frame
 import java.io.File
 
-fun main() = application {
+fun main(args: Array<String>) = application {
     val state = rememberWindowState(width = 1200.dp, height = 760.dp)
     var closing by remember { mutableStateOf(false) }
     val embedded = remember { EmbeddedMpv() }
+    val initialFile = remember { args.firstOrNull()?.let(::File) }
     val scope = rememberCoroutineScope()
     DisposableEffect(embedded) {
         val hook = Thread({ embedded.close() }, "skywing-mpv-shutdown")
@@ -74,12 +77,12 @@ fun main() = application {
         title = "SkyWing for Windows (Development Preview)",
         state = state,
     ) {
-        SkyWingWindowContent(window, embedded, closing)
+        SkyWingWindowContent(window, embedded, closing, initialFile)
     }
 }
 
 @Composable
-internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: EmbeddedMpv, closing: Boolean) {
+internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: EmbeddedMpv, closing: Boolean, initialFile: File? = null) {
         var fullscreen by remember { mutableStateOf(false) }
         val controller = remember(awtWindow) { BorderlessFullscreen(awtWindow) }
         val changeFullscreen: (Boolean) -> Unit = { enabled ->
@@ -93,11 +96,11 @@ internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: Embedded
                 }
             }
         }
-        MaterialTheme { SkyWingDesktopShell(awtWindow, embedded, fullscreen, closing, changeFullscreen) }
+        MaterialTheme { SkyWingDesktopShell(awtWindow, embedded, fullscreen, closing, changeFullscreen, initialFile) }
 }
 
 @Composable
-private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMpv, fullscreen: Boolean, closing: Boolean, onFullscreenChange: (Boolean) -> Unit) {
+private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMpv, fullscreen: Boolean, closing: Boolean, onFullscreenChange: (Boolean) -> Unit, initialFile: File?) {
     val sections = listOf("Folders", "Videos", "Continue Watching", "Settings")
     var selected by remember { mutableStateOf("Videos") }
     var message by remember { mutableStateOf("Choose a local video to play.") }
@@ -107,6 +110,51 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
     var dragging by remember { mutableStateOf(false) }
     var playbackTime by remember { mutableStateOf(0.0) }
     var duration by remember { mutableStateOf(0.0) }
+    var initialFilePending by remember { mutableStateOf(initialFile) }
+    fun openVideo(file: File) {
+        if (closing) return
+        if (!file.isFile) {
+            message = "File not available: ${file.name}"
+            return
+        }
+        selected = "Videos"
+        current = file.name
+        val canvas = videoCanvas
+        message = if (canvas != null && embedded.attach(canvas)) {
+            if (embedded.open(file)) "Load request accepted in ${embedded.lastLoadCommandMillis} ms (not first-frame time)"
+            else "Embedded load failed"
+        } else embedded.lastError ?: "Video surface not ready"
+    }
+    val latestOpenVideo by rememberUpdatedState<(File) -> Unit>({ file -> openVideo(file) })
+    // The Canvas is a heavyweight child; both it and the frame need drop targets.
+    DisposableEffect(awtWindow, videoCanvas) {
+        val listener = LocalVideoDropHandler { file -> latestOpenVideo(file) }
+        val oldWindowTarget = awtWindow.dropTarget
+        val target = DropTarget(awtWindow, DnDConstants.ACTION_COPY, listener, true)
+        val canvas = videoCanvas
+        val oldCanvasTarget = canvas?.dropTarget
+        val canvasTarget = canvas?.let { DropTarget(it, DnDConstants.ACTION_COPY, listener, true) }
+        onDispose {
+            awtWindow.dropTarget = oldWindowTarget
+            canvas?.dropTarget = oldCanvasTarget
+            target.removeDropTargetListener(listener)
+            canvasTarget?.removeDropTargetListener(listener)
+        }
+    }
+    LaunchedEffect(videoCanvas, initialFilePending) {
+        val file = initialFilePending ?: return@LaunchedEffect
+        val canvas = videoCanvas ?: return@LaunchedEffect
+        repeat(100) {
+            if (canvas.isDisplayable) {
+                initialFilePending = null
+                openVideo(file)
+                return@LaunchedEffect
+            }
+            delay(50)
+        }
+        initialFilePending = null
+        message = "Video surface not ready"
+    }
     LaunchedEffect(embedded, closing) {
         if (closing) return@LaunchedEffect
         while (true) {
@@ -211,13 +259,7 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
                     dialog.isVisible = true
                     val file = dialog.file?.let { File(dialog.directory, it) }
                     dialog.dispose()
-                    if (file != null) {
-                        current = file.name
-                        val canvas = videoCanvas
-                        message = if (canvas != null && embedded.attach(canvas)) {
-                            if (embedded.open(file)) "Load request accepted in ${embedded.lastLoadCommandMillis} ms (not first-frame time)" else "Embedded load failed"
-                        } else embedded.lastError ?: "Video surface not ready"
-                    }
+                    if (file != null) openVideo(file)
                 }) { Text("Open video from PC") }
                 Text(current ?: "No video selected", color = Color.White)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

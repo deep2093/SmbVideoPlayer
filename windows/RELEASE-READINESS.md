@@ -44,3 +44,20 @@ Packaging preserves legal files and runtime hashes, and CI verifies their
 presence. **The licensing release gate remains open** pending the corresponding
 native dependency sources and remaining component notices in
 legal/SOURCE-STATUS.md. Do not call this a completed distribution audit.
+
+## Explorer and drag-and-drop preview
+
+The installer registers SkyWing as an available Open with choice for MP4, M4V,
+MKV, WebM, MOV, AVI, WMV, TS, M2TS and HEVC files. It does not request default
+ownership of those formats. A file opened through Explorer is passed to the
+application's existing embedded player. Dropping a regular local file on either
+the video canvas or the surrounding window uses that same player and keeps its
+native HWND. Directories and non-file transfer data are ignored. Multiple dropped
+files currently open the first regular file; queueing is a later milestone.
+
+Acceptance on Windows: upgrade through the new MSI, right-click a local MP4
+and choose Open with → SkyWing (on Windows 11, use Choose another app if it is
+not in the short menu). Confirm playback starts. Then drag a different MKV from
+Explorer onto the video area and confirm it replaces the current video. Press F,
+Esc and close to check the existing fullscreen and shutdown behavior. Repeat
+with a filename containing spaces or non-ASCII characters.
