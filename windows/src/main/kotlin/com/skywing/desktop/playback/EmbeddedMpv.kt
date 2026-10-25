@@ -76,6 +76,13 @@ class EmbeddedMpv : Closeable {
     fun togglePause(): Boolean = command("cycle", "pause")
     fun seek(seconds: Int): Boolean = command("seek", seconds.toString(), "relative")
     fun stop(): Boolean = command("stop")
+    fun volumeUp(): Boolean = command("add", "volume", "5")
+    fun volumeDown(): Boolean = command("add", "volume", "-5")
+    fun toggleMute(): Boolean = command("cycle", "mute")
+    fun nextAudioTrack(): Boolean = command("cycle", "aid")
+    fun nextSubtitleTrack(): Boolean = command("cycle", "sid")
+    fun subtitleOff(): Boolean = command("set", "sid", "no")
+    fun seekPercent(percent: Int): Boolean = command("seek", percent.coerceIn(0, 100).toString(), "absolute-percent")
     override fun close() {
         val native = api
         val context = instance
