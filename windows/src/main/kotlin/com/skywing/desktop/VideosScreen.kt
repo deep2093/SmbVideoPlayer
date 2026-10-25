@@ -1,8 +1,8 @@
 package com.skywing.desktop
 
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,7 +27,7 @@ private val SOURCE_NAMES = listOf("All", "This PC", "Network")
 @Composable
 internal fun VideosScreen(
     library: LibraryModel,
-    custom: CustomFolders,
+    organizer: Organizer,
     hub: HubState,
     selection: SelectionState,
     history: Map<String, WindowsWatchRecord>,
@@ -59,7 +59,7 @@ internal fun VideosScreen(
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         if (selection.active) {
-            SelectionBar(selection, shown, custom, onPlay)
+            SelectionBar(selection, shown, organizer, onPlay)
         } else {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 PageTitle(
@@ -81,31 +81,26 @@ internal fun VideosScreen(
                 }, enabled = shown.isNotEmpty(), icon = SkyIcon.Play)
             }
         }
+        // Continue watching sits at the top of the same grid, so the whole page scrolls top to bottom.
         val header: LazyGridScope.() -> Unit = {
             if (continueItems.isNotEmpty() && hub.videoQuery.isBlank() && !selection.active) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SectionLabel("Continue watching")
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(continueItems.size) { index ->
-                                val (entry, record) = continueItems[index]
-                                VideoCard(
-                                    entry = entry,
-                                    modifier = Modifier.width(230.dp),
-                                    progress = (record.position / record.duration).toFloat().coerceIn(0f, 1f),
-                                    detail = formatClock(record.position) + " of " + formatClock(record.duration),
-                                    onClick = { onResume(entry.file, record.position) },
-                                )
-                            }
-                        }
-                        SectionLabel("All videos")
-                    }
+                item(span = { GridItemSpan(maxLineSpan) }, key = "continue-label") { SectionLabel("Continue watching") }
+                items(continueItems, key = { "continue:" + it.first.path.lowercase() }) { (entry, record) ->
+                    VideoCard(
+                        entry = entry,
+                        progress = (record.position / record.duration).toFloat().coerceIn(0f, 1f),
+                        detail = formatClock(record.position) + " of " + formatClock(record.duration),
+                        listMode = organizer.data.prefs.listMode,
+                        onClick = { onResume(entry.file, record.position) },
+                    )
                 }
+                item(span = { GridItemSpan(maxLineSpan) }, key = "all-label") { SectionLabel("All videos") }
             }
         }
         VideoGridView(
             entries = shown,
             state = hub.grid("videos"),
+            prefs = organizer.data.prefs,
             selection = selection,
             history = history,
             onPlay = onPlay,

@@ -21,7 +21,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,6 +43,8 @@ private class SettingsPage(val title: String, val subtitle: String, val icon: Sk
 private val PAGES = listOf(
     SettingsPage("Appearance", "Glass theme", SkyIcon.Palette),
     SettingsPage("Library", "Sources and what is indexed", SkyIcon.VideoLibrary),
+    SettingsPage("Auto grouping", "How file names become folders", SkyIcon.Grid),
+    SettingsPage("App layout", "Folder tabs, columns, list or grid", SkyIcon.Folder),
     SettingsPage("Playback", "Keyboard shortcuts", SkyIcon.Keyboard),
     SettingsPage("About", "SkyWing for Windows", SkyIcon.Info),
 )
@@ -52,6 +58,7 @@ internal fun SettingsScreen(
     current: SkyTheme,
     onTheme: (SkyTheme) -> Unit,
     library: LibraryModel,
+    organizer: Organizer,
     onOpenFiles: () -> Unit,
 ) {
     var open by remember { mutableStateOf<String?>(null) }
@@ -67,11 +74,15 @@ internal fun SettingsScreen(
         },
     ) { page ->
         if (page == null) {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                PageTitle("Settings", "Make SkyWing yours")
-                PAGES.forEach { entry ->
-                    SettingsRow(entry.icon, entry.title, entry.subtitle) { open = entry.title }
+            val scroll = rememberScrollState()
+            Box(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize().padding(end = 14.dp).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PageTitle("Settings", "Make SkyWing yours")
+                    PAGES.forEach { entry ->
+                        SettingsRow(entry.icon, entry.title, entry.subtitle) { open = entry.title }
+                    }
                 }
+                ColumnScrollbar(scroll, Modifier.align(Alignment.CenterEnd))
             }
         } else {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -79,13 +90,19 @@ internal fun SettingsScreen(
                     SkyIconButton(SkyIcon.Back, "Back to Settings", { open = null })
                     PageTitle(page)
                 }
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    when (page) {
-                        "Appearance" -> AppearancePage(current, onTheme)
-                        "Library" -> LibraryPage(library, onOpenFiles)
-                        "Playback" -> PlaybackPage()
-                        else -> AboutPage()
+                val scroll = rememberScrollState()
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    Column(Modifier.fillMaxSize().padding(end = 14.dp).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        when (page) {
+                            "Appearance" -> AppearancePage(current, onTheme)
+                            "Library" -> LibraryPage(library, organizer, onOpenFiles)
+                            "Auto grouping" -> GroupingPage(organizer)
+                            "App layout" -> LayoutPage(organizer)
+                            "Playback" -> PlaybackPage()
+                            else -> AboutPage()
+                        }
                     }
+                    ColumnScrollbar(scroll, Modifier.align(Alignment.CenterEnd))
                 }
             }
         }
@@ -156,16 +173,103 @@ private fun ThemeChoice(option: SkyTheme, selected: Boolean, onClick: () -> Unit
 }
 
 @Composable
-private fun LibraryPage(library: LibraryModel, onOpenFiles: () -> Unit) {
+private fun LibraryPage(library: LibraryModel, organizer: Organizer, onOpenFiles: () -> Unit) {
     val theme = LocalSkyTheme.current
     val pc = library.all.count { it.sourceType == "PC" }
     val network = library.all.count { it.sourceType == "SMB" }
     Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("${library.all.size} videos in your library", color = theme.ink, style = MaterialTheme.typography.titleMedium)
         Text("$pc on this PC  ·  $network on network shares", color = theme.muted, style = MaterialTheme.typography.bodyMedium)
-        Text("${library.virtual.size} virtual folders are made from the video names.", color = theme.muted, style = MaterialTheme.typography.bodyMedium)
+        val data = organizer.data
+        Text(
+            "${data.own.size + data.match.size} custom folders  ·  ${data.sets.size} virtual folders",
+            color = theme.muted, style = MaterialTheme.typography.bodyMedium,
+        )
     }
     Row { SkyButton("Manage folders and shares", onOpenFiles, icon = SkyIcon.Folder) }
+}
+
+/** A labelled on/off switch with a line of explanation, as on the Android settings pages. */
+@Composable
+private fun SwitchRow(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    val theme = LocalSkyTheme.current
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = theme.ink, style = MaterialTheme.typography.bodyMedium)
+            Text(detail, color = theme.muted, style = MaterialTheme.typography.bodySmall)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(checkedTrackColor = theme.accent, checkedThumbColor = theme.onAccent),
+        )
+    }
+}
+
+/**
+ * Settings › Auto grouping: the three switches that turn file names into folder names, set separately for Virtual
+ * folders and for the single videos inside Custom folders. Changing them regroups at once; folders filed by hand stay.
+ */
+@Composable
+private fun GroupingPage(organizer: Organizer) {
+    val theme = LocalSkyTheme.current
+    val prefs = organizer.data.prefs
+    Text(
+        "How names in your file names become folders. With all three on, \"Tom Cruise, Nicole Kidman - Movie\" goes into Tom Cruise and Nicole Kidman, " +
+            "and \"Tom Cruise movie\" into Tom Cruise. Videos you filed by hand keep their folder.",
+        color = theme.muted, style = MaterialTheme.typography.bodySmall,
+    )
+    listOf(
+        Triple("Virtual folders", prefs.virtualRules) { rules: GroupingSwitches -> organizer.updatePrefs { it.copy(virtualRules = rules) } },
+        Triple("Custom folders", prefs.customRules) { rules: GroupingSwitches -> organizer.updatePrefs { it.copy(customRules = rules) } },
+    ).forEach { (title, rules, save) ->
+        Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, color = theme.ink, style = MaterialTheme.typography.titleMedium)
+            SwitchRow("Stop at the first hyphen", "Only the text before the first \"-\" names the folder.", rules.stopAtHyphen) { save(rules.copy(stopAtHyphen = it)) }
+            SwitchRow("Split at commas", "Each name before the hyphen gets its own folder; the video is listed in each.", rules.splitAtCommas) { save(rules.copy(splitAtCommas = it)) }
+            SwitchRow("First two words", "A name with no hyphen or comma uses its first two words.", rules.firstTwoWords) { save(rules.copy(firstTwoWords = it)) }
+        }
+    }
+}
+
+/** Settings › App layout: which Folders tabs show and their order, the number of columns, and list or grid. */
+@Composable
+private fun LayoutPage(organizer: Organizer) {
+    val theme = LocalSkyTheme.current
+    val prefs = organizer.data.prefs
+    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Folders tabs", color = theme.ink, style = MaterialTheme.typography.titleMedium)
+        Text("Choose which tabs Folders shows and their order. At least one stays on. Hold a tab to rename it.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
+        FolderTabs.arranged(prefs.tabs).forEach { tab ->
+            val on = tab in prefs.tabs
+            val at = prefs.tabs.indexOf(tab)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Checkbox(
+                    checked = on,
+                    enabled = !on || prefs.tabs.size > 1,
+                    onCheckedChange = { tick -> organizer.updatePrefs { it.copy(tabs = if (tick) it.tabs + tab else it.tabs - tab) } },
+                    colors = CheckboxDefaults.colors(checkedColor = theme.accent, checkmarkColor = theme.onAccent, uncheckedColor = theme.muted),
+                )
+                Text(prefs.tabName(tab), color = if (on) theme.ink else theme.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                SkyButton("Earlier", {
+                    organizer.updatePrefs { it.copy(tabs = it.tabs.toMutableList().apply { add(at - 1, removeAt(at)) }) }
+                }, enabled = on && at > 0, primary = false)
+                SkyButton("Later", {
+                    organizer.updatePrefs { it.copy(tabs = it.tabs.toMutableList().apply { add(at + 1, removeAt(at)) }) }
+                }, enabled = on && at in 0 until prefs.tabs.lastIndex, primary = false)
+            }
+        }
+    }
+    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Grid columns", color = theme.ink, style = MaterialTheme.typography.titleMedium)
+        Text("Auto fits as many cards as the window allows. Cards keep a 16:9 shape.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
+        SkyChipBar(listOf("Auto", "2", "3", "4", "5"), if (prefs.columns in 2..5) prefs.columns - 1 else 0, { index ->
+            organizer.updatePrefs { it.copy(columns = if (index == 0) 0 else index + 1) }
+        })
+        SwitchRow("Show as list", "One folder or video per line, with a small picture.", prefs.listMode) { list ->
+            organizer.updatePrefs { it.copy(listMode = list) }
+        }
+    }
 }
 
 @Composable

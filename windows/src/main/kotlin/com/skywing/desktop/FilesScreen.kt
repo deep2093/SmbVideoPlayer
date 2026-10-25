@@ -8,7 +8,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -97,7 +101,9 @@ private fun LocalSources(library: LibraryModel) {
         }
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val scroll = rememberScrollState()
+    Box(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().padding(end = 14.dp).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SkyButton("Add folder", {
                 val chooser = JFileChooser().apply {
@@ -139,8 +145,11 @@ private fun LocalSources(library: LibraryModel) {
             }
         }
     }
+    ColumnScrollbar(scroll, Modifier.align(Alignment.CenterEnd))
+    }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> Unit) {
     val browser = remember { WindowsShareBrowser() }
@@ -156,6 +165,8 @@ private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> 
     var message by remember { mutableStateOf("Enter a network share. SkyWing uses your Windows sign-in.") }
     var loading by remember { mutableStateOf(false) }
     var indexedCount by remember { mutableStateOf<Int?>(null) }
+    // The share as the library keeps it (main address), even when it was opened through another address.
+    var mainRoot by remember { mutableStateOf<String?>(null) }
 
     fun load(share: Path, folder: Path) {
         if (loading) return
@@ -176,9 +187,14 @@ private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> 
         }
     }
 
-    fun connect(addresses: List<String>) {
-        val candidates = addresses.map { it.trim() }.filter { it.isNotBlank() }.distinct()
-        if (candidates.isEmpty()) {
+    /**
+     * Opens [main] (\\server\share). When its server does not answer on the SMB port, the [others] addresses are
+     * tried (for example 192.168.71.249 when 192.168.71.250 is down) and the one that answered is remembered. The
+     * library keeps the main address either way, like Other addresses on Android.
+     */
+    fun connect(main: String, others: String) {
+        val clean = main.trim().trimEnd('\\', '/')
+        if (clean.isEmpty()) {
             message = "Enter a network path."
             return
         }
@@ -186,31 +202,26 @@ private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> 
         loading = true
         message = "Opening network share…"
         scope.launch {
-            val failures = mutableListOf<String>()
-            var connected = false
             try {
-                for ((index, candidate) in candidates.withIndex()) {
-                    try {
-                        val share = browser.shareRoot(candidate)
-                        val result = browser.list(share, share)
-                        root = share
-                        directory = share
-                        listing = result
-                        primaryAddress = candidate
-                        message = if (index > 0) {
-                            "Connected using the other address."
-                        } else if (result.truncated) {
-                            "Connected. Showing the first 500 items."
-                        } else {
-                            "Connected. " + result.entries.size + " items."
-                        }
-                        connected = true
-                        break
-                    } catch (error: Exception) {
-                        failures += (error.message ?: "Cannot open network folder")
-                    }
+                browser.shareRoot(clean)
+                val host = requireNotNull(ShareHosts.hostOf(clean)) { "Enter a network path such as \\\\server\\share" }
+                ShareHosts.register(clean, others)
+                val answering = withContext(Dispatchers.IO) { ShareHosts.resolve(host) } ?: host
+                val share = browser.shareRoot(ShareHosts.withHost(clean, answering))
+                val result = browser.list(share, share)
+                root = share
+                directory = share
+                mainRoot = clean
+                listing = result
+                message = when {
+                    !answering.equals(host, ignoreCase = true) -> "Connected using the other address $answering."
+                    result.truncated -> "Connected. Showing the first 500 items."
+                    else -> "Connected. " + result.entries.size + " items."
                 }
-                if (!connected) message = failures.lastOrNull() ?: "Cannot open network share"
+                library.changed()
+            } catch (error: Exception) {
+                message = (error.message ?: "Cannot open network share") +
+                    if (ShareHosts.parse(others).isEmpty()) "" else " (the other addresses did not answer either)"
             } finally {
                 loading = false
             }
@@ -221,13 +232,14 @@ private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             SkyField(profileName, { profileName = it }, "Name (for example Home server)", Modifier.width(220.dp))
             SkyField(primaryAddress, { primaryAddress = it }, "\\\\server\\share", Modifier.weight(1f))
-            SkyField(alternateAddress, { alternateAddress = it }, "Other address (optional)", Modifier.weight(1f))
+            SkyField(alternateAddress, { alternateAddress = it }, "Other addresses, e.g. 192.168.71.249", Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            SkyButton("Open share", { connect(listOf(primaryAddress, alternateAddress)) }, enabled = !loading, icon = SkyIcon.Cloud)
+            SkyButton("Open share", { connect(primaryAddress, alternateAddress) }, enabled = !loading, icon = SkyIcon.Cloud)
             SkyButton("Save", {
                 try {
                     profiles = profileStore.save(WindowsShareProfile(profileName.trim(), primaryAddress.trim(), alternateAddress.trim()))
+                    ShareHosts.register(primaryAddress, alternateAddress)
                     message = "Share saved."
                 } catch (error: Exception) {
                     message = error.message ?: "Could not save the share"
@@ -236,13 +248,14 @@ private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> 
         }
         StatusLine(message)
         if (profiles.isNotEmpty()) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            // Wraps onto more lines instead of running off the side.
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 profiles.forEach { profile ->
                     SkyChip(profile.name, false, {
                         profileName = profile.name
                         primaryAddress = profile.primaryAddress
                         alternateAddress = profile.alternateAddress
-                        connect(listOf(profile.primaryAddress, profile.alternateAddress))
+                        connect(profile.primaryAddress, profile.alternateAddress)
                     }, icon = SkyIcon.Cloud)
                     SkyIconButton(SkyIcon.Close, "Remove " + profile.name, {
                         try {
@@ -271,9 +284,10 @@ private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> 
                     scope.launch {
                         try {
                             val result = browser.scan(share, share)
-                            val sourceName = profileName.ifBlank { share.toString() }
+                            val sourceName = profileName.ifBlank { mainRoot ?: share.toString() }
                             val sourceId = "SMB:" + sourceName.trim().lowercase()
-                            withContext(Dispatchers.IO) { library.store.replaceSource(sourceId, "SMB", sourceName, result.files) }
+                            // Saved under the main address, so the library stays the same whichever address answered.
+                            withContext(Dispatchers.IO) { library.store.replaceSource(sourceId, "SMB", sourceName, result.files, ShareHosts::canonical) }
                             indexedCount = result.files.size
                             library.changed()
                             message = if (result.truncated) "Added the first 20,000 videos from this share." else "Added " + result.files.size + " videos from this share."
@@ -285,7 +299,9 @@ private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> 
                     }
                 }, enabled = !loading, icon = SkyIcon.VideoLibrary)
             }
-            LazyColumn(Modifier.fillMaxWidth().weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+            val listState = rememberLazyListState()
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+            LazyColumn(Modifier.fillMaxSize().padding(end = 14.dp), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
                 items(listing.entries, key = { it.file.absolutePath }) { entry ->
                     Row(
                         Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(14.dp))
@@ -303,6 +319,8 @@ private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> 
                         Text(entry.file.name, color = theme.ink, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
+            }
+            ListScrollbar(listState, Modifier.align(Alignment.CenterEnd))
             }
         }
     }

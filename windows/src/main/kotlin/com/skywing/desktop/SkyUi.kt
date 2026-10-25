@@ -3,11 +3,13 @@ package com.skywing.desktop
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ScrollbarStyle
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,9 +39,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -50,13 +49,37 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.v2.ScrollbarAdapter
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
 import java.io.File
 import java.util.Locale
 
-/** Click and hold (long press) with a hand cursor, as on every card and button. */
+/** Click and hold (long press) with a hand cursor, as on every card and button. A right click does what holding does. */
 @OptIn(ExperimentalFoundationApi::class)
 internal fun Modifier.skyClickable(onClick: () -> Unit, onLongClick: (() -> Unit)? = null, enabled: Boolean = true): Modifier =
-    this.pointerHoverIcon(PointerIcon.Hand).combinedClickable(enabled = enabled, onLongClick = onLongClick, onClick = onClick)
+    this.pointerHoverIcon(PointerIcon.Hand)
+        .then(
+            if (onLongClick == null || !enabled) Modifier
+            else Modifier.pointerInput(onLongClick) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) onLongClick()
+                    }
+                }
+            },
+        )
+        .combinedClickable(enabled = enabled, onLongClick = onLongClick, onClick = onClick)
 
 internal fun formatSize(bytes: Long): String {
     if (bytes <= 0) return ""
@@ -118,7 +141,14 @@ internal fun SkyButton(
 
 /** A rounded filter or tab chip with a lens behind it when selected (like the Android navigation bar). */
 @Composable
-internal fun SkyChip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, icon: SkyIcon? = null) {
+internal fun SkyChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: SkyIcon? = null,
+    onLongClick: (() -> Unit)? = null,
+) {
     val theme = LocalSkyTheme.current
     val lens by animateColorAsState(
         when {
@@ -130,7 +160,7 @@ internal fun SkyChip(text: String, selected: Boolean, onClick: () -> Unit, modif
     )
     val ink = if (selected) theme.accent else theme.ink.copy(alpha = if (theme.light) 0.78f else 0.88f)
     Row(
-        modifier.clip(RoundedCornerShape(50)).background(lens).skyClickable(onClick).padding(horizontal = 16.dp, vertical = 9.dp),
+        modifier.clip(RoundedCornerShape(50)).background(lens).skyClickable(onClick, onLongClick).padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -264,7 +294,8 @@ internal fun SelectionMark(selected: Boolean, modifier: Modifier = Modifier) {
 
 /**
  * One folder card, the same for Custom, Virtual and Original folders: the cover (a picture from the first
- * video), the name and a short detail line. Clicking opens it; holding opens its options.
+ * video), the name and a short detail line. Clicking opens it; holding (or a right click) opens its options.
+ * [listMode] shows it as a row; [selected] is null when folders are not being selected.
  */
 @Composable
 internal fun FolderCard(
@@ -274,24 +305,25 @@ internal fun FolderCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onLongClick: (() -> Unit)? = null,
+    listMode: Boolean = false,
+    selected: Boolean? = null,
 ) {
     val theme = LocalSkyTheme.current
-    Column(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(theme.surface).skyClickable(onClick, onLongClick),
-    ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+    val picture: @Composable (Modifier) -> Unit = { pictureModifier ->
+        Box(pictureModifier) {
             if (cover != null) {
                 Thumb(cover.file, cover.modified, Modifier.fillMaxSize(), glyph = SkyIcon.Folder)
             } else {
                 Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(theme.card, theme.surface))), contentAlignment = Alignment.Center) {
-                    SkyIconView(SkyIcon.Folder, theme.muted.copy(alpha = 0.6f), size = 40.dp)
+                    SkyIconView(SkyIcon.Folder, theme.muted.copy(alpha = 0.6f), size = if (listMode) 26.dp else 40.dp)
                 }
             }
+            if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
-        Column(Modifier.padding(start = 10.dp, end = 8.dp, top = 7.dp, bottom = 9.dp)) {
-            Text(title, color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(detail, color = theme.muted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
+    }
+    CardFrame(modifier, selected == true, listMode, onClick, onLongClick, picture) {
+        Text(title, color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(detail, color = theme.muted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -305,14 +337,11 @@ internal fun VideoCard(
     selected: Boolean? = null,
     onLongClick: (() -> Unit)? = null,
     detail: String? = null,
+    listMode: Boolean = false,
 ) {
     val theme = LocalSkyTheme.current
-    Column(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-            .background(if (selected == true) theme.accent.copy(alpha = 0.22f) else theme.surface)
-            .skyClickable(onClick, onLongClick),
-    ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+    val picture: @Composable (Modifier) -> Unit = { pictureModifier ->
+        Box(pictureModifier) {
             Thumb(entry.file, entry.modified, Modifier.fillMaxSize())
             if (progress != null && progress > 0f) {
                 Box(
@@ -320,15 +349,75 @@ internal fun VideoCard(
                         .background(theme.accent),
                 )
             }
-            if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(8.dp))
+            if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
-        Column(Modifier.padding(start = 10.dp, end = 8.dp, top = 7.dp, bottom = 9.dp)) {
-            Text(entry.title(), color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                detail ?: listOf(formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }.joinToString("  ·  "),
-                color = theme.muted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+    }
+    CardFrame(modifier, selected == true, listMode, onClick, onLongClick, picture) {
+        Text(entry.title(), color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            detail ?: listOf(formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }.joinToString("  ·  "),
+            color = theme.muted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** The frame shared by folder and video cards: a 16:9 picture over the text, or a row with a small picture in list mode. */
+@Composable
+private fun CardFrame(
+    modifier: Modifier,
+    highlighted: Boolean,
+    listMode: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+    picture: @Composable (Modifier) -> Unit,
+    text: @Composable () -> Unit,
+) {
+    val theme = LocalSkyTheme.current
+    val frame = modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+        .background(if (highlighted) theme.accent.copy(alpha = 0.22f) else theme.surface)
+        .skyClickable(onClick, onLongClick)
+    if (listMode) {
+        Row(frame.padding(6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            picture(Modifier.width(128.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)))
+            Column(Modifier.weight(1f)) { text() }
+        }
+    } else {
+        Column(frame) {
+            picture(Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+            Column(Modifier.padding(start = 10.dp, end = 8.dp, top = 7.dp, bottom = 9.dp)) { text() }
+        }
+    }
+}
+
+/** One entry of a card's or a page's menu. */
+internal data class MenuAction(val label: String, val icon: SkyIcon? = null, val enabled: Boolean = true, val action: () -> Unit)
+
+/** A small menu that opens where it is placed, in the theme's menu colour. */
+@Composable
+internal fun SkyMenu(expanded: Boolean, onDismiss: () -> Unit, actions: List<MenuAction>) {
+    val theme = LocalSkyTheme.current
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, modifier = Modifier.background(theme.menu)) {
+        actions.forEach { item ->
+            DropdownMenuItem(
+                text = { Text(item.label, color = if (item.enabled) theme.ink else theme.muted) },
+                leadingIcon = item.icon?.let { icon -> { SkyIconView(icon, if (item.enabled) theme.accent else theme.muted, size = 18.dp) } },
+                enabled = item.enabled,
+                onClick = {
+                    onDismiss()
+                    item.action()
+                },
             )
         }
+    }
+}
+
+/** A round button that opens a menu under it. */
+@Composable
+internal fun SkyMenuButton(icon: SkyIcon, description: String, actions: List<MenuAction>, enabled: Boolean = true) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        SkyIconButton(icon, description, { open = true }, enabled = enabled)
+        SkyMenu(open, { open = false }, actions)
     }
 }
 
@@ -366,23 +455,65 @@ internal fun NameDialog(
     )
 }
 
-/** A slim scroll position marker at the right edge of a grid (the mouse wheel does the scrolling). */
+/** The slim scroll bar used everywhere: drag it, click the track, or use the mouse wheel. */
 @Composable
-internal fun GridScrollThumb(state: LazyGridState, modifier: Modifier = Modifier) {
+internal fun SkyScrollbar(
+    adapter: ScrollbarAdapter,
+    modifier: Modifier = Modifier,
+    interaction: MutableInteractionSource = remember { MutableInteractionSource() },
+) {
     val theme = LocalSkyTheme.current
-    Canvas(modifier.width(6.dp).fillMaxHeight()) {
-        val info = state.layoutInfo
-        val total = info.totalItemsCount
-        val visible = info.visibleItemsInfo.size
-        if (total > 0 && visible > 0 && visible < total) {
-            val thumb = (visible.toFloat() / total).coerceIn(0.06f, 1f) * size.height
-            val top = (state.firstVisibleItemIndex.toFloat() / (total - visible).coerceAtLeast(1)).coerceIn(0f, 1f) * (size.height - thumb)
-            drawRoundRect(
-                color = theme.ink.copy(alpha = 0.28f),
-                topLeft = Offset(0f, top),
-                size = Size(size.width, thumb),
-                cornerRadius = CornerRadius(size.width / 2f, size.width / 2f),
-            )
+    VerticalScrollbar(
+        adapter = adapter,
+        modifier = modifier.fillMaxHeight(),
+        interactionSource = interaction,
+        style = ScrollbarStyle(
+            minimalHeight = 40.dp,
+            thickness = 8.dp,
+            shape = RoundedCornerShape(4.dp),
+            hoverDurationMillis = 200,
+            unhoverColor = theme.ink.copy(alpha = 0.28f),
+            hoverColor = theme.ink.copy(alpha = 0.55f),
+        ),
+    )
+}
+
+/**
+ * The scroll bar at the right edge of a grid. While it is dragged, a bubble shows the letter of the current
+ * position when [labelFor] gives one for an item index (lists sorted by name), like the letter rail on Android.
+ */
+@Composable
+internal fun GridScrollbar(state: LazyGridState, modifier: Modifier = Modifier, labelFor: ((Int) -> String?)? = null) {
+    val theme = LocalSkyTheme.current
+    val interaction = remember { MutableInteractionSource() }
+    val dragged by interaction.collectIsDraggedAsState()
+    BoxWithConstraints(modifier.fillMaxHeight()) {
+        SkyScrollbar(rememberScrollbarAdapter(state), Modifier.align(Alignment.TopEnd), interaction)
+        val letter = if (dragged && labelFor != null) labelFor(state.firstVisibleItemIndex) else null
+        if (letter != null) {
+            val info = state.layoutInfo
+            val range = (info.totalItemsCount - info.visibleItemsInfo.size).coerceAtLeast(1)
+            val fraction = (state.firstVisibleItemIndex.toFloat() / range).coerceIn(0f, 1f)
+            Box(
+                Modifier.align(Alignment.TopEnd)
+                    .offset(x = (-20).dp, y = (maxHeight - 56.dp).coerceAtLeast(0.dp) * fraction)
+                    .size(56.dp).clip(CircleShape).background(theme.accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(letter, color = theme.onAccent, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
+}
+
+/** The scroll bar for a plain list. */
+@Composable
+internal fun ListScrollbar(state: LazyListState, modifier: Modifier = Modifier) {
+    SkyScrollbar(rememberScrollbarAdapter(state), modifier)
+}
+
+/** The scroll bar for a scrolling column (Settings pages, Files). */
+@Composable
+internal fun ColumnScrollbar(state: ScrollState, modifier: Modifier = Modifier) {
+    SkyScrollbar(rememberScrollbarAdapter(state), modifier)
 }

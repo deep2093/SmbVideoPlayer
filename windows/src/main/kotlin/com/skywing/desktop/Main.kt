@@ -219,7 +219,18 @@ private fun SkyWingDesktopShell(
     // What the pages show.
     val library = remember { LibraryModel(WindowsMediaIndex()) }
     LaunchedEffect(library.revision) { library.reload() }
-    val custom = remember { CustomFolders(WindowsCustomFolderStore()) }
+    val organizer = remember { Organizer(FolderOrganizerStore()) { WindowsCustomFolderStore().load() } }
+    // Saved network shares: learn their other addresses, and find the one that answers if the main one is down.
+    LaunchedEffect(Unit) {
+        val switched = withContext(Dispatchers.IO) {
+            runCatching { WindowsShareProfileStore().load() }.getOrDefault(emptyList()).count { profile ->
+                ShareHosts.register(profile.primaryAddress, profile.alternateAddress)
+                val host = ShareHosts.hostOf(profile.primaryAddress) ?: return@count false
+                ShareHosts.parse(profile.alternateAddress).isNotEmpty() && ShareHosts.resolve(host)?.equals(host, ignoreCase = true) == false
+            }
+        }
+        if (switched > 0) library.changed()
+    }
     val hub = remember { HubState() }
     val selection = remember { SelectionState() }
     val history = remember(historyRevision) { historyStore.load().associateBy { it.path.lowercase() } }
@@ -229,6 +240,7 @@ private fun SkyWingDesktopShell(
         if (selected != "Now Playing") previous = selected
         selected = section
         selection.clear()
+        hub.endFolderSelection()
     }
 
     fun openVideo(file: File, queuedFiles: List<File> = listOf(file), resumePosition: Double? = null) {
@@ -382,7 +394,21 @@ private fun SkyWingDesktopShell(
         }
     }
 
-    val playOne: (File, List<File>) -> Unit = { file, files -> openVideo(file, files) }
+    // A video on a network drive whose address stopped answering is tried again through the drive's other addresses.
+    val playOne: (File, List<File>) -> Unit = { file, files ->
+        if (ShareHosts.hostOf(file.path) == null) {
+            openVideo(file, files)
+        } else {
+            playbackScope.launch {
+                val again = withContext(Dispatchers.IO) {
+                    if (file.isFile) false
+                    else ShareHosts.hostOf(ShareHosts.canonical(file.path))?.let { ShareHosts.resolve(it) } != null
+                }
+                fun reach(f: File) = if (again) File(ShareHosts.reachable(ShareHosts.canonical(f.path))) else f
+                openVideo(reach(file), files.map(::reach))
+            }
+        }
+    }
     val playerShown = selected == "Now Playing"
 
     Box(Modifier.fillMaxSize().drawBehind { drawSkyWallpaper(theme) }) {
@@ -404,10 +430,10 @@ private fun SkyWingDesktopShell(
                 if (!fullscreen && !playerShown) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         when (selected) {
-                            "Folders" -> FoldersScreen(library, custom, hub, selection, history, playOne)
-                            "Videos" -> VideosScreen(library, custom, hub, selection, history, playOne) { file, position -> openVideo(file, listOf(file), position) }
+                            "Folders" -> FoldersScreen(library, organizer, hub, history, playOne)
+                            "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne) { file, position -> openVideo(file, listOf(file), position) }
                             "Files" -> FilesScreen(library, playOne)
-                            else -> SettingsScreen(theme, onTheme, library) { go("Files") }
+                            else -> SettingsScreen(theme, onTheme, library, organizer) { go("Files") }
                         }
                     }
                 }
