@@ -25,19 +25,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.isAltPressed
 import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.skywing.desktop.playback.EmbeddedMpv
@@ -45,7 +41,6 @@ import java.awt.Canvas
 import java.awt.KeyboardFocusManager
 import java.awt.KeyEventDispatcher
 import javax.swing.text.JTextComponent
-import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.FileDialog
 import javax.swing.SwingUtilities
@@ -54,34 +49,66 @@ import java.io.File
 
 fun main() = application {
     val state = rememberWindowState(width = 1200.dp, height = 760.dp)
-    var fullscreen by remember { mutableStateOf(false) }
+    var closing by remember { mutableStateOf(false) }
+    val embedded = remember { EmbeddedMpv() }
+    val scope = rememberCoroutineScope()
+    DisposableEffect(embedded) {
+        val hook = Thread({ embedded.close() }, "skywing-mpv-shutdown")
+        Runtime.getRuntime().addShutdownHook(hook)
+        onDispose {
+            runCatching { Runtime.getRuntime().removeShutdownHook(hook) }
+            // Also cover unexpected composition disposal. close is idempotent.
+            Thread({ embedded.close() }, "skywing-mpv-dispose").start()
+        }
+    }
     Window(
-        onCloseRequest = ::exitApplication,
+        onCloseRequest = {
+            if (!closing) {
+                closing = true
+                scope.launch {
+                    try { withContext(Dispatchers.IO) { embedded.close() } }
+                    finally { exitApplication() }
+                }
+            }
+        },
         title = "SkyWing for Windows (Development Preview)",
         state = state,
     ) {
-        val awtWindow = window
-        LaunchedEffect(fullscreen) {
-            // Preserve the existing AWT/libmpv child window throughout the transition.
-            BorderlessFullscreen.set(awtWindow, fullscreen)
-        }
-        MaterialTheme { SkyWingDesktopShell(awtWindow, fullscreen, { fullscreen = it; state.placement = if (it) WindowPlacement.Fullscreen else WindowPlacement.Floating }) }
+        SkyWingWindowContent(window, embedded, closing)
     }
 }
 
 @Composable
-private fun SkyWingDesktopShell(awtWindow: java.awt.Window, fullscreen: Boolean, onFullscreenChange: (Boolean) -> Unit) {
+internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: EmbeddedMpv, closing: Boolean) {
+        var fullscreen by remember { mutableStateOf(false) }
+        val controller = remember(awtWindow) { BorderlessFullscreen(awtWindow) }
+        val changeFullscreen: (Boolean) -> Unit = { enabled ->
+            if (!closing) {
+                // One EDT transaction; never set WindowPlacement.Fullscreen or
+                // undecorated (either can dispose/recreate the native AWT peer).
+                try { fullscreen = controller.set(enabled) }
+                catch (failure: Exception) {
+                    fullscreen = controller.isFullscreen
+                    System.err.println("Fullscreen transition failed: ${failure.message}")
+                }
+            }
+        }
+        MaterialTheme { SkyWingDesktopShell(awtWindow, embedded, fullscreen, closing, changeFullscreen) }
+}
+
+@Composable
+private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMpv, fullscreen: Boolean, closing: Boolean, onFullscreenChange: (Boolean) -> Unit) {
     val sections = listOf("Folders", "Videos", "Continue Watching", "Settings")
     var selected by remember { mutableStateOf("Videos") }
     var message by remember { mutableStateOf("Choose a local video to play.") }
     var current by remember { mutableStateOf<String?>(null) }
-    val embedded = remember { EmbeddedMpv() }
     var videoCanvas by remember { mutableStateOf<Canvas?>(null) }
     var seekTarget by remember { mutableStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
     var playbackTime by remember { mutableStateOf(0.0) }
     var duration by remember { mutableStateOf(0.0) }
-    LaunchedEffect(embedded) {
+    LaunchedEffect(embedded, closing) {
+        if (closing) return@LaunchedEffect
         while (true) {
             val d = embedded.playbackDuration() ?: 0.0
             val p = embedded.playbackPosition() ?: 0.0
@@ -95,27 +122,40 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, fullscreen: Boolean,
         val n = seconds.toLong().coerceAtLeast(0)
         return "%d:%02d:%02d".format(n / 3600, (n / 60) % 60, n % 60)
     }
-    DisposableEffect(embedded) { onDispose { embedded.close() } }
     val currentSection by rememberUpdatedState(selected)
     val currentFullscreen by rememberUpdatedState(fullscreen)
     val currentFullscreenChange by rememberUpdatedState(onFullscreenChange)
+    val currentClosing by rememberUpdatedState(closing)
     // AWT dispatch works regardless of whether Compose controls or Canvas own focus.
     DisposableEffect(awtWindow, embedded) {
         val manager = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+        var fullscreenKeyDown = false
+        val focusListener = java.beans.PropertyChangeListener { fullscreenKeyDown = false }
+        manager.addPropertyChangeListener("focusedWindow", focusListener)
         val dispatcher = KeyEventDispatcher { event ->
-            if (event.id != KeyEvent.KEY_PRESSED || !awtWindow.isFocused ||
+            if (event.keyCode == KeyEvent.VK_F && event.id == KeyEvent.KEY_RELEASED) fullscreenKeyDown = false
+            val handled = if (event.id != KeyEvent.KEY_PRESSED || manager.focusedWindow !== awtWindow || currentClosing) {
+                false
+            } else if (currentFullscreen && event.keyCode == KeyEvent.VK_ESCAPE) {
+                // Escape must work even when a text field or a slider owns focus.
+                currentFullscreenChange(false)
+                true
+            } else if (
                 event.isControlDown || event.isAltDown || event.isMetaDown ||
                 manager.focusOwner is JTextComponent
             ) {
                 false
-            } else if (currentFullscreen && event.keyCode == KeyEvent.VK_ESCAPE) {
-                currentFullscreenChange(false)
-                true
             } else if (currentSection != "Videos") {
                 false
             } else {
                 when (event.keyCode) {
-                    KeyEvent.VK_F -> { currentFullscreenChange(!currentFullscreen); true }
+                    KeyEvent.VK_F -> {
+                        if (!fullscreenKeyDown) {
+                            fullscreenKeyDown = true
+                            currentFullscreenChange(!currentFullscreen)
+                        }
+                        true
+                    }
                     KeyEvent.VK_SPACE, KeyEvent.VK_K -> { embedded.togglePause(); true }
                     KeyEvent.VK_LEFT -> { embedded.seek(-5); true }
                     KeyEvent.VK_RIGHT -> { embedded.seek(10); true }
@@ -125,9 +165,14 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, fullscreen: Boolean,
                     else -> false
                 }
             }
+            if (handled) event.consume()
+            handled
         }
         manager.addKeyEventDispatcher(dispatcher)
-        onDispose { manager.removeKeyEventDispatcher(dispatcher) }
+        onDispose {
+            manager.removeKeyEventDispatcher(dispatcher)
+            manager.removePropertyChangeListener("focusedWindow", focusListener)
+        }
     }
 
 
@@ -215,7 +260,7 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, fullscreen: Boolean,
                     Button(onClick = { message = if (embedded.seekPercent(75)) "Jumped to 75%" else "Player not ready" }) { Text("75%") }
                 }
 
-                Text("Phase 2 preview: requires mpv.exe installed and available on PATH. Playback opens in mpv's native window.", color = Color(0xFF9FA7B7))
+                Text("Phase 2 preview: video uses the bundled embedded libmpv player.", color = Color(0xFF9FA7B7))
             } else if (!fullscreen) {
                 Text(
                     when (selected) {

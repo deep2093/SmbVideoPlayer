@@ -25,30 +25,43 @@ class EmbeddedMpv : Closeable {
 
     private var api: Api? = null
     private var instance: Pointer? = null
+    private var surface: Long? = null
+    private var closed = false
     var lastError: String? = null
         private set
 
     /** Invoke only once the AWT Canvas has a native peer (isDisplayable). */
+    @Synchronized
     fun attach(canvas: Canvas): Boolean {
-        if (instance != null) return true
+        if (closed) return false
         if (!canvas.isDisplayable) {
             lastError = "Video surface is not ready"
             return false
         }
         return try {
+            val handle = Native.getComponentPointer(canvas)
+            require(handle != null && Pointer.nativeValue(handle) != 0L) { "No native window handle" }
+            val hwnd = Pointer.nativeValue(handle)
+            if (instance != null) {
+                check(surface == hwnd) { "Video HWND changed while mpv is attached" }
+                return true
+            }
             val resources = System.getProperty("compose.application.resources.dir")
             val packaged = resources?.let { File(it, "libmpv-2.dll") }
             val native = if (packaged?.isFile == true)
                 Native.load(packaged.absolutePath, Api::class.java)
             else Native.load("mpv-2", Api::class.java)
             val context = native.mpv_create() ?: error("mpv_create failed")
-            val handle = Native.getComponentPointer(canvas)
-            require(handle != null && Pointer.nativeValue(handle) != 0L) { "No native window handle" }
             // Set before mpv_initialize. mpv creates its own video child in the Canvas HWND.
             fun set(name: String, value: String) {
                 check(native.mpv_set_option_string(context, name, value) >= 0) { "mpv option: $name" }
             }
             try {
+                // SkyWing owns keyboard/fullscreen/quit. Native mpv defaults must
+                // not independently fullscreen or close its embedded child window.
+                set("config", "no")
+                set("input-default-bindings", "no")
+                set("input-vo-keyboard", "no")
                 set("wid", java.lang.Long.toUnsignedString(Pointer.nativeValue(handle)))
                 set("force-window", "yes")
                 set("keep-open", "yes")
@@ -60,6 +73,7 @@ class EmbeddedMpv : Closeable {
             }
             api = native
             instance = context
+            surface = hwnd
             lastError = null
             true
         } catch (failure: Throwable) {
@@ -68,6 +82,7 @@ class EmbeddedMpv : Closeable {
         }
     }
 
+    @Synchronized
     private fun command(vararg args: String): Boolean {
         val native = api ?: return false
         val context = instance ?: return false
@@ -86,6 +101,7 @@ class EmbeddedMpv : Closeable {
         return accepted
     }
     // MPV_FORMAT_DOUBLE = 5. Null is returned while no file is loaded.
+    @Synchronized
     private fun numberProperty(name: String): Double? {
         val native = api ?: return null
         val ctx = instance ?: return null
@@ -109,11 +125,14 @@ class EmbeddedMpv : Closeable {
     fun nextSubtitleTrack(): Boolean = command("cycle", "sid")
     fun subtitleOff(): Boolean = command("set", "sid", "no")
     fun seekPercent(percent: Int): Boolean = command("seek", percent.coerceIn(0, 100).toString(), "absolute-percent")
+    @Synchronized
     override fun close() {
+        closed = true
         val native = api
         val context = instance
         instance = null
         api = null
+        surface = null
         if (native != null && context != null) native.mpv_terminate_destroy(context)
     }
 }

@@ -24,6 +24,10 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
+tasks.test {
+    systemProperty("skywing.test.runtimeClasspath", sourceSets.main.get().runtimeClasspath.asPath)
+}
+
 compose.desktop {
     application {
         mainClass = "com.skywing.desktop.MainKt"

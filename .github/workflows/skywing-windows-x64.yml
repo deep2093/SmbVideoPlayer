@@ -50,7 +50,18 @@ jobs:
           Write-Host "Bundled libmpv: $($dll.Length) bytes"
       - name: Unit tests
         shell: pwsh
-        run: .\gradlew.bat -p windows test --no-daemon --stacktrace
+        env:
+          SKYWING_TEST_MPV: "true"
+        run: |
+          $env:PATH = "$(Resolve-Path 'windows/build/native-resources/windows');$env:PATH"
+          .\gradlew.bat -p windows test --no-daemon --stacktrace
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skywing-windows-test-reports
+          path: windows/build/reports/tests/test
+          if-no-files-found: warn
       - name: Build Windows installers
         shell: pwsh
         run: .\gradlew.bat -p windows packageExe packageMsi --no-daemon --stacktrace
