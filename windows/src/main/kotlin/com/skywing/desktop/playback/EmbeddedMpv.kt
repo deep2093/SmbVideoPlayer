@@ -3,6 +3,7 @@ package com.skywing.desktop.playback
 import com.sun.jna.Library
 import com.sun.jna.Native
 import com.sun.jna.Pointer
+import com.sun.jna.ptr.DoubleByReference
 import java.awt.Canvas
 import java.io.Closeable
 import java.io.File
@@ -17,6 +18,7 @@ class EmbeddedMpv : Closeable {
         fun mpv_create(): Pointer?
         fun mpv_set_option_string(ctx: Pointer, name: String, value: String): Int
         fun mpv_initialize(ctx: Pointer): Int
+        fun mpv_get_property(ctx: Pointer, name: String, format: Int, data: DoubleByReference): Int
         fun mpv_command(ctx: Pointer, args: Array<String?>): Int
         fun mpv_terminate_destroy(ctx: Pointer)
     }
@@ -83,6 +85,20 @@ class EmbeddedMpv : Closeable {
         lastLoadCommandMillis = (System.nanoTime() - start) / 1_000_000
         return accepted
     }
+    // MPV_FORMAT_DOUBLE = 5. Null is returned while no file is loaded.
+    private fun numberProperty(name: String): Double? {
+        val native = api ?: return null
+        val ctx = instance ?: return null
+        val value = DoubleByReference()
+        return if (native.mpv_get_property(ctx, name, 5, value) >= 0) {
+            value.value.takeIf { it.isFinite() }
+        } else null
+    }
+    fun playbackPosition(): Double? = numberProperty("time-pos")
+    fun playbackDuration(): Double? = numberProperty("duration")
+    fun seekAbsolute(seconds: Double): Boolean =
+        seconds.isFinite() && command("seek", seconds.coerceAtLeast(0.0).toString(), "absolute")
+
     fun togglePause(): Boolean = command("cycle", "pause")
     fun seek(seconds: Int): Boolean = command("seek", seconds.toString(), "relative")
     fun stop(): Boolean = command("stop")
