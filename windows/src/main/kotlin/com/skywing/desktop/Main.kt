@@ -103,7 +103,7 @@ private fun SkyWingDesktopShell() {
                             }
                         },
                     )
-                    Text("Experimental preview requires libmpv-2.dll. Native dependencies are not bundled yet.", color = Color.White)
+                    Text(embedded.lastError ?: "Experimental libmpv: open a video to test playback inside SkyWing.", color = Color.White)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { message = if (experimental) if (embedded.togglePause()) "Pause toggled" else "Embedded not ready" else playback.togglePause() }) { Text("Play / Pause") }
