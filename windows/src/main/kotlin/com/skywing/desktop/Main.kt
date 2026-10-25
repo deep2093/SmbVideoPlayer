@@ -304,7 +304,7 @@ private fun SkyWingDesktopShell(awtWindow: java.awt.Window, embedded: EmbeddedMp
 
                 Text("Phase 2 preview: video uses the bundled embedded libmpv player.", color = Color(0xFF9FA7B7))
             } else if (!fullscreen) {
-                if (selected == "Folders") SmbSharePanel { file -> openVideo(file) }
+                if (selected == "Folders") FoldersPanel { file -> openVideo(file) }
                 else Text(
                     when (selected) {
                         "Folders" -> "PC folder indexing and SMB sources are planned for Phase 3."
