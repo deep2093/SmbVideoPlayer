@@ -72,7 +72,17 @@ class EmbeddedMpv : Closeable {
         return native.mpv_command(context, (args.toList() + listOf(null)).toTypedArray()) >= 0
     }
 
-    fun open(file: File): Boolean = file.isFile && command("loadfile", file.absolutePath, "replace")
+    // This measures only how quickly mpv accepts the load request, not first-frame time.
+    var lastLoadCommandMillis: Long = -1
+        private set
+
+    fun open(file: File): Boolean {
+        if (!file.isFile) return false
+        val start = System.nanoTime()
+        val accepted = command("loadfile", file.absolutePath, "replace")
+        lastLoadCommandMillis = (System.nanoTime() - start) / 1_000_000
+        return accepted
+    }
     fun togglePause(): Boolean = command("cycle", "pause")
     fun seek(seconds: Int): Boolean = command("seek", seconds.toString(), "relative")
     fun stop(): Boolean = command("stop")
