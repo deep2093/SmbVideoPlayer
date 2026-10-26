@@ -1213,6 +1213,14 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
 
     /** The picture to show for a video under the current artwork settings (null = neutral placeholder). */
+    val metadataSettings: StateFlow<com.deepak.videolibrary.metadata.SceneMetadataSettings>
+        get() = services.sceneMetadataPreferences.settings
+
+    init {
+        viewModelScope.launch { services.sceneMetadataPreferences.settings.collect { artwork.refresh() } }
+        viewModelScope.launch { services.scenePosters.revision.collect { artwork.refresh() } }
+    }
+
     val metadataPosterRevision: StateFlow<Int> get() = services.scenePosters.revision
 
     fun videoArtwork(video: VideoEntity): File? {
