@@ -42,7 +42,10 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
         val dao = services.db.dao()
         val targets = dao.allIdPaths().chunked(40).flatMap { block -> dao.videosByPaths(block.map { it.relativePath }) }
             .filter { services.sceneMetadataStore.needsLookup(it) }
-        if (targets.isEmpty()) return Result.success()
+        if (targets.isEmpty()) {
+            if (settings.posterMode != PosterMode.DISABLED) ScenePosterWorker.enqueue(applicationContext, libraryId)
+            return Result.success()
+        }
 
         setProgress(workDataOf("done" to 0, "total" to targets.size))
         var done = 0
@@ -78,6 +81,7 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
                     setProgress(workDataOf("done" to done, "total" to targets.size))
                 }
             }
+            if (settings.posterMode != PosterMode.DISABLED) ScenePosterWorker.enqueue(applicationContext, libraryId)
             Result.success()
         } catch (e: CancellationException) {
             throw e
@@ -98,16 +102,17 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
     ): Pair<List<SceneMatch>, Boolean> {
         var transientFailure = false
         suspend fun lookup(block: suspend (String) -> List<SceneMatch>): List<SceneMatch> {
+            val all = ArrayList<SceneMatch>()
+            // Query both keyed providers in user-selected order; offer alternatives from each.
             for (provider in providers) {
                 try {
-                    val matches = block(provider)
-                    if (matches.isNotEmpty()) return matches
+                    all += block(provider)
                 } catch (e: CancellationException) { throw e
                 } catch (e: ProviderException) {
                     if (e.failure in setOf(ProviderFailure.NETWORK, ProviderFailure.RATE_LIMITED)) transientFailure = true
                 }
             }
-            return emptyList()
+            return all
         }
         val oshash = runCatching { SceneFingerprint.oshash(conn, video) }.getOrNull()
         if (oshash != null) {
