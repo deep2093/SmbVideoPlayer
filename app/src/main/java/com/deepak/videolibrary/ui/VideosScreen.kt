@@ -299,9 +299,10 @@ internal fun VideoCard(
     val customRevision by com.deepak.videolibrary.thumbs.CustomThumbs.revision.collectAsStateWithLifecycle()
     val artRevision by vm.artworkRevision.collectAsStateWithLifecycle()
     val metadataRevision by vm.metadataPosterRevision.collectAsStateWithLifecycle()
+    val metadataSettings by vm.metadataSettings.collectAsStateWithLifecycle()
     val artworkOn = rememberArtworkEnabled(vm)
     val tall = aspect < 1f
-    val thumb: File? = remember(video.id, video.thumbStatus, video.customGroup, video.groupKey, customRevision, artRevision, metadataRevision, tall) {
+    val thumb: File? = remember(video.id, video.thumbStatus, video.customGroup, video.groupKey, customRevision, artRevision, metadataRevision, metadataSettings, tall) {
         com.deepak.videolibrary.artwork.ArtworkRepository.forShape(vm.videoArtwork(video), tall)
     }
     var pickThumbnail by remember(video.relativePath) { mutableStateOf(false) }
