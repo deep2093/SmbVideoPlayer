@@ -54,6 +54,11 @@ import com.deepak.videolibrary.artwork.online.ImageUrlPolicy
 import com.deepak.videolibrary.metadata.SceneMetadataRecord
 import com.deepak.videolibrary.thumbs.ThumbStore
 import org.json.JSONObject
+import com.deepak.videolibrary.metadata.PosterMode
+import com.deepak.videolibrary.metadata.ScenePosterWorker
+import com.deepak.videolibrary.thumbs.CustomThumbs
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 
 /** Separate Settings page. Artwork defaults, manually chosen covers and virtual folders are untouched. */
 @Composable
@@ -121,6 +126,42 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel) {
         }
 
         SettingsDivider()
+        SettingsLabel("Scene poster artwork")
+        Text("Scene posters are separate from existing artwork. Custom covers and hand-picked frames always win.", style = MaterialTheme.typography.bodySmall)
+        PosterMode.entries.forEach { mode ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                androidx.compose.material3.RadioButton(selected = options.posterMode == mode, onClick = {
+                    prefs.update { it.copy(posterMode = mode) }
+                    if (mode != PosterMode.DISABLED) ScenePosterWorker.enqueue(context, service.libraryId)
+                })
+                TextButton(onClick = {
+                    prefs.update { it.copy(posterMode = mode) }
+                    if (mode != PosterMode.DISABLED) ScenePosterWorker.enqueue(context, service.libraryId)
+                }) { Text(mode.label) }
+            }
+        }
+        SwitchRow("Use posters on video cards", "Keeps manually selected covers.", options.videoPosters) {
+            prefs.update { old -> old.copy(videoPosters = it) }
+            if (it) ScenePosterWorker.enqueue(context, service.libraryId)
+        }
+        SwitchRow("Posters for one-video folders", "Multi-video folders retain their existing collages and portraits.", options.folderPosters) {
+            prefs.update { old -> old.copy(folderPosters = it) }
+            if (it) ScenePosterWorker.enqueue(context, service.libraryId)
+        }
+        OutlinedButton(onClick = {
+            ScenePosterWorker.enqueue(context, service.libraryId)
+            status = "Poster downloads queued for confirmed metadata."
+        }, enabled = options.posterMode != PosterMode.DISABLED, modifier = Modifier.fillMaxWidth()) { Text("Apply posters from confirmed matches") }
+
+        SettingsDivider()
+        OutlinedButton(onClick = {
+            val count = service.sceneMetadataStore.retryUnresolved()
+            SceneMetadataWorker.enqueue(context, service.libraryId, manual = true)
+            status = "Rechecking " + count + " unresolved matches using the selected provider first."
+        }, enabled = options.allowedOnlineLookup, modifier = Modifier.fillMaxWidth()) { Text("Recheck unconfirmed using preferred provider") }
+        Text("Confirmed matches and rejected files are kept. Review individual files to search TPDB or StashDB directly.", style = MaterialTheme.typography.bodySmall)
+
+        SettingsDivider()
         Button(onClick = {
             if (!options.allowedOnlineLookup) status = "Allow online lookups before starting."
             else {
@@ -177,7 +218,8 @@ private fun SceneKeyEntry(vm: LibraryViewModel, provider: String, label: String,
                     val ok = withContext(Dispatchers.IO) { SceneMetadataClient(service.providerKeys).test(provider) }
                     if (ok) "Connected successfully." else "The provider did not confirm this key."
                 } catch (e: CancellationException) { throw e
-                } catch (_: Exception) { "Connection failed. Check this key and network access." }
+                } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) { "Provider error: " + e.failure.message }
+                catch (_: Exception) { "Connection failed. Check the key, network, and GraphQL provider settings." }
                 testing = false
             }
         }, enabled = saved && !testing) { Text(if (testing) "Testing…" else "Test") }
@@ -196,6 +238,7 @@ private fun SceneMatchCandidate(
     record: SceneMetadataRecord,
     suggestion: JSONObject,
     onConfirm: () -> Unit,
+    onReject: () -> Unit,
 ) {
     val scene = suggestion.optJSONObject("scene") ?: return
     val method = suggestion.optString("method")
@@ -288,8 +331,9 @@ private fun SceneMatchCandidate(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedButton(onClick = onConfirm, modifier = Modifier.fillMaxWidth()) {
-            Text("Confirm this scene")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onConfirm, modifier = Modifier.weight(1f)) { Text("Confirm") }
+            OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) { Text("Reject match") }
         }
     }
 }
