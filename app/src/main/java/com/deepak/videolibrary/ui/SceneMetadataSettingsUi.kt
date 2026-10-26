@@ -168,7 +168,24 @@ private fun SceneKeyEntry(vm: LibraryViewModel, provider: String, label: String,
         TextButton(onClick = {
             if (vm.saveProviderKey(provider, key)) { key = ""; result = "Key saved securely." }
             else result = "Couldn't save key. Check its format and device Keystore."
-        }, enable/**
+        }, enabled = key.isNotBlank()) { Text("Save key") }
+        TextButton(onClick = {
+            testing = true
+            scope.launch {
+                result = try {
+                    val ok = withContext(Dispatchers.IO) { SceneMetadataClient(service.providerKeys).test(provider) }
+                    if (ok) "Connected successfully." else "The provider did not confirm this key."
+                } catch (e: CancellationException) { throw e
+                } catch (_: Exception) { "Connection failed. Check this key and network access." }
+                testing = false
+            }
+        }, enabled = saved && !testing) { Text(if (testing) "Testing…" else "Test") }
+        if (saved) TextButton(onClick = { vm.clearProviderKey(provider); result = "Key removed." }) { Text("Remove") }
+    }
+    result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+}
+
+/**
  * One candidate shown beside the local thumb. Nothing in this UI modifies the SMB file,
  * artwork preference, virtual-folder assignment or provider API.
  */
