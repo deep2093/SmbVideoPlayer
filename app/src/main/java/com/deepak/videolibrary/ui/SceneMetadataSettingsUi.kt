@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
@@ -236,7 +237,47 @@ private fun SceneMatchCandidate(
                 ProviderSceneThumbnail(url)
             }
         }
-        Text(scene.optString("title").ifBlank { scene.optString("code", "Untitled") }, style = MaterialTheme.typography.titleSmall)
+        // Keep the actual indexed SMB file name visible for EVERY candidate, not only at
+        // the top of the scrolling review list. User-supplied renamed names are preserved.
+        Column(
+            Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("Your SMB filename", style = MaterialTheme.typography.labelMedium)
+            SelectionContainer {
+                Text(
+                    record.path.substringAfterLast('/').ifBlank { record.path },
+                    style = MaterialTheme.typography.bodyMedium,
+                    softWrap = true,
+                )
+            }
+            val folder = record.path.substringBeforeLast('/', "")
+            if (folder.isNotBlank()) {
+                Text(
+                    "Folder: $folder",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    softWrap = true,
+                )
+            }
+        }
+        Column(
+            Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("Suggested scene title ($provider)", style = MaterialTheme.typography.labelMedium)
+            Text(
+                scene.optString("title").ifBlank { scene.optString("code", "Untitled") },
+                style = MaterialTheme.typography.bodyMedium,
+                softWrap = true,
+            )
+        }
         Text(methodLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (studio.isNotBlank()) Text("Studio: $studio", style = MaterialTheme.typography.bodySmall)
         if (names.isNotEmpty()) Text("Performers: " + names.take(6).joinToString(", "), style = MaterialTheme.typography.bodySmall)
