@@ -634,7 +634,7 @@ private fun FramePicker(video: WindowsMediaEntry, busy: Boolean, run: (suspend (
     fun step(amount: Int) {
         val length = duration ?: return
         val current = seconds ?: length * shown.coerceAtLeast(0f) / 100.0
-        val next = (current + amount).coerceIn(0.0, length)
+        val next = (current + amount).coerceIn(0.0, (length - 0.05).coerceAtLeast(0.0))
         if (next != current) {
             seconds = next
             position = (next / length * 100.0).toFloat().coerceIn(0f, 99f)

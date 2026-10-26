@@ -126,7 +126,7 @@ class FullscreenWindowTest {
                     val extracted = com.skywing.desktop.playback.ThumbnailExtractor.extractDetailed(media, thumbnail, start = "0")
                     assertTrue(extracted.success && thumbnail.isFile, "Unicode thumbnail failed: ${extracted.reason}")
                     val duration = com.skywing.desktop.playback.ThumbnailExtractor.durationSeconds(media)
-                    assertTrue(duration != null && duration in 5.5..6.5, "Frame picker could not read video duration: $duration")
+                    assertTrue(duration != null && duration in 59.0..61.0, "Frame picker could not read video duration: $duration")
                     val oneSecond = File(mediaDir, "one-second.jpg")
                     assertTrue(com.skywing.desktop.playback.ThumbnailExtractor.extract(media, oneSecond, start = "1", exact = true),
                         "Frame picker could not seek to a precise second")
