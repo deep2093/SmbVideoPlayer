@@ -29,6 +29,8 @@ class ServiceLocator internal constructor(context: Context, val libraryId: Strin
         context, com.deepak.videolibrary.artwork.ArtworkDatabase::class.java, "artwork-$libraryId.db",
     ).build()
     val providerKeys = com.deepak.videolibrary.artwork.online.ProviderKeys(context)
+    val sceneMetadataPreferences = com.deepak.videolibrary.metadata.SceneMetadataPreferences(context, libraryId)
+    val sceneMetadataStore = com.deepak.videolibrary.metadata.SceneMetadataStore(context, libraryId)
     val artwork = com.deepak.videolibrary.artwork.ArtworkRepository(
         artworkContext, artworkDb, com.deepak.videolibrary.artwork.ArtworkPreferences(context, libraryId),
     )
