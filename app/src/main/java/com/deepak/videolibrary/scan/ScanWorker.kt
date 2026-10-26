@@ -52,7 +52,14 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         if (art.enabled && art.autoFetchOnScan) {
             com.deepak.videolibrary.artwork.PortraitFetchWorker.enqueue(applicationContext, services.libraryId)
         }
-        return if (completed || services.db.dao().pendingCountNow() == 0) Result.success() else Result.retry()
+        val finished = completed || services.db.dao().pendingCountNow() == 0
+        if (finished) {
+            val metadata = services.sceneMetadataPreferences.settings.value
+            if (metadata.enabled && metadata.automatic && metadata.allowedOnlineLookup) {
+                com.deepak.videolibrary.metadata.SceneMetadataWorker.enqueue(applicationContext, services.libraryId)
+            }
+        }
+        return if (finished) Result.success() else Result.retry()
     }
 
     companion object {
