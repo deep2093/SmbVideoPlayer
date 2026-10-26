@@ -48,7 +48,9 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
 
     /** Authenticated lookup, only on user action. */
     suspend fun test(provider: String): Boolean =
-        query(provider, "query TestSceneMetadata { me { name } }").optJSONObject("me") != null
+        // TPDB may not implement StashDB's account-info query. Probe scene search instead.
+        query(provider, "query TestSceneMetadata { searchScenes(term: \"example\", per_page: 1) { scenes { id } } }")
+            .optJSONObject("searchScenes") != null
 
     /** Stash-box schema searchScenes, with only public, read-only metadata fields. */
     suspend fun search(provider: String, filename: String): List<SceneMatch> {
