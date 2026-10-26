@@ -1213,7 +1213,21 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
 
     /** The picture to show for a video under the current artwork settings (null = neutral placeholder). */
-    fun videoArtwork(video: VideoEntity): File? = services.artwork.videoFile(video)
+    val metadataPosterRevision: StateFlow<Int> get() = services.scenePosters.revision
+
+    fun videoArtwork(video: VideoEntity): File? {
+        val existing = services.artwork.videoFile(video)
+        val options = services.sceneMetadataPreferences.settings.value
+        if (!options.enabled || options.posterMode == com.deepak.videolibrary.metadata.PosterMode.DISABLED ||
+            !options.videoPosters) return existing
+        // Manually picked images/frames, and an explicitly chosen portrait display mode, always win.
+        if (com.deepak.videolibrary.thumbs.CustomThumbs.has(services.artworkContext, video.id) ||
+            services.artwork.row(com.deepak.videolibrary.artwork.ArtworkKeys.video(video.id))?.manual == true ||
+            (services.artwork.settings.value.enabled &&
+                services.artwork.settings.value.videoMode == com.deepak.videolibrary.artwork.ArtworkMode.PORTRAIT)
+        ) return existing
+        return services.scenePosters.fileFor(video) ?: existing
+    }
 
     fun updateArtwork(change: (com.deepak.videolibrary.artwork.ArtworkSettings) -> com.deepak.videolibrary.artwork.ArtworkSettings) {
         services.artwork.preferences.update(change)
