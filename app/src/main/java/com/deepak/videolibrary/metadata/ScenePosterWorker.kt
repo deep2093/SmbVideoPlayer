@@ -45,8 +45,7 @@ class ScenePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
                 val video = dao.findVideo(record.path)
                 if (video != null && video.size == record.size && video.modified == record.modified &&
                     !CustomThumbs.has(services.artworkContext, video.id) &&
-                    services.artwork.row(ArtworkKeys.video(video.id))?.manual != true &&
-                    services.scenePosters.fileFor(video) == null) {
+                    services.artwork.row(ArtworkKeys.video(video.id))?.manual != true) {
                     try {
                         val selected = JSONObject(record.result)
                         if (services.scenePosters.fetch(video, selected)) fetched++
