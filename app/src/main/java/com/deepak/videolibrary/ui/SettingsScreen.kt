@@ -120,6 +120,7 @@ private val SETTINGS_SECTIONS = listOf(
     SettingsSection("Sync", "Sync & scanning", "Automatic rescan and library scan"),
     SettingsSection("Grouping", "Auto grouping", "How file names become folders"),
     SettingsSection("Artwork", "Artwork & thumbnails", "Covers, portraits and thumbnails"),
+    SettingsSection("Metadata", "Scene metadata", "StashDB, ThePornDB and match review"),
     SettingsSection("Layout", "App layout", "Folder tabs, grids, navigation, hidden items"),
     SettingsSection("Appearance", "Appearance", "Theme"),
     SettingsSection("Playback", "Playback", "Player gestures"),
@@ -398,6 +399,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
                             SettingsDivider()
                             ResetChoicesSetting(vm)
                         }
+                        "Metadata" -> SceneMetadataSettingsSection(vm)
                         "Layout" -> {
                             FolderTabsSetting(vm)
                             SettingsDivider()
