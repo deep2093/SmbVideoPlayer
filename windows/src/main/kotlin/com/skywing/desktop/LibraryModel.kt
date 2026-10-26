@@ -123,7 +123,8 @@ internal class HubState {
         if (drivePath != null) {
             val current = drivePath!!
             val parent = File(current).parent
-            val roots = data.own.firstOrNull { it.id == ownId }?.folders.orEmpty()
+            val roots = data.own.firstOrNull { it.id == ownId }?.folders.orEmpty() +
+                data.sets.firstOrNull { it.id == setId }?.directFolders.orEmpty()
             drivePath = if (parent == null || roots.any { it.equals(current, ignoreCase = true) }) null else parent
             query = ""
             return true

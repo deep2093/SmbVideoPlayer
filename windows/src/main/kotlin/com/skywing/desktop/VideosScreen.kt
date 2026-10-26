@@ -64,19 +64,19 @@ internal fun VideosScreen(
         }.take(14)
     }
 
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (selection.active) {
             SelectionBar(selection, shown, organizer, onPlay)
         } else {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PageTitle(
                     "Videos",
                     if (library.loading) "Loading your library…" else "${shown.size} of ${library.all.size} videos",
                     Modifier.weight(1f),
                 )
-                SkyField(hub.videoQuery, { hub.videoQuery = it }, "Search videos", Modifier.width(300.dp), leading = SkyIcon.Search)
+                SkyField(hub.videoQuery, { hub.videoQuery = it }, "Search videos", Modifier.width(260.dp), leading = SkyIcon.Search)
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SkyChipBar(SOURCE_NAMES, hub.videoSource, { hub.videoSource = it })
                 Row(Modifier.weight(1f)) {}
                 SkyButton("Sort: " + SORT_NAMES[hub.videoSort.coerceIn(0, SORT_NAMES.lastIndex)], {

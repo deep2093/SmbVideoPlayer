@@ -68,6 +68,7 @@ class FolderOrganizerTest {
         organizer.setOwnMembers(id, listOf("C:\\Videos\\Films"), listOf("C:\\Videos\\Films\\Tom Cruise - Top Gun.mkv", "C:\\Videos\\Other\\Peter - holiday.mp4"))
         val setId = organizer.createSet("Movies")!!
         organizer.setSetMembers(setId, listOf("C:\\Videos\\Films"), emptyList())
+        organizer.setDirectSetMembers(setId, listOf("\\\\server\\share\\films"), listOf(library[3].path))
         organizer.renameSubfolder(setId, "nicole kidman", "nicole")
         organizer.addDriveFolders(listOf("C:\\Videos\\Films", "C:\\Videos\\Films"), includeSubfolders = true)
         organizer.createCollection("Peter")
@@ -82,12 +83,14 @@ class FolderOrganizerTest {
         // A file inside a chosen folder is not kept twice.
         assertEquals(listOf("C:\\Videos\\Other\\Peter - holiday.mp4"), own.files)
         assertEquals(mapOf("nicole kidman" to "Nicole"), again.data.sets.first().renames)
+        assertEquals(listOf("\\\\server\\share\\films"), again.data.sets.first().directFolders)
+        assertEquals(listOf(library[3].path), again.data.sets.first().directFiles)
         assertEquals(1, again.data.match.count { it.sourcePath != null })
         assertEquals(listOf(1, 0), again.data.prefs.tabs)
         assertEquals("Drive", again.data.prefs.tabName(1))
         // A grid size button gives way over a fixed column count.
         assertEquals(0, again.data.prefs.columns)
-        assertEquals(230, again.data.prefs.videoCardSize)
+        assertEquals(210, again.data.prefs.videoCardSize)
         assertTrue(again.data.prefs.isTall("custom"))
         assertTrue(again.data.prefs.descending)
         assertEquals("Peter", again.data.assignments["c:\\videos\\other\\holiday with peter.mp4"])
@@ -111,9 +114,11 @@ class FolderOrganizerTest {
     }
 
     @Test fun cardSizesStepWithinTheirRange() {
-        assertEquals(150, CardSizes.step(0, -1))
-        assertEquals(420, CardSizes.step(420, 1))
-        assertEquals(120, CardSizes.step(120, -1))
+        assertEquals(170, CardSizes.step(0, -1))
+        assertEquals(470, CardSizes.step(420, 1))
+        assertEquals(104, CardSizes.step(120, -1))
+        assertEquals(88, CardSizes.step(88, -1))
+        assertEquals(580, CardSizes.step(580, 1))
     }
 
     @Test fun otherAddressesAreTriedAndPathsKeepTheMainAddress() {

@@ -154,12 +154,12 @@ private fun NavRow(label: String, icon: SkyIcon, selected: Boolean, onClick: () 
     val theme = LocalSkyTheme.current
     val ink = if (selected) theme.ink else theme.muted
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(50))
+        Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(RoundedCornerShape(50))
             .background(if (selected) theme.card else Color.Transparent)
             .skyClickable(onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         SkyIconView(icon, if (selected) theme.accent else ink)
         Text(label, color = ink, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
@@ -177,14 +177,14 @@ private fun Sidebar(
     modifier: Modifier = Modifier,
 ) {
     val theme = LocalSkyTheme.current
-    Column(modifier.skyGlass(RoundedCornerShape(28.dp)).padding(16.dp)) {
-        SkyMark(40.dp, Modifier.padding(top = 12.dp, bottom = 12.dp))
+    Column(modifier.skyGlass(RoundedCornerShape(22.dp)).padding(12.dp)) {
+        SkyMark(32.dp, Modifier.padding(top = 4.dp, bottom = 6.dp))
         Text("SkyWing", color = theme.ink, style = MaterialTheme.typography.titleMedium)
         Text("Video library", color = theme.muted, style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(16.dp))
         TOP_NAV.forEach { entry ->
             NavRow(entry.section, entry.icon, selected == entry.section) { onSelect(entry.section) }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(2.dp))
         }
         Spacer(Modifier.weight(1f))
         if (nowPlaying != null) {
@@ -192,7 +192,7 @@ private fun Sidebar(
                 Modifier.fillMaxWidth().padding(bottom = 8.dp)
                     .skyGlass(RoundedCornerShape(20.dp), tint = theme.card)
                     .skyClickable({ onSelect("Now Playing") })
-                    .padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+                    .padding(start = 10.dp, top = 4.dp, bottom = 4.dp, end = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
@@ -506,12 +506,12 @@ private fun SkyWingDesktopShell(
                     paused = paused,
                     onSelect = { go(it) },
                     onTogglePause = { embedded.togglePause() },
-                    modifier = Modifier.width(240.dp).fillMaxHeight().padding(12.dp),
+                    modifier = Modifier.width(196.dp).fillMaxHeight().padding(8.dp),
                 )
             }
             Column(
                 modifier = if (fullscreen) Modifier.weight(1f).fillMaxHeight()
-                else Modifier.weight(1f).fillMaxHeight().padding(start = 8.dp, end = 20.dp, top = 20.dp, bottom = 16.dp),
+                else Modifier.weight(1f).fillMaxHeight().padding(start = 6.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
             ) {
                 if (!fullscreen && !playerShown) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {

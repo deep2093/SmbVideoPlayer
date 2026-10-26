@@ -74,8 +74,11 @@ internal data class VirtualSet(
     val parentId: String? = null,
     /** Library path -> subfolder chosen explicitly by the user. Stored in a separate sidecar file. */
     val manualGroups: Map<String, String> = emptyMap(),
+    /** SMB folders and individual videos displayed on this Virtual folder's main page. */
+    val directFolders: List<String> = emptyList(),
+    val directFiles: List<String> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = folders.isEmpty() && files.isEmpty()
+    val isEmpty: Boolean get() = folders.isEmpty() && files.isEmpty() && directFolders.isEmpty() && directFiles.isEmpty()
 }
 
 /** How the folder pages look and which tabs they show, the same choices as Settings on Android. */
@@ -101,7 +104,7 @@ internal data class FolderPrefs(
 /** The grid sizes the - and + buttons step through, in dp of card width. */
 internal object CardSizes {
     const val NORMAL = 188
-    val STEPS = listOf(120, 150, NORMAL, 230, 280, 340, 420)
+    val STEPS = listOf(88, 104, 120, 135, 150, 170, NORMAL, 210, 230, 255, 280, 310, 340, 380, 420, 470, 520, 580)
 
     fun of(saved: Int): Int = if (saved in STEPS) saved else NORMAL
 
@@ -277,7 +280,10 @@ internal class FolderOrganizerStore(private val testPath: Path? = null) {
         else {
             val saved = DataInputStream(BufferedInputStream(Files.newInputStream(path))).use { read(it) }
             val placements = loadPlacements()
-            saved.copy(sets = saved.sets.map { set -> set.copy(manualGroups = placements[set.id].orEmpty()) })
+            saved.copy(sets = saved.sets.map { set ->
+                val placement = placements[set.id]
+                set.copy(manualGroups = placement?.manualGroups.orEmpty(), directFolders = placement?.directFolders.orEmpty(), directFiles = placement?.directFiles.orEmpty())
+            })
         }
     } catch (_: Exception) {
         OrganizerData()
@@ -296,14 +302,19 @@ internal class FolderOrganizerStore(private val testPath: Path? = null) {
         savePlacements(data.sets)
     }
 
-    private fun loadPlacements(): Map<String, Map<String, String>> = try {
+    private data class SetPlacement(val manualGroups: Map<String, String>, val directFolders: List<String>, val directFiles: List<String>)
+
+    private fun loadPlacements(): Map<String, SetPlacement> = try {
         if (!Files.isRegularFile(placementsPath)) emptyMap() else
             DataInputStream(BufferedInputStream(Files.newInputStream(placementsPath))).use { input ->
-                if (input.readInt() != PLACEMENTS_MAGIC || input.readInt() != 1) emptyMap() else
+                val magic = input.readInt()
+                val version = input.readInt()
+                if (magic != PLACEMENTS_MAGIC || version !in 1..2) emptyMap() else
                     buildMap {
                         repeat(input.count()) {
                             val id = input.readUTF()
-                            put(id, buildMap { repeat(input.count()) { put(input.readUTF(), input.readUTF()) } })
+                            val manual = buildMap { repeat(input.count()) { put(input.readUTF(), input.readUTF()) } }
+                            put(id, SetPlacement(manual, if (version >= 2) input.strings() else emptyList(), if (version >= 2) input.strings() else emptyList()))
                         }
                     }
             }
@@ -313,12 +324,14 @@ internal class FolderOrganizerStore(private val testPath: Path? = null) {
         val temporary = placementsPath.resolveSibling(placementsPath.fileName.toString() + ".tmp")
         DataOutputStream(BufferedOutputStream(Files.newOutputStream(temporary))).use { out ->
             out.writeInt(PLACEMENTS_MAGIC)
-            out.writeInt(1)
+            out.writeInt(2)
             out.writeInt(sets.size)
             sets.forEach { set ->
                 out.writeUTF(set.id)
                 out.writeInt(set.manualGroups.size)
                 set.manualGroups.forEach { (file, group) -> out.writeUTF(file); out.writeUTF(group) }
+                out.strings(set.directFolders)
+                out.strings(set.directFiles)
             }
         }
         try {
@@ -571,6 +584,11 @@ internal class Organizer(private val store: FolderOrganizerStore, legacy: () -> 
         setSetMembers(id, set.folders, set.files + files)
     }
 
+    fun setDirectSetMembers(id: String, folders: Collection<String>, files: Collection<String>) {
+        val (dirs, singles) = cleanMembers(folders, files)
+        edit { d -> d.copy(sets = d.sets.map { if (it.id == id) it.copy(directFolders = dirs, directFiles = singles) else it }) }
+    }
+
     /** Keeps added videos in the named virtual subfolder even when their file names suggest another group. */
     fun addToSetGroup(id: String, group: String, folders: Collection<String>, files: Collection<String>, all: List<WindowsMediaEntry>) {
         val set = data.sets.firstOrNull { it.id == id } ?: return
@@ -591,6 +609,7 @@ internal class Organizer(private val store: FolderOrganizerStore, legacy: () -> 
             own = d.own.map { it.copy(files = it.files.map { path -> if (path.equals(old, true)) new else path }) },
             sets = d.sets.map { set -> set.copy(
                 files = set.files.map { path -> if (path.equals(old, true)) new else path },
+                directFiles = set.directFiles.map { path -> if (path.equals(old, true)) new else path },
                 manualGroups = set.manualGroups.mapKeys { (path, _) -> if (path == before) after else path },
             ) },
             assignments = d.assignments.mapKeys { (path, _) -> if (path == before) after else path },

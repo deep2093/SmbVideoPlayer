@@ -231,6 +231,7 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
     var collecting by remember { mutableStateOf(false) }
     var choosingVideos by remember { mutableStateOf<String?>(null) }
     var frameVideo by remember(target.key) { mutableStateOf<WindowsMediaEntry?>(null) }
+    var googleUrl by remember(target.key) { mutableStateOf<String?>(null) }
     val trusted = remember(settings.customEndpoint) { EndpointPolicy.hostOf(settings.customEndpoint) }
 
     fun close() {
@@ -448,15 +449,18 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
                             onError = { error = it },
                         ) { candidate, url -> run { useBytes(ArtworkHttp.downloadBytes(url, trusted), candidate) } }
                         CoverTab.GOOGLE -> {
-                            Hint(
-                                "Search opens Google Images in your browser. Then drag a picture onto this window, or right-click it, choose Copy image " +
-                                    "(or Copy image address for a moving GIF) and press Ctrl+V or Paste here. Only what you search is sent, to Google.",
-                            )
+                            Hint("Search Google Images here. Right-click a result and copy its image or image address, then choose Paste copied image. Only your search goes to Google.")
                             SearchRow(query, { query = it }, choices, "Search Google Images") { text ->
-                                runCatching { Desktop.getDesktop().browse(URI(googleImagesUrl(text))) }
-                                    .onFailure { error = "Couldn't open the browser." }
+                                googleUrl = googleImagesUrl(text)
                             }
-                            DropZone(busy, onPaste = ::pasteClipboard)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SkyButton("Paste copied image", ::pasteClipboard, enabled = !busy, icon = SkyIcon.Image)
+                                googleUrl?.let { address -> SkyButton("Open in browser", {
+                                    runCatching { Desktop.getDesktop().browse(URI(address)) }
+                                        .onFailure { error = "Couldn't open the browser." }
+                                }, primary = false) }
+                            }
+                            googleUrl?.let { EmbeddedGoogleImages(it) }
                         }
                         CoverTab.IMAGE -> {
                             Hint("Use a picture from this PC (JPG, PNG, WebP or a moving GIF). Your original file is not changed or moved. You can also drag a picture onto this window.")
@@ -609,33 +613,54 @@ private suspend fun movingFrames(video: File): List<SkiaImage> = withContext(Dis
 @Composable
 private fun FramePicker(video: WindowsMediaEntry, busy: Boolean, run: (suspend () -> Unit) -> Unit, onUse: (SkiaImage) -> Unit) {
     val theme = LocalSkyTheme.current
-    var position by remember { mutableFloatStateOf(10f) }
-    var shown by remember { mutableFloatStateOf(-1f) }
-    var frame by remember { mutableStateOf<SkiaImage?>(null) }
-    var loading by remember { mutableStateOf(false) }
-    LaunchedEffect(shown) {
+    var position by remember(video.path) { mutableFloatStateOf(10f) }
+    var shown by remember(video.path) { mutableFloatStateOf(-1f) }
+    var seconds by remember(video.path) { mutableStateOf<Double?>(null) }
+    var duration by remember(video.path) { mutableStateOf<Double?>(null) }
+    var frame by remember(video.path) { mutableStateOf<SkiaImage?>(null) }
+    var loading by remember(video.path) { mutableStateOf(false) }
+    LaunchedEffect(video.path) { duration = withContext(Dispatchers.IO) { ThumbnailExtractor.durationSeconds(video.file) } }
+    LaunchedEffect(shown, seconds, video.path) {
         if (shown < 0f) {
             shown = position
             return@LaunchedEffect
         }
         loading = true
-        frame = frameAt(video.file, "%.2f%%".format(java.util.Locale.ROOT, shown), exact = true, width = 1280)
+        val start = seconds?.let { "%.3f".format(java.util.Locale.ROOT, it) }
+            ?: "%.2f%%".format(java.util.Locale.ROOT, shown)
+        frame = frameAt(video.file, start, exact = true, width = 1280)
         loading = false
     }
-    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(theme.card), contentAlignment = Alignment.Center) {
+    fun step(amount: Int) {
+        val length = duration ?: return
+        val current = seconds ?: length * shown.coerceAtLeast(0f) / 100.0
+        val next = (current + amount).coerceIn(0.0, length)
+        if (next != current) {
+            seconds = next
+            position = (next / length * 100.0).toFloat().coerceIn(0f, 99f)
+        }
+    }
+    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(16.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.width(570.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(theme.card), contentAlignment = Alignment.Center) {
             val bitmap = remember(frame) { frame?.toComposeImageBitmap() }
             if (bitmap != null) Image(bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             if (loading) CircularProgressIndicator(Modifier.size(28.dp), color = theme.accent)
             else if (bitmap == null) Text("No frame could be read here. Try another moment.", color = theme.muted)
         }
-        Text("Moment: ${position.toInt()}% of the video", color = theme.muted, style = MaterialTheme.typography.labelMedium)
+        Text("Moment: " + (seconds?.let { formatClock(it) } ?: "${position.toInt()}%") +
+            (duration?.let { " / ${formatClock(it)}" } ?: " of the video"), color = theme.muted, style = MaterialTheme.typography.labelMedium)
         Slider(
             value = position, onValueChange = { position = it }, valueRange = 0f..99f,
-            onValueChangeFinished = { shown = position },
+            onValueChangeFinished = { seconds = null; shown = position },
             colors = SliderDefaults.colors(thumbColor = theme.accent, activeTrackColor = theme.accent),
         )
-        SkyButton("Use this frame", { frame?.let(onUse) }, enabled = !busy && !loading && frame != null, icon = SkyIcon.Check)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            listOf(-5, -1, 1, 5).forEach { amount ->
+                SkyButton(if (amount > 0) "+${amount}s" else "${amount}s", { step(amount) },
+                    enabled = !busy && !loading && duration != null, primary = false)
+            }
+            SkyButton("Use this frame", { frame?.let(onUse) }, enabled = !busy && !loading && frame != null, icon = SkyIcon.Check)
+        }
     }
 }
 

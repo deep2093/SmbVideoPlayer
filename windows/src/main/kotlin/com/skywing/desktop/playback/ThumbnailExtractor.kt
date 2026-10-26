@@ -3,6 +3,7 @@ package com.skywing.desktop.playback
 import com.sun.jna.Library
 import com.sun.jna.Native
 import com.sun.jna.Pointer
+import com.sun.jna.ptr.DoubleByReference
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -17,6 +18,7 @@ internal object ThumbnailExtractor {
         fun mpv_set_option_string(ctx: Pointer, name: String, value: String): Int
         fun mpv_initialize(ctx: Pointer): Int
         fun mpv_command(ctx: Pointer, args: Array<String?>): Int
+        fun mpv_get_property(ctx: Pointer, name: String, format: Int, value: DoubleByReference): Int
         fun mpv_wait_event(ctx: Pointer, timeout: Double): Pointer?
         fun mpv_error_string(error: Int): Pointer?
         fun mpv_terminate_destroy(ctx: Pointer)
@@ -34,6 +36,33 @@ internal object ThumbnailExtractor {
 
     private const val EVENT_SHUTDOWN = 1
     private const val EVENT_END_FILE = 7
+    private const val FORMAT_DOUBLE = 5
+
+    /** Reads the timeline length for second-by-second frame picking without starting visible playback. */
+    fun durationSeconds(video: File, timeoutMs: Long = 12_000): Double? {
+        val native = api ?: return null
+        if (!video.isFile) return null
+        val ctx = native.mpv_create() ?: return null
+        try {
+            fun set(name: String, value: String): Boolean = native.mpv_set_option_string(ctx, name, value) >= 0
+            if (!set("config", "no") || !set("terminal", "no") || !set("load-scripts", "no") ||
+                !set("ytdl", "no") || !set("vo", "null") || !set("ao", "null") ||
+                !set("pause", "yes") || !set("cache", "no")) return null
+            if (native.mpv_initialize(ctx) < 0) return null
+            if (native.mpv_command(ctx, arrayOf("loadfile", video.absolutePath, "replace", null)) < 0) return null
+            val value = DoubleByReference()
+            val deadline = System.nanoTime() + timeoutMs * 1_000_000
+            while (System.nanoTime() < deadline) {
+                if (native.mpv_get_property(ctx, "duration", FORMAT_DOUBLE, value) >= 0 && value.value.isFinite() && value.value > 0) {
+                    return value.value
+                }
+                native.mpv_wait_event(ctx, 0.2)
+            }
+            return null
+        } finally {
+            native.mpv_terminate_destroy(ctx)
+        }
+    }
 
     /**
      * Saves a JPEG of the video to [target]: by default about a tenth of the way in, at the nearest key frame.
