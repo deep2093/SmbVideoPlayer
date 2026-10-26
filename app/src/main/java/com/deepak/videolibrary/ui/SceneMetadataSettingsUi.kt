@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -132,7 +133,8 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel) {
 
 @Composable
 private fun SceneKeyEntry(vm: LibraryViewModel, provider: String, label: String, revision: Int) {
-    val service = remember(vm) { ServiceLocator.get(vm.getApplication()) }
+    val context = LocalContext.current
+    val service = remember(context) { ServiceLocator.get(context) }
     var key by remember(provider) { mutableStateOf("") }
     var result by remember(provider) { mutableStateOf<String?>(null) }
     var testing by remember(provider) { mutableStateOf(false) }
@@ -175,7 +177,7 @@ private fun SceneMetadataReviewDialog(service: ServiceLocator, onDismiss: () -> 
         text = {
             androidx.compose.foundation.lazy.LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
             ) {
                 if (records.isEmpty()) item { Text("No uncertain matches are waiting.") }
                 items(records.size) { i ->
