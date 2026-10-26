@@ -12,7 +12,7 @@ import java.io.File
 internal class ArtworkController(private val services: ServiceLocator) {
     private val files = android.util.LruCache<String,File>(100)
     var revision by mutableIntStateOf(0)
-    fun key(name: String,count: Int,done: Int,modified: Long) = "${services.libraryId}:$name:$count:$done:$modified:$revision:${services.artwork.revision.value}"
+    fun key(name: String,count: Int,done: Int,modified: Long) = "${services.libraryId}:$name:$count:$done:$modified:$revision:${services.artwork.revision.value}:${services.scenePosters.revision.value}"
     fun cached(key: String): File? = files.get(key)?.takeIf { it.isFile }
     /**
      * The last cover built for each folder and what it was built from. When artwork changes somewhere else (a
@@ -43,6 +43,16 @@ internal class ArtworkController(private val services: ServiceLocator) {
         }
         return try {
             val ids = withContext(Dispatchers.IO) { services.db.libraryState().ids(LibraryQueries.coverIds(scope)) }
+            val metadataOptions = services.sceneMetadataPreferences.settings.value
+            if (ids.size == 1 && metadataOptions.enabled && metadataOptions.folderPosters &&
+                metadataOptions.posterMode != com.deepak.videolibrary.metadata.PosterMode.DISABLED &&
+                decision.source == com.deepak.videolibrary.artwork.ArtworkSource.LEGACY &&
+                art.effectiveRow(identity)?.manual != true) {
+                val video = withContext(Dispatchers.IO) { services.db.dao().findVideoById(ids.first()) }
+                if (video != null && !CustomThumbs.has(services.artworkContext, video.id)) {
+                    services.scenePosters.fileFor(video)?.let { files.put(key, it); return it }
+                }
+            }
             val tiles = art.settings.value.collageTiles
             val signature = "$decision|$style|$tiles|${ids.size}|${ids.hashCode()}"
             built[identity]?.takeIf { it.first == signature && it.second.isFile }?.let { (_, file) ->
