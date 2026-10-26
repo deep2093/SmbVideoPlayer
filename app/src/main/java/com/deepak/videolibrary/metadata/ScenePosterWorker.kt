@@ -35,6 +35,7 @@ class ScenePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         val dao = services.db.dao()
         var done = 0
         var fetched = 0
+        val started = System.currentTimeMillis()
         for (record in records) {
             currentCoroutineContext().ensureActive()
             val fresh = services.sceneMetadataPreferences.settings.value
@@ -60,7 +61,7 @@ class ScenePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
             if (done % 10 == 0 || done == records.size) {
                 setProgress(workDataOf("done" to done, "total" to records.size, "posters" to fetched))
             }
-            if (done >= 150) break // bounded batch; subsequent runs resume using cached images
+            if (System.currentTimeMillis() - started >= TimeUnit.MINUTES.toMillis(8)) return Result.retry()
         }
         return Result.success()
     }
