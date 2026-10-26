@@ -14,6 +14,9 @@ interface LibraryDao {
     @Query("SELECT * FROM videos WHERE relativePath = :path LIMIT 1")
     suspend fun findVideo(path: String): VideoEntity?
 
+    @Query("SELECT * FROM videos WHERE id = :videoId LIMIT 1")
+    suspend fun findVideoById(videoId: Long): VideoEntity?
+
     @Query("SELECT id FROM videos")
     suspend fun allVideoIds(): List<Long>
 
