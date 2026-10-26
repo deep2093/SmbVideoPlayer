@@ -52,6 +52,10 @@ class PeriodicSyncWorker(context: Context, params: WorkerParameters) : Coroutine
                 if(!partial && !emptySource) prefs.edit().putLong("last_success", System.currentTimeMillis()).apply()
                 com.deepak.videolibrary.thumbs.ThumbnailWorker
                     .enqueue(applicationContext, services.libraryId)
+                val metadata = services.sceneMetadataPreferences.settings.value
+                if (metadata.enabled && metadata.automatic && metadata.allowedOnlineLookup) {
+                    com.deepak.videolibrary.metadata.SceneMetadataWorker.enqueue(applicationContext, services.libraryId)
+                }
                 Result.success()
             } else {
                 Result.retry()
