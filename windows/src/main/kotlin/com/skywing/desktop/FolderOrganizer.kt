@@ -72,6 +72,8 @@ internal data class VirtualSet(
     val renames: Map<String, String> = emptyMap(),
     val hidden: Set<String> = emptySet(),
     val parentId: String? = null,
+    /** Library path -> subfolder chosen explicitly by the user. Stored in a separate sidecar file. */
+    val manualGroups: Map<String, String> = emptyMap(),
 ) {
     val isEmpty: Boolean get() = folders.isEmpty() && files.isEmpty()
 }
@@ -190,7 +192,9 @@ internal object FolderLogic {
         val titles = LinkedHashMap<String, String>()
         val members = LinkedHashMap<String, LinkedHashMap<String, WindowsMediaEntry>>()
         for (video in videos) {
-            for (name in namesOf(video, rules, assignments)) {
+            val names = set.manualGroups[video.path.lowercase(Locale.ROOT)]?.let(::listOf)
+                ?: namesOf(video, rules, assignments)
+            for (name in names) {
                 val generated = WindowsVirtualNames.identity(name)
                 if (generated in set.hidden) continue
                 val title = set.renames[generated] ?: name
@@ -262,6 +266,7 @@ internal class FolderOrganizerStore(private val testPath: Path? = null) {
             Paths.get(base, "SkyWing", "library", "folders.bin")
         }
     }
+    private val placementsPath: Path get() = path.resolveSibling("folder-placements.bin")
 
     /** True once the file exists, so older custom folders are brought over only the first time. */
     fun exists(): Boolean = Files.isRegularFile(path)
@@ -269,7 +274,11 @@ internal class FolderOrganizerStore(private val testPath: Path? = null) {
     @Synchronized
     fun load(): OrganizerData = try {
         if (!Files.isRegularFile(path)) OrganizerData()
-        else DataInputStream(BufferedInputStream(Files.newInputStream(path))).use { read(it) }
+        else {
+            val saved = DataInputStream(BufferedInputStream(Files.newInputStream(path))).use { read(it) }
+            val placements = loadPlacements()
+            saved.copy(sets = saved.sets.map { set -> set.copy(manualGroups = placements[set.id].orEmpty()) })
+        }
     } catch (_: Exception) {
         OrganizerData()
     }
@@ -283,6 +292,39 @@ internal class FolderOrganizerStore(private val testPath: Path? = null) {
             Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         } catch (_: Exception) {
             Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING)
+        }
+        savePlacements(data.sets)
+    }
+
+    private fun loadPlacements(): Map<String, Map<String, String>> = try {
+        if (!Files.isRegularFile(placementsPath)) emptyMap() else
+            DataInputStream(BufferedInputStream(Files.newInputStream(placementsPath))).use { input ->
+                if (input.readInt() != PLACEMENTS_MAGIC || input.readInt() != 1) emptyMap() else
+                    buildMap {
+                        repeat(input.count()) {
+                            val id = input.readUTF()
+                            put(id, buildMap { repeat(input.count()) { put(input.readUTF(), input.readUTF()) } })
+                        }
+                    }
+            }
+    } catch (_: Exception) { emptyMap() }
+
+    private fun savePlacements(sets: List<VirtualSet>) {
+        val temporary = placementsPath.resolveSibling(placementsPath.fileName.toString() + ".tmp")
+        DataOutputStream(BufferedOutputStream(Files.newOutputStream(temporary))).use { out ->
+            out.writeInt(PLACEMENTS_MAGIC)
+            out.writeInt(1)
+            out.writeInt(sets.size)
+            sets.forEach { set ->
+                out.writeUTF(set.id)
+                out.writeInt(set.manualGroups.size)
+                set.manualGroups.forEach { (file, group) -> out.writeUTF(file); out.writeUTF(group) }
+            }
+        }
+        try {
+            Files.move(temporary, placementsPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (_: Exception) {
+            Files.move(temporary, placementsPath, StandardCopyOption.REPLACE_EXISTING)
         }
     }
 
@@ -358,6 +400,7 @@ internal class FolderOrganizerStore(private val testPath: Path? = null) {
 
     companion object {
         private const val MAGIC = 0x53574644
+        private const val PLACEMENTS_MAGIC = 0x5357504C
         private const val VERSION = 2
         private const val MAX_ITEMS = 200_000
     }
@@ -526,6 +569,32 @@ internal class Organizer(private val store: FolderOrganizerStore, legacy: () -> 
     fun addToSet(id: String, files: Collection<String>) {
         val set = data.sets.firstOrNull { it.id == id } ?: return
         setSetMembers(id, set.folders, set.files + files)
+    }
+
+    /** Keeps added videos in the named virtual subfolder even when their file names suggest another group. */
+    fun addToSetGroup(id: String, group: String, folders: Collection<String>, files: Collection<String>, all: List<WindowsMediaEntry>) {
+        val set = data.sets.firstOrNull { it.id == id } ?: return
+        val name = named(group) ?: return
+        val addedVideos = FolderLogic.members(folders.toList(), files.toList(), all)
+        val (dirs, singles) = cleanMembers(set.folders + folders, set.files + files)
+        val placed = addedVideos.associate { it.path.lowercase(Locale.ROOT) to name }
+        edit { d -> d.copy(sets = d.sets.map {
+            if (it.id == id) it.copy(folders = dirs, files = singles, manualGroups = it.manualGroups + placed) else it
+        }) }
+    }
+
+    /** Updates explicit memberships after a real video file is renamed. */
+    fun renameVideoPath(old: String, new: String) {
+        val before = old.lowercase(Locale.ROOT)
+        val after = new.lowercase(Locale.ROOT)
+        edit { d -> d.copy(
+            own = d.own.map { it.copy(files = it.files.map { path -> if (path.equals(old, true)) new else path }) },
+            sets = d.sets.map { set -> set.copy(
+                files = set.files.map { path -> if (path.equals(old, true)) new else path },
+                manualGroups = set.manualGroups.mapKeys { (path, _) -> if (path == before) after else path },
+            ) },
+            assignments = d.assignments.mapKeys { (path, _) -> if (path == before) after else path },
+        ) }
     }
 
     /** Only the name in the app changes. Giving it the name of another subfolder joins the two. */

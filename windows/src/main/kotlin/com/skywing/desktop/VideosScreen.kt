@@ -35,6 +35,7 @@ internal fun VideosScreen(
     history: Map<String, WindowsWatchRecord>,
     onPlay: (File, List<File>) -> Unit,
     onResume: (File, Double) -> Unit,
+    onRename: (File) -> Unit,
 ) {
     // Starts with the last list shown, so the grid keeps its place when coming back from a video.
     val shown by produceState(hub.lastResult<List<WindowsMediaEntry>>(VIDEOS_PAGE) ?: emptyList(), library.all, hub.videoSource, hub.videoSort, hub.videoQuery) {
@@ -120,6 +121,7 @@ internal fun VideosScreen(
                     MenuAction("Play", SkyIcon.Play) { onPlay(entry.file, shown.map { it.file }) },
                     MenuAction("Add to folder…", SkyIcon.Folder) { filing = false to entry.path },
                     MenuAction("Add to virtual folder…", SkyIcon.Grid) { filing = true to entry.path },
+                    MenuAction("Rename video…", SkyIcon.Edit) { onRename(entry.file) },
                     if (artworkOn) MenuAction("Change cover", SkyIcon.Image) { cover = videoCoverTarget(entry) } else null,
                 )
             },

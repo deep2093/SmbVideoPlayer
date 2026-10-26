@@ -51,8 +51,8 @@ class EmbeddedMpv : Closeable {
             val resources = System.getProperty("compose.application.resources.dir")
             val packaged = resources?.let { File(it, "libmpv-2.dll") }
             val native = if (packaged?.isFile == true)
-                Native.load(packaged.absolutePath, Api::class.java)
-            else Native.load("mpv-2", Api::class.java)
+                Native.load(packaged.absolutePath, Api::class.java, mapOf(Library.OPTION_STRING_ENCODING to "UTF-8"))
+            else Native.load("mpv-2", Api::class.java, mapOf(Library.OPTION_STRING_ENCODING to "UTF-8"))
             val context = native.mpv_create() ?: error("mpv_create failed")
             // Set before mpv_initialize. mpv creates its own video child in the Canvas HWND.
             fun set(name: String, value: String) {

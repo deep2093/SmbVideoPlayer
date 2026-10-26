@@ -90,7 +90,10 @@ class FullscreenWindowTest {
 
             // Optional real libmpv playback is required by CI; no external media downloads.
             val nativePlayback = System.getenv("SKYWING_TEST_MPV") == "true"
-            val media = File.createTempFile("skywing-fullscreen-", ".gif")
+            // libmpv's C API expects UTF-8 even on Windows. This name covers non-Latin letters,
+            // accents, punctuation, and supplementary Unicode characters from real libraries.
+            val mediaDir = java.nio.file.Files.createTempDirectory("skywing-fullscreen-").toFile()
+            val media = File(mediaDir, "ғᴛ. @Rosa, à , ❤️❤️-.gif")
             try {
                 if (nativePlayback) {
                     // Exercise decoded video, without depending on an audio endpoint
@@ -119,6 +122,9 @@ class FullscreenWindowTest {
                     assertTrue(edt { player.attach(canvas) }, player.lastError)
                     assertTrue(player.open(media))
                     await("mpv did not start playback") { (player.playbackPosition() ?: 0.0) > 0.1 }
+                    val thumbnail = File(mediaDir, "thumbnail.jpg")
+                    val extracted = com.skywing.desktop.playback.ThumbnailExtractor.extractDetailed(media, thumbnail, start = "0")
+                    assertTrue(extracted.success && thumbnail.isFile, "Unicode thumbnail failed: ${extracted.reason}")
                 }
                 repeat(10) {
                     key(KeyEvent.VK_F, release = false)
@@ -151,7 +157,7 @@ class FullscreenWindowTest {
                     assertTrue(player.togglePause())
                     await("Playback stopped advancing after fullscreen exits") { (player.playbackPosition() ?: 0.0) > 10.1 }
                 }
-            } finally { media.delete() }
+            } finally { mediaDir.deleteRecursively() }
         } finally {
             // Destroy mpv before disposing its parent; close also rejects delayed reattach.
             player.close()

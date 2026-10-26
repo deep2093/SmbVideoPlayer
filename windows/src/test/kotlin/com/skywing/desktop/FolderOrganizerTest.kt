@@ -97,6 +97,19 @@ class FolderOrganizerTest {
         assertNull(again.createOwn("bad/name"))
     }
 
+    @Test fun moreVideosCanBeAddedToAnExistingVirtualSubfolder() {
+        val dir = Files.createTempDirectory("skywing-virtual-add")
+        val path = dir.resolve("folders.bin")
+        val organizer = Organizer(FolderOrganizerStore(path))
+        val id = organizer.createSet("People")!!
+        organizer.addToSetGroup(id, "Favourites", emptyList(), listOf(library[0].path), library)
+        organizer.addToSetGroup(id, "Favourites", emptyList(), listOf(library[3].path), library)
+        val saved = Organizer(FolderOrganizerStore(path)).data.sets.first { it.id == id }
+        val videos = FolderLogic.members(saved.folders, saved.files, library)
+        val favourites = FolderLogic.buildGroups(saved, videos, GroupingSwitches(), emptyMap()).first { it.identity == "favourites" }
+        assertEquals(setOf(library[0].path, library[3].path), favourites.videos.map { it.path }.toSet())
+    }
+
     @Test fun cardSizesStepWithinTheirRange() {
         assertEquals(150, CardSizes.step(0, -1))
         assertEquals(420, CardSizes.step(420, 1))

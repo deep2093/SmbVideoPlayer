@@ -337,8 +337,8 @@ private fun SyncPage(library: LibraryModel, sync: LibrarySync) {
         Text("Automatic sync", color = theme.ink, style = MaterialTheme.typography.titleMedium)
         SwitchRow(
             "Rescan automatically",
-            if (sync.auto) "While SkyWing is open: when it starts if the last scan is over 12 hours old, then every 12 hours. Your names and covers are kept."
-            else "Off. Use Refresh library to scan.",
+            if (sync.auto) "SkyWing checks for changes at every startup and every 12 hours while open. Your names and covers are kept."
+            else "SkyWing checks for changes at every startup. Use Refresh library to check again while open.",
             sync.auto,
         ) { sync.updateAuto(it) }
         Text(

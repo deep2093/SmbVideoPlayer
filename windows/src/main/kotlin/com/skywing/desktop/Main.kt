@@ -236,13 +236,18 @@ private fun SkyWingDesktopShell(
     val library = remember { LibraryModel(WindowsMediaIndex()) }
     LaunchedEffect(library.revision) { library.reload() }
     // Thumbnails for the whole library are made in the background, cards on screen first.
-    LaunchedEffect(library.all) { ThumbnailStore.prefetch(library.all.map { it.file to it.modified }) }
+    LaunchedEffect(library.all) {
+        if (library.revision > 0) ThumbnailStore.prefetch(library.all.map { it.file to it.modified })
+    }
     val organizer = remember { Organizer(FolderOrganizerStore()) { WindowsCustomFolderStore().load() } }
     // Covers and portraits: one store for the app, and the background portrait lookup after each scan.
     val artwork = remember { ArtworkRepository() }
-    // Automatic sync: when the app starts if the last scan is old, then every 12 hours while it is open.
+    val videoRenamer = remember(library, organizer, artwork, historyStore) { VideoRenameService(library, organizer, artwork, historyStore) }
+    var renameTarget by remember { mutableStateOf<File?>(null) }
+    // Always check for library changes at startup; the optional periodic scan runs while the app is open.
     val sync = remember { LibrarySync(library) }
     LaunchedEffect(sync) {
+        sync.refresh()
         while (true) {
             if (sync.due()) sync.refresh()
             delay(15 * 60 * 1000L)
@@ -251,7 +256,7 @@ private fun SkyWingDesktopShell(
     val portraits = remember { PortraitLookup(artwork) }
     val covers = remember(artwork, organizer.data.prefs.virtualRules) { CoverContext(artwork, organizer.data.prefs.virtualRules) }
     LaunchedEffect(library.all) {
-        if (library.all.isNotEmpty()) portraits.start(forced = false) { lookupTargets(library.all, organizer.data) }
+        if (library.revision > 0 && library.all.isNotEmpty()) portraits.start(forced = false) { lookupTargets(library.all, organizer.data) }
     }
     // Saved network shares: learn their other addresses, and find the one that answers if the main one is down.
     LaunchedEffect(Unit) {
@@ -483,9 +488,9 @@ private fun SkyWingDesktopShell(
                 if (!fullscreen && !playerShown) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         CompositionLocalProvider(LocalCovers provides covers) { when (selected) {
-                            "Folders" -> FoldersScreen(library, organizer, hub, history, playOne)
-                            "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne) { file, position -> openVideo(file, listOf(file), position) }
-                            "Files" -> FilesScreen(library, playOne)
+                            "Folders" -> FoldersScreen(library, organizer, hub, history, playOne, { renameTarget = it })
+                            "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it })
+                            "Files" -> FilesScreen(library, playOne, { renameTarget = it })
                             else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync) { go("Files") }
                         } }
                     }
@@ -545,6 +550,9 @@ private fun SkyWingDesktopShell(
             }
         }
     }
+    renameTarget?.let { file ->
+        RenameVideoDialog(file, videoRenamer::rename) { renameTarget = null; historyRevision++ }
+    }
 }
 
 /**
@@ -552,10 +560,12 @@ private fun SkyWingDesktopShell(
  * videos and the virtual subfolders of that name their portrait), and the drive folders holding videos.
  */
 internal fun lookupTargets(all: List<WindowsMediaEntry>, data: OrganizerData): List<LookupTarget> {
+    val custom = data.own.map { LookupTarget(ArtworkKeys.ownFolder(it.id), it.name) }
     val matches = data.match.filter { !it.hidden }.map { LookupTarget(ArtworkKeys.matchFolder(it.id), it.name) }
+    val virtualSets = data.sets.map { LookupTarget(ArtworkKeys.virtualSet(it.id), it.name) }
     val names = FolderLogic.groupByNames(all, data.prefs.virtualRules, data.assignments).keys
         .map { LookupTarget(ArtworkKeys.virtualFolder(it), FolderLogic.groupTitle(it)) }
     val drives = all.mapNotNull { it.file.parentFile }.distinctBy { it.path.lowercase() }
         .map { LookupTarget(driveCoverKey(it.path), FolderLogic.originalLabel(it.name)) }
-    return matches + names + drives
+    return custom + matches + virtualSets + names + drives
 }

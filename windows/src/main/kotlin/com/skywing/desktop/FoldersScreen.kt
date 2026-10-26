@@ -92,6 +92,7 @@ private class Folders(
     val hub: HubState,
     val history: Map<String, WindowsWatchRecord>,
     val onPlay: (File, List<File>) -> Unit,
+    val onRename: (File) -> Unit,
     val roots: List<String>,
     val dialogs: FolderDialogs,
     val members: Memberships?,
@@ -128,6 +129,7 @@ private class Folders(
         MenuAction("Select", SkyIcon.Check) { hub.toggleFolder(page, "file:" + entry.path) },
         MenuAction("Add to folder…", SkyIcon.Folder) { dialogs.filing = false to listOf(entry.path) },
         MenuAction("Add to virtual folder…", SkyIcon.Grid) { dialogs.filing = true to listOf(entry.path) },
+        MenuAction("Rename video…", SkyIcon.Edit) { onRename(entry.file) },
         coverAction(ArtworkKeys.video(entry.path), entry.file.nameWithoutExtension, listOf(entry), entry),
         MenuAction("Details", SkyIcon.Info) {
             dialogs.info = entry.file.name to listOf(entry.path, formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }.joinToString("\n")
@@ -223,6 +225,14 @@ private class Folders(
             withFiles = true, folders = set.folders, files = set.files, subfolderChoice = false,
         ) { dirs, files, _ -> organizer.setSetMembers(set.id, dirs, files) }
     }
+
+    fun addToSetGroup(set: VirtualSet, group: String) {
+        dialogs.picker = PickerSpec(
+            "Add to $group",
+            "Choose more folders or videos. Videos already in the library will stay in $group even when their file names suggest another subfolder.",
+            withFiles = true, folders = emptyList(), files = emptyList(), subfolderChoice = false,
+        ) { dirs, files, _ -> organizer.addToSetGroup(set.id, group, dirs, files, library.all) }
+    }
 }
 
 /* ---------- The page ---------- */
@@ -234,6 +244,7 @@ internal fun FoldersScreen(
     hub: HubState,
     history: Map<String, WindowsWatchRecord>,
     onPlay: (File, List<File>) -> Unit,
+    onRename: (File) -> Unit,
 ) {
     val prefs = organizer.data.prefs
     val tabs = prefs.tabs
@@ -254,7 +265,7 @@ internal fun FoldersScreen(
             sets = data.sets.associate { it.id to FolderLogic.members(it.folders, it.files, library.all) },
         )
     }
-    val f = Folders(library, organizer, hub, history, onPlay, roots, dialogs, members, LocalCovers.current?.artwork?.settings?.enabled == true)
+    val f = Folders(library, organizer, hub, history, onPlay, onRename, roots, dialogs, members, LocalCovers.current?.artwork?.settings?.enabled == true)
 
     val inside = when (hub.tab) {
         0 -> hub.ownId != null || hub.matchId != null
@@ -681,7 +692,7 @@ private fun OwnPage(f: Folders) {
                             "Give it any name, then choose the folders and videos it shows. Nothing on your disk changes.", "Create",
                         ) { name -> f.organizer.createOwn(name, parentId = folder.id)?.let { id -> f.data.own.firstOrNull { it.id == id }?.let(f::chooseOwn) } }
                     })
-                    SkyIconButton(SkyIcon.Edit, "Choose folders and files", { f.chooseOwn(folder) })
+                    SkyButton("Add or remove files/folders", { f.chooseOwn(folder) }, primary = false, icon = SkyIcon.Edit)
                     if (singles.isNotEmpty()) {
                         SkyIconButton(
                             if (folder.grouped) SkyIcon.Queue else SkyIcon.Grid,
@@ -690,6 +701,7 @@ private fun OwnPage(f: Folders) {
                         )
                     }
                 }
+                if (group != null) SkyButton("Add more files/folders", { f.chooseOwn(folder) }, primary = false, icon = SkyIcon.Add)
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
                 SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(200.dp), leading = SkyIcon.Search)
                 GridControls(f.organizer, page)
@@ -872,9 +884,10 @@ private fun SetPage(f: Folders) {
                             "Give it any name, then choose the folders and videos it reads. Nothing on your disk changes.", "Create",
                         ) { name -> f.organizer.createSet(name, parentId = set.id)?.let { id -> f.data.sets.firstOrNull { it.id == id }?.let(f::chooseSet) } }
                     })
-                    SkyIconButton(SkyIcon.Edit, "Choose folders and files", { f.chooseSet(set) })
+                    SkyButton("Add or remove files/folders", { f.chooseSet(set) }, primary = false, icon = SkyIcon.Edit)
                     if (set.hidden.isNotEmpty()) SkyIconButton(SkyIcon.Refresh, "Show folders you took out", { f.organizer.restoreSubfolders(set.id) })
                 }
+                if (group != null && current != null) SkyButton("Add to this subfolder", { f.addToSetGroup(set, current.title) }, primary = false, icon = SkyIcon.Add)
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
                 SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(200.dp), leading = SkyIcon.Search)
                 GridControls(f.organizer, page)

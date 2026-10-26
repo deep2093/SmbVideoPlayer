@@ -20,6 +20,7 @@ internal class ArtworkPreferences(private val node: Preferences = Preferences.us
             videoMode = enumOf("video_mode", d.videoMode, ArtworkMode.entries.toTypedArray()),
             smbFolderMode = enumOf("smb_mode", d.smbFolderMode, ArtworkMode.entries.toTypedArray()),
             virtualFolderMode = enumOf("virtual_mode", d.virtualFolderMode, ArtworkMode.entries.toTypedArray()),
+            customFolderMode = enumOf("custom_mode", enumOf("virtual_mode", d.virtualFolderMode, ArtworkMode.entries.toTypedArray()), ArtworkMode.entries.toTypedArray()),
             adultConsent = node.getBoolean("adult_consent", d.adultConsent),
             portraitsOnFolders = node.getBoolean("portraits_folders", d.portraitsOnFolders),
             portraitsOnVideos = node.getBoolean("portraits_videos", d.portraitsOnVideos),
@@ -30,6 +31,7 @@ internal class ArtworkPreferences(private val node: Preferences = Preferences.us
             customEndpoint = node.get("endpoint", ""),
             smbFolderSelection = enumOf("smb_selection", d.smbFolderSelection, PortraitSelection.entries.toTypedArray()),
             virtualFolderSelection = enumOf("virtual_selection", d.virtualFolderSelection, PortraitSelection.entries.toTypedArray()),
+            customFolderSelection = enumOf("custom_selection", enumOf("virtual_selection", d.virtualFolderSelection, PortraitSelection.entries.toTypedArray()), PortraitSelection.entries.toTypedArray()),
         ).sanitized()
     }
 
@@ -38,6 +40,7 @@ internal class ArtworkPreferences(private val node: Preferences = Preferences.us
         node.put("video_mode", s.videoMode.name)
         node.put("smb_mode", s.smbFolderMode.name)
         node.put("virtual_mode", s.virtualFolderMode.name)
+        node.put("custom_mode", s.customFolderMode.name)
         node.putBoolean("adult_consent", s.adultConsent)
         node.putBoolean("portraits_folders", s.portraitsOnFolders)
         node.putBoolean("portraits_videos", s.portraitsOnVideos)
@@ -48,6 +51,7 @@ internal class ArtworkPreferences(private val node: Preferences = Preferences.us
         node.put("endpoint", s.customEndpoint)
         node.put("smb_selection", s.smbFolderSelection.name)
         node.put("virtual_selection", s.virtualFolderSelection.name)
+        node.put("custom_selection", s.customFolderSelection.name)
         runCatching { node.flush() }
     }
 

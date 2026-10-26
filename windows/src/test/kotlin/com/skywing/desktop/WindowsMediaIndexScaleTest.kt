@@ -4,6 +4,7 @@ import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class WindowsMediaIndexScaleTest {
@@ -15,14 +16,15 @@ class WindowsMediaIndexScaleTest {
             val initialFiles = (0 until 10_000).map { index ->
                 File(directory.resolve("initial").resolve("video-$index.mkv").toString())
             }
-            WindowsMediaIndex(indexFile).replaceSource("PC", "PC", "This PC", initialFiles)
+            assertTrue(WindowsMediaIndex(indexFile).replaceSource("PC", "PC", "This PC", initialFiles))
+            assertFalse(WindowsMediaIndex(indexFile).replaceSource("PC", "PC", "This PC", initialFiles))
 
             val loaded = WindowsMediaIndex(indexFile).load()
             assertEquals(10_000, loaded.size)
             assertTrue(Files.size(indexFile) > 0)
 
             val refreshedFiles = initialFiles.drop(1) + File(directory.resolve("moved-video.mkv").toString())
-            WindowsMediaIndex(indexFile).replaceSource("PC", "PC", "This PC", refreshedFiles)
+            assertTrue(WindowsMediaIndex(indexFile).replaceSource("PC", "PC", "This PC", refreshedFiles))
 
             val refreshed = WindowsMediaIndex(indexFile).load()
             assertEquals(10_000, refreshed.size)
