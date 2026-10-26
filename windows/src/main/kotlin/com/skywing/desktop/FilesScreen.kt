@@ -20,7 +20,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,12 +41,15 @@ import kotlinx.coroutines.withContext
 
 /** Files: where the videos come from. Folders on this PC and Windows network shares. */
 @Composable
-internal fun FilesScreen(library: LibraryModel, onPlay: (File, List<File>) -> Unit) {
+internal fun FilesScreen(library: LibraryModel, onPlay: (File, List<File>) -> Unit, onRename: (File) -> Unit,
+    registerBack: (((() -> Boolean)?) -> Unit) = {}) {
     var section by remember { mutableStateOf(0) }
+    if (section == 0) SideEffect { registerBack(null) }
+    DisposableEffect(Unit) { onDispose { registerBack(null) } }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         PageTitle("Files", "Add the places your videos are kept")
         SkyChipBar(listOf("This PC", "Network shares"), section, { section = it })
-        if (section == 0) LocalSources(library) else NetworkSources(library, onPlay)
+        if (section == 0) LocalSources(library) else NetworkSources(library, onPlay, onRename, registerBack)
     }
 }
 
@@ -151,7 +156,8 @@ private fun LocalSources(library: LibraryModel) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> Unit) {
+private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> Unit, onRename: (File) -> Unit,
+    registerBack: (((() -> Boolean)?) -> Unit)) {
     val browser = remember { WindowsShareBrowser() }
     val profileStore = remember { WindowsShareProfileStore() }
     val scope = rememberCoroutineScope()
@@ -185,6 +191,29 @@ private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> 
                 loading = false
             }
         }
+    }
+
+    SideEffect {
+        registerBack {
+            val share = root
+            val folder = directory
+            if (loading || share == null || folder == null) false
+            else {
+                if (folder == share) {
+                    root = null
+                    directory = null
+                } else {
+                    load(share, folder.parent?.takeIf { it.startsWith(share) } ?: share)
+                }
+                true
+            }
+        }
+    }
+
+    LaunchedEffect(library.revision) {
+        val share = root
+        val folder = directory
+        if (share != null && folder != null && !loading) load(share, folder)
     }
 
     /**
@@ -317,6 +346,7 @@ private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> 
                         val theme = LocalSkyTheme.current
                         SkyIconView(if (entry.directory) SkyIcon.Folder else SkyIcon.Play, theme.accent)
                         Text(entry.file.name, color = theme.ink, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (!entry.directory) SkyIconButton(SkyIcon.Edit, "Rename video", { onRename(entry.file) }, enabled = !loading)
                     }
                 }
             }

@@ -109,7 +109,7 @@ internal fun ArtworkPage(library: LibraryModel, organizer: Organizer, portraits:
                 SwitchRow("Folders: whole name", "Search with the whole folder name.", s.folderUseWholeName) { on ->
                     art.updateSettings { it.copy(folderUseWholeName = on) }
                 }
-                listOf(ArtworkScope.SMB_FOLDER, ArtworkScope.VIRTUAL_FOLDER).forEach { kind ->
+                listOf(ArtworkScope.SMB_FOLDER, ArtworkScope.VIRTUAL_FOLDER, ArtworkScope.CUSTOM_FOLDER).forEach { kind ->
                     Text("How portraits are chosen: " + kind.label.lowercase(), color = theme.ink, style = MaterialTheme.typography.bodyMedium)
                     SkyChipBar(PortraitSelection.entries.map { it.label }, s.selectionFor(kind).ordinal, { i ->
                         art.updateSettings { it.withSelection(kind, PortraitSelection.entries[i]) }
@@ -167,7 +167,7 @@ internal fun ArtworkPage(library: LibraryModel, organizer: Organizer, portraits:
                         message = when {
                             !(s.portraitsOnFolders || s.portraitsOnVideos) -> "Turn on Portraits on folders or Portraits on videos first."
                             !art.keys.has() -> "Save your StashDB API key first (StashDB key, above)."
-                            !s.portraitLookupWanted(ArtworkScope.SMB_FOLDER) && !s.portraitLookupWanted(ArtworkScope.VIRTUAL_FOLDER) ->
+                            listOf(ArtworkScope.SMB_FOLDER, ArtworkScope.VIRTUAL_FOLDER, ArtworkScope.CUSTOM_FOLDER).none(s::portraitLookupWanted) ->
                                 "Nothing to look up: set a default cover to Internet performer portrait, and choose Automatic or Manual instead of Custom."
                             else -> {
                                 portraits.start(forced = true) { lookupTargets(library.all, organizer.data) }
@@ -300,7 +300,7 @@ private fun ReviewSuggestionsDialog(art: ArtworkRepository, portraits: PortraitL
 private fun ArtworkSettings.withPortraitDefaults(folders: Boolean, videos: Boolean): ArtworkSettings {
     var next = this
     if (folders) {
-        listOf(ArtworkScope.SMB_FOLDER, ArtworkScope.VIRTUAL_FOLDER).forEach { kind ->
+        listOf(ArtworkScope.SMB_FOLDER, ArtworkScope.VIRTUAL_FOLDER, ArtworkScope.CUSTOM_FOLDER).forEach { kind ->
             if (next.modeFor(kind) == ArtworkMode.EXISTING) next = next.withMode(kind, ArtworkMode.PORTRAIT)
         }
     }
@@ -343,7 +343,8 @@ private fun ThumbnailsCard(library: LibraryModel, onMessage: (String) -> Unit) {
         if (s != null && s.failed.isNotEmpty()) {
             SkyButton(if (showFailed) "Hide failed thumbnails" else "View failed thumbnails", { showFailed = !showFailed }, primary = false)
             if (showFailed) s.failed.take(200).forEach { file ->
-                Text(file.path, color = theme.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                val stamp = videos.firstOrNull { it.first.path.equals(file.path, true) }?.second ?: 0L
+                Text(file.path + " — " + ThumbnailStore.failureReason(file, stamp).orEmpty(), color = theme.muted, style = MaterialTheme.typography.bodySmall)
             }
         }
     }

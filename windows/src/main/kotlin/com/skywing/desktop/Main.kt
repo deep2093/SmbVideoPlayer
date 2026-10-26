@@ -40,13 +40,17 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.skywing.desktop.playback.EmbeddedMpv
 import java.awt.Canvas
+import java.awt.AWTEvent
 import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.KeyEventDispatcher
 import java.awt.KeyboardFocusManager
+import java.awt.Toolkit
 import java.awt.dnd.DnDConstants
 import java.awt.dnd.DropTarget
+import java.awt.event.AWTEventListener
 import java.awt.event.KeyEvent
+import java.awt.event.MouseEvent
 import java.io.File
 import javax.swing.SwingUtilities
 import javax.swing.text.JTextComponent
@@ -150,12 +154,12 @@ private fun NavRow(label: String, icon: SkyIcon, selected: Boolean, onClick: () 
     val theme = LocalSkyTheme.current
     val ink = if (selected) theme.ink else theme.muted
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(50))
+        Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(RoundedCornerShape(50))
             .background(if (selected) theme.card else Color.Transparent)
             .skyClickable(onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         SkyIconView(icon, if (selected) theme.accent else ink)
         Text(label, color = ink, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
@@ -173,14 +177,14 @@ private fun Sidebar(
     modifier: Modifier = Modifier,
 ) {
     val theme = LocalSkyTheme.current
-    Column(modifier.skyGlass(RoundedCornerShape(28.dp)).padding(16.dp)) {
-        SkyMark(40.dp, Modifier.padding(top = 12.dp, bottom = 12.dp))
+    Column(modifier.skyGlass(RoundedCornerShape(22.dp)).padding(12.dp)) {
+        SkyMark(32.dp, Modifier.padding(top = 4.dp, bottom = 6.dp))
         Text("SkyWing", color = theme.ink, style = MaterialTheme.typography.titleMedium)
         Text("Video library", color = theme.muted, style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(16.dp))
         TOP_NAV.forEach { entry ->
             NavRow(entry.section, entry.icon, selected == entry.section) { onSelect(entry.section) }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(2.dp))
         }
         Spacer(Modifier.weight(1f))
         if (nowPlaying != null) {
@@ -188,7 +192,7 @@ private fun Sidebar(
                 Modifier.fillMaxWidth().padding(bottom = 8.dp)
                     .skyGlass(RoundedCornerShape(20.dp), tint = theme.card)
                     .skyClickable({ onSelect("Now Playing") })
-                    .padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+                    .padding(start = 10.dp, top = 4.dp, bottom = 4.dp, end = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
@@ -236,13 +240,18 @@ private fun SkyWingDesktopShell(
     val library = remember { LibraryModel(WindowsMediaIndex()) }
     LaunchedEffect(library.revision) { library.reload() }
     // Thumbnails for the whole library are made in the background, cards on screen first.
-    LaunchedEffect(library.all) { ThumbnailStore.prefetch(library.all.map { it.file to it.modified }) }
+    LaunchedEffect(library.all) {
+        if (library.revision > 0) ThumbnailStore.prefetch(library.all.map { it.file to it.modified })
+    }
     val organizer = remember { Organizer(FolderOrganizerStore()) { WindowsCustomFolderStore().load() } }
     // Covers and portraits: one store for the app, and the background portrait lookup after each scan.
     val artwork = remember { ArtworkRepository() }
-    // Automatic sync: when the app starts if the last scan is old, then every 12 hours while it is open.
+    val videoRenamer = remember(library, organizer, artwork, historyStore) { VideoRenameService(library, organizer, artwork, historyStore) }
+    var renameTarget by remember { mutableStateOf<File?>(null) }
+    // Always check for library changes at startup; the optional periodic scan runs while the app is open.
     val sync = remember { LibrarySync(library) }
     LaunchedEffect(sync) {
+        sync.refresh()
         while (true) {
             if (sync.due()) sync.refresh()
             delay(15 * 60 * 1000L)
@@ -251,7 +260,7 @@ private fun SkyWingDesktopShell(
     val portraits = remember { PortraitLookup(artwork) }
     val covers = remember(artwork, organizer.data.prefs.virtualRules) { CoverContext(artwork, organizer.data.prefs.virtualRules) }
     LaunchedEffect(library.all) {
-        if (library.all.isNotEmpty()) portraits.start(forced = false) { lookupTargets(library.all, organizer.data) }
+        if (library.revision > 0 && library.all.isNotEmpty()) portraits.start(forced = false) { lookupTargets(library.all, organizer.data) }
     }
     // Saved network shares: learn their other addresses, and find the one that answers if the main one is down.
     LaunchedEffect(Unit) {
@@ -266,6 +275,7 @@ private fun SkyWingDesktopShell(
     }
     val hub = remember { HubState() }
     val selection = remember { SelectionState() }
+    val filesBack = remember { mutableStateOf<(() -> Boolean)?>(null) }
     val history = remember(historyRevision) { historyStore.load().associateBy { it.path.lowercase() } }
 
     fun go(section: String) {
@@ -275,6 +285,29 @@ private fun SkyWingDesktopShell(
         selected = section
         selection.clear()
         hub.endFolderSelection()
+    }
+
+    val mouseBack by rememberUpdatedState<() -> Unit>({
+        when {
+            selected == "Folders" && hub.navigateBack(organizer.data) -> Unit
+            selected == "Files" && filesBack.value?.invoke() == true -> Unit
+            selected == "Now Playing" -> go(previous)
+            selected != previous -> go(previous)
+        }
+    })
+    // Windows side mouse buttons arrive as AWT button 4/5, including over the native video canvas.
+    DisposableEffect(awtWindow) {
+        val listener = AWTEventListener { event ->
+            val mouse = event as? MouseEvent ?: return@AWTEventListener
+            if (mouse.id == MouseEvent.MOUSE_PRESSED && mouse.button == 4 &&
+                SwingUtilities.getWindowAncestor(mouse.component) === awtWindow
+            ) {
+                mouseBack()
+                mouse.consume()
+            }
+        }
+        Toolkit.getDefaultToolkit().addAWTEventListener(listener, AWTEvent.MOUSE_EVENT_MASK)
+        onDispose { Toolkit.getDefaultToolkit().removeAWTEventListener(listener) }
     }
 
     fun openVideo(file: File, queuedFiles: List<File> = listOf(file), resumePosition: Double? = null) {
@@ -473,19 +506,19 @@ private fun SkyWingDesktopShell(
                     paused = paused,
                     onSelect = { go(it) },
                     onTogglePause = { embedded.togglePause() },
-                    modifier = Modifier.width(240.dp).fillMaxHeight().padding(12.dp),
+                    modifier = Modifier.width(196.dp).fillMaxHeight().padding(8.dp),
                 )
             }
             Column(
                 modifier = if (fullscreen) Modifier.weight(1f).fillMaxHeight()
-                else Modifier.weight(1f).fillMaxHeight().padding(start = 8.dp, end = 20.dp, top = 20.dp, bottom = 16.dp),
+                else Modifier.weight(1f).fillMaxHeight().padding(start = 6.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
             ) {
                 if (!fullscreen && !playerShown) {
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         CompositionLocalProvider(LocalCovers provides covers) { when (selected) {
-                            "Folders" -> FoldersScreen(library, organizer, hub, history, playOne)
-                            "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne) { file, position -> openVideo(file, listOf(file), position) }
-                            "Files" -> FilesScreen(library, playOne)
+                            "Folders" -> FoldersScreen(library, organizer, hub, history, playOne, { renameTarget = it })
+                            "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it })
+                            "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
                             else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync) { go("Files") }
                         } }
                     }
@@ -545,6 +578,9 @@ private fun SkyWingDesktopShell(
             }
         }
     }
+    renameTarget?.let { file ->
+        RenameVideoDialog(file, videoRenamer::rename) { renameTarget = null; historyRevision++ }
+    }
 }
 
 /**
@@ -552,10 +588,12 @@ private fun SkyWingDesktopShell(
  * videos and the virtual subfolders of that name their portrait), and the drive folders holding videos.
  */
 internal fun lookupTargets(all: List<WindowsMediaEntry>, data: OrganizerData): List<LookupTarget> {
+    val custom = data.own.map { LookupTarget(ArtworkKeys.ownFolder(it.id), it.name) }
     val matches = data.match.filter { !it.hidden }.map { LookupTarget(ArtworkKeys.matchFolder(it.id), it.name) }
+    val virtualSets = data.sets.map { LookupTarget(ArtworkKeys.virtualSet(it.id), it.name) }
     val names = FolderLogic.groupByNames(all, data.prefs.virtualRules, data.assignments).keys
         .map { LookupTarget(ArtworkKeys.virtualFolder(it), FolderLogic.groupTitle(it)) }
     val drives = all.mapNotNull { it.file.parentFile }.distinctBy { it.path.lowercase() }
         .map { LookupTarget(driveCoverKey(it.path), FolderLogic.originalLabel(it.name)) }
-    return matches + names + drives
+    return custom + matches + virtualSets + names + drives
 }

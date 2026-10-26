@@ -84,6 +84,16 @@ jobs:
       - name: Build Windows installers
         shell: pwsh
         run: .\gradlew.bat -p windows packageExe packageMsi --no-daemon --stacktrace
+      - name: Report installer diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem 'windows/build/compose/logs' -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match 'jpackage.*(err|out)\.txt$' } |
+            ForEach-Object {
+              Write-Host "Diagnostics: $($_.FullName)"
+              Get-Content -LiteralPath $_.FullName -Tail 120
+            }
       - name: Verify bundled libmpv and legal files in app image
         shell: pwsh
         run: |

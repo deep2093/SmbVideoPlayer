@@ -66,6 +66,7 @@ private data class PickerSpec(
     val folders: List<String>,
     val files: List<String>,
     val subfolderChoice: Boolean,
+    val roots: List<String>? = null,
     val onDone: (List<String>, List<String>, Boolean) -> Unit,
 )
 
@@ -92,6 +93,7 @@ private class Folders(
     val hub: HubState,
     val history: Map<String, WindowsWatchRecord>,
     val onPlay: (File, List<File>) -> Unit,
+    val onRename: (File) -> Unit,
     val roots: List<String>,
     val dialogs: FolderDialogs,
     val members: Memberships?,
@@ -128,6 +130,7 @@ private class Folders(
         MenuAction("Select", SkyIcon.Check) { hub.toggleFolder(page, "file:" + entry.path) },
         MenuAction("Add to folder…", SkyIcon.Folder) { dialogs.filing = false to listOf(entry.path) },
         MenuAction("Add to virtual folder…", SkyIcon.Grid) { dialogs.filing = true to listOf(entry.path) },
+        MenuAction("Rename video…", SkyIcon.Edit) { onRename(entry.file) },
         coverAction(ArtworkKeys.video(entry.path), entry.file.nameWithoutExtension, listOf(entry), entry),
         MenuAction("Details", SkyIcon.Info) {
             dialogs.info = entry.file.name to listOf(entry.path, formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }.joinToString("\n")
@@ -223,6 +226,23 @@ private class Folders(
             withFiles = true, folders = set.folders, files = set.files, subfolderChoice = false,
         ) { dirs, files, _ -> organizer.setSetMembers(set.id, dirs, files) }
     }
+
+    fun chooseDirectSet(set: VirtualSet) {
+        dialogs.picker = PickerSpec(
+            "Add directly to ${set.name}",
+            "Choose SMB folders or single videos to show on this folder's main page. Existing name-based subfolders stay as they are.",
+            withFiles = true, folders = set.directFolders, files = set.directFiles, subfolderChoice = false,
+            roots = roots.filter { it.startsWith("\\\\") },
+        ) { dirs, files, _ -> organizer.setDirectSetMembers(set.id, dirs, files) }
+    }
+
+    fun addToSetGroup(set: VirtualSet, group: String) {
+        dialogs.picker = PickerSpec(
+            "Add to $group",
+            "Choose more folders or videos. Videos already in the library will stay in $group even when their file names suggest another subfolder.",
+            withFiles = true, folders = emptyList(), files = emptyList(), subfolderChoice = false,
+        ) { dirs, files, _ -> organizer.addToSetGroup(set.id, group, dirs, files, library.all) }
+    }
 }
 
 /* ---------- The page ---------- */
@@ -234,6 +254,7 @@ internal fun FoldersScreen(
     hub: HubState,
     history: Map<String, WindowsWatchRecord>,
     onPlay: (File, List<File>) -> Unit,
+    onRename: (File) -> Unit,
 ) {
     val prefs = organizer.data.prefs
     val tabs = prefs.tabs
@@ -251,10 +272,10 @@ internal fun FoldersScreen(
         Memberships(
             own = data.own.associate { it.id to FolderLogic.members(it.folders, it.files, library.all) },
             match = data.match.associate { it.id to FolderLogic.matchVideos(it, library.all) },
-            sets = data.sets.associate { it.id to FolderLogic.members(it.folders, it.files, library.all) },
+            sets = data.sets.associate { it.id to FolderLogic.members(it.folders + it.directFolders, it.files + it.directFiles, library.all) },
         )
     }
-    val f = Folders(library, organizer, hub, history, onPlay, roots, dialogs, members, LocalCovers.current?.artwork?.settings?.enabled == true)
+    val f = Folders(library, organizer, hub, history, onPlay, onRename, roots, dialogs, members, LocalCovers.current?.artwork?.settings?.enabled == true)
 
     val inside = when (hub.tab) {
         0 -> hub.ownId != null || hub.matchId != null
@@ -327,6 +348,13 @@ private fun FolderTabsRow(f: Folders) {
                 )
             }
         }
+        SkyIconButton(SkyIcon.Edit, "Rename ${prefs.tabName(f.hub.tab)} section", {
+            val tab = f.hub.tab
+            f.dialogs.naming = NameSpec(
+                "Rename section", prefs.tabName(tab),
+                "The usual name is ${FolderTabs.DEFAULTS[tab]}. Folders inside keep their own names.", "Rename",
+            ) { name -> f.organizer.updatePrefs { it.copy(tabNames = it.tabNames + (tab to name)) } }
+        }, box = 36.dp, glyph = 17.dp)
     }
 }
 
@@ -675,13 +703,16 @@ private fun OwnPage(f: Folders) {
                 else f.go { ownId = folder.parentId; ownGroup = null }
             }) {
                 if (group == null) {
+                    SkyIconButton(SkyIcon.Edit, "Rename ${folder.name}", {
+                        f.dialogs.naming = NameSpec("Rename folder", folder.name, "Only the name in this app changes.", "Rename") { f.organizer.renameOwn(folder.id, it) }
+                    })
                     SkyIconButton(SkyIcon.Add, "New folder inside ${folder.name}", {
                         f.dialogs.naming = NameSpec(
                             "New folder inside ${folder.name}", "",
                             "Give it any name, then choose the folders and videos it shows. Nothing on your disk changes.", "Create",
                         ) { name -> f.organizer.createOwn(name, parentId = folder.id)?.let { id -> f.data.own.firstOrNull { it.id == id }?.let(f::chooseOwn) } }
                     })
-                    SkyIconButton(SkyIcon.Edit, "Choose folders and files", { f.chooseOwn(folder) })
+                    SkyButton("Add or remove files/folders", { f.chooseOwn(folder) }, primary = false, icon = SkyIcon.Edit)
                     if (singles.isNotEmpty()) {
                         SkyIconButton(
                             if (folder.grouped) SkyIcon.Queue else SkyIcon.Grid,
@@ -690,6 +721,7 @@ private fun OwnPage(f: Folders) {
                         )
                     }
                 }
+                if (group != null) SkyButton("Add more files/folders", { f.chooseOwn(folder) }, primary = false, icon = SkyIcon.Add)
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
                 SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(200.dp), leading = SkyIcon.Search)
                 GridControls(f.organizer, page)
@@ -790,12 +822,27 @@ private fun SetPage(f: Folders) {
         LaunchedEffect(Unit) { f.hub.setId = null; f.hub.setGroup = null }
         return
     }
+    val drive = f.hub.drivePath
+    if (drive != null) {
+        PhysicalFolderPage(f, drive,
+            onBack = {
+                val parent = File(drive).parent
+                f.go { drivePath = if (parent == null || set.directFolders.any { it.equals(drive, true) }) null else parent }
+            },
+            onOpen = { path -> f.go { drivePath = path } },
+        )
+        return
+    }
     val children = f.data.sets.filter { it.parentId == set.id }.sortedBy { it.name.lowercase(Locale.ROOT) }
     val videos = f.members?.sets?.get(set.id).orEmpty()
+    val directVideos = FolderLogic.members(set.directFolders, set.directFiles, f.library.all)
+    val directPaths = directVideos.map { it.path.lowercase(Locale.ROOT) }.toSet()
+    val directSingles = FolderLogic.members(emptyList(), set.directFiles, f.library.all)
+    val directFolders = set.directFolders.map { path -> path to FolderLogic.members(listOf(path), emptyList(), f.library.all) }
     val prefs = f.prefs
     val assignments = f.data.assignments
     val groups = computed(f.hub, "set:" + set.id, set, videos, prefs.virtualRules, assignments, prefs.sort, prefs.descending) {
-        FolderLogic.sorted(FolderLogic.buildGroups(set, videos, prefs.virtualRules, assignments), prefs.sort, prefs.descending)
+        FolderLogic.sorted(FolderLogic.buildGroups(set, videos.filterNot { it.path.lowercase(Locale.ROOT) in directPaths }, prefs.virtualRules, assignments), prefs.sort, prefs.descending)
     }
     val group = f.hub.setGroup
     val current = groups?.firstOrNull { it.identity == group }
@@ -808,7 +855,20 @@ private fun SetPage(f: Folders) {
     val inside = current?.videos.orEmpty().filter { f.matches(it.file.name) }
 
     val tiles: List<Tile> = if (group == null) {
-        children.filter { f.matches(it.name) }.map { f.setTile(it, null) } + shownGroups.map { g ->
+        children.filter { f.matches(it.name) }.map { f.setTile(it, null) } +
+            directFolders.filter { f.matches(leafOf(it.first)) }.map { (path, members) ->
+                FolderTile(
+                    "direct:$path", FolderLogic.originalLabel(leafOf(path)), plural(members.size, "video"), driveCoverKey(path), members,
+                    onOpen = { f.go { drivePath = path } },
+                    menu = listOfNotNull(
+                        MenuAction("Open", SkyIcon.Folder) { f.go { drivePath = path } },
+                        MenuAction("Play all", SkyIcon.Play, enabled = members.isNotEmpty()) { f.play(members) },
+                        f.coverAction(driveCoverKey(path), leafOf(path), members),
+                    ),
+                    selected = f.hub.ticked(page, "direct:$path"),
+                    onSelect = { f.hub.toggleFolder(page, "direct:$path") },
+                )
+            } + f.videoTiles(directSingles.filter { f.matches(it.file.name) }, page) + shownGroups.map { g ->
             val key = "group:" + g.identity
             FolderTile(
                 key, g.title, plural(g.videos.size, "video"), ArtworkKeys.virtualSub(set.id, g.identity), g.videos,
@@ -842,39 +902,57 @@ private fun SetPage(f: Folders) {
         if (f.hub.folderPage == page) {
             if (group == null) {
                 val keys = f.hub.folderKeys
-                val allKeys = shownGroups.map { "group:" + it.identity }
+                val allKeys = tiles.mapNotNull { tile ->
+                    when (tile) {
+                        is VideoTile -> tile.key
+                        is FolderTile -> tile.key.takeIf { tile.onSelect != null }
+                        else -> null
+                    }
+                }
                 FolderSelectionBar(
                     count = keys.size,
                     total = allKeys.size,
                     onClose = { f.hub.endFolderSelection() },
                     onSelectAll = { f.hub.folderPage = page; f.hub.folderKeys = allKeys.toSet() },
                     actions = f.videoActions {
-                        keys.flatMap { k -> groups.orEmpty().firstOrNull { "group:" + it.identity == k }?.videos.orEmpty() }.distinctBy { it.path.lowercase(Locale.ROOT) }
+                        (keys.flatMap { k -> groups.orEmpty().firstOrNull { "group:" + it.identity == k }?.videos.orEmpty() } +
+                            keys.flatMap { k -> directFolders.firstOrNull { "direct:" + it.first == k }?.second.orEmpty() } +
+                            f.byPaths(keys.filter { it.startsWith("file:") }.map { it.removePrefix("file:") }))
+                            .distinctBy { it.path.lowercase(Locale.ROOT) }
                     },
                     confirm = MenuAction("Take out", SkyIcon.Close) {
-                        f.organizer.hideSubfolders(set.id, keys.map { it.removePrefix("group:") })
+                        val removeDirs = keys.filter { it.startsWith("direct:") }.map { it.removePrefix("direct:") }.toSet()
+                        val removeFiles = keys.filter { it.startsWith("file:") }.map { it.removePrefix("file:") }.toSet()
+                        if (removeDirs.isNotEmpty() || removeFiles.isNotEmpty()) f.organizer.setDirectSetMembers(set.id,
+                            set.directFolders.filterNot { it in removeDirs }, set.directFiles.filterNot { it in removeFiles })
+                        f.organizer.hideSubfolders(set.id, keys.filter { it.startsWith("group:") }.map { it.removePrefix("group:") })
                         f.hub.endFolderSelection()
                     },
-                    confirmText = "The subfolders are taken out of ${set.name}. Show folders you took out brings them back. Files on your disk are not touched.",
+                    confirmText = "The selected items are taken out of ${set.name}. Files on your disk are not touched.",
                 )
             } else {
                 VideoSelectionBar(f, page, inside)
             }
         } else {
-            val subtitle = if (group == null) "${plural(children.size + (groups?.size ?: 0), "folder")} · ${plural(videos.size, "video")}" else plural(current?.videos?.size ?: 0, "video")
+            val subtitle = if (group == null) "${plural(children.size + directFolders.size + (groups?.size ?: 0), "folder")} · ${plural(videos.size, "video")}" else plural(current?.videos?.size ?: 0, "video")
             FolderHeader(current?.title ?: set.name, subtitle, {
                 if (group != null) f.go { setGroup = null } else f.go { setId = set.parentId; setGroup = null }
             }) {
                 if (group == null) {
+                    SkyIconButton(SkyIcon.Edit, "Rename ${set.name}", {
+                        f.dialogs.naming = NameSpec("Rename virtual folder", set.name, "Only the name in this app changes.", "Rename") { f.organizer.renameSet(set.id, it) }
+                    })
                     SkyIconButton(SkyIcon.Add, "New folder inside ${set.name}", {
                         f.dialogs.naming = NameSpec(
                             "New folder inside ${set.name}", "",
                             "Give it any name, then choose the folders and videos it reads. Nothing on your disk changes.", "Create",
                         ) { name -> f.organizer.createSet(name, parentId = set.id)?.let { id -> f.data.sets.firstOrNull { it.id == id }?.let(f::chooseSet) } }
                     })
-                    SkyIconButton(SkyIcon.Edit, "Choose folders and files", { f.chooseSet(set) })
+                    SkyButton("Add or remove files/folders", { f.chooseSet(set) }, primary = false, icon = SkyIcon.Edit)
+                    SkyButton("Add SMB directly", { f.chooseDirectSet(set) }, primary = false, icon = SkyIcon.Add)
                     if (set.hidden.isNotEmpty()) SkyIconButton(SkyIcon.Refresh, "Show folders you took out", { f.organizer.restoreSubfolders(set.id) })
                 }
+                if (group != null && current != null) SkyButton("Add to this subfolder", { f.addToSetGroup(set, current.title) }, primary = false, icon = SkyIcon.Add)
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
                 SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(200.dp), leading = SkyIcon.Search)
                 GridControls(f.organizer, page)
@@ -886,7 +964,7 @@ private fun SetPage(f: Folders) {
         when {
             set.isEmpty && children.isEmpty() ->
                 EmptyAction("Nothing here yet", "Choose the folders and videos this virtual folder reads.", "Choose folders and files") { f.chooseSet(set) }
-            !set.isEmpty && groups != null && groups.isEmpty() && children.isEmpty() && f.members != null ->
+            !set.isEmpty && groups != null && groups.isEmpty() && children.isEmpty() && directFolders.isEmpty() && directSingles.isEmpty() && f.members != null ->
                 EmptyAction(
                     "No videos found yet",
                     "Subfolders appear once the chosen folders are in your library. Scan them again in Files if something is missing.",
@@ -895,7 +973,7 @@ private fun SetPage(f: Folders) {
             else -> TileGrid(
                 tiles, f.hub.grid(page), f.organizer, page, f.history, f.onPlay, Modifier.weight(1f),
                 emptyText = if (groups == null) "Loading…" else "Nothing matches.",
-                footer = if (group == null) "${plural(tiles.size, "folder")} · ${plural(videos.size, "video")}" else plural(inside.size, "video"),
+                footer = if (group == null) "${plural(tiles.count { it is FolderTile }, "folder")} · ${plural(videos.size, "video")}" else plural(inside.size, "video"),
                 letters = group != null || prefs.sort == "NAME",
             )
         }
@@ -1007,7 +1085,7 @@ private fun FolderDialogsHost(f: Folders) {
         DrivePicker(
             title = spec.title,
             explanation = spec.explanation,
-            roots = f.roots,
+            roots = spec.roots ?: f.roots,
             library = f.library.all,
             withFiles = spec.withFiles,
             initialFolders = spec.folders,

@@ -35,6 +35,7 @@ internal fun VideosScreen(
     history: Map<String, WindowsWatchRecord>,
     onPlay: (File, List<File>) -> Unit,
     onResume: (File, Double) -> Unit,
+    onRename: (File) -> Unit,
 ) {
     // Starts with the last list shown, so the grid keeps its place when coming back from a video.
     val shown by produceState(hub.lastResult<List<WindowsMediaEntry>>(VIDEOS_PAGE) ?: emptyList(), library.all, hub.videoSource, hub.videoSort, hub.videoQuery) {
@@ -63,19 +64,19 @@ internal fun VideosScreen(
         }.take(14)
     }
 
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (selection.active) {
             SelectionBar(selection, shown, organizer, onPlay)
         } else {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PageTitle(
                     "Videos",
                     if (library.loading) "Loading your library…" else "${shown.size} of ${library.all.size} videos",
                     Modifier.weight(1f),
                 )
-                SkyField(hub.videoQuery, { hub.videoQuery = it }, "Search videos", Modifier.width(300.dp), leading = SkyIcon.Search)
+                SkyField(hub.videoQuery, { hub.videoQuery = it }, "Search videos", Modifier.width(260.dp), leading = SkyIcon.Search)
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SkyChipBar(SOURCE_NAMES, hub.videoSource, { hub.videoSource = it })
                 Row(Modifier.weight(1f)) {}
                 SkyButton("Sort: " + SORT_NAMES[hub.videoSort.coerceIn(0, SORT_NAMES.lastIndex)], {
@@ -120,6 +121,7 @@ internal fun VideosScreen(
                     MenuAction("Play", SkyIcon.Play) { onPlay(entry.file, shown.map { it.file }) },
                     MenuAction("Add to folder…", SkyIcon.Folder) { filing = false to entry.path },
                     MenuAction("Add to virtual folder…", SkyIcon.Grid) { filing = true to entry.path },
+                    MenuAction("Rename video…", SkyIcon.Edit) { onRename(entry.file) },
                     if (artworkOn) MenuAction("Change cover", SkyIcon.Image) { cover = videoCoverTarget(entry) } else null,
                 )
             },

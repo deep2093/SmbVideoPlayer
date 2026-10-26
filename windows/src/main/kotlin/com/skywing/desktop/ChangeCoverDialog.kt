@@ -230,6 +230,8 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
     val collage = remember { mutableStateListOf<SkiaImage>() }
     var collecting by remember { mutableStateOf(false) }
     var choosingVideos by remember { mutableStateOf<String?>(null) }
+    var frameVideo by remember(target.key) { mutableStateOf<WindowsMediaEntry?>(null) }
+    var googleUrl by remember(target.key) { mutableStateOf<String?>(null) }
     val trusted = remember(settings.customEndpoint) { EndpointPolicy.hostOf(settings.customEndpoint) }
 
     fun close() {
@@ -315,7 +317,7 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
 
     DialogWindow(
         onCloseRequest = ::close,
-        state = rememberDialogState(size = DpSize(880.dp, 800.dp)),
+        state = rememberDialogState(size = DpSize(820.dp, 720.dp)),
         title = "Change cover · " + target.title,
         onPreviewKeyEvent = { e ->
             // Ctrl+V pastes a copied picture or picture address, unless a text box takes it as text.
@@ -335,8 +337,8 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
         ) {
             val scroll = rememberScrollState()
             Column(
-                Modifier.fillMaxSize().padding(end = 14.dp).verticalScroll(scroll).padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                Modifier.fillMaxSize().padding(end = 14.dp).verticalScroll(scroll).padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text("Change cover", color = theme.ink, style = MaterialTheme.typography.titleLarge)
                 Text(target.title, color = theme.muted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -344,14 +346,24 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
                 val purpose = choosingVideos
                 if (purpose != null) {
                     VideoChooser(
-                        title = if (purpose == "photos") "Pick pictures for the photo collage" else "Pick videos for the collage",
+                        title = when (purpose) {
+                            "photos" -> "Pick pictures for the photo collage"
+                            "frame" -> "Pick a video for its frame"
+                            else -> "Pick videos for the collage"
+                        },
                         videos = target.videos,
-                        max = if (purpose == "photos") (PhotoCollage.MAX_PHOTOS - collage.size).coerceAtLeast(1) else 6,
+                        max = when (purpose) {
+                            "photos" -> (PhotoCollage.MAX_PHOTOS - collage.size).coerceAtLeast(1)
+                            "frame" -> 1
+                            else -> 6
+                        },
                         onDismiss = { choosingVideos = null },
                     ) { chosen ->
                         choosingVideos = null
                         run {
-                            if (purpose == "photos") {
+                            if (purpose == "frame") {
+                                frameVideo = chosen.firstOrNull()
+                            } else if (purpose == "photos") {
                                 val pictures = withContext(Dispatchers.IO) {
                                     chosen.mapNotNull { v -> ThumbnailStore.fileFor(v.file, v.modified)?.let { Pictures.decode(it.readBytes()) } }
                                 }
@@ -391,7 +403,8 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
                         }
                     }
                     when (tab) {
-                        CoverTab.AUTO -> AutoFrameTab(target, art, busy, ::run, onDone = onDismiss, onNotice = { notice = it })
+                        CoverTab.AUTO -> AutoFrameTab(target, art, busy, ::run, onDone = onDismiss, onNotice = { notice = it },
+                            frameVideo = frameVideo, onChooseFrameVideo = { choosingVideos = "frame" })
                         CoverTab.COLLAGE -> {
                             Hint(
                                 "A collage of ${settings.collageTiles} pictures from this folder (change the number in Settings > Artwork). " +
@@ -436,15 +449,18 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
                             onError = { error = it },
                         ) { candidate, url -> run { useBytes(ArtworkHttp.downloadBytes(url, trusted), candidate) } }
                         CoverTab.GOOGLE -> {
-                            Hint(
-                                "Search opens Google Images in your browser. Then drag a picture onto this window, or right-click it, choose Copy image " +
-                                    "(or Copy image address for a moving GIF) and press Ctrl+V or Paste here. Only what you search is sent, to Google.",
-                            )
+                            Hint("Search Google Images here. Right-click a result and copy its image or image address, then choose Paste copied image. Only your search goes to Google.")
                             SearchRow(query, { query = it }, choices, "Search Google Images") { text ->
-                                runCatching { Desktop.getDesktop().browse(URI(googleImagesUrl(text))) }
-                                    .onFailure { error = "Couldn't open the browser." }
+                                googleUrl = googleImagesUrl(text)
                             }
-                            DropZone(busy, onPaste = ::pasteClipboard)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SkyButton("Paste copied image", ::pasteClipboard, enabled = !busy, icon = SkyIcon.Image)
+                                googleUrl?.let { address -> SkyButton("Open in browser", {
+                                    runCatching { Desktop.getDesktop().browse(URI(address)) }
+                                        .onFailure { error = "Couldn't open the browser." }
+                                }, primary = false) }
+                            }
+                            googleUrl?.let { EmbeddedGoogleImages(it) }
                         }
                         CoverTab.IMAGE -> {
                             Hint("Use a picture from this PC (JPG, PNG, WebP or a moving GIF). Your original file is not changed or moved. You can also drag a picture onto this window.")
@@ -538,12 +554,18 @@ private fun AutoFrameTab(
     run: (suspend () -> Unit) -> Unit,
     onDone: () -> Unit,
     onNotice: (String) -> Unit,
+    frameVideo: WindowsMediaEntry?,
+    onChooseFrameVideo: () -> Unit,
 ) {
     val video = target.video
     var picking by remember { mutableStateOf(false) }
     if (target.isFolder) {
         Hint("Use the frame of the first video in this folder.")
         SkyButton("Use first video frame", { run { art.setMode(target.key, ArtworkMode.FIRST_FRAME); onDone() } }, enabled = !busy, icon = SkyIcon.VideoLibrary)
+        SkyButton("Choose a single video frame…", onChooseFrameVideo, enabled = !busy && target.videos.isNotEmpty(), primary = false, icon = SkyIcon.Image)
+        if (frameVideo != null) FramePicker(frameVideo, busy, run) { image ->
+            run { art.saveImage(target.key, ArtworkMode.CUSTOM, image, manual = true, focusY = 0.5f); onDone() }
+        }
     } else if (video != null) {
         Hint("Pick any moment of this video, or go back to the automatic frame.")
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -591,33 +613,54 @@ private suspend fun movingFrames(video: File): List<SkiaImage> = withContext(Dis
 @Composable
 private fun FramePicker(video: WindowsMediaEntry, busy: Boolean, run: (suspend () -> Unit) -> Unit, onUse: (SkiaImage) -> Unit) {
     val theme = LocalSkyTheme.current
-    var position by remember { mutableFloatStateOf(10f) }
-    var shown by remember { mutableFloatStateOf(-1f) }
-    var frame by remember { mutableStateOf<SkiaImage?>(null) }
-    var loading by remember { mutableStateOf(false) }
-    LaunchedEffect(shown) {
+    var position by remember(video.path) { mutableFloatStateOf(10f) }
+    var shown by remember(video.path) { mutableFloatStateOf(-1f) }
+    var seconds by remember(video.path) { mutableStateOf<Double?>(null) }
+    var duration by remember(video.path) { mutableStateOf<Double?>(null) }
+    var frame by remember(video.path) { mutableStateOf<SkiaImage?>(null) }
+    var loading by remember(video.path) { mutableStateOf(false) }
+    LaunchedEffect(video.path) { duration = withContext(Dispatchers.IO) { ThumbnailExtractor.durationSeconds(video.file) } }
+    LaunchedEffect(shown, seconds, video.path) {
         if (shown < 0f) {
             shown = position
             return@LaunchedEffect
         }
         loading = true
-        frame = frameAt(video.file, "%.2f%%".format(java.util.Locale.ROOT, shown), exact = true, width = 1280)
+        val start = seconds?.let { "%.3f".format(java.util.Locale.ROOT, it) }
+            ?: "%.2f%%".format(java.util.Locale.ROOT, shown)
+        frame = frameAt(video.file, start, exact = true, width = 1280)
         loading = false
     }
-    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(18.dp)).padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)).background(theme.card), contentAlignment = Alignment.Center) {
+    fun step(amount: Int) {
+        val length = duration ?: return
+        val current = seconds ?: length * shown.coerceAtLeast(0f) / 100.0
+        val next = (current + amount).coerceIn(0.0, (length - 0.05).coerceAtLeast(0.0))
+        if (next != current) {
+            seconds = next
+            position = (next / length * 100.0).toFloat().coerceIn(0f, 99f)
+        }
+    }
+    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(16.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.width(570.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(theme.card), contentAlignment = Alignment.Center) {
             val bitmap = remember(frame) { frame?.toComposeImageBitmap() }
             if (bitmap != null) Image(bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             if (loading) CircularProgressIndicator(Modifier.size(28.dp), color = theme.accent)
             else if (bitmap == null) Text("No frame could be read here. Try another moment.", color = theme.muted)
         }
-        Text("Moment: ${position.toInt()}% of the video", color = theme.muted, style = MaterialTheme.typography.labelMedium)
+        Text("Moment: " + (seconds?.let { formatClock(it) } ?: "${position.toInt()}%") +
+            (duration?.let { " / ${formatClock(it)}" } ?: " of the video"), color = theme.muted, style = MaterialTheme.typography.labelMedium)
         Slider(
             value = position, onValueChange = { position = it }, valueRange = 0f..99f,
-            onValueChangeFinished = { shown = position },
+            onValueChangeFinished = { seconds = null; shown = position },
             colors = SliderDefaults.colors(thumbColor = theme.accent, activeTrackColor = theme.accent),
         )
-        SkyButton("Use this frame", { frame?.let(onUse) }, enabled = !busy && !loading && frame != null, icon = SkyIcon.Check)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            listOf(-5, -1, 1, 5).forEach { amount ->
+                SkyButton(if (amount > 0) "+${amount}s" else "${amount}s", { step(amount) },
+                    enabled = !busy && !loading && duration != null, primary = false)
+            }
+            SkyButton("Use this frame", { frame?.let(onUse) }, enabled = !busy && !loading && frame != null, icon = SkyIcon.Check)
+        }
     }
 }
 
@@ -838,23 +881,29 @@ private fun PositionStep(image: SkiaImage, saving: Boolean, onCancel: () -> Unit
     var slider by remember(image) { mutableFloatStateOf(0.5f) }
     val zoom = CoverCrop.zoomForSlider(slider)
     Text("Position the picture", color = theme.ink, style = MaterialTheme.typography.titleMedium)
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Bottom) {
-        Column(Modifier.weight(1.6f)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
+        Column(Modifier.width(420.dp)) {
             Text("Landscape", color = theme.muted, style = MaterialTheme.typography.labelSmall)
             CropPreview(bitmap, CoverCrop.CARD_ASPECT, fx, fy, zoom)
         }
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.width(178.dp)) {
             Text("Portrait 3:4", color = theme.muted, style = MaterialTheme.typography.labelSmall)
             CropPreview(bitmap, CoverCrop.TALL_ASPECT, fx, fy, zoom)
         }
     }
     val colors = SliderDefaults.colors(thumbColor = theme.accent, activeTrackColor = theme.accent)
-    Text("Up / down", color = theme.ink, style = MaterialTheme.typography.labelMedium)
-    Slider(fy, { fy = it }, colors = colors)
-    Text("Left / right", color = theme.ink, style = MaterialTheme.typography.labelMedium)
-    Slider(fx, { fx = it }, colors = colors)
-    Text("Zoom (out ← → in)", color = theme.ink, style = MaterialTheme.typography.labelMedium)
-    Slider(slider, { slider = it }, colors = colors)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Up / down", modifier = Modifier.width(100.dp), color = theme.ink, style = MaterialTheme.typography.labelMedium)
+        Slider(fy, { fy = it }, modifier = Modifier.weight(1f), colors = colors)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Left / right", modifier = Modifier.width(100.dp), color = theme.ink, style = MaterialTheme.typography.labelMedium)
+        Slider(fx, { fx = it }, modifier = Modifier.weight(1f), colors = colors)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Zoom", modifier = Modifier.width(100.dp), color = theme.ink, style = MaterialTheme.typography.labelMedium)
+        Slider(slider, { slider = it }, modifier = Modifier.weight(1f), colors = colors)
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         SkyButton("Back", onCancel, enabled = !saving, primary = false)
         SkyButton("Use this cover", { onApply(fx, fy, zoom) }, enabled = !saving, icon = SkyIcon.Check)

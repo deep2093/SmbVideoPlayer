@@ -1,10 +1,11 @@
 package com.skywing.desktop.artwork
 
-/** The three kinds of item that can have a cover. Each has its own default and its own overrides (as on Android). */
+/** Each folder kind has its own cover default and portrait selection. */
 internal enum class ArtworkScope(val label: String) {
     VIDEO("Videos"),
     SMB_FOLDER("Drive folders"),
-    VIRTUAL_FOLDER("Virtual and custom folders"),
+    VIRTUAL_FOLDER("Virtual folders"),
+    CUSTOM_FOLDER("Custom folders"),
     ;
 
     val isFolder: Boolean get() = this != VIDEO
@@ -68,6 +69,7 @@ internal object ArtworkKeys {
     fun scopeOf(key: String): ArtworkScope = when {
         key.startsWith("video:") -> ArtworkScope.VIDEO
         key.startsWith("original:") -> ArtworkScope.SMB_FOLDER
+        key.startsWith("own:") || key.startsWith("match:") -> ArtworkScope.CUSTOM_FOLDER
         else -> ArtworkScope.VIRTUAL_FOLDER
     }
 }
@@ -78,6 +80,7 @@ internal data class ArtworkSettings(
     val videoMode: ArtworkMode = ArtworkMode.EXISTING,
     val smbFolderMode: ArtworkMode = ArtworkMode.EXISTING,
     val virtualFolderMode: ArtworkMode = ArtworkMode.EXISTING,
+    val customFolderMode: ArtworkMode = ArtworkMode.EXISTING,
     /** The user accepted that performer names are sent to StashDB. */
     val adultConsent: Boolean = false,
     val portraitsOnFolders: Boolean = false,
@@ -92,23 +95,33 @@ internal data class ArtworkSettings(
     val customEndpoint: String = "",
     val smbFolderSelection: PortraitSelection = PortraitSelection.AUTOMATIC,
     val virtualFolderSelection: PortraitSelection = PortraitSelection.AUTOMATIC,
+    val customFolderSelection: PortraitSelection = PortraitSelection.AUTOMATIC,
 ) {
-    fun selectionFor(scope: ArtworkScope): PortraitSelection =
-        if (scope == ArtworkScope.SMB_FOLDER) smbFolderSelection else virtualFolderSelection
+    fun selectionFor(scope: ArtworkScope): PortraitSelection = when (scope) {
+        ArtworkScope.SMB_FOLDER -> smbFolderSelection
+        ArtworkScope.CUSTOM_FOLDER -> customFolderSelection
+        else -> virtualFolderSelection
+    }
 
     fun withSelection(scope: ArtworkScope, selection: PortraitSelection): ArtworkSettings =
-        if (scope == ArtworkScope.SMB_FOLDER) copy(smbFolderSelection = selection) else copy(virtualFolderSelection = selection)
+        when (scope) {
+            ArtworkScope.SMB_FOLDER -> copy(smbFolderSelection = selection)
+            ArtworkScope.CUSTOM_FOLDER -> copy(customFolderSelection = selection)
+            else -> copy(virtualFolderSelection = selection)
+        }
 
     fun modeFor(scope: ArtworkScope): ArtworkMode = when (scope) {
         ArtworkScope.VIDEO -> videoMode
         ArtworkScope.SMB_FOLDER -> smbFolderMode
         ArtworkScope.VIRTUAL_FOLDER -> virtualFolderMode
+        ArtworkScope.CUSTOM_FOLDER -> customFolderMode
     }
 
     fun withMode(scope: ArtworkScope, mode: ArtworkMode): ArtworkSettings = when (scope) {
         ArtworkScope.VIDEO -> copy(videoMode = mode)
         ArtworkScope.SMB_FOLDER -> copy(smbFolderMode = mode)
         ArtworkScope.VIRTUAL_FOLDER -> copy(virtualFolderMode = mode)
+        ArtworkScope.CUSTOM_FOLDER -> copy(customFolderMode = mode)
     }
 
     /** Internet portraits may be used for this kind of item only when the user turned that on explicitly. */
@@ -145,6 +158,7 @@ internal data class ArtworkSettings(
         videoMode = videoMode.takeIf { it in ArtworkScope.VIDEO.defaultModes } ?: ArtworkMode.EXISTING,
         smbFolderMode = smbFolderMode.takeIf { it in ArtworkScope.SMB_FOLDER.defaultModes } ?: ArtworkMode.EXISTING,
         virtualFolderMode = virtualFolderMode.takeIf { it in ArtworkScope.VIRTUAL_FOLDER.defaultModes } ?: ArtworkMode.EXISTING,
+        customFolderMode = customFolderMode.takeIf { it in ArtworkScope.CUSTOM_FOLDER.defaultModes } ?: ArtworkMode.EXISTING,
     )
 }
 

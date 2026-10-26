@@ -75,6 +75,7 @@ internal data class LocalVideoScanResult(
     val files: List<File>,
     val unavailableFolders: Int,
     val truncated: Boolean,
+    val unavailableRoots: List<String> = emptyList(),
 )
 
 internal data class LocalOriginalFolderContents(val folders: List<File>, val videos: List<File>)
@@ -118,12 +119,14 @@ internal object LocalVideoScanner {
     suspend fun scan(folders: List<String>, limit: Int = 20_000): LocalVideoScanResult = withContext(Dispatchers.IO) {
         val files = LinkedHashMap<String, File>()
         var unavailable = 0
+        val unavailableRoots = ArrayList<String>()
         var truncated = false
         val context = currentCoroutineContext()
         for (folder in folders) {
             val root = runCatching { Paths.get(folder) }.getOrNull()?.takeUnless { NetworkPaths.isNetwork(folder) }
             if (root == null || !Files.isDirectory(root)) {
                 unavailable++
+                unavailableRoots += folder
                 continue
             }
             try {
@@ -143,8 +146,10 @@ internal object LocalVideoScanner {
                 }
             } catch (_: java.io.IOException) {
                 unavailable++
+                unavailableRoots += folder
             } catch (_: SecurityException) {
                 unavailable++
+                unavailableRoots += folder
             }
             if (truncated) break
         }
@@ -152,6 +157,7 @@ internal object LocalVideoScanner {
             files.values.sortedBy { it.name.lowercase() },
             unavailable,
             truncated,
+            unavailableRoots,
         )
     }
 }

@@ -23,6 +23,8 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation("net.java.dev.jna:jna:5.14.0")
+    implementation("me.friwi:jcefmaven:146.0.10")
+    runtimeOnly("me.friwi:jcef-natives-windows-amd64:jcef-d3de827+cef-146.0.10+g8219561+chromium-146.0.7680.179")
     testImplementation(kotlin("test-junit"))
     testImplementation("junit:junit:4.13.2")
 }
@@ -115,7 +117,12 @@ val generateWindowsLegal by tasks.registering {
             val jar = artifact.file
             check(jar.extension == "jar") { "Review non-JAR runtime artifact: ${jar.name}" }
             val id = artifact.moduleVersion.id
-            val artifactDir = out.resolve("jvm/${id.group}/${id.name}/${id.version}/${jar.name}")
+            // Keep notice paths short enough for WiX when runtime jars have long version names.
+            val artifactKey = "${id.group}:${id.name}:${id.version}:${jar.name}"
+            val artifactHash = MessageDigest.getInstance("SHA-256")
+                .digest(artifactKey.toByteArray(Charsets.UTF_8))
+                .take(12).joinToString("") { "%02x".format(it.toInt() and 255) }
+            val artifactDir = out.resolve("jvm/$artifactHash")
             var noticeCount = 0
             ZipFile(jar).use { zip ->
                 for (entry in zip.entries().asSequence().filter { !it.isDirectory }.sortedBy { it.name }) {

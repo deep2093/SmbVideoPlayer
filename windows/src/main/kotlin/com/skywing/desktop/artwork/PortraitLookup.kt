@@ -7,9 +7,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.Locale
 
 /** A folder a lookup may find a portrait for: its cover key and the name to search. */
 internal data class LookupTarget(val key: String, val label: String)
@@ -63,11 +66,23 @@ internal class PortraitLookup(private val repo: ArtworkRepository) {
             }
             var applied = 0
             var unclear = 0
+            val searchResults = object : LinkedHashMap<String, List<PerformerCandidate>>(128, 0.75f, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<PerformerCandidate>>?): Boolean = size > 128
+            }
             progress = 0 to list.size
             try {
                 for ((index, target) in list.withIndex()) {
+                    val query = repo.settings.searchTerm(ArtworkKeys.scopeOf(target.key), target.label).lowercase(Locale.ROOT)
+                    val uncached = query.isNotEmpty() && query !in searchResults
                     val outcome = try {
-                        autoFetch(target.key, target.label)
+                        var result = autoFetch(target.key, target.label, searchResults, batch = true)
+                        var retries = 0
+                        while (result is Outcome.Failed && result.failure in setOf(ProviderFailure.NETWORK, ProviderFailure.RATE_LIMITED) && retries < 2) {
+                            delay(if (result.failure == ProviderFailure.RATE_LIMITED) 60_000L * (retries + 1) else 10_000L * (retries + 1))
+                            retries++
+                            result = autoFetch(target.key, target.label, searchResults, batch = true)
+                        }
+                        result
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {
@@ -84,10 +99,11 @@ internal class PortraitLookup(private val repo: ArtworkRepository) {
                     }
                     progress = index + 1 to list.size
                     // Gentle pace: well under StashDB's rate limit.
-                    delay(PACE_MS)
+                    if (uncached) delay(PACE_MS)
                 }
                 say("Last lookup: $applied applied" + if (unclear > 0) ", $unclear waiting in Review suggestions." else ".")
             } finally {
+                withContext(NonCancellable + Dispatchers.IO) { repo.flushLookupChanges() }
                 progress = null
             }
         }
@@ -106,29 +122,32 @@ internal class PortraitLookup(private val repo: ArtworkRepository) {
         return row == null || (forced && row.updatedAt < since)
     }
 
-    suspend fun autoFetch(key: String, label: String): Outcome {
+    suspend fun autoFetch(key: String, label: String, searchResults: MutableMap<String, List<PerformerCandidate>>? = null, batch: Boolean = false): Outcome {
         val settings = repo.settings
         val scope = ArtworkKeys.scopeOf(key)
         if (!settings.portraitLookupWanted(scope)) return Outcome.Skipped
         if (repo.row(key)?.manual == true) return Outcome.Skipped
         val query = settings.searchTerm(scope, label)
         if (query.isEmpty()) {
-            repo.recordLookup(key, ArtworkOverride.STATUS_NO_MATCH)
+            repo.recordLookup(key, ArtworkOverride.STATUS_NO_MATCH, batch)
             return Outcome.NoMatch
         }
         val apiKey = repo.keys.get() ?: return Outcome.Failed(ProviderFailure.NO_KEY)
         val found = try {
-            StashDb.search(query, apiKey, settings.customEndpoint.ifBlank { null })
+            searchResults?.get(query.lowercase(Locale.ROOT))
+                ?: StashDb.search(query, apiKey, settings.customEndpoint.ifBlank { null }).also {
+                    searchResults?.put(query.lowercase(Locale.ROOT), it)
+                }
         } catch (e: ProviderException) {
             if (e.failure != ProviderFailure.BAD_RESPONSE) return Outcome.Failed(e.failure)
-            repo.recordLookup(key, ArtworkOverride.STATUS_ERROR)
+            repo.recordLookup(key, ArtworkOverride.STATUS_ERROR, batch)
             return Outcome.ItemError
         }
         if (settings.selectionFor(scope) == PortraitSelection.AUTOMATIC) {
             when (val result = AutoMatch.evaluate(query, found)) {
                 is AutoMatch.Result.Match -> return apply(key, result.candidate)
                 AutoMatch.Result.Ambiguous -> {
-                    repo.saveSuggestions(key, AutoMatch.ranked(query, found))
+                    repo.saveSuggestions(key, AutoMatch.ranked(query, found), batch)
                     return Outcome.Ambiguous
                 }
                 AutoMatch.Result.NoMatch -> Unit
@@ -136,7 +155,7 @@ internal class PortraitLookup(private val repo: ArtworkRepository) {
         }
         // Manual selection (or no confident match): keep what was found for the user to pick from, best first.
         val ranked = AutoMatch.ranked(query, found)
-        repo.saveSuggestions(key, ranked)
+        repo.saveSuggestions(key, ranked, batch)
         return if (ranked.any { !it.imageUrl.isNullOrBlank() }) Outcome.Suggested else Outcome.NoMatch
     }
 

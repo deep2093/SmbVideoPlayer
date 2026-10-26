@@ -87,6 +87,16 @@ class ArtworkTest {
         assertTrue(ArtworkSettings(adultConsent = true, portraitsOnFolders = true, smbFolderMode = ArtworkMode.PORTRAIT).portraitLookupWanted(ArtworkScope.SMB_FOLDER))
     }
 
+    @Test fun virtualAndCustomFolderDefaultsAreIndependent() {
+        val settings = ArtworkSettings()
+            .withMode(ArtworkScope.VIRTUAL_FOLDER, ArtworkMode.COLLAGE)
+            .withMode(ArtworkScope.CUSTOM_FOLDER, ArtworkMode.FIRST_FRAME)
+        assertEquals(ArtworkMode.COLLAGE, settings.modeFor(ArtworkScope.VIRTUAL_FOLDER))
+        assertEquals(ArtworkMode.FIRST_FRAME, settings.modeFor(ArtworkScope.CUSTOM_FOLDER))
+        assertEquals(ArtworkScope.CUSTOM_FOLDER, ArtworkKeys.scopeOf(ArtworkKeys.ownFolder("x")))
+        assertEquals(ArtworkScope.VIRTUAL_FOLDER, ArtworkKeys.scopeOf(ArtworkKeys.virtualSet("x")))
+    }
+
     @Test fun lookedUpPicturesNeverReplaceChosenOnes() = runBlocking {
         val root = Files.createTempDirectory("skywing-art")
         val node = Preferences.userRoot().node("com/skywing/desktop/test-artwork-" + System.nanoTime())

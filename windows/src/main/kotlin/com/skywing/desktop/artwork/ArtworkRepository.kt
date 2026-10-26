@@ -34,6 +34,7 @@ internal class ArtworkRepository(
     private val candidates = ConcurrentHashMap<String, List<PerformerCandidate>>()
     private val sequence = AtomicLong()
     private val lock = Any()
+    private var pendingLookupWrites = 0
 
     /** Grows whenever settings or stored artwork change, so screens rebuild what they show. */
     var revision by mutableStateOf(0)
@@ -139,12 +140,15 @@ internal class ArtworkRepository(
     }
 
     /** Remembers that an automatic lookup finished without applying anything, so it is not repeated every time. */
-    suspend fun recordLookup(key: String, status: String) = withContext(Dispatchers.IO) {
+    suspend fun recordLookup(key: String, status: String, batch: Boolean = false) = withContext(Dispatchers.IO) {
         synchronized(lock) {
             val existing = rows[key]
             if (existing != null && existing.manual) return@synchronized
             rows[key] = (existing ?: ArtworkOverride(key, ArtworkMode.PORTRAIT, false)).copy(lookupStatus = status, updatedAt = System.currentTimeMillis())
-            persist()
+            if (batch) {
+                pendingLookupWrites++
+                if (pendingLookupWrites >= 12) persist()
+            } else persist()
         }
         changed()
     }
@@ -171,6 +175,19 @@ internal class ArtworkRepository(
     /** Removes every picture chosen for a video (frames, moving covers, pictures), so its thumbnail shows again. */
     suspend fun clearVideoArtwork(): Int = clear(rows.keys.filter { it.startsWith("video:") })
 
+    /** A chosen video cover and its pending suggestions follow a real file rename. */
+    fun renameVideoPath(old: String, new: String) {
+        val before = ArtworkKeys.video(old)
+        val after = ArtworkKeys.video(new)
+        synchronized(lock) {
+            val row = rows.remove(before)
+            if (row != null) rows[after] = row.copy(key = after)
+            candidates.remove(before)?.let { candidates[after] = it }
+            if (row != null) persist()
+        }
+        changed()
+    }
+
     /** Removes only automatically found portraits; pictures you chose are kept. */
     suspend fun clearFetchedPortraits(): Int = clear(rows.values.filter { !it.manual && it.imageName != null }.map { it.key })
 
@@ -184,12 +201,15 @@ internal class ArtworkRepository(
     fun suggestions(key: String): List<PerformerCandidate> = candidates[key].orEmpty()
 
     /** Keeps [found] for [key] so the user can pick one later. Never touches a manual choice. */
-    suspend fun saveSuggestions(key: String, found: List<PerformerCandidate>) {
+    suspend fun saveSuggestions(key: String, found: List<PerformerCandidate>, batch: Boolean = false) {
         if (rows[key]?.manual == true) return
         val keep = found.filter { !it.imageUrl.isNullOrBlank() }.distinctBy { it.providerId to it.performerId }.take(MAX_SUGGESTIONS)
         if (keep.isEmpty()) candidates.remove(key) else candidates[key] = keep
-        recordLookup(key, if (keep.isNotEmpty()) ArtworkOverride.STATUS_REVIEW else ArtworkOverride.STATUS_NO_MATCH)
+        recordLookup(key, if (keep.isNotEmpty()) ArtworkOverride.STATUS_REVIEW else ArtworkOverride.STATUS_NO_MATCH, batch)
     }
+
+    /** Flushes the last background lookup results, including when the lookup is stopped. */
+    fun flushLookupChanges() = synchronized(lock) { if (pendingLookupWrites > 0) persist() }
 
     /** The user skipped a folder in Review suggestions: forget its suggestions and do not suggest again by itself. */
     suspend fun skipSuggestions(key: String) {
@@ -282,6 +302,7 @@ internal class ArtworkRepository(
             }
         }
         Files.move(temporary, dataFile, StandardCopyOption.REPLACE_EXISTING)
+        pendingLookupWrites = 0
     }
 
     companion object {

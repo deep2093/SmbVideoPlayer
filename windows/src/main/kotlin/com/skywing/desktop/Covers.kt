@@ -218,7 +218,7 @@ internal object FolderCoverFiles {
             val video = videos[i % videos.size]
             val moment = (i / videos.size + 1) * 100 / (rounds + 1)
             val file = File(art.coverDir.apply { mkdirs() }, "m_" + ArtworkRepository.hash(video.path.lowercase() + ":" + video.modified + ":" + moment) + ".jpg")
-            if (!(file.isFile && file.length() > 0)) ThumbnailExtractor.extract(video.file, file, start = "$moment%", exact = false, width = 480)
+            if (!(file.isFile && file.length() > 0)) ThumbnailStore.momentFor(video.file, file, "$moment%")
             file.takeIf { it.isFile && it.length() > 0 }?.let { Pictures.decode(it.readBytes()) }
         }.filterNotNull()
     }

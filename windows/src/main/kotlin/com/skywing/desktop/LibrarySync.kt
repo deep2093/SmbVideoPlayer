@@ -24,8 +24,9 @@ internal class LibrarySync(private val library: LibraryModel) {
     private val prefs = Preferences.userNodeForPackage(LibrarySync::class.java).node("sync")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
+    private var libraryChanged = false
 
-    /** Rescan when the app starts (if the last scan is old) and every [INTERVAL_MS] while it is open. */
+    /** Optional 12-hour checks while open; startup always checks for changes. */
     var auto by mutableStateOf(prefs.getBoolean("auto", false))
         private set
     var running by mutableStateOf(false)
@@ -52,6 +53,7 @@ internal class LibrarySync(private val library: LibraryModel) {
     fun refresh() {
         if (running) return
         running = true
+        libraryChanged = false
         job = scope.launch {
             val found = ArrayList<ScanProblem>()
             try {
@@ -82,7 +84,7 @@ internal class LibrarySync(private val library: LibraryModel) {
             lastSuccess = System.currentTimeMillis()
             prefs.putLong("last_success", lastSuccess)
         }
-        library.changed()
+        if (libraryChanged) library.changed()
     }
 
     private suspend fun scanThisPc(found: MutableList<ScanProblem>) {
@@ -90,13 +92,18 @@ internal class LibrarySync(private val library: LibraryModel) {
         if (folders.isEmpty()) return
         current = "This PC"
         val result = LocalVideoScanner.scan(folders)
-        val before = library.store.load().count { it.sourceType == "PC" }
+        val previous = library.store.load().filter { it.sourceType == "PC" }
+        val before = previous.size
         if (result.unavailableFolders > 0) found += ScanProblem("This PC", "${result.unavailableFolders} folder(s) could not be read")
         if (result.files.isEmpty() && before > 0 && result.unavailableFolders > 0) {
             found += ScanProblem("This PC", "No videos found; the previous list was kept in case the drive is off")
             return
         }
-        library.store.replaceSource("PC", "PC", "This PC", result.files)
+        // An offline drive or a 20,000-video scan cap must not make saved videos disappear.
+        val preserved = previous.filter { entry ->
+            result.truncated || result.unavailableRoots.any { root -> FolderLogic.isWithin(entry.path, root) }
+        }
+        libraryChanged = library.store.replaceSource("PC", "PC", "This PC", result.files, preserve = preserved) || libraryChanged
     }
 
     private suspend fun scanShares(found: MutableList<ScanProblem>) {
@@ -119,7 +126,7 @@ internal class LibrarySync(private val library: LibraryModel) {
                     found += ScanProblem(name, "No videos found; the previous list was kept in case the share is empty by mistake")
                     continue
                 }
-                library.store.replaceSource(sourceId, "SMB", name, result.files, ShareHosts::canonical)
+                libraryChanged = library.store.replaceSource(sourceId, "SMB", name, result.files, ShareHosts::canonical, if (result.truncated) entries else emptyList()) || libraryChanged
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

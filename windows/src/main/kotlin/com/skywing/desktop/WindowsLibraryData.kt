@@ -69,7 +69,7 @@ internal class WindowsMediaIndex(private val testIndexPath: Path? = null) {
     }
 
     @Synchronized
-    fun replaceSource(sourceId: String, sourceType: String, sourceName: String, files: List<File>, keep: (String) -> String = { it }) {
+    fun replaceSource(sourceId: String, sourceType: String, sourceName: String, files: List<File>, keep: (String) -> String = { it }, preserve: List<WindowsMediaEntry> = emptyList()): Boolean {
         require(sourceType == "PC" || sourceType == "SMB")
         val seen = HashSet<String>()
         val fresh = files.mapNotNull { file ->
@@ -78,7 +78,12 @@ internal class WindowsMediaIndex(private val testIndexPath: Path? = null) {
             if (!seen.add(path.lowercase(Locale.ROOT))) return@mapNotNull null
             WindowsMediaEntry(path, sourceId, sourceType, sourceName, file.length(), file.lastModified())
         }
-        write(load().filterNot { it.sourceId == sourceId } + fresh)
+        val previous = load()
+        val combined = fresh + preserve.filter { it.sourceId == sourceId && seen.add(it.path.lowercase(Locale.ROOT)) }
+        val oldSource = previous.filter { it.sourceId == sourceId }
+        if (oldSource.size == combined.size && oldSource.associateBy { it.path.lowercase(Locale.ROOT) } == combined.associateBy { it.path.lowercase(Locale.ROOT) }) return false
+        write(previous.filterNot { it.sourceId == sourceId } + combined)
+        return true
     }
 
     /** Drops entries matching [unwanted]; returns how many were dropped. */
@@ -87,6 +92,19 @@ internal class WindowsMediaIndex(private val testIndexPath: Path? = null) {
         val kept = all.filterNot(unwanted)
         if (kept.size != all.size) write(kept)
         return all.size - kept.size
+    }
+
+    /** Updates the library immediately after the underlying video file is renamed. */
+    @Synchronized
+    fun renamePath(old: String, new: String, file: File) {
+        val current = load()
+        require(current.none { it.path.equals(new, ignoreCase = true) }) { "A library entry already has that name" }
+        val changed = current.map { entry ->
+            if (entry.path.equals(old, ignoreCase = true))
+                entry.copy(path = new, size = file.length(), modified = file.lastModified())
+            else entry
+        }
+        if (changed != current) write(changed)
     }
 
     private fun write(entries: List<WindowsMediaEntry>) {
@@ -241,6 +259,13 @@ internal class WindowsPlaybackHistoryStore {
             listOf(WindowsWatchRecord(path, position, duration, System.currentTimeMillis())) + current
         } else current
         write(next.take(MAX_RECORDS))
+    }
+
+    @Synchronized
+    fun renamePath(old: String, new: String) {
+        val records = load()
+        if (records.any { it.path.equals(old, ignoreCase = true) })
+            write(records.map { if (it.path.equals(old, ignoreCase = true)) it.copy(path = new) else it })
     }
 
     private fun write(records: List<WindowsWatchRecord>) {
