@@ -26,13 +26,15 @@ class ScenePosterCache(context: Context, private val libraryId: String) {
             .take(16).joinToString("") { "%02x".format(it) }
 
     private fun key(video: VideoEntity) = digest(video.relativePath) + "-${video.size}-${video.modified}"
-    private fun image(video: VideoEntity) = File(root, key(video) + ".jpg")
+    private fun cacheKey(video: VideoEntity) = "poster:" + key(video)
 
     fun fileFor(video: VideoEntity): File? {
-        val k = key(video)
-        known[k]?.let { return it.takeIf(File::isFile) }
-        val file = image(video)
-        return file.takeIf(File::isFile)?.also { known[k] = it }
+        val k = cacheKey(video)
+        known[k]?.let { if (it.isFile) return it else known.remove(k) }
+        val name = preferences.getString(k, null) ?: return null
+        // Only image names created by this app may be loaded.
+        if (!name.matches(Regex("[a-z0-9-]+[.]jpg"))) return null
+        return File(root, name).takeIf { it.isFile }?.also { known[k] = it }
     }
 
     fun approved(path: String): Boolean = preferences.getBoolean(digest(path), false)
@@ -44,18 +46,28 @@ class ScenePosterCache(context: Context, private val libraryId: String) {
     /** Save only if a remote image is valid. Does not update existing artwork or SMB data. */
     suspend fun fetch(video: VideoEntity, selected: JSONObject): Boolean {
         val scene = selected.optJSONObject("scene") ?: return false
+        val provider = selected.optString("provider")
+        val sceneId = scene.optString("id")
+        if (provider.isBlank() || sceneId.isBlank()) return false
         val images = scene.optJSONArray("images") ?: return false
         val imageUrl = (0 until images.length())
             .mapNotNull { images.optJSONObject(it)?.optString("url") }
             .firstOrNull { ImageUrlPolicy.isAllowed(it) } ?: return false
-        val target = image(video)
-        if (target.isFile) return true
+        // The scene id changes the file name. This prevents stale decoded images when a
+        // previous suggestion is rejected and the user confirms a different scene.
+        val target = File(root, key(video) + "-" + digest(provider + ":" + sceneId) + ".jpg")
+        val indexKey = cacheKey(video)
+        val previous = fileFor(video)
+        if (previous == target && target.isFile) return true
         val bitmap = ArtworkHttp.downloadImage(imageUrl, 720)
         return try {
             ArtworkFiles.publish(target) { output ->
                 check(bitmap.compress(Bitmap.CompressFormat.JPEG, 87, output))
             }
-            known[key(video)] = target
+            // Durable index is updated ONLY after a valid image has been saved.
+            preferences.edit().putString(indexKey, target.name).apply()
+            known[indexKey] = target
+            if (previous != null && previous != target) previous.delete()
             signals.value++
             true
         } finally {
