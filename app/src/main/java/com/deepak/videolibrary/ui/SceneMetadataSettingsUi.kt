@@ -385,8 +385,40 @@ private fun ProviderSceneThumbnail(url: String?) {
 
 @Composable
 private fun SceneMetadataReviewDialog(service: ServiceLocator, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var refresh by remember { mutableIntStateOf(0) }
-    val records = remember(refresh) { service.sceneMetadataStore.review(60) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var manualPath by remember { mutableStateOf<String?>(null) }
+    val chooser = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val path = manualPath
+        if (uri != null && path != null) {
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        val video = service.db.dao().findVideo(path) ?: error("File isn't in this library")
+                        val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+                            val result = java.io.ByteArrayOutputStream()
+                            val buffer = ByteArray(16 * 1024)
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                require(result.size() + count <= 8 * 1024 * 1024) { "Choose an image under 8 MB" }
+                                result.write(buffer, 0, count)
+                            }
+                            result.toByteArray()
+                        } ?: error("Unable to open image")
+                        val bitmap = ArtworkHttp.decode(bytes, 720) ?: error("Invalid image")
+                        try { CustomThumbs.save(service.artworkContext, video.id, bitmap) } finally { bitmap.recycle() }
+                        service.sceneMetadataStore.dismiss(path)
+                    }
+                    refresh++
+                    message = "Custom thumbnail saved. Your SMB file was not changed."
+                } catch (e: Exception) { message = e.message ?: "Could not save image" }
+            }
+        }
+    }
+    val records = remember(refresh) { service.sceneMetadataStore.review(100) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Review scene matches") },
@@ -395,14 +427,13 @@ private fun SceneMetadataReviewDialog(service: ServiceLocator, onDismiss: () -> 
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp),
             ) {
+                if (message != null) item { Text(message!!, color = MaterialTheme.colorScheme.primary) }
                 if (records.isEmpty()) item { Text("No uncertain matches are waiting.") }
                 items(records.size) { i ->
                     val record = records[i]
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            record.path.substringAfterLast('/'),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
+                    var searchText by remember(record.path) { mutableStateOf(record.path.substringAfterLast('/').substringBeforeLast('.')) }
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(record.path.substringAfterLast('/'), style = MaterialTheme.typography.titleMedium)
                         val suggestions = remember(record.suggestions) {
                             runCatching { JSONArray(record.suggestions ?: "[]") }.getOrDefault(JSONArray())
                         }
@@ -413,16 +444,69 @@ private fun SceneMetadataReviewDialog(service: ServiceLocator, onDismiss: () -> 
                                 service, record, suggestion,
                                 onConfirm = {
                                     service.sceneMetadataStore.approve(record.path, suggestion.toString())
+                                    service.scenePosters.markApproved(record.path)
+                                    ScenePosterWorker.enqueue(context, service.libraryId)
+                                    refresh++
+                                },
+                                onReject = {
+                                    service.sceneMetadataStore.reject(
+                                        record.path,
+                                        suggestion.optString("provider"),
+                                        suggestion.optJSONObject("scene")?.optString("id").orEmpty(),
+                                    )
                                     refresh++
                                 },
                             )
                             HorizontalDivider()
                         }
+                        OutlinedButton(onClick = {
+                            manualPath = record.path
+                            chooser.launch("image/*")
+                        }, modifier = Modifier.fillMaxWidth()) { Text("Choose cover image from my phone") }
+                        Text("Try a different search, including ThePornDB when StashDB already suggested a scene.", style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(
+                            value = searchText, onValueChange = { searchText = it },
+                            label = { Text("Search another title") },
+                            singleLine = true, modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf(SceneMetadataSettings.TPDB, SceneMetadataSettings.STASHDB).forEach { provider ->
+                                val label = if (provider == SceneMetadataSettings.TPDB) "Search TPDB" else "Search StashDB"
+                                OutlinedButton(
+                                    modifier = Modifier.weight(1f),
+                                    onClick = {
+                                        val requested = searchText
+                                        scope.launch {
+                                            try {
+                                                val found = withContext(Dispatchers.IO) {
+                                                    SceneMetadataClient(service.providerKeys).search(provider, requested)
+                                                }
+                                                if (found.isEmpty()) {
+                                                    message = label + ": no scenes found. Try another search term."
+                                                } else {
+                                                    val proposed = JSONArray()
+                                                    found.forEach { proposed.put(it.encoded()) }
+                                                    service.sceneMetadataStore.offerAlternatives(record.path, proposed.toString())
+                                                    refresh++
+                                                    message = label + " returned " + found.size + " suggestions."
+                                                }
+                                            } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) {
+                                                message = label + ": " + e.failure.message
+                                            } catch (e: CancellationException) { throw e
+                                            } catch (_: Exception) {
+                                                message = label + " failed. Check the API key and GraphQL provider settings."
+                                            }
+                                        }
+                                    },
+                                ) { Text(label) }
+                            }
+                        }
                         TextButton(onClick = {
                             service.sceneMetadataStore.dismiss(record.path)
                             refresh++
-                        }) { Text("Dismiss suggestions for this file") }
+                        }) { Text("Keep existing thumbnail / skip this file") }
                     }
+                    HorizontalDivider()
                 }
             }
         },
