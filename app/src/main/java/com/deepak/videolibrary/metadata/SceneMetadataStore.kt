@@ -9,6 +9,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** Independent, per-library preferences. Scene metadata never changes the artwork or virtual-folder tables. */
+enum class PosterMode(val label: String) {
+    AUTOMATIC("Automatic: verified matches"),
+    REVIEW_FIRST("Review first"),
+    DISABLED("Disabled"),
+}
+
 data class SceneMetadataSettings(
     val enabled: Boolean = true,
     val primary: String = STASHDB,
@@ -16,6 +22,9 @@ data class SceneMetadataSettings(
     val phash: Boolean = true,
     val reviewUncertain: Boolean = true,
     val allowedOnlineLookup: Boolean = false,
+    val posterMode: PosterMode = PosterMode.REVIEW_FIRST,
+    val videoPosters: Boolean = true,
+    val folderPosters: Boolean = false,
 ) {
     companion object {
         const val STASHDB = "stashdb"
@@ -39,6 +48,9 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
         phash = prefs.getBoolean("phash", true),
         reviewUncertain = prefs.getBoolean("review_uncertain", true),
         allowedOnlineLookup = prefs.getBoolean("online_consent", false),
+        posterMode = runCatching { PosterMode.valueOf(prefs.getString("poster_mode", PosterMode.REVIEW_FIRST.name)!!) }.getOrDefault(PosterMode.REVIEW_FIRST),
+        videoPosters = prefs.getBoolean("video_posters", true),
+        folderPosters = prefs.getBoolean("folder_posters", false),
     )
 
     @Synchronized
@@ -52,6 +64,9 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
             .putBoolean("phash", next.phash)
             .putBoolean("review_uncertain", next.reviewUncertain)
             .putBoolean("online_consent", next.allowedOnlineLookup)
+            .putString("poster_mode", next.posterMode.name)
+            .putBoolean("video_posters", next.videoPosters)
+            .putBoolean("folder_posters", next.folderPosters)
             .apply()
         state.value = next
     }
@@ -120,6 +135,53 @@ class SceneMetadataStore(context: Context, libraryId: String) :
             while (c.moveToNext()) get(c.getString(0))?.let(result::add)
         }
         return result
+    }
+
+    /** Already approved matches can gain a poster when artwork is enabled later. */
+    @Synchronized
+    fun confirmed(limit: Int = 4000): List<SceneMetadataRecord> {
+        val records = ArrayList<SceneMetadataRecord>()
+        readableDatabase.query(
+            "scene_metadata", arrayOf("path"), "status=?", arrayOf("CONFIRMED"),
+            null, null, "checked DESC", limit.coerceIn(1, 5000).toString(),
+        ).use { rows -> while (rows.moveToNext()) get(rows.getString(0))?.let(records::add) }
+        return records
+    }
+
+    /** Reject just one inaccurate candidate, keeping other provider suggestions for the same file. */
+    @Synchronized
+    fun reject(path: String, providerId: String, sceneId: String) {
+        val old = get(path) ?: return
+        if (old.status != "REVIEW") return
+        val current = runCatching { org.json.JSONArray(old.suggestions ?: "[]") }.getOrDefault(org.json.JSONArray())
+        val remaining = org.json.JSONArray()
+        for (i in 0 until current.length()) {
+            val item = current.optJSONObject(i) ?: continue
+            if (item.optString("provider") != providerId || item.optJSONObject("scene")?.optString("id") != sceneId) remaining.put(item)
+        }
+        writableDatabase.execSQL(
+            "UPDATE scene_metadata SET status=?, suggestions=?, checked=? WHERE path=? AND status='REVIEW'",
+            arrayOf(if (remaining.length() == 0) "DISMISSED" else "REVIEW", remaining.toString(), System.currentTimeMillis(), path),
+        )
+    }
+
+    /** Apply user-requested search results. Previously confirmed matches are not overwritten by background jobs. */
+    @Synchronized
+    fun offerAlternatives(path: String, suggestions: String) {
+        val row = get(path) ?: return
+        if (row.status == "CONFIRMED") return
+        writableDatabase.execSQL(
+            "UPDATE scene_metadata SET status='REVIEW', suggestions=?, checked=? WHERE path=? AND status!='CONFIRMED'",
+            arrayOf(suggestions, System.currentTimeMillis(), path),
+        )
+    }
+
+    /** Change of primary provider: retry only unresolved results, preserving confirmed and dismissed decisions. */
+    @Synchronized
+    fun retryUnresolved(): Int {
+        return writableDatabase.delete(
+            "scene_metadata", "status IN ('REVIEW','NO_MATCH','RETRY')", null,
+        )
     }
 
     /** The user confirms a proposed provider scene. No artwork or file-path changes are made. */
