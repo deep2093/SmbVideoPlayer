@@ -40,13 +40,17 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.skywing.desktop.playback.EmbeddedMpv
 import java.awt.Canvas
+import java.awt.AWTEvent
 import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.KeyEventDispatcher
 import java.awt.KeyboardFocusManager
+import java.awt.Toolkit
 import java.awt.dnd.DnDConstants
 import java.awt.dnd.DropTarget
+import java.awt.event.AWTEventListener
 import java.awt.event.KeyEvent
+import java.awt.event.MouseEvent
 import java.io.File
 import javax.swing.SwingUtilities
 import javax.swing.text.JTextComponent
@@ -271,6 +275,7 @@ private fun SkyWingDesktopShell(
     }
     val hub = remember { HubState() }
     val selection = remember { SelectionState() }
+    val filesBack = remember { mutableStateOf<(() -> Boolean)?>(null) }
     val history = remember(historyRevision) { historyStore.load().associateBy { it.path.lowercase() } }
 
     fun go(section: String) {
@@ -280,6 +285,29 @@ private fun SkyWingDesktopShell(
         selected = section
         selection.clear()
         hub.endFolderSelection()
+    }
+
+    val mouseBack by rememberUpdatedState<() -> Unit>({
+        when {
+            selected == "Folders" && hub.navigateBack(organizer.data) -> Unit
+            selected == "Files" && filesBack.value?.invoke() == true -> Unit
+            selected == "Now Playing" -> go(previous)
+            selected != previous -> go(previous)
+        }
+    })
+    // Windows side mouse buttons arrive as AWT button 4/5, including over the native video canvas.
+    DisposableEffect(awtWindow) {
+        val listener = AWTEventListener { event ->
+            val mouse = event as? MouseEvent ?: return@AWTEventListener
+            if (mouse.id == MouseEvent.MOUSE_PRESSED && mouse.button == 4 &&
+                SwingUtilities.getWindowAncestor(mouse.component) === awtWindow
+            ) {
+                mouseBack()
+                mouse.consume()
+            }
+        }
+        Toolkit.getDefaultToolkit().addAWTEventListener(listener, AWTEvent.MOUSE_EVENT_MASK)
+        onDispose { Toolkit.getDefaultToolkit().removeAWTEventListener(listener) }
     }
 
     fun openVideo(file: File, queuedFiles: List<File> = listOf(file), resumePosition: Double? = null) {
@@ -490,7 +518,7 @@ private fun SkyWingDesktopShell(
                         CompositionLocalProvider(LocalCovers provides covers) { when (selected) {
                             "Folders" -> FoldersScreen(library, organizer, hub, history, playOne, { renameTarget = it })
                             "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it })
-                            "Files" -> FilesScreen(library, playOne, { renameTarget = it })
+                            "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
                             else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync) { go("Files") }
                         } }
                     }

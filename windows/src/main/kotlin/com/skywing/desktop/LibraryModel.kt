@@ -116,6 +116,33 @@ internal class HubState {
         folderPage = null
         folderKeys = emptySet()
     }
+
+    /** The same parent navigation as the Back arrows on Custom and Virtual folder pages. */
+    fun navigateBack(data: OrganizerData): Boolean {
+        if (folderPage != null) { endFolderSelection(); return true }
+        if (drivePath != null) {
+            val current = drivePath!!
+            val parent = File(current).parent
+            val roots = data.own.firstOrNull { it.id == ownId }?.folders.orEmpty()
+            drivePath = if (parent == null || roots.any { it.equals(current, ignoreCase = true) }) null else parent
+            query = ""
+            return true
+        }
+        if (ownGroup != null) { ownGroup = null; query = ""; return true }
+        if (ownId != null) {
+            ownId = data.own.firstOrNull { it.id == ownId }?.parentId
+            query = ""
+            return true
+        }
+        if (matchId != null) { matchId = null; query = ""; return true }
+        if (setGroup != null) { setGroup = null; query = ""; return true }
+        if (setId != null) {
+            setId = data.sets.firstOrNull { it.id == setId }?.parentId
+            query = ""
+            return true
+        }
+        return false
+    }
 }
 
 internal fun watchedFraction(history: Map<String, WindowsWatchRecord>, entry: WindowsMediaEntry): Float? {

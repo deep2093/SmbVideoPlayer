@@ -230,6 +230,7 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
     val collage = remember { mutableStateListOf<SkiaImage>() }
     var collecting by remember { mutableStateOf(false) }
     var choosingVideos by remember { mutableStateOf<String?>(null) }
+    var frameVideo by remember(target.key) { mutableStateOf<WindowsMediaEntry?>(null) }
     val trusted = remember(settings.customEndpoint) { EndpointPolicy.hostOf(settings.customEndpoint) }
 
     fun close() {
@@ -315,7 +316,7 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
 
     DialogWindow(
         onCloseRequest = ::close,
-        state = rememberDialogState(size = DpSize(880.dp, 800.dp)),
+        state = rememberDialogState(size = DpSize(820.dp, 720.dp)),
         title = "Change cover · " + target.title,
         onPreviewKeyEvent = { e ->
             // Ctrl+V pastes a copied picture or picture address, unless a text box takes it as text.
@@ -335,8 +336,8 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
         ) {
             val scroll = rememberScrollState()
             Column(
-                Modifier.fillMaxSize().padding(end = 14.dp).verticalScroll(scroll).padding(22.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                Modifier.fillMaxSize().padding(end = 14.dp).verticalScroll(scroll).padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text("Change cover", color = theme.ink, style = MaterialTheme.typography.titleLarge)
                 Text(target.title, color = theme.muted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -344,14 +345,24 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
                 val purpose = choosingVideos
                 if (purpose != null) {
                     VideoChooser(
-                        title = if (purpose == "photos") "Pick pictures for the photo collage" else "Pick videos for the collage",
+                        title = when (purpose) {
+                            "photos" -> "Pick pictures for the photo collage"
+                            "frame" -> "Pick a video for its frame"
+                            else -> "Pick videos for the collage"
+                        },
                         videos = target.videos,
-                        max = if (purpose == "photos") (PhotoCollage.MAX_PHOTOS - collage.size).coerceAtLeast(1) else 6,
+                        max = when (purpose) {
+                            "photos" -> (PhotoCollage.MAX_PHOTOS - collage.size).coerceAtLeast(1)
+                            "frame" -> 1
+                            else -> 6
+                        },
                         onDismiss = { choosingVideos = null },
                     ) { chosen ->
                         choosingVideos = null
                         run {
-                            if (purpose == "photos") {
+                            if (purpose == "frame") {
+                                frameVideo = chosen.firstOrNull()
+                            } else if (purpose == "photos") {
                                 val pictures = withContext(Dispatchers.IO) {
                                     chosen.mapNotNull { v -> ThumbnailStore.fileFor(v.file, v.modified)?.let { Pictures.decode(it.readBytes()) } }
                                 }
@@ -391,7 +402,8 @@ internal fun ChangeCoverDialog(target: CoverTarget, onDismiss: () -> Unit) {
                         }
                     }
                     when (tab) {
-                        CoverTab.AUTO -> AutoFrameTab(target, art, busy, ::run, onDone = onDismiss, onNotice = { notice = it })
+                        CoverTab.AUTO -> AutoFrameTab(target, art, busy, ::run, onDone = onDismiss, onNotice = { notice = it },
+                            frameVideo = frameVideo, onChooseFrameVideo = { choosingVideos = "frame" })
                         CoverTab.COLLAGE -> {
                             Hint(
                                 "A collage of ${settings.collageTiles} pictures from this folder (change the number in Settings > Artwork). " +
@@ -538,12 +550,18 @@ private fun AutoFrameTab(
     run: (suspend () -> Unit) -> Unit,
     onDone: () -> Unit,
     onNotice: (String) -> Unit,
+    frameVideo: WindowsMediaEntry?,
+    onChooseFrameVideo: () -> Unit,
 ) {
     val video = target.video
     var picking by remember { mutableStateOf(false) }
     if (target.isFolder) {
         Hint("Use the frame of the first video in this folder.")
         SkyButton("Use first video frame", { run { art.setMode(target.key, ArtworkMode.FIRST_FRAME); onDone() } }, enabled = !busy, icon = SkyIcon.VideoLibrary)
+        SkyButton("Choose a single video frame…", onChooseFrameVideo, enabled = !busy && target.videos.isNotEmpty(), primary = false, icon = SkyIcon.Image)
+        if (frameVideo != null) FramePicker(frameVideo, busy, run) { image ->
+            run { art.saveImage(target.key, ArtworkMode.CUSTOM, image, manual = true, focusY = 0.5f); onDone() }
+        }
     } else if (video != null) {
         Hint("Pick any moment of this video, or go back to the automatic frame.")
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -838,23 +856,29 @@ private fun PositionStep(image: SkiaImage, saving: Boolean, onCancel: () -> Unit
     var slider by remember(image) { mutableFloatStateOf(0.5f) }
     val zoom = CoverCrop.zoomForSlider(slider)
     Text("Position the picture", color = theme.ink, style = MaterialTheme.typography.titleMedium)
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.Bottom) {
-        Column(Modifier.weight(1.6f)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Top) {
+        Column(Modifier.width(420.dp)) {
             Text("Landscape", color = theme.muted, style = MaterialTheme.typography.labelSmall)
             CropPreview(bitmap, CoverCrop.CARD_ASPECT, fx, fy, zoom)
         }
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.width(178.dp)) {
             Text("Portrait 3:4", color = theme.muted, style = MaterialTheme.typography.labelSmall)
             CropPreview(bitmap, CoverCrop.TALL_ASPECT, fx, fy, zoom)
         }
     }
     val colors = SliderDefaults.colors(thumbColor = theme.accent, activeTrackColor = theme.accent)
-    Text("Up / down", color = theme.ink, style = MaterialTheme.typography.labelMedium)
-    Slider(fy, { fy = it }, colors = colors)
-    Text("Left / right", color = theme.ink, style = MaterialTheme.typography.labelMedium)
-    Slider(fx, { fx = it }, colors = colors)
-    Text("Zoom (out ← → in)", color = theme.ink, style = MaterialTheme.typography.labelMedium)
-    Slider(slider, { slider = it }, colors = colors)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Up / down", modifier = Modifier.width(100.dp), color = theme.ink, style = MaterialTheme.typography.labelMedium)
+        Slider(fy, { fy = it }, modifier = Modifier.weight(1f), colors = colors)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Left / right", modifier = Modifier.width(100.dp), color = theme.ink, style = MaterialTheme.typography.labelMedium)
+        Slider(fx, { fx = it }, modifier = Modifier.weight(1f), colors = colors)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Zoom", modifier = Modifier.width(100.dp), color = theme.ink, style = MaterialTheme.typography.labelMedium)
+        Slider(slider, { slider = it }, modifier = Modifier.weight(1f), colors = colors)
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         SkyButton("Back", onCancel, enabled = !saving, primary = false)
         SkyButton("Use this cover", { onApply(fx, fy, zoom) }, enabled = !saving, icon = SkyIcon.Check)

@@ -338,6 +338,13 @@ private fun FolderTabsRow(f: Folders) {
                 )
             }
         }
+        SkyIconButton(SkyIcon.Edit, "Rename ${prefs.tabName(f.hub.tab)} section", {
+            val tab = f.hub.tab
+            f.dialogs.naming = NameSpec(
+                "Rename section", prefs.tabName(tab),
+                "The usual name is ${FolderTabs.DEFAULTS[tab]}. Folders inside keep their own names.", "Rename",
+            ) { name -> f.organizer.updatePrefs { it.copy(tabNames = it.tabNames + (tab to name)) } }
+        }, box = 36.dp, glyph = 17.dp)
     }
 }
 
@@ -686,6 +693,9 @@ private fun OwnPage(f: Folders) {
                 else f.go { ownId = folder.parentId; ownGroup = null }
             }) {
                 if (group == null) {
+                    SkyIconButton(SkyIcon.Edit, "Rename ${folder.name}", {
+                        f.dialogs.naming = NameSpec("Rename folder", folder.name, "Only the name in this app changes.", "Rename") { f.organizer.renameOwn(folder.id, it) }
+                    })
                     SkyIconButton(SkyIcon.Add, "New folder inside ${folder.name}", {
                         f.dialogs.naming = NameSpec(
                             "New folder inside ${folder.name}", "",
@@ -878,6 +888,9 @@ private fun SetPage(f: Folders) {
                 if (group != null) f.go { setGroup = null } else f.go { setId = set.parentId; setGroup = null }
             }) {
                 if (group == null) {
+                    SkyIconButton(SkyIcon.Edit, "Rename ${set.name}", {
+                        f.dialogs.naming = NameSpec("Rename virtual folder", set.name, "Only the name in this app changes.", "Rename") { f.organizer.renameSet(set.id, it) }
+                    })
                     SkyIconButton(SkyIcon.Add, "New folder inside ${set.name}", {
                         f.dialogs.naming = NameSpec(
                             "New folder inside ${set.name}", "",
