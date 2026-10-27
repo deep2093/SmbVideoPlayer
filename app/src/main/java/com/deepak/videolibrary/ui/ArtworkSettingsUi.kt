@@ -237,8 +237,8 @@ private fun PortraitProviderAdvanced(vm: LibraryViewModel, s: ArtworkSettings, e
         Text(if (advanced) "Hide advanced portrait network options" else "Advanced portrait network options")
     }
     if (!advanced || !enabled) return
-    ToggleRow("Allow metered connections", "Off blocks portrait searches on metered networks.", s.allowMetered) {
-        vm.updateArtwork { it.copy(allowMetered = it) }
+    ToggleRow("Allow metered connections", "Off blocks portrait searches on metered networks.", s.allowMetered) { enabled ->
+        vm.updateArtwork { old -> old.copy(allowMetered = enabled) }
     }
     val id = ProviderIds.STASH_DB
     var endpoint by remember(s.customEndpoints[id]) { mutableStateOf(s.customEndpoints[id].orEmpty()) }
