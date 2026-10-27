@@ -1482,7 +1482,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
      * A user can manually pick any scene image from confirmed scene metadata,
      * including images belonging to a video inside a multi-video folder.
      */
-    suspend fun sceneCoverCandidates(key: String, video: VideoEntity?): List<SceneCoverOption> {
+    internal suspend fun sceneCoverCandidates(key: String, video: VideoEntity?): List<SceneCoverOption> {
         val videos = if (video != null) listOf(video) else videosForCoverKey(key)
         return withContext(Dispatchers.IO) {
             videos.take(100).flatMap { item ->
