@@ -155,7 +155,7 @@ private fun SettingsPageRow(entry: SettingsSection, onOpen: () -> Unit) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun SettingsScreen(vm: LibraryViewModel) {
+fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrary.data.VideoEntity) -> Unit = {}) {
     // The selected page and index scroll position survive tab changes during this app session.
     var section by vm.ui::settingsSection
     if (vm.ui.flag("settings.hidden")) {
@@ -399,7 +399,7 @@ fun SettingsScreen(vm: LibraryViewModel) {
                             SettingsDivider()
                             ResetChoicesSetting(vm)
                         }
-                        "Metadata" -> SceneMetadataSettingsSection(vm)
+                        "Metadata" -> SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo)
                         "Layout" -> {
                             FolderTabsSetting(vm)
                             SettingsDivider()
