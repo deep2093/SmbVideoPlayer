@@ -23,10 +23,11 @@ internal object WhatsNew {
 
     val notes: List<Pair<String, String>> = listOf(
         "Original folders are yours" to "Add the folders you want; subfolders show exactly as on the drive, with their full names.",
-        "Full movie posters" to "Movie folders inside your Original folders get a poster from ThePornDB (folder name first, then file names). One switch in Settings.",
+        "Full movie posters" to "Movie folders inside your Original folders get a poster from ThePornDB automatically (folder name first, then file names). Unclear ones go to review.",
         "Scene posters on every video" to "Videos are matched by file fingerprint or title. Clear matches are applied automatically.",
-        "Review pop-up" to "Unclear scene matches and performer portraits are collected in one pop-up when you open the app. Review them one file at a time.",
-        "Performer portraits on Virtual folders" to "Virtual folders get portraits automatically. Custom folders stay manual: choose a poster or performer in Change cover.",
+        "One review pop-up" to "Unclear scene matches, performer portraits and movie posters are collected in one pop-up when you open the app. Settings > Review all opens it any time.",
+        "Performer portraits on Virtual folders" to "The name folders made inside your Virtual folders get portraits automatically (text before a comma or hyphen, otherwise the first two words). Custom folders stay manual: choose a poster or performer in Change cover.",
+        "Simpler settings" to "One switch for online matching, and the folder naming switches are gone: the rule is always on.",
         "Search scenes in Change cover" to "The Scene poster tab has a search box filled with the file name, plus earlier suggestions.",
         "Refresh button and pull down" to "The Refresh button on every page scans your drive. Pulling down looks for missing scenes and posters and applies them.",
         "Grid sizes" to "Choose columns for portrait and landscape separately in Settings. Pinch to resize is gone.",

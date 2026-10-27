@@ -35,6 +35,9 @@ class UiSession {
 
     /** The What's new notes, opened from Settings. */
     var whatsNewOpen by mutableStateOf(false)
+
+    /** Goes up each time Settings > Review all is tapped; the review pop-up opens even if it was put off. */
+    var reviewRequest by mutableStateOf(0)
     var metadataReviewIndex = 0
     var metadataReviewOffset = 0
 

@@ -423,77 +423,31 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         originalRootsRevision.value++
         coverRevision++
         scanVirtualMembersIfNeeded(clean, emptyList())
-        findMoviePostersIfWanted()
+        viewModelScope.launch(Dispatchers.IO) { com.deepak.videolibrary.metadata.MissingArtworkLookup.start(getApplication(), services, recheck = false) }
     }
 
-    /** Looks for full movie posters for Original folders when that is the cover chosen there. */
-    fun findMoviePostersIfWanted(again: Boolean = false) {
-        val options = services.sceneMetadataPreferences.settings.value
-        if (options.originalFolderCover != com.deepak.videolibrary.metadata.FolderCoverChoice.MOVIE) return
-        if (!options.enabled || !options.allowedOnlineLookup) {
-            notice = "Allow online lookups under Scene metadata to find movie posters."
-            return
-        }
-        if (services.providerKeys.get(com.deepak.videolibrary.artwork.ProviderIds.TPDB) == null) {
-            notice = "Add your ThePornDB API key under Scene metadata to find movie posters."
-            return
-        }
-        if (again) services.moviePosters.forgetChecks()
-        com.deepak.videolibrary.artwork.MoviePosterWorker.enqueue(getApplication(), services.libraryId)
-    }
+    /** Folders whose movie was not certain, waiting for you to choose one or reject them. */
+    val movieReview: StateFlow<List<com.deepak.videolibrary.artwork.MovieReviewItem>> = services.moviePosters.reviewQueue
 
-    fun sceneLookupAllowed(): Boolean = services.sceneMetadataPreferences.settings.value.allowedOnlineLookup
-
-    private fun sceneImageOptions(provider: String, scene: org.json.JSONObject, videoName: String, maxImages: Int): List<SceneCoverOption> {
-        val images = scene.optJSONArray("images")
-        val urls = (0 until (images?.length() ?: 0)).mapNotNull { i ->
-            images?.optJSONObject(i)?.optString("url")?.takeIf { com.deepak.videolibrary.artwork.online.ImageUrlPolicy.isAllowed(it) }
-        }.distinct().take(maxImages)
-        val name = if (provider == com.deepak.videolibrary.metadata.SceneMetadataSettings.TPDB) "ThePornDB" else "StashDB"
-        val title = scene.optString("title").ifBlank { videoName }
-        return urls.map { SceneCoverOption(title = title, videoName = videoName, providerName = name, imageUrl = it, localFile = null) }
-    }
-
-    /** Scenes found earlier for this item that were not clear enough to apply, as pictures to choose from. */
-    internal suspend fun sceneCoverSuggestions(key: String, video: VideoEntity?): List<SceneCoverOption> {
-        val videos = if (video != null) listOf(video) else videosForCoverKey(key)
-        return withContext(Dispatchers.IO) {
-            videos.take(100).flatMap { item ->
-                val record = services.sceneMetadataStore.get(item.relativePath)
-                if (record?.status != "REVIEW") return@flatMap emptyList()
-                val list = runCatching { org.json.JSONArray(record.suggestions ?: "") }.getOrNull() ?: return@flatMap emptyList()
-                (0 until list.length()).flatMap { i ->
-                    val entry = list.optJSONObject(i) ?: return@flatMap emptyList()
-                    val scene = entry.optJSONObject("scene") ?: return@flatMap emptyList()
-                    sceneImageOptions(entry.optString("provider"), scene, item.name, 2)
-                }
-            }.take(30)
-        }
-    }
-
-    /** Scenes matching [text] from every provider you have a key for, as pictures to choose from. */
-    internal suspend fun searchSceneCovers(text: String): List<SceneCoverOption> {
-        if (!com.deepak.videolibrary.artwork.online.NetworkPolicy.allowed(getApplication(), artworkSettings.value)) {
-            throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.BLOCKED_BY_SETTINGS)
-        }
-        val providers = services.sceneMetadataPreferences.settings.value.providers().filter { services.providerKeys.get(it) != null }
-        if (providers.isEmpty()) {
-            throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.NO_KEY)
-        }
-        return withContext(Dispatchers.IO) {
-            val client = com.deepak.videolibrary.metadata.SceneMetadataClient(services.providerKeys)
-            var failure: com.deepak.videolibrary.artwork.online.ProviderException? = null
-            val found = providers.flatMap { provider ->
-                try {
-                    client.search(provider, text).flatMap { sceneImageOptions(it.provider, it.scene, text, 2) }
-                } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) {
-                    failure = failure ?: e
-                    emptyList()
-                }
+    /** Uses [movie]'s poster for the folder and removes it from the review list. */
+    suspend fun chooseMovie(identity: String, movie: com.deepak.videolibrary.artwork.online.MovieCandidate): Boolean {
+        val url = movie.posterUrl ?: return false
+        return try {
+            withContext(Dispatchers.IO) {
+                val image = com.deepak.videolibrary.artwork.online.ArtworkHttp.downloadImage(url, 1000)
+                try { services.moviePosters.save(identity, image, movie.id, movie.title) } finally { image.recycle() }
             }
-            if (found.isEmpty() && failure != null) throw failure!!
-            found.take(30)
+            artwork.refresh()
+            true
+        } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
         }
+    }
+
+    fun rejectMovie(identity: String) {
+        services.moviePosters.reject(identity)
     }
 
     /** ThePornDB movies matching [text], for choosing a full movie poster by hand. */
@@ -1105,18 +1059,6 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     var customGrouping by mutableStateOf(com.deepak.videolibrary.scan.GroupingPrefs.load(app, com.deepak.videolibrary.scan.GroupingPrefs.CUSTOM))
         private set
 
-    fun updateVirtualGrouping(rules: com.deepak.videolibrary.scan.GroupingSwitches) {
-        virtualGrouping = rules
-        com.deepak.videolibrary.scan.GroupingPrefs.save(getApplication(), com.deepak.videolibrary.scan.GroupingPrefs.VIRTUAL, rules)
-        coverRevision++
-    }
-
-    fun updateCustomGrouping(rules: com.deepak.videolibrary.scan.GroupingSwitches) {
-        customGrouping = rules
-        com.deepak.videolibrary.scan.GroupingPrefs.save(getApplication(), com.deepak.videolibrary.scan.GroupingPrefs.CUSTOM, rules)
-        coverRevision++
-    }
-
     // ---- Virtual folders: folders you make and name, filled with chosen drive folders; the subfolders are generated ----
     private val virtualStore get() = services.virtualSets
     private val virtualRevision = MutableStateFlow(0)
@@ -1403,19 +1345,6 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             services.artwork.row(com.deepak.videolibrary.artwork.ArtworkKeys.video(video.id))?.manual == true
         ) return existing
         return services.scenePosters.fileFor(video) ?: existing
-    }
-
-    fun updateFolderCoverChoice(
-        section: String,
-        value: com.deepak.videolibrary.metadata.FolderCoverChoice,
-    ) {
-        services.sceneMetadataPreferences.update { current ->
-            when (section) {
-                "original" -> current.copy(originalFolderCover = value)
-                else -> current
-            }
-        }
-        artwork.refresh()
     }
 
     fun updateArtwork(change: (com.deepak.videolibrary.artwork.ArtworkSettings) -> com.deepak.videolibrary.artwork.ArtworkSettings) {

@@ -87,7 +87,6 @@ private val SETTINGS_SECTIONS = listOf(
     // One question per section, in the order you need them: the server first, troubleshooting last.
     SettingsSection("Connection", "Connection", "Server, account and remote access"),
     SettingsSection("Sync", "Sync & scanning", "Automatic rescan and library scan"),
-    SettingsSection("Grouping", "Auto grouping", "How file names become folders"),
     SettingsSection("Artwork", "Artwork & scene metadata", "Video posters, folder portraits and matching"),
     SettingsSection("Layout", "App layout", "Folder tabs, navigation, hidden items"),
     SettingsSection("Appearance", "Appearance", "Theme"),
@@ -355,7 +354,6 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                             }
                         }
                         "Sync" -> SyncAndThumbnailsSettings(vm, scan = true, thumbnails = false)
-                        "Grouping" -> SettingsStaticCard("Folder naming rules") { AutoGroupingSettings(vm) }
                         "Artwork" -> {
                             SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo)
                             ArtworkSettingsSection(vm)
@@ -506,45 +504,6 @@ private fun ExpandRow(title: String, note: String, open: Boolean, onToggle: () -
             modifier = Modifier.rotate(if (open) 90f else 0f),
         )
     }
-}
-
-/**
- * Auto grouping: how file names become folders. Virtual folders and Custom folders each have their own three
- * switches; all three on is the usual rule. The artwork search names live here too.
- */
-@Composable
-private fun AutoGroupingSettings(vm: LibraryViewModel) {
-    Text(
-        "Example: \"tom cruise, brad pitt - top gun\". All three on gives Tom Cruise and Brad Pitt.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    GroupingSwitchesSetting(vm.sectionName(1), vm.virtualGrouping, vm::updateVirtualGrouping)
-    SettingsDivider()
-    GroupingSwitchesSetting(vm.sectionName(0) + " (single videos)", vm.customGrouping, vm::updateCustomGrouping)
-    SettingsDivider()
-    val artwork by vm.artworkSettings.collectAsStateWithLifecycle()
-    SettingsLabel("Artwork search")
-    Text(
-        "Videos search the name before the first comma, then the name before the hyphen. If neither is found, search by hand in Change cover.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-    SwitchRow("Folders: search the whole folder name", "Off: the name is cleaned like a file name", artwork.folderUseWholeName) { on ->
-        vm.updateArtwork { it.copy(folderUseWholeName = on) }
-    }
-}
-
-@Composable
-private fun GroupingSwitchesSetting(
-    place: String,
-    rules: com.deepak.videolibrary.scan.GroupingSwitches,
-    onChange: (com.deepak.videolibrary.scan.GroupingSwitches) -> Unit,
-) {
-    SettingsLabel(place)
-    SwitchRow("Stop at the first hyphen", "Only the text before \"-\" is used", rules.stopAtHyphen) { onChange(rules.copy(stopAtHyphen = it)) }
-    SwitchRow("Split names at commas", "Each name gets a folder; the video shows in each", rules.splitAtCommas) { onChange(rules.copy(splitAtCommas = it)) }
-    SwitchRow("Otherwise the first two words", "\"tom cruise top gun movie\" becomes Tom Cruise", rules.firstTwoWords) { onChange(rules.copy(firstTwoWords = it)) }
 }
 
 /** Grid or list, and how many columns, chosen separately for portrait and landscape. */

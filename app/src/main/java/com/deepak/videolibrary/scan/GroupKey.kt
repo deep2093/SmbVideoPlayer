@@ -66,30 +66,16 @@ data class GroupingSwitches(
     val firstTwoWords: Boolean = true,
 )
 
-/** The grouping switches of each place (Virtual folders, Custom folders), kept on this device. */
+/**
+ * The grouping rule of every place (Virtual folders, Custom folders) is always the full one: stop at the first hyphen,
+ * split names at commas, otherwise use the first two words. There are no switches for it.
+ */
 object GroupingPrefs {
     const val VIRTUAL = "virtual"
     const val CUSTOM = "custom"
 
-    private fun prefs(context: android.content.Context) =
-        context.applicationContext.getSharedPreferences("grouping_switches", android.content.Context.MODE_PRIVATE)
-
-    fun load(context: android.content.Context, place: String): GroupingSwitches {
-        val p = prefs(context)
-        return GroupingSwitches(
-            stopAtHyphen = p.getBoolean("$place.hyphen", true),
-            splitAtCommas = p.getBoolean("$place.commas", true),
-            firstTwoWords = p.getBoolean("$place.twoWords", true),
-        )
-    }
-
-    fun save(context: android.content.Context, place: String, rules: GroupingSwitches) {
-        prefs(context).edit()
-            .putBoolean("$place.hyphen", rules.stopAtHyphen)
-            .putBoolean("$place.commas", rules.splitAtCommas)
-            .putBoolean("$place.twoWords", rules.firstTwoWords)
-            .apply()
-    }
+    @Suppress("UNUSED_PARAMETER")
+    fun load(context: android.content.Context, place: String): GroupingSwitches = GroupingSwitches()
 }
 
 /**

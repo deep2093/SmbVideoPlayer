@@ -6,26 +6,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScenePlacementTest {
-    @Test fun virtualFoldersUsePerformerPortraitsAndCustomFoldersGetNothingAutomatic() {
+    @Test fun onlyNameFoldersInsideVirtualFoldersGetPerformerPortraits() {
         val settings = SceneMetadataSettings()
         assertEquals(FolderCoverChoice.PERFORMER, settings.folderChoice("vset:my-set:Tom Cruise"))
-        assertEquals(FolderCoverChoice.PERFORMER, settings.folderChoice("vset:my-set"))
-        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("own:12"))
-        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("match:3"))
-        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("virtual:Another group"))
+        // The Virtual folder you named yourself, and folders inside it that you made, are not searched.
+        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("vset:my-set"))
         assertTrue(settings.virtualGeneratedVideoScenes)
     }
 
-    @Test fun originalFoldersKeepTheirCoverUnlessMoviePostersAreOn() {
-        assertEquals(FolderCoverChoice.ORIGINAL, SceneMetadataSettings().folderChoice("original:Tiger/Heat"))
-        val on = SceneMetadataSettings(originalFolderCover = FolderCoverChoice.MOVIE)
-        assertEquals(FolderCoverChoice.MOVIE, on.folderChoice("original:Tiger/Heat"))
-        assertTrue(on.needsMoviePosters())
+    @Test fun customFoldersGetNothingAutomatic() {
+        val settings = SceneMetadataSettings()
+        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("own:12"))
+        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("match:3"))
+        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("virtual:Another group"))
+    }
+
+    @Test fun originalFoldersAlwaysLookForMoviePosters() {
+        assertEquals(FolderCoverChoice.MOVIE, SceneMetadataSettings().folderChoice("original:Tiger/Heat"))
+        assertTrue(SceneMetadataSettings().needsMoviePosters())
     }
 
     @Test fun foldersNeverUseScenePosters() {
-        val settings = SceneMetadataSettings(originalFolderCover = FolderCoverChoice.SCENE)
-        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("original:Tiger"))
-        assertFalse(settings.needsFolderScenePosters())
+        assertFalse(SceneMetadataSettings().needsFolderScenePosters())
     }
 }

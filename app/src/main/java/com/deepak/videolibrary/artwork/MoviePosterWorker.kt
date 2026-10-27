@@ -42,7 +42,7 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         val services = ServiceLocator.get(applicationContext)
         if (inputData.getString("libraryId") != services.libraryId) return Result.failure()
         val options = services.sceneMetadataPreferences.settings.value
-        if (!options.enabled || !options.allowedOnlineLookup || options.originalFolderCover != FolderCoverChoice.MOVIE) return Result.success()
+        if (!options.enabled || !options.allowedOnlineLookup) return Result.success()
         val apiKey = services.providerKeys.get(ProviderIds.TPDB) ?: return Result.success()
 
         val saved = services.settings.load()
@@ -54,7 +54,8 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         val targets = OriginalFolderPaths.movieFolders(roots, services.db.dao().allParentDirs()).filter { path ->
             val identity = ArtworkKeys.originalFolder(path)
             services.artwork.effectiveRow(identity)?.manual != true &&
-                movies.fileFor(identity) == null && !movies.checkedRecently(identity)
+                movies.fileFor(identity) == null && !movies.checkedRecently(identity) &&
+                !movies.hasReview(identity) && !movies.isRejected(identity)
         }
         if (targets.isEmpty()) return Result.success()
 
@@ -75,13 +76,15 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
                             if (stop.get() != null) return@withPermit
                             val identity = ArtworkKeys.originalFolder(path)
                             try {
-                                val found = findFor(path, serverKey, apiKey, services)
-                                if (found == null) {
-                                    movies.markChecked(identity, error = false)
-                                } else {
-                                    val url = found.posterUrl ?: throw ProviderException(ProviderFailure.BAD_RESPONSE)
-                                    val image = ArtworkHttp.downloadImage(url, POSTER_WIDTH)
-                                    try { movies.save(identity, image, found.id, found.title) } finally { image.recycle() }
+                                when (val found = findFor(path, serverKey, apiKey, services)) {
+                                    is Found.Sure -> {
+                                        val url = found.movie.posterUrl ?: throw ProviderException(ProviderFailure.BAD_RESPONSE)
+                                        val image = ArtworkHttp.downloadImage(url, POSTER_WIDTH)
+                                        try { movies.save(identity, image, found.movie.id, found.movie.title) } finally { image.recycle() }
+                                    }
+                                    // Not certain: kept for you to choose, or reject, in the review pop-up.
+                                    is Found.Maybe -> movies.saveSuggestions(identity, path.substringAfterLast('/'), found.movies)
+                                    Found.None -> movies.markChecked(identity, error = false)
                                 }
                             } catch (e: CancellationException) {
                                 throw e
@@ -110,17 +113,27 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         }
     }
 
+    private sealed interface Found {
+        class Sure(val movie: MovieCandidate) : Found
+        class Maybe(val movies: List<MovieCandidate>) : Found
+        object None : Found
+    }
+
     /** Folder name first; then up to [MAX_FILES] file names from the folder itself (or below it, if it holds none). */
-    private suspend fun findFor(path: String, serverKey: String, apiKey: String, services: ServiceLocator): MovieCandidate? {
+    private suspend fun findFor(path: String, serverKey: String, apiKey: String, services: ServiceLocator): Found {
         val folderName = path.substringAfterLast('/')
-        TpdbMovies.confidentForFolder(folderName, TpdbMovies.search(apiKey, folderName, byFileName = false))?.let { return it }
+        val byName = TpdbMovies.search(apiKey, folderName, byFileName = false)
+        TpdbMovies.confidentForFolder(folderName, byName)?.let { return Found.Sure(it) }
+        var maybe = TpdbMovies.plausible(folderName, byName)
         val state = services.db.libraryState()
         val direct = state.videoList(LibraryQueries.videos(LibraryScope(serverKey, directory = path, subtree = false)))
         val files = direct.ifEmpty { state.videoList(LibraryQueries.videos(LibraryScope(serverKey, directory = path, subtree = true))) }
         for (video in files.take(MAX_FILES)) {
-            TpdbMovies.confidentForFile(video.name, TpdbMovies.search(apiKey, video.name, byFileName = true))?.let { return it }
+            val parsed = TpdbMovies.search(apiKey, video.name, byFileName = true)
+            TpdbMovies.confidentForFile(video.name, parsed)?.let { return Found.Sure(it) }
+            if (maybe.isEmpty()) maybe = TpdbMovies.plausible(video.name, parsed, fileName = true)
         }
-        return null
+        return if (maybe.isNotEmpty()) Found.Maybe(maybe) else Found.None
     }
 
     companion object {

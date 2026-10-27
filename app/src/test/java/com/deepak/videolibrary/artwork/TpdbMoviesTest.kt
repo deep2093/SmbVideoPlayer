@@ -31,6 +31,13 @@ class TpdbMoviesTest {
         assertNull(TpdbMovies.confidentForFolder("Summer", movies))
     }
 
+    @Test fun unclearNamesStillOfferLikelyMoviesForReview() {
+        val movies = TpdbMovies.parse(body)
+        // "Summer Nights 2" is not the exact title of "summer nights tonight", but shares two words.
+        assertEquals(listOf("m1", "m2"), TpdbMovies.plausible("Summer Nights Tonight", movies).map { it.id })
+        assertEquals(emptyList<String>(), TpdbMovies.plausible("Winter", movies).map { it.id })
+    }
+
     @Test fun fileNameMatchNeedsEveryTitleWord() {
         val movies = TpdbMovies.parse(body)
         assertEquals("m1", TpdbMovies.confidentForFile("StudioA.Summer.Nights.2021.1080p.mp4", movies)?.id)

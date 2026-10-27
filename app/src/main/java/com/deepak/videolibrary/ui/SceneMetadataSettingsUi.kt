@@ -30,7 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.deepak.videolibrary.ServiceLocator
 import com.deepak.videolibrary.metadata.SceneMetadataClient
 import com.deepak.videolibrary.metadata.SceneMetadataSettings
-import com.deepak.videolibrary.metadata.FolderCoverChoice
+import com.deepak.videolibrary.metadata.MissingArtworkLookup
 import com.deepak.videolibrary.metadata.SceneMetadataWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -86,24 +86,21 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     Text("Artwork & scene metadata", style = MaterialTheme.typography.titleMedium)
     Text("Everything runs by itself once it is on. Covers you pick yourself always stay.",
         style = MaterialTheme.typography.bodySmall)
+    Button(onClick = { vm.ui.reviewRequest++ }, modifier = Modifier.fillMaxWidth()) {
+        Text("Review all (scenes, portraits, movie posters)")
+    }
 
     MetadataPanel(vm, "setup", "1 · Online matching & accounts",
         if (options.enabled && options.allowedOnlineLookup) "On" else "Off", initialOpen = true) {
-        SwitchRow("Enable scene matching", "Find titles, dates, studios, performers and scene-specific covers.", options.enabled) { on ->
-            prefs.update { it.copy(enabled = on) }
-            if (!on) SceneMetadataWorker.cancel(context, service.libraryId)
-        }
-        if (options.enabled) {
-            SwitchRow(
-                "Allow online matching",
-                "Cleaned filenames and optional fingerprints go to your selected providers. SMB paths and account details are never sent.",
-                options.allowedOnlineLookup,
-            ) { allow ->
-                if (allow) consentOpen = true
-                else {
-                    prefs.update { it.copy(allowedOnlineLookup = false) }
-                    SceneMetadataWorker.cancel(context, service.libraryId)
-                }
+        SwitchRow(
+            "Match scenes and posters online",
+            "Cleaned file and folder names and file fingerprints go to your providers. SMB paths and account details are never sent.",
+            options.enabled && options.allowedOnlineLookup,
+        ) { on ->
+            if (on) consentOpen = true
+            else {
+                prefs.update { it.copy(enabled = false, allowedOnlineLookup = false) }
+                SceneMetadataWorker.cancel(context, service.libraryId)
             }
         }
         SettingsLabel("PROVIDER ACCOUNTS")
@@ -122,42 +119,21 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         Text("Keys are encrypted using Android Keystore and are never embedded in the APK.", style = MaterialTheme.typography.bodySmall)
     }
 
-    MetadataPanel(vm, "videos", "2 · Videos · scene posters",
-        if (options.videoPosters) "Every video shows its scene poster" else "Off") {
+    MetadataPanel(vm, "videos", "2 · Videos & Original folders",
+        if (options.videoPosters) "Scene posters on videos · movie posters on movie folders" else "Movie posters on movie folders") {
         SwitchRow(
             "Scene posters on videos",
             "Every video is matched to its scene and shows that scene's poster. Otherwise your video frame or custom cover.",
             options.videoPosters,
         ) { on -> prefs.update { it.copy(videoPosters = on) }; if (on) ScenePosterWorker.enqueue(context, service.libraryId) }
+        Text("Movie folders inside the folders you add in Original folders get a full movie poster from ThePornDB automatically, searched by the folder's name and then by its file names. The folder you added is skipped.",
+            style = MaterialTheme.typography.bodySmall)
         Text("Clear matches are applied after every scan and when you pull down. Unclear ones wait in Review.", style = MaterialTheme.typography.bodySmall)
-        Button(
-            onClick = { vm.ui.metadataReviewOpen = true },
-            enabled = options.enabled,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Review suggested scene matches") }
     }
 
-    MetadataPanel(vm, "movies", "3 · Original folders · movie posters",
-        if (options.originalFolderCover == FolderCoverChoice.MOVIE) "On · movie folders get a full movie poster" else "Off") {
-        SwitchRow(
-            "Full movie posters",
-            "Each movie folder inside a folder you added gets its poster from ThePornDB. The folder you added is skipped. " +
-                "Searches by the folder's name, then by the file names inside it. Needs your ThePornDB key and Allow online matching.",
-            options.originalFolderCover == FolderCoverChoice.MOVIE,
-        ) { on ->
-            vm.updateFolderCoverChoice("original", if (on) FolderCoverChoice.MOVIE else FolderCoverChoice.ORIGINAL)
-            if (on) vm.findMoviePostersIfWanted()
-        }
-        if (options.originalFolderCover == FolderCoverChoice.MOVIE) {
-            OutlinedButton(onClick = { vm.findMoviePostersIfWanted(again = true) }, modifier = Modifier.fillMaxWidth()) {
-                Text("Search again for folders without a poster")
-            }
-        }
-    }
-
-    MetadataPanel(vm, "portraits", "4 · Virtual folders · performer portraits",
+    MetadataPanel(vm, "portraits", "3 · Virtual folders · performer portraits",
         if (artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders) "On" else "Off") {
-        Text("Virtual folders and the name folders inside them get a performer portrait. Custom folders are never filled automatically: choose their poster or performer yourself in Change cover.", style = MaterialTheme.typography.bodySmall)
+        Text("The name folders inside your Virtual folders (made from the text before a comma or hyphen, or the first two words of a file name) get a performer portrait. The Virtual folder you name yourself and Custom folders are never filled automatically: choose their poster or performer in Change cover.", style = MaterialTheme.typography.bodySmall)
         SwitchRow("Performer portraits on Virtual folders",
             "Search for portraits by folder/person name. Separate from scene identification.",
             artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders,
@@ -168,7 +144,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         Text(vm.artworkBackgroundNote() ?: "No recent portrait lookup.", style = MaterialTheme.typography.bodySmall)
     }
 
-    MetadataPanel(vm, "maintenance", "5 · Recheck, advanced & clear", "Fingerprint methods, recheck and clearing saved results") {
+    MetadataPanel(vm, "maintenance", "4 · Recheck, advanced & clear", "Fingerprint methods, recheck and clearing saved results") {
         SwitchRow("Try video pHash", "Experimental and slower over SMB. Suggested results always need review.", options.phash) { enabled ->
             prefs.update { old -> old.copy(phash = enabled) }
         }
@@ -256,11 +232,12 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
 
     if (consentOpen) AlertDialog(
         onDismissRequest = { consentOpen = false },
-        title = { Text("Enable online scene identification?") },
-        text = { Text("This will send cleaned video titles and optional file fingerprints to StashDB and ThePornDB to find metadata. Hashes can uniquely identify content. Your SMB server address, credentials and full file paths will not be sent.") },
+        title = { Text("Match scenes and posters online?") },
+        text = { Text("This sends cleaned video and folder names, and file fingerprints, to StashDB and ThePornDB to find scenes and movie posters. A fingerprint can uniquely identify a file. Your SMB server address, credentials and full file paths are not sent.") },
         confirmButton = { TextButton(onClick = {
             consentOpen = false
-            prefs.update { it.copy(allowedOnlineLookup = true) }
+            prefs.update { it.copy(enabled = true, allowedOnlineLookup = true) }
+            MissingArtworkLookup.start(context, service, recheck = false)
         }) { Text("Allow lookups") } },
         dismissButton = { TextButton(onClick = { consentOpen = false }) { Text("Cancel") } },
     )

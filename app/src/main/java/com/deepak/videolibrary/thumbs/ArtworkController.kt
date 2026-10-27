@@ -28,7 +28,11 @@ internal class ArtworkController(private val services: ServiceLocator) {
     fun refresh() { revision++ }
     suspend fun cover(identity: String, key: String, scope: LibraryScope): File? {
         val options = services.sceneMetadataPreferences.settings.value
-        val placement = options.folderChoice(identity)
+        // A movie folder without a poster yet is an ordinary folder until one is found or chosen.
+        val placement = options.folderChoice(identity).let { choice ->
+            if (choice == com.deepak.videolibrary.metadata.FolderCoverChoice.MOVIE && services.moviePosters.fileFor(identity) == null)
+                com.deepak.videolibrary.metadata.FolderCoverChoice.ORIGINAL else choice
+        }
         // Only the default cover can change. A hand-picked image or other manual
         // folder override has absolute priority in every section.
         val art = services.artwork

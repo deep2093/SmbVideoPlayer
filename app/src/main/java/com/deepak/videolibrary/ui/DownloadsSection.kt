@@ -307,6 +307,10 @@ internal fun ArtworkProgressStrip(vm: LibraryViewModel) {
     val posterFlow = remember(manager, libraryId) {
         manager.getWorkInfosForUniqueWorkFlow(com.deepak.videolibrary.metadata.ScenePosterWorker.workName(libraryId))
     }
+    val movieFlow = remember(manager, libraryId) {
+        manager.getWorkInfosForUniqueWorkFlow(com.deepak.videolibrary.artwork.MoviePosterWorker.workName(libraryId))
+    }
+    val movies by movieFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val scenes by sceneFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val posters by posterFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val scanActive by vm.scanActive.collectAsStateWithLifecycle()
@@ -349,6 +353,7 @@ internal fun ArtworkProgressStrip(vm: LibraryViewModel) {
         }
         jobStatus("Identifying scenes", running(scenes))?.let(::add)
         jobStatus("Downloading scene posters", running(posters))?.let(::add)
+        jobStatus("Looking up movie posters", running(movies))?.let(::add)
         portrait?.let { (completed, total) ->
             add(CurrentActivity(
                 "Looking up performer portraits",

@@ -83,6 +83,30 @@ internal object TpdbMovies {
     }
 
     /**
+     * Movies worth showing for review when none is certain: they have a poster and share enough words with [name]
+     * (two words, or the whole shorter name when it is a single long word). At most five, best overlap first.
+     */
+    fun plausible(name: String, results: List<MovieCandidate>, fileName: Boolean = false): List<MovieCandidate> {
+        val wanted = words(name, fileName).toSet()
+        if (wanted.isEmpty()) return emptyList()
+        return results.asSequence()
+            .filter { it.posterUrl != null }
+            .map { movie ->
+                val title = words(movie.title).toSet()
+                val shared = wanted.intersect(title)
+                val fits = shared.size >= 2 ||
+                    (shared.size == 1 && shared.size == minOf(wanted.size, title.size) && shared.first().length >= 5)
+                Triple(movie, shared.size, fits)
+            }
+            .filter { it.third }
+            .distinctBy { it.first.id }
+            .sortedByDescending { it.second }
+            .map { it.first }
+            .take(5)
+            .toList()
+    }
+
+    /**
      * For a file name, ThePornDB's own parse puts its best guess first. It is used only when every word of that
      * movie's title also appears in the file name, so an unrelated guess is never applied.
      */

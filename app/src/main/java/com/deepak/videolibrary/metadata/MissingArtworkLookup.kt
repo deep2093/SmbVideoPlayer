@@ -25,10 +25,9 @@ object MissingArtworkLookup {
                 services.scenePosters.forgetFailures()
             }
             SceneMetadataWorker.enqueue(context, libraryId)
-            if (scenes.originalFolderCover == FolderCoverChoice.MOVIE) {
-                if (recheck) services.moviePosters.forgetChecks()
-                com.deepak.videolibrary.artwork.MoviePosterWorker.enqueue(context, libraryId)
-            }
+            // Movie posters for the movie folders inside Original folders.
+            if (recheck) services.moviePosters.forgetChecks()
+            com.deepak.videolibrary.artwork.MoviePosterWorker.enqueue(context, libraryId)
             started = true
         }
         return started
