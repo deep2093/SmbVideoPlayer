@@ -589,7 +589,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         val hiddenPaths = hiddenItems.value.filter { it.kind == "DIRECTORY" || it.kind == "FILE" }.map { it.target.trim('/') }.toSet()
         return all.filter { (path, entry) ->
             (entry.isDirectory || isPlayable(entry)) &&
-                !com.deepak.videolibrary.files.ExplorerHiding.shouldHide(path, entry.name, hideSystemFolders, hiddenPaths)
+                !com.deepak.videolibrary.files.ExplorerHiding.shouldHide(path, entry.name, true, hiddenPaths)
         }
     }
     fun selectAll(mode: String) {
@@ -889,7 +889,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
 
     /** Drive contents for the pickers: folders, and files when [withFiles] (hidden and system names left out). */
     suspend fun driveEntries(path: String, withFiles: Boolean): List<SmbEntry> = folderCollections.entries(path, withFiles)
-        .filterNot { com.deepak.videolibrary.files.ExplorerHiding.shouldHide(listOf(path, it.name).filter(String::isNotBlank).joinToString("/"), it.name, hideSystemFolders, emptySet()) }
+        .filterNot { com.deepak.videolibrary.files.ExplorerHiding.shouldHide(listOf(path, it.name).filter(String::isNotBlank).joinToString("/"), it.name, true, emptySet()) }
 
     /**
      * Custom folders from the drive picker. Each chosen folder shows its sub-folders as separate cards (each with
