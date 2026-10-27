@@ -165,6 +165,7 @@ private fun VirtualSetList(
                     placeholder = "Search virtual folders",
                     modifier = if (LocalHubTitle.current == null) Modifier.padding(top = 8.dp) else Modifier,
                 ) {
+                    RefreshLibraryAction(vm)
                     IconAction(Icons.Default.Add, "New virtual folder", onClick = { naming = true })
                     CardShapeButton(vm, Pages.VIRTUAL)
                     VirtualMenu(vm, showSort = false) { dismiss ->
@@ -439,10 +440,10 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                RefreshLibraryAction(vm)
                 if (current == null) {
                     IconAction(Icons.Default.CreateNewFolder, "New folder inside ${set.name}", onClick = { naming = true })
                     IconAction(Icons.Default.Edit, "Choose folders and files", onClick = { edit = true })
-                    IconAction(Icons.Default.Refresh, "Scan now", onClick = { vm.rescanVirtual() })
                     if (set.hidden.isNotEmpty()) {
                         IconAction(Icons.Default.Visibility, "Show folders you took out", onClick = { vm.restoreVirtualSubfolders(set.id) })
                     }

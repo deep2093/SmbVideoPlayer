@@ -357,6 +357,12 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         }
                     }
                 }
+                MatchReviewPrompt(vm, canShow = playing == null, onPreviewVideo = { video ->
+                    vm.resetPlaybackQueue()
+                    playQueue = listOf(video)
+                    closing = false
+                    playing = video
+                })
                 if (useDock) {
                     FloatingLibraryNavigation(
                         tab,

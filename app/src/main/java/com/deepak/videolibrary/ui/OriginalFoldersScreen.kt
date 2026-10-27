@@ -119,7 +119,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             if (!inside) IconAction(Icons.Filled.CreateNewFolder, "Add folders", onClick = { adding = true })
             IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0 || listing.totalCount > 0, onClick = { vm.playLibrary("originals", onPlay = onPlay) })
             CardShapeButton(vm, Pages.original(path))
-            IconAction(Icons.Filled.Refresh, stringResource(R.string.ui_refresh_index_2b7da4d), onClick = { vm.startScan(ScanMode.REFRESH) })
+            RefreshLibraryAction(vm)
         }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN).then(if (inside) Modifier.nestedScroll(header.connection) else Modifier)) {

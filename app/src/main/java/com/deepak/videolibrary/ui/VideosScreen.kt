@@ -142,6 +142,7 @@ fun VideosScreen(
                     addDialog = true
                 })
             }
+            RefreshLibraryAction(vm)
             IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0, onClick = { vm.playLibrary("videos", onPlay = onPlay) })
             CardShapeButton(vm, page)
             LibraryDisplayMenu(vm)

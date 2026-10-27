@@ -147,6 +147,16 @@ class SceneMetadataStore(context: Context, libraryId: String) :
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
 
+    private val changes = MutableStateFlow(0)
+
+    /** Goes up each time a result is saved or changed, so the app can notice when matches are waiting for review. */
+    val revision = changes.asStateFlow()
+
+    /** How many videos have matches waiting for your decision. */
+    @Synchronized
+    fun reviewCount(): Int = readableDatabase.rawQuery("SELECT COUNT(*) FROM scene_metadata WHERE status='REVIEW'", null)
+        .use { if (it.moveToFirst()) it.getInt(0) else 0 }
+
     @Synchronized
     fun get(path: String): SceneMetadataRecord? {
         readableDatabase.query("scene_metadata", null, "path=?", arrayOf(path), null, null, null).use { c ->
@@ -180,6 +190,7 @@ class SceneMetadataStore(context: Context, libraryId: String) :
             put("checked", System.currentTimeMillis())
         }
         writableDatabase.insertWithOnConflict("scene_metadata", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+        changes.value += 1
     }
 
     @Synchronized
@@ -250,18 +261,21 @@ class SceneMetadataStore(context: Context, libraryId: String) :
             "UPDATE scene_metadata SET status='CONFIRMED', result=?, suggestions=NULL, checked=? WHERE path=? AND size=? AND modified=?",
             arrayOf(selectedSceneJson, System.currentTimeMillis(), old.path, old.size, old.modified),
         )
+        changes.value += 1
     }
 
     @Synchronized
     fun dismiss(path: String) {
         writableDatabase.execSQL("UPDATE scene_metadata SET status='DISMISSED', suggestions=NULL WHERE path=? AND status='REVIEW'", arrayOf(path))
+        changes.value += 1
     }
 
     @Synchronized
     fun retry(path: String) {
         writableDatabase.delete("scene_metadata", "path=?", arrayOf(path))
+        changes.value += 1
     }
 
     /** Clear local scene results only. Does not touch SMB files or manual covers. */
-    fun clearMatches(): Int = writableDatabase.delete("scene_metadata", null, null)
+    fun clearMatches(): Int = writableDatabase.delete("scene_metadata", null, null).also { changes.value += 1 }
 }

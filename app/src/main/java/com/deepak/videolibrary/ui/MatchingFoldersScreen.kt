@@ -98,6 +98,7 @@ internal fun MatchingFoldersScreen(
             onQueryChange = { vm.matchFolderQuery.value = it },
             placeholder = stringResource(R.string.ui_search_custom_folders_89257e5),
         ) {
+            RefreshLibraryAction(vm)
             CardShapeButton(vm, Pages.CUSTOM)
             Box {
                 IconAction(Icons.Default.Add, "Add custom folder", onClick = { addMenu = true })
@@ -363,6 +364,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                RefreshLibraryAction(vm)
                 if (openGroup == null) {
                     IconAction(Icons.Default.CreateNewFolder, "New folder inside ${folder.name}", onClick = { naming = true })
                     IconAction(Icons.Default.Edit, "Choose folders and files", onClick = { edit = true })

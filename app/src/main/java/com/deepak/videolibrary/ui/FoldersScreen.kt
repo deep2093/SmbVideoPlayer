@@ -219,6 +219,7 @@ fun FoldersScreen(
             placeholder = "Search virtual folders",
             modifier = if (LocalHubTitle.current == null) Modifier.padding(top = 8.dp) else Modifier,
         ) {
+            RefreshLibraryAction(vm)
             CardShapeButton(vm, Pages.VIRTUAL)
             // Sort and list/grid live in this one menu so the top line keeps room for the app name.
             Box {

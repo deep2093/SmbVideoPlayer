@@ -303,12 +303,8 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         }) { Text("Allow lookups") } },
         dismissButton = { TextButton(onClick = { consentOpen = false }) { Text("Cancel") } },
     )
-    if (vm.ui.metadataReviewOpen) SceneMetadataReviewDialog(
-        service = service,
-        vm = vm,
-        onPreviewVideo = onPreviewVideo,
-        onDismiss = { vm.ui.metadataReviewOpen = false },
-    )
+    // The review window itself is shown by MatchReviewPrompt at the top of the app, so the pop-up and this button
+    // open the same one.
 }
 
 /** Each settings area has its own solid, labelled card and visible expansion affordance. */
@@ -613,7 +609,7 @@ internal fun ProviderSceneThumbnail(url: String?, durationMs: Long?) {
 }
 
 @Composable
-private fun SceneMetadataReviewDialog(
+internal fun SceneMetadataReviewDialog(
     service: ServiceLocator,
     vm: LibraryViewModel,
     onPreviewVideo: (VideoEntity) -> Unit,

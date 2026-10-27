@@ -2094,6 +2094,17 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     var notice by mutableStateOf<String?>(null)
         private set
 
+    /** Pull down: look for missing scenes, posters and portraits again, without scanning the drive. */
+    fun lookUpMissing() {
+        viewModelScope.launch {
+            val started = withContext(Dispatchers.IO) {
+                com.deepak.videolibrary.metadata.MissingArtworkLookup.start(getApplication(), services, recheck = true)
+            }
+            notice = if (started) "Looking for missing scenes and posters…"
+            else "Turn on scene matching or performer portraits in Settings to look up posters."
+        }
+    }
+
     fun startScan(mode: ScanMode) {
         if (settingsStore.loadProfile() == null) {
             notice = "Enter the server address and share name in Settings first."
@@ -2113,7 +2124,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
                 }
             }
             notice = reason
-            if (reason == null) ScanWorker.enqueue(getApplication(), mode, libraryId = services.libraryId, recheckMissing = true)
+            if (reason == null) ScanWorker.enqueue(getApplication(), mode, libraryId = services.libraryId)
         }
     }
 
