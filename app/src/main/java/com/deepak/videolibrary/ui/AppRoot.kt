@@ -357,7 +357,18 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         }
                     }
                 }
-                MatchReviewPrompt(vm, canShow = playing == null, onPreviewVideo = { video ->
+                // The notes show once per release, before the review pop-up; Settings > What's new opens them again.
+                val appContext = androidx.compose.ui.platform.LocalContext.current
+                var whatsNewDue by remember { mutableStateOf(!WhatsNew.seen(appContext)) }
+                val whatsNewShowing = whatsNewDue || vm.ui.whatsNewOpen
+                if (whatsNewShowing && playing == null) {
+                    WhatsNewDialog(onClose = {
+                        WhatsNew.markSeen(appContext)
+                        whatsNewDue = false
+                        vm.ui.whatsNewOpen = false
+                    })
+                }
+                MatchReviewPrompt(vm, canShow = playing == null && !whatsNewShowing, onPreviewVideo = { video ->
                     vm.resetPlaybackQueue()
                     playQueue = listOf(video)
                     closing = false

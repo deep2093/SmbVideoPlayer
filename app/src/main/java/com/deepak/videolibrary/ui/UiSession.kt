@@ -32,6 +32,9 @@ class UiSession {
     var settingsScroll = 0
     /** Preserve metadata review across the normal full-screen player replacing Settings composition. */
     var metadataReviewOpen by mutableStateOf(false)
+
+    /** The What's new notes, opened from Settings. */
+    var whatsNewOpen by mutableStateOf(false)
     var metadataReviewIndex = 0
     var metadataReviewOffset = 0
 

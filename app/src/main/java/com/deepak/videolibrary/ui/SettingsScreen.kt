@@ -92,6 +92,7 @@ private val SETTINGS_SECTIONS = listOf(
     SettingsSection("Layout", "App layout", "Folder tabs, navigation, hidden items"),
     SettingsSection("Appearance", "Appearance", "Theme"),
     SettingsSection("Diagnostics", "Backup & diagnostics", "Export, restore and reports"),
+    SettingsSection("WhatsNew", "What's new", "Changes in this version"),
 )
 
 /** Settings index row. Each group opens its own page. */
@@ -199,7 +200,9 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     if (page == null) {
-                        SETTINGS_SECTIONS.forEach { entry -> SettingsPageRow(entry) { section = entry.id } }
+                        SETTINGS_SECTIONS.forEach { entry ->
+                            SettingsPageRow(entry) { if (entry.id == "WhatsNew") vm.ui.whatsNewOpen = true else section = entry.id }
+                        }
                     } else {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             when (page) {

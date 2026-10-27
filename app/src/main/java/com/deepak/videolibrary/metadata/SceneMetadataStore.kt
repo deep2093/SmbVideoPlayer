@@ -55,13 +55,15 @@ data class SceneMetadataSettings(
 
     /**
      * What a folder's automatic cover is. Original folders show a full movie poster when that switch is on (the folder
-     * you added is a container, its movie subfolders get the posters). Every other folder (Virtual, Custom, generated
-     * name subfolders) shows a performer portrait when portraits are on. Scene posters belong to each video.
+     * you added is a container, its movie subfolders get the posters). Virtual folders and their name subfolders show a
+     * performer portrait when portraits are on. Custom folders get nothing automatic: their poster or performer is
+     * always chosen by hand in Change cover. Scene posters belong to each video.
      */
     fun folderChoice(identity: String): FolderCoverChoice = when {
         identity.startsWith("original:") ->
             if (originalFolderCover == FolderCoverChoice.MOVIE) FolderCoverChoice.MOVIE else FolderCoverChoice.ORIGINAL
-        else -> FolderCoverChoice.PERFORMER
+        identity.startsWith("vset:") -> FolderCoverChoice.PERFORMER
+        else -> FolderCoverChoice.ORIGINAL
     }
 
     fun needsFolderScenePosters() = false

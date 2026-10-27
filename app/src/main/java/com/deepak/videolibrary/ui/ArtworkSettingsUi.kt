@@ -151,9 +151,8 @@ internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
         ).joinToString(" · "),
         s.enabled,
     ) {
-        Text("Online portrait permission is managed above in Artwork & scene metadata.", style = MaterialTheme.typography.bodySmall)
-        SelectionPicker("Drive folders", s.smbFolderSelection, portraitsOn) { sel -> vm.updateArtwork { it.withSelection(ArtworkScope.SMB_FOLDER, sel) } }
-        SelectionPicker("Virtual and custom folders", s.virtualFolderSelection, portraitsOn) { sel -> vm.updateArtwork { it.withSelection(ArtworkScope.VIRTUAL_FOLDER, sel) } }
+        Text("Portraits are used on Virtual folders only. Online permission is managed above in Artwork & scene metadata.", style = MaterialTheme.typography.bodySmall)
+        SelectionPicker("Virtual folders", s.virtualFolderSelection, portraitsOn) { sel -> vm.updateArtwork { it.withSelection(ArtworkScope.VIRTUAL_FOLDER, sel) } }
         ToggleRow("Wi-Fi only", null, s.wifiOnly, portraitsOn) { on -> vm.updateArtwork { it.copy(wifiOnly = on) } }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(

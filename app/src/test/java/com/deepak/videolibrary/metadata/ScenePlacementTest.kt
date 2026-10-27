@@ -6,12 +6,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScenePlacementTest {
-    @Test fun virtualCustomAndGeneratedFoldersUsePerformerPortraits() {
+    @Test fun virtualFoldersUsePerformerPortraitsAndCustomFoldersGetNothingAutomatic() {
         val settings = SceneMetadataSettings()
         assertEquals(FolderCoverChoice.PERFORMER, settings.folderChoice("vset:my-set:Tom Cruise"))
         assertEquals(FolderCoverChoice.PERFORMER, settings.folderChoice("vset:my-set"))
-        assertEquals(FolderCoverChoice.PERFORMER, settings.folderChoice("virtual:Another group"))
-        assertEquals(FolderCoverChoice.PERFORMER, settings.folderChoice("own:12"))
+        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("own:12"))
+        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("match:3"))
+        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("virtual:Another group"))
         assertTrue(settings.virtualGeneratedVideoScenes)
     }
 
