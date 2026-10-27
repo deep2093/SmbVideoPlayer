@@ -431,7 +431,12 @@ private fun ProviderSceneThumbnail(url: String?, durationMs: Long?) {
 }
 
 @Composable
-private fun SceneMetadataReviewDialog(service: ServiceLocator, onDismiss: () -> Unit) {
+private fun SceneMetadataReviewDialog(
+    service: ServiceLocator,
+    vm: LibraryViewModel,
+    onPreviewVideo: (VideoEntity) -> Unit,
+    onDismiss: () -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var refresh by remember { mutableIntStateOf(0) }
@@ -466,11 +471,29 @@ private fun SceneMetadataReviewDialog(service: ServiceLocator, onDismiss: () -> 
         }
     }
     val records = remember(refresh) { service.sceneMetadataStore.review(100) }
+    val reviewListState = rememberLazyListState(
+        initialFirstVisibleItemIndex = vm.ui.metadataReviewIndex,
+        initialFirstVisibleItemScrollOffset = vm.ui.metadataReviewOffset,
+    )
+    // The player temporarily removes Settings from composition. Retain the review
+    // dialog, the same scroll position, and the same candidate on return.
+    val saveReviewPosition = {
+        vm.ui.metadataReviewIndex = reviewListState.firstVisibleItemIndex
+        vm.ui.metadataReviewOffset = reviewListState.firstVisibleItemScrollOffset
+    }
+    DisposableEffect(reviewListState) {
+        onDispose { saveReviewPosition() }
+    }
+    val playAndReturn: (VideoEntity) -> Unit = { video ->
+        saveReviewPosition()
+        onPreviewVideo(video)
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Review scene matches") },
         text = {
             androidx.compose.foundation.lazy.LazyColumn(
+                state = reviewListState,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
                 modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp),
             ) {
@@ -489,6 +512,8 @@ private fun SceneMetadataReviewDialog(service: ServiceLocator, onDismiss: () -> 
                             val suggestion = suggestions.optJSONObject(index) ?: continue
                             SceneMatchCandidate(
                                 service, record, suggestion,
+                                vm = vm,
+                                onPreviewVideo = playAndReturn,
                                 onConfirm = {
                                     service.sceneMetadataStore.approve(record.path, suggestion.toString())
                                     service.scenePosters.markApproved(record.path)
