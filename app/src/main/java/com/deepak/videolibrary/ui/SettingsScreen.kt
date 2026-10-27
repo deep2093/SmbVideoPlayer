@@ -365,26 +365,30 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                             }
                         }
                         "Layout" -> {
-                            SettingsStaticCard("Folders & navigation") {
-                            FolderTabsSetting(vm)
-                            SettingsDivider()
-                            SettingsLabel("Navigation")
+                            SettingsStaticCard("Visible folder sections") {
+                                FolderTabsSetting(vm)
+                            }
+                            SettingsStaticCard("Navigation") {
                             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                                 RadioButton(selected = vm.navigationPosition == "SIDEBAR", onClick = { vm.updateNavigationPosition("SIDEBAR") })
                                 TextButton(onClick = { vm.updateNavigationPosition("SIDEBAR") }) { Text(stringResource(R.string.ui_sidebar_f5171c9)) }
                                 RadioButton(selected = vm.navigationPosition == "FLOATING", onClick = { vm.updateNavigationPosition("FLOATING") })
                                 TextButton(onClick = { vm.updateNavigationPosition("FLOATING") }) { Text(stringResource(R.string.ui_floating_bottom_bar_b162779)) }
                             }
-                            SettingsDivider()
-                            Text("Pinch with two fingers in Folders or Videos to switch between grid sizes and list view.", style = MaterialTheme.typography.bodySmall)
-                            SettingsLabel("What is shown")
-                            OutlinedButton(onClick = { vm.ui.setFlag("settings.hidden", true) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
+                            }
+                            SettingsStaticCard("Grid & list gestures") {
+                                Text("Pinch with two fingers in Folders or Videos to change grid size or switch to a list.", style = MaterialTheme.typography.bodySmall)
+                            }
+                            SettingsStaticCard("Hidden files and folders") {
+                                OutlinedButton(onClick = { vm.ui.setFlag("settings.hidden", true) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
                             }
                         }
                         "Appearance" -> SettingsStaticCard("Themes & readability") { ThemeSettings() }
                         "Diagnostics" -> {
-                            SettingsStaticCard("Backup & diagnostics") {
+                            SettingsStaticCard("Library backup & restore") {
                                 LibraryBackupActions(vm)
+                            }
+                            SettingsStaticCard("Performance & diagnostics") {
                                 DiagnosticsSettings()
                             }
                         }

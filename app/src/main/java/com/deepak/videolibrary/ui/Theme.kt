@@ -246,10 +246,11 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         inverseOnSurface = Color.White,
         inversePrimary = theme.accent,
         // Menus and dialogs float above the content, so they stay opaque for legibility.
-        surfaceContainer = theme.menu,
+        // Distinct tint per theme: highlighted Settings surfaces track its own accent.
+        surfaceContainer = androidx.compose.ui.graphics.lerp(theme.surface, theme.accent, 0.07f),
         surfaceContainerLow = theme.menu,
-        surfaceContainerHigh = theme.menu,
-        surfaceContainerHighest = theme.menu,
+        surfaceContainerHigh = androidx.compose.ui.graphics.lerp(theme.surface, theme.accent, 0.11f),
+        surfaceContainerHighest = androidx.compose.ui.graphics.lerp(theme.surface, theme.accent, 0.14f),
         surfaceContainerLowest = theme.menu,
     ) else darkColorScheme(
         primary = Color(0xFFF5F5F5),
@@ -281,10 +282,11 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         inverseOnSurface = theme.background,
         inversePrimary = theme.accent,
         // Menus and dialogs float above the content, so they stay opaque for legibility.
-        surfaceContainer = if (theme.glass) theme.menu else theme.surface,
+        // Preserve each theme's identity instead of a universal blue Settings card.
+        surfaceContainer = androidx.compose.ui.graphics.lerp(if (theme.glass) theme.menu else theme.surface, theme.accent, 0.13f),
         surfaceContainerLow = theme.background,
-        surfaceContainerHigh = if (theme.glass) theme.menu else theme.card,
-        surfaceContainerHighest = if (theme.glass) theme.menu else theme.card,
+        surfaceContainerHigh = androidx.compose.ui.graphics.lerp(if (theme.glass) theme.menu else theme.surface, theme.accent, 0.19f),
+        surfaceContainerHighest = androidx.compose.ui.graphics.lerp(if (theme.glass) theme.menu else theme.surface, theme.accent, 0.24f),
         surfaceContainerLowest = theme.background,
     )
     // Dark status-bar icons on a light theme (the player sets its own bars while playing).

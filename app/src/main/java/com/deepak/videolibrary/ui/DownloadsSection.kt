@@ -318,8 +318,10 @@ internal fun ArtworkProgressStrip(vm: LibraryViewModel) {
     val transfers by vm.transfers.collectAsStateWithLifecycle()
     val downloads by vm.downloads.collectAsStateWithLifecycle()
 
+    // A queued lookup also counts as active: display it immediately.
     fun running(infos: List<androidx.work.WorkInfo>): androidx.work.WorkInfo? =
         infos.firstOrNull { it.state == androidx.work.WorkInfo.State.RUNNING }
+            ?: infos.firstOrNull { it.state == androidx.work.WorkInfo.State.ENQUEUED }
     fun jobStatus(name: String, info: androidx.work.WorkInfo?): CurrentActivity? {
         info ?: return null
         val doneCount = info.progress.getInt("done", 0)
@@ -327,7 +329,8 @@ internal fun ArtworkProgressStrip(vm: LibraryViewModel) {
         return CurrentActivity(
             name,
             if (totalCount > 0) (doneCount.toFloat() / totalCount).coerceIn(0f, 1f) else null,
-            if (totalCount > 0) "$doneCount of $totalCount" else "Working…",
+            if (totalCount > 0) "$doneCount of $totalCount"
+                else if (info.state == androidx.work.WorkInfo.State.ENQUEUED) "Queued…" else "Working…",
         )
     }
 
@@ -363,11 +366,24 @@ internal fun ArtworkProgressStrip(vm: LibraryViewModel) {
         }
         if (vm.artworkMaintenance) add(CurrentActivity("Updating artwork", null, "Working…"))
     }
-    androidx.compose.animation.AnimatedVisibility(visible = active.isNotEmpty()) {
+    // Dismiss just this active batch. A new operation or an idle transition re-enables it.
+    var dismissedBatch by remember { mutableStateOf<String?>(null) }
+    val currentBatch = active.map { it.name }.sorted().joinToString("|")
+    androidx.compose.runtime.LaunchedEffect(currentBatch) {
+        if (currentBatch.isEmpty()) dismissedBatch = null
+    }
+    androidx.compose.animation.AnimatedVisibility(visible = active.isNotEmpty() && dismissedBatch != currentBatch) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Background activity", modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall)
+                IconButton(onClick = { dismissedBatch = currentBatch }) {
+                    Icon(Icons.Filled.Close, contentDescription = "Hide current progress")
+                }
+            }
             active.forEach { task ->
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

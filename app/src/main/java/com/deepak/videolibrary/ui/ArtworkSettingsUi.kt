@@ -119,17 +119,19 @@ internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
     val s = settings
     val portraitsOn = s.enabled && s.adultConsent
 
-    ToggleRow("Enable existing artwork overrides", "Preserve previously selected covers and folder fallback styles.", s.enabled) { on ->
-        vm.updateArtwork { it.copy(enabled = on) }
-    }
-
     ArtworkGroup(
-        vm, "covers", "Fallback covers",
-        "Fallbacks · Drive folders: ${s.smbFolderMode.label} · Virtual: ${s.virtualFolderMode.label}",
-        s.enabled,
+        vm, "covers", "Fallback covers & existing artwork",
+        "Selected fallback rules · Drive folders: ${s.smbFolderMode.label} · Virtual: ${s.virtualFolderMode.label}",
+        true,
     ) {
-        ModePicker("Drive folders", ArtworkScope.SMB_FOLDER, s.smbFolderMode, true) { m -> vm.updateArtwork { it.withMode(ArtworkScope.SMB_FOLDER, m) } }
-        ModePicker("Virtual and custom folders", ArtworkScope.VIRTUAL_FOLDER, s.virtualFolderMode, true) { m -> vm.updateArtwork { it.withMode(ArtworkScope.VIRTUAL_FOLDER, m) } }
+        ToggleRow(
+            "Enable existing artwork overrides",
+            "Turn on the existing cover rules and preserve your hand-picked artwork. This also enables fallback-cover choices.",
+            s.enabled,
+        ) { on -> vm.updateArtwork { it.copy(enabled = on) } }
+        SettingsLabel("FALLBACK COVER CHOICES")
+        ModePicker("Drive folders", ArtworkScope.SMB_FOLDER, s.smbFolderMode, s.enabled) { m -> vm.updateArtwork { it.withMode(ArtworkScope.SMB_FOLDER, m) } }
+        ModePicker("Virtual and custom folders", ArtworkScope.VIRTUAL_FOLDER, s.virtualFolderMode, s.enabled) { m -> vm.updateArtwork { it.withMode(ArtworkScope.VIRTUAL_FOLDER, m) } }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Collage frames: ${s.collageTiles}", Modifier.weight(1f))
             OutlinedButton(onClick = { vm.updateArtwork { it.copy(collageTiles = (it.collageTiles - 1).coerceIn(2, 6)) } }, enabled = s.collageTiles > 2) { Text("−") }

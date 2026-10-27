@@ -26,7 +26,7 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
         val body = JSONObject().put("query", document).put("variables", variables).toString()
         val response = ArtworkHttp.postJson(
             endpoint(provider),
-            mapOf("ApiKey" to key, "Accept" to "application/json"),
+            StashBoxHeaders.forProvider(provider, key),
             body,
         )
         val root = try { JSONObject(response) } catch (e: Exception) {
@@ -37,7 +37,10 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
             val message = errors.toString().lowercase(Locale.ROOT)
             throw ProviderException(
                 when {
-                    "unauthor" in message || "api key" in message || "forbidden" in message -> ProviderFailure.UNAUTHORIZED
+                    "unauthor" in message || "not authorized" in message || "not authenticated" in message ||
+                        "authentication" in message || "api key" in message ||
+                        "invalid token" in message || "invalid credential" in message ||
+                        "forbidden" in message -> ProviderFailure.UNAUTHORIZED
                     "rate limit" in message -> ProviderFailure.RATE_LIMITED
                     else -> ProviderFailure.BAD_RESPONSE
                 },
@@ -46,18 +49,32 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
         return root.optJSONObject("data") ?: throw ProviderException(ProviderFailure.BAD_RESPONSE)
     }
 
-    /** Authenticated lookup, only on user action. */
-    suspend fun test(provider: String): Boolean =
-        // TPDB may not implement StashDB's account-info query. Probe scene search instead.
+    /**
+     * Test the provider's authenticated READ operation rather than requiring one
+     * provider's full-text search extension. No local filenames are transmitted.
+     */
+    suspend fun test(provider: String): Boolean = if (provider == SceneMetadataSettings.TPDB) {
+        query(provider, "query TestSceneMetadata { queryScenes(input: { page: 1, per_page: 1 }) { scenes { id } } }")
+            .optJSONObject("queryScenes") != null
+    } else {
         query(provider, "query TestSceneMetadata { searchScenes(term: \"example\", per_page: 1) { scenes { id } } }")
             .optJSONObject("searchScenes") != null
+    }
 
     /** Stash-box schema searchScenes, with only public, read-only metadata fields. */
     suspend fun search(provider: String, filename: String): List<SceneMatch> {
         val term = cleanSearchTerm(filename)
         if (term.length < 4) return emptyList()
-        val result = query(provider, SEARCH, JSONObject().put("term", term))
-        return sceneResults(provider, "TITLE", result.optJSONObject("searchScenes")?.optJSONArray("scenes"))
+        val variables = JSONObject().put("term", term)
+        val (result, field) = try {
+            query(provider, SEARCH, variables) to "searchScenes"
+        } catch (e: ProviderException) {
+            // TPDB's proprietary stash-box implementation may omit StashDB's
+            // full-text query. Fall back to the standard scene query input.
+            if (provider != SceneMetadataSettings.TPDB || e.failure != ProviderFailure.BAD_RESPONSE) throw e
+            query(provider, TPDB_TITLE_SEARCH, variables) to "queryScenes"
+        }
+        return sceneResults(provider, "TITLE", result.optJSONObject(field)?.optJSONArray("scenes"))
     }
 
     /** Exact hash matching uses the stash-box supported OSHASH/PHASH enum values. */
@@ -89,6 +106,9 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
     companion object {
         private const val FIELDS = "id title code details date duration director studio { name } images { url } performers { performer { name } } tags { name }"
         private val SEARCH = "query SceneText(\$term: String!) { searchScenes(term: \$term, per_page: 10) { scenes { $FIELDS } } }"
+        // Minimal poster-first field set, for TPDB servers with a narrower GraphQL schema.
+        private val TPDB_TITLE_SEARCH =
+            "query SceneTitle(\$term: String!) { queryScenes(input: { title: \$term, page: 1, per_page: 10 }) { scenes { id title images { url } } } }"
         private val HASH_SEARCH = "query SceneHash(\$fps: [[FingerprintQueryInput!]!]!) { findScenesBySceneFingerprints(fingerprints: \$fps) { $FIELDS } }"
 
         internal fun cleanSearchTerm(filename: String): String {

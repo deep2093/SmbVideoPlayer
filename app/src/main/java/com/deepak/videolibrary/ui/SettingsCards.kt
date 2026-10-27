@@ -31,7 +31,7 @@ internal fun SettingsStaticCard(
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
@@ -61,7 +61,7 @@ internal fun SettingsAccordion(
     val expanded = vm.ui.accordionOpen(page, id, initialOpen)
     Surface(
         modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, if (expanded) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outlineVariant),
     ) {

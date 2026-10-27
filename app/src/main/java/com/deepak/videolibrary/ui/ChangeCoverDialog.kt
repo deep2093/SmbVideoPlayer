@@ -84,6 +84,7 @@ private enum class CoverTab(val label: String) {
     COLLAGE("Folder collage"),
     PHOTOS("Photo collage"),
     INTERNET("StashDB"),
+    TPDB("ThePornDB"),
     GOOGLE("Google Images"),
     IMAGE("From this phone"),
     RESET("Reset"),
@@ -111,7 +112,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
         CoverTab.entries.filter { tab ->
             (tab != CoverTab.COLLAGE || target.isFolder) &&
                 // Videos can use scene posters or custom images, never performer portraits.
-                (tab != CoverTab.INTERNET || target.isFolder)
+                ((tab != CoverTab.INTERNET && tab != CoverTab.TPDB) || target.isFolder)
         }
     }
     var tab by remember { mutableStateOf(CoverTab.AUTO) }
@@ -335,7 +336,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                             FilterChip(selected = tab == t, onClick = { tab = t; error = null; collecting = false }, label = { Text(t.label) })
                         }
                     }
-                    if (collecting && (tab == CoverTab.INTERNET || tab == CoverTab.GOOGLE)) {
+                    if (collecting && (tab == CoverTab.INTERNET || tab == CoverTab.TPDB || tab == CoverTab.GOOGLE)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 "Choosing photo ${collage.size + 1} of ${com.deepak.videolibrary.artwork.PhotoCollage.MAX_PHOTOS} for the collage",
@@ -357,6 +358,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                 )
                             },
                             onFromStashDb = { collecting = true; tab = CoverTab.INTERNET },
+                            onFromThePornDb = { collecting = true; tab = CoverTab.TPDB },
                             onFromGoogle = { collecting = true; tab = CoverTab.GOOGLE },
                             onFromFolder = if (target.isFolder) ({ choosingFrom = "photos" }) else null,
                             onMake = {
@@ -434,11 +436,11 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                             Text("Or choose which videos it shows.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             OutlinedButton(onClick = { choosingFrom = "collage" }, enabled = !busy) { Text("Choose videos…") }
                         }
-                        CoverTab.INTERNET -> {
+                        CoverTab.INTERNET, CoverTab.TPDB -> {
                             val allowed = settings.adultConsent || oneOff
                             if (!allowed) {
                                 Text(
-                                    "Searching sends only the name below to StashDB, with the key you saved in Settings > Artwork. Nothing is sent until you allow it.",
+                                    "Searching sends only the name below to ${if (tab == CoverTab.TPDB) "ThePornDB" else "StashDB"}, using the key saved under Scene metadata. Nothing is sent until you allow it.",
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -459,7 +461,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                         if (!next) results = null
                                         scope.launch {
                                             try {
-                                                var outcome = vm.searchPerformers(query.trim(), page)
+                                                var outcome = vm.searchPerformersFrom(if (tab == CoverTab.TPDB) com.deepak.videolibrary.artwork.ProviderIds.TPDB else com.deepak.videolibrary.artwork.ProviderIds.STASH_DB, query.trim(), page)
                                                 // A video tries the name before the first comma, then the name before the hyphen.
                                                 val terms = if (target.video != null) com.deepak.videolibrary.artwork.online.NameCleaner.videoTerms(target.label) else emptyList()
                                                 val fallback = terms.getOrNull(1)
@@ -468,7 +470,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                                     first is SearchOutcome.Found && first.candidates.isEmpty()
                                                 ) {
                                                     query = fallback
-                                                    outcome = vm.searchPerformers(fallback, page)
+                                                    outcome = vm.searchPerformersFrom(if (tab == CoverTab.TPDB) com.deepak.videolibrary.artwork.ProviderIds.TPDB else com.deepak.videolibrary.artwork.ProviderIds.STASH_DB, fallback, page)
                                                 }
                                                 when (outcome) {
                                                     is SearchOutcome.Failed -> {
@@ -750,6 +752,7 @@ private fun PhotoCollageTab(
     onRemove: (Int) -> Unit,
     onFromPhone: () -> Unit,
     onFromStashDb: () -> Unit,
+    onFromThePornDb: () -> Unit,
     onFromGoogle: () -> Unit,
     onFromFolder: (() -> Unit)?,
     onMake: () -> Unit,
@@ -793,6 +796,7 @@ private fun PhotoCollageTab(
         if (onFromFolder != null) OutlinedButton(onClick = onFromFolder, enabled = enabled && !full) { Text("From this folder") }
         OutlinedButton(onClick = onFromPhone, enabled = enabled && !full) { Text("From this phone") }
         OutlinedButton(onClick = onFromStashDb, enabled = enabled && !full) { Text("From StashDB") }
+        OutlinedButton(onClick = onFromThePornDb, enabled = enabled && !full) { Text("From ThePornDB") }
         OutlinedButton(onClick = onFromGoogle, enabled = enabled && !full) { Text("From Google Images") }
     }
     Button(onClick = onMake, enabled = enabled && pictures.isNotEmpty()) {

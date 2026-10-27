@@ -1289,6 +1289,35 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     /** The search term for this item, following the naming switches in Settings > Artwork. */
     fun artworkSearchTerm(key: String, label: String) = artworkSettings.value.searchTerm(com.deepak.videolibrary.artwork.ArtworkKeys.scopeOf(key), label)
 
+    /** Searches one selected performer provider in Change Cover, rather than mixing both result lists. */
+    suspend fun searchPerformersFrom(
+        providerId: String,
+        query: String,
+        page: Int = 1,
+    ): com.deepak.videolibrary.artwork.online.SearchOutcome {
+        val settings = artworkSettings.value
+        if (!com.deepak.videolibrary.artwork.online.NetworkPolicy.allowed(getApplication(), settings))
+            return com.deepak.videolibrary.artwork.online.SearchOutcome.Failed(
+                com.deepak.videolibrary.artwork.online.ProviderFailure.BLOCKED_BY_SETTINGS,
+            )
+        val provider = services.performerSearch.configured(settings).firstOrNull { it.id == providerId }
+            ?: return com.deepak.videolibrary.artwork.online.SearchOutcome.Failed(
+                com.deepak.videolibrary.artwork.online.ProviderFailure.NO_KEY,
+            )
+        return try {
+            val results = provider.search(
+                query, services.providerKeys.get(providerId) ?: return com.deepak.videolibrary.artwork.online.SearchOutcome.Failed(
+                    com.deepak.videolibrary.artwork.online.ProviderFailure.NO_KEY,
+                ), settings.customEndpoints[providerId], page,
+            )
+            com.deepak.videolibrary.artwork.online.SearchOutcome.Found(results, emptyList())
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) {
+            com.deepak.videolibrary.artwork.online.SearchOutcome.Failed(e.failure)
+        }
+    }
+
     suspend fun searchPerformers(query: String, page: Int = 1): com.deepak.videolibrary.artwork.online.SearchOutcome {
         val settings = artworkSettings.value
         if (!com.deepak.videolibrary.artwork.online.NetworkPolicy.allowed(getApplication(), settings)) {

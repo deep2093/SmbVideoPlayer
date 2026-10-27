@@ -341,6 +341,7 @@ private fun VirtualSetCard(vm: LibraryViewModel, set: VirtualSet, aspect: Float,
 private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<VirtualSet>, onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
     // The open subfolder is kept in the view model, so coming back from the player opens it again.
     var openGroup by remember(set.id) { mutableStateOf(vm.virtualOpenGroup[set.id]) }
+    var folderQuery by remember(set.id, openGroup) { mutableStateOf("") }
     val children = allSets.filter { it.parentId == set.id }
     val parent = allSets.firstOrNull { it.id == set.parentId }
     var naming by remember { mutableStateOf(false) }
@@ -372,11 +373,16 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<
     val videos = content.videos
     val groups = content.groups
     val current = groups.firstOrNull { it.identity == openGroup }
+    val term = folderQuery.trim()
+    fun visible(name: String): Boolean = term.isEmpty() || name.contains(term, ignoreCase = true)
+    val visibleGroups = groups.filter { visible(it.title) }
+    val visibleChildren = children.filter { visible(it.name) }
     // Subfolder cards and the videos inside a subfolder each keep their own card shape (portrait or landscape).
     val page = if (openGroup == null) Pages.virtualSet(set.id) else Pages.virtualSetVideos(set.id)
     // A subfolder that disappears (renamed, taken out, emptied by a rescan) returns to the list.
     LaunchedEffect(content.loaded, current == null, openGroup) { if (content.loaded && openGroup != null && current == null) openGroup = null }
     val shownVideos = current?.videos.orEmpty()
+    val visibleVideos = shownVideos.filter { visible(it.name) }
     // Each view keeps its own scroll position; the list of subfolders is where it was after closing one.
     val states = remember(set.id) { HashMap<String, LazyGridState>() }
     fun stateFor(id: String?): LazyGridState = states.getOrPut(id ?: "") {
@@ -456,6 +462,7 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<
                 if (LocalHubBarSlot.current == null) LocalTopBarEnd.current()
             }
         }
+        if (selection == null) FolderLevelSearch(folderQuery, { folderQuery = it })
         if (set.isEmpty && children.isEmpty()) {
             Column(Modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
@@ -480,7 +487,7 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<
             label = "virtual_subfolder_open",
         ) { groupId ->
             val shown = groups.firstOrNull { it.identity == groupId }
-            val inside = shown?.videos.orEmpty()
+            val inside = shown?.videos.orEmpty().filter { visible(it.name) }
             val aspect = cardAspect(vm, if (groupId == null) Pages.virtualSet(set.id) else Pages.virtualSetVideos(set.id))
             val gridState = stateFor(groupId)
             // The letter rail on the right, like the other folder pages.
@@ -506,12 +513,12 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<
             ) {
                 // Folders you made inside this one come first, then the generated name folders.
                 if (groupId == null) {
-                    items(children, key = { "set:" + it.id }, contentType = { "set" }) { child ->
+                    items(visibleChildren, key = { "set:" + it.id }, contentType = { "set" }) { child ->
                         VirtualSetCard(vm, child, aspect, null)
                     }
                 }
                 if (groupId == null) {
-                    items(groups, key = { "group:" + it.identity }, contentType = { "group" }) { group ->
+                    items(visibleGroups, key = { "group:" + it.identity }, contentType = { "group" }) { group ->
                         VirtualGroupCard(
                             vm, set, group, aspect,
                             selected = vm.ui.tick(selectPage, "group:" + group.identity),

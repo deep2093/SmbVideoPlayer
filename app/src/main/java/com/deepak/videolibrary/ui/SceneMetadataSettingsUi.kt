@@ -87,7 +87,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     Text("Set a different cover style for Videos and every folder category. Custom covers stay protected.",
         style = MaterialTheme.typography.bodySmall)
 
-    MetadataPanel(vm, "placements", "Where pictures appear",
+    MetadataPanel(vm, "placements", "1 · Where covers appear",
         "Videos and five folder categories · Choose independently", initialOpen = true) {
         SettingsLabel("VIDEOS")
         SwitchRow(
@@ -118,7 +118,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         Text("For multi-video folders, Skywing uses an available confirmed scene poster from one of the videos. If no scene poster or performer portrait is available, the original folder cover remains.", style = MaterialTheme.typography.bodySmall)
     }
 
-    MetadataPanel(vm, "scene", "Scene metadata & posters",
+    MetadataPanel(vm, "scene", "2 · Scene matching & automatic posters",
         if (options.enabled) "Enabled · " + options.posterMode.label else "Disabled") {
         SwitchRow("Enable scene matching", "Find titles, dates, studios, performers and scene-specific covers.", options.enabled) { on ->
             prefs.update { it.copy(enabled = on) }
@@ -162,7 +162,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         }
     }
 
-    MetadataPanel(vm, "portraits", "Performer portraits",
+    MetadataPanel(vm, "portraits", "4 · Performer portraits",
         if (artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders) "On for selected folders" else "Off") {
         Text("Performer photos are only used in folder sections set to Performer portrait. They are never placed on video cards.", style = MaterialTheme.typography.bodySmall)
         SwitchRow("Enable performer portraits on folders",
@@ -180,7 +180,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         Text(vm.artworkBackgroundNote() ?: "No recent portrait lookup.", style = MaterialTheme.typography.bodySmall)
     }
 
-    MetadataPanel(vm, "providers", "StashDB & ThePornDB",
+    MetadataPanel(vm, "providers", "3 · Provider accounts & priority",
         "Your provider keys, entered once for both features") {
         Text("Select which provider to try first. Both providers can return suggestions. Artwork and Scene metadata share the encrypted API keys.", style = MaterialTheme.typography.bodySmall)
         listOf(SceneMetadataSettings.TPDB, SceneMetadataSettings.STASHDB).forEach { id ->
@@ -197,26 +197,8 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         Text("Keys are encrypted using Android Keystore and are never embedded in the APK.", style = MaterialTheme.typography.bodySmall)
     }
 
-    MetadataPanel(vm, "advanced", "Advanced matching & repairs", "Fingerprint methods and troubleshooting") {
-        SwitchRow("Try video pHash", "Experimental and slower over SMB. Suggested results always need review.", options.phash) { enabled ->
-            prefs.update { old -> old.copy(phash = enabled) }
-        }
-        SwitchRow("Review uncertain matches", "Filename matches and multiple possibilities require confirmation.", options.reviewUncertain) { enabled ->
-            prefs.update { old -> old.copy(reviewUncertain = enabled) }
-        }
-        OutlinedButton(
-            onClick = {
-                val count = service.sceneMetadataStore.retryUnresolved()
-                SceneMetadataWorker.enqueue(context, service.libraryId, manual = true)
-                status = "Rechecking " + count + " unresolved entries."
-            },
-            enabled = options.allowedOnlineLookup,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Recheck unconfirmed with preferred provider") }
-    }
-
     MetadataPanel(
-        vm, "actions", "Artwork actions & cleanup",
+        vm, "actions", "5 · Find artwork & clear caches",
         "Look up scenes or portraits · apply posters · safely clear saved results",
     ) {
         SettingsLabel("LOOK UP")
@@ -259,6 +241,24 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
             Text("Clear fetched performer portraits…")
         }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    }
+
+    MetadataPanel(vm, "advanced", "6 · Advanced matching & troubleshooting", "Fingerprint methods and troubleshooting") {
+        SwitchRow("Try video pHash", "Experimental and slower over SMB. Suggested results always need review.", options.phash) { enabled ->
+            prefs.update { old -> old.copy(phash = enabled) }
+        }
+        SwitchRow("Review uncertain matches", "Filename matches and multiple possibilities require confirmation.", options.reviewUncertain) { enabled ->
+            prefs.update { old -> old.copy(reviewUncertain = enabled) }
+        }
+        OutlinedButton(
+            onClick = {
+                val count = service.sceneMetadataStore.retryUnresolved()
+                SceneMetadataWorker.enqueue(context, service.libraryId, manual = true)
+                status = "Rechecking " + count + " unresolved entries."
+            },
+            enabled = options.allowedOnlineLookup,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Recheck unconfirmed with preferred provider") }
     }
 
     if (clearPrompt != null) {

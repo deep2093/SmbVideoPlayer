@@ -288,6 +288,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<
     var naming by remember { mutableStateOf(false) }
     var fillNew by remember { mutableStateOf<String?>(null) }
     var openGroup by remember(folder.id) { mutableStateOf<String?>(null) }
+    var folderQuery by remember(folder.id, openGroup) { mutableStateOf("") }
     val selectPage = "select:own:" + folder.id
     val selection = vm.ui.selectionOn(selectPage)
     BackHandler {
@@ -306,6 +307,12 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<
     val rules = vm.customGrouping
     val groups = remember(files, rules) { groupByNames(files, rules) }
     val shownFiles = openGroup?.let { groups[it].orEmpty() } ?: files
+    val term = folderQuery.trim()
+    fun matchesName(name: String): Boolean = term.isEmpty() || name.contains(term, ignoreCase = true)
+    val visibleFiles = shownFiles.filter { matchesName(it.name) }
+    val visibleChildren = children.filter { matchesName(it.name) }
+    val visibleDriveFolders = folder.folders.filter { matchesName(it.substringAfterLast('/')) }
+    val visibleGroups = groups.keys.filter { matchesName(groupTitle(it)) }
     val gridState = remember(folder.id, openGroup) { LazyGridState() }
     ScrollTopOnRequest(vm, gridState)
     LaunchedEffect(openGroup) { vm.ui.endSelection(selectPage) }
@@ -375,6 +382,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<
                 if (LocalHubBarSlot.current == null) LocalTopBarEnd.current()
             }
         }
+        if (selection == null) FolderLevelSearch(folderQuery, { folderQuery = it })
         if (folder.isEmpty && children.isEmpty()) {
             Column(Modifier.padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Nothing here yet", style = MaterialTheme.typography.titleMedium)
@@ -392,8 +400,8 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<
         ) {
             if (openGroup == null) {
                 // Folders made inside this one come first.
-                items(children, key = { "own:" + it.id }) { child -> OwnFolderCard(vm, child, aspect, null) }
-                items(folder.folders, key = { "dir:$it" }) { path ->
+                items(visibleChildren, key = { "own:" + it.id }) { child -> OwnFolderCard(vm, child, aspect, null) }
+                items(visibleDriveFolders, key = { "dir:$it" }) { path ->
                     DriveFolderCard(
                         vm, path, aspect, onOpen,
                         selected = vm.ui.tick(selectPage, "dir:$path"),
@@ -402,7 +410,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<
                     )
                 }
                 if (grouped) {
-                    items(groups.keys.toList(), key = { "group:$it" }) { key ->
+                    items(visibleGroups, key = { "group:$it" }) { key ->
                         FileGroupCard(
                             vm, key, groups[key].orEmpty(), aspect,
                             selected = vm.ui.tick(selectPage, "group:$key"),
@@ -413,7 +421,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<
                 }
             }
             if (openGroup != null || !grouped) {
-                items(shownFiles, key = { "file:" + it.relativePath }) { video ->
+                items(visibleFiles, key = { "file:" + it.relativePath }) { video ->
                     val ticked = vm.ui.tick(selectPage, "file:" + video.relativePath)
                     Box {
                         VideoCard(
