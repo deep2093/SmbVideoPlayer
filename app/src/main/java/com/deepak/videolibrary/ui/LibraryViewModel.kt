@@ -182,15 +182,6 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
 
     fun setTallPage(page: String, tall: Boolean) = pageShapes.setTall(namespace.value + "|" + page, tall)
 
-    /** File Explorer leaves out system folders such as \$RECYCLE.BIN (on by default). */
-    var hideSystemFolders by mutableStateOf(layoutPrefs.getBoolean("hide_system_folders", true))
-        private set
-
-    fun updateHideSystemFolders(value: Boolean) {
-        hideSystemFolders = value
-        layoutPrefs.edit().putBoolean("hide_system_folders", value).apply()
-    }
-
     fun toggleExplorerLayout() {
         explorerGridMode = !explorerGridMode
         layoutPrefs.edit().putBoolean("explorer_grid", explorerGridMode).apply()
@@ -227,6 +218,27 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         if (preset !in allowedGridPresets) return
         folderGridPreset = preset
         layoutPrefs.edit().putString("folder_grid_preset", preset).apply()
+    }
+
+    /** Pinch out for larger cards / list, pinch in for denser grids. */
+    fun pinchLibraryLayout(folders: Boolean, step: Int) {
+        if (step == 0) return
+        val presets = LibraryLayout.presets.sortedBy { it.toIntOrNull() ?: Int.MAX_VALUE }
+        if (presets.isEmpty()) return
+        val inList = if (folders) folderListMode else videoListMode
+        val current = if (folders) folderGridPreset else videoGridPreset
+        val at = if (inList) 0 else presets.indexOf(current).coerceAtLeast(0) + 1
+        val next = (at + step.coerceIn(-1, 1)).coerceIn(0, presets.size)
+        if (next == at) return
+        if (next == 0) {
+            if (!inList) { if (folders) toggleFolderLayout() else toggleVideoLayout() }
+        } else if (folders) {
+            updateFolderGridPreset(presets[next - 1])
+            if (folderListMode) toggleFolderLayout()
+        } else {
+            updateVideoGridPreset(presets[next - 1])
+            if (videoListMode) toggleVideoLayout()
+        }
     }
 
     // ---- library ----
@@ -1228,13 +1240,27 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         val options = services.sceneMetadataPreferences.settings.value
         if (!options.enabled || options.posterMode == com.deepak.videolibrary.metadata.PosterMode.DISABLED ||
             !options.videoPosters) return existing
-        // Manually picked images/frames, and an explicitly chosen portrait display mode, always win.
+        // Hand-picked video images or frames always override automatic scene posters.
         if (com.deepak.videolibrary.thumbs.CustomThumbs.has(services.artworkContext, video.id) ||
-            services.artwork.row(com.deepak.videolibrary.artwork.ArtworkKeys.video(video.id))?.manual == true ||
-            (services.artwork.settings.value.enabled &&
-                services.artwork.settings.value.videoMode == com.deepak.videolibrary.artwork.ArtworkMode.PORTRAIT)
+            services.artwork.row(com.deepak.videolibrary.artwork.ArtworkKeys.video(video.id))?.manual == true
         ) return existing
         return services.scenePosters.fileFor(video) ?: existing
+    }
+
+    fun updateFolderCoverChoice(
+        section: String,
+        value: com.deepak.videolibrary.metadata.FolderCoverChoice,
+    ) {
+        services.sceneMetadataPreferences.update { current ->
+            when (section) {
+                "original" -> current.copy(originalFolderCover = value)
+                "custom" -> current.copy(customFolderCover = value)
+                "virtual" -> current.copy(virtualFolderCover = value)
+                "generated" -> current.copy(generatedFolderCover = value)
+                else -> current
+            }
+        }
+        artwork.refresh()
     }
 
     fun updateArtwork(change: (com.deepak.videolibrary.artwork.ArtworkSettings) -> com.deepak.videolibrary.artwork.ArtworkSettings) {

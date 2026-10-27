@@ -15,6 +15,16 @@ enum class PosterMode(val label: String) {
     DISABLED("Disabled"),
 }
 
+/**
+ * One independently saved choice for each folder section.
+ * ORIGINAL leaves the existing cover system alone; it does not clear hand-picked covers.
+ */
+enum class FolderCoverChoice(val label: String) {
+    ORIGINAL("Original / existing cover"),
+    PERFORMER("Performer portrait"),
+    SCENE("Scene poster"),
+}
+
 data class SceneMetadataSettings(
     val enabled: Boolean = true,
     val primary: String = STASHDB,
@@ -25,6 +35,10 @@ data class SceneMetadataSettings(
     val posterMode: PosterMode = PosterMode.REVIEW_FIRST,
     val videoPosters: Boolean = true,
     val folderPosters: Boolean = false,
+    val originalFolderCover: FolderCoverChoice = FolderCoverChoice.ORIGINAL,
+    val customFolderCover: FolderCoverChoice = FolderCoverChoice.ORIGINAL,
+    val virtualFolderCover: FolderCoverChoice = FolderCoverChoice.ORIGINAL,
+    val generatedFolderCover: FolderCoverChoice = FolderCoverChoice.ORIGINAL,
 ) {
     companion object {
         const val STASHDB = "stashdb"
@@ -33,6 +47,20 @@ data class SceneMetadataSettings(
     }
 
     fun providers(): List<String> = if (primary == TPDB) listOf(TPDB, STASHDB) else listOf(STASHDB, TPDB)
+
+    fun folderChoice(identity: String): FolderCoverChoice = when {
+        identity.startsWith("original:") -> originalFolderCover
+        identity.startsWith("own:") || identity.startsWith("match:") -> customFolderCover
+        identity.startsWith("virtual:") -> generatedFolderCover
+        identity.startsWith("vset:") && identity.removePrefix("vset:").contains(':') -> generatedFolderCover
+        identity.startsWith("vset:") -> virtualFolderCover
+        else -> customFolderCover
+    }
+
+    fun needsFolderScenePosters() = listOf(
+        originalFolderCover, customFolderCover, virtualFolderCover, generatedFolderCover,
+    ).any { it == FolderCoverChoice.SCENE }
+
 }
 
 class SceneMetadataPreferences(context: Context, libraryId: String) {
@@ -51,7 +79,15 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
         posterMode = runCatching { PosterMode.valueOf(prefs.getString("poster_mode", PosterMode.REVIEW_FIRST.name)!!) }.getOrDefault(PosterMode.REVIEW_FIRST),
         videoPosters = prefs.getBoolean("video_posters", true),
         folderPosters = prefs.getBoolean("folder_posters", false),
+        originalFolderCover = savedChoice("original_folder_cover"),
+        customFolderCover = savedChoice("custom_folder_cover"),
+        virtualFolderCover = savedChoice("virtual_folder_cover"),
+        generatedFolderCover = savedChoice("generated_folder_cover"),
     )
+
+    private fun savedChoice(key: String): FolderCoverChoice =
+        runCatching { FolderCoverChoice.valueOf(prefs.getString(key, FolderCoverChoice.ORIGINAL.name)!!) }
+            .getOrDefault(FolderCoverChoice.ORIGINAL)
 
     @Synchronized
     fun update(change: (SceneMetadataSettings) -> SceneMetadataSettings) {
@@ -67,6 +103,10 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
             .putString("poster_mode", next.posterMode.name)
             .putBoolean("video_posters", next.videoPosters)
             .putBoolean("folder_posters", next.folderPosters)
+            .putString("original_folder_cover", next.originalFolderCover.name)
+            .putString("custom_folder_cover", next.customFolderCover.name)
+            .putString("virtual_folder_cover", next.virtualFolderCover.name)
+            .putString("generated_folder_cover", next.generatedFolderCover.name)
             .apply()
         state.value = next
     }

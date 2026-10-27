@@ -78,40 +78,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.deepak.videolibrary.settings.SmbSettings
 import kotlinx.coroutines.launch
 
-private val GRID_PRESETS = LibraryLayout.presets
-
-/** Four equally sized choices, with no incomplete last row or screen-height coupling. */
-@Composable
-private fun GridPresetSetting(label: String, selected: String, onSelect: (String) -> Unit) {
-    Column(Modifier.widthIn(max = 560.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, style = MaterialTheme.typography.titleMedium)
-        GRID_PRESETS.chunked(2).forEach { options ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                options.forEach { option ->
-                    Row(
-                        Modifier
-                            .weight(1f)
-                            .heightIn(min = 48.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(
-                                if (selected == option) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surface
-                                },
-                            ).selectable(selected = selected == option, role = Role.RadioButton, onClick = { onSelect(option) })
-                            .padding(horizontal = 8.dp),
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = selected == option, onClick = null)
-                        Text("$option columns", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(start = 8.dp))
-                    }
-                }
-            }
-        }
-    }
-}
-
 private class SettingsSection(val id: String, val title: String, val description: String)
 
 private val SETTINGS_SECTIONS = listOf(
@@ -119,9 +85,8 @@ private val SETTINGS_SECTIONS = listOf(
     SettingsSection("Connection", "Connection", "Server, account and remote access"),
     SettingsSection("Sync", "Sync & scanning", "Automatic rescan and library scan"),
     SettingsSection("Grouping", "Auto grouping", "How file names become folders"),
-    SettingsSection("Artwork", "Artwork & thumbnails", "Covers, portraits and thumbnails"),
-    SettingsSection("Metadata", "Scene metadata", "StashDB, ThePornDB and match review"),
-    SettingsSection("Layout", "App layout", "Folder tabs, grids, navigation, hidden items"),
+    SettingsSection("Artwork", "Artwork & scene metadata", "Video posters, folder portraits and matching"),
+    SettingsSection("Layout", "App layout", "Folder tabs, navigation, hidden items"),
     SettingsSection("Appearance", "Appearance", "Theme"),
     SettingsSection("Playback", "Playback", "Player gestures"),
     SettingsSection("Diagnostics", "Backup & diagnostics", "Export, restore and reports"),
@@ -393,13 +358,21 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                         "Sync" -> SyncAndThumbnailsSettings(vm, scan = true, thumbnails = false)
                         "Grouping" -> AutoGroupingSettings(vm)
                         "Artwork" -> {
-                            ArtworkSettingsSection(vm)
-                            SettingsDivider()
-                            SyncAndThumbnailsSettings(vm, scan = false, thumbnails = true)
-                            SettingsDivider()
-                            ResetChoicesSetting(vm)
+                            SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo)
+                            var openAdvanced by vm.ui.flagState("unified.artwork.advanced")
+                            ExpandRow(
+                                "More artwork & thumbnail tools",
+                                "Fallback covers, thumbnail generation, portrait review and reset",
+                                openAdvanced,
+                            ) { openAdvanced = !openAdvanced }
+                            if (openAdvanced) {
+                                ArtworkSettingsSection(vm)
+                                SettingsDivider()
+                                SyncAndThumbnailsSettings(vm, scan = false, thumbnails = true)
+                                SettingsDivider()
+                                ResetChoicesSetting(vm)
+                            }
                         }
-                        "Metadata" -> SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo)
                         "Layout" -> {
                             FolderTabsSetting(vm)
                             SettingsDivider()
@@ -411,13 +384,8 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                                 TextButton(onClick = { vm.updateNavigationPosition("FLOATING") }) { Text(stringResource(R.string.ui_floating_bottom_bar_b162779)) }
                             }
                             SettingsDivider()
-                            SettingsLabel("Grids")
-                            SwitchRow(stringResource(R.string.ui_show_videos_as_a_list_a89e29d), null, vm.videoListMode) { vm.toggleVideoLayout() }
-                            GridPresetSetting("Folders", vm.folderGridPreset, vm::updateFolderGridPreset)
-                            GridPresetSetting("Videos", vm.videoGridPreset, vm::updateVideoGridPreset)
-                            SettingsDivider()
+                            Text("Pinch with two fingers in Folders or Videos to switch between grid sizes and list view.", style = MaterialTheme.typography.bodySmall)
                             SettingsLabel("What is shown")
-                            SwitchRow("Hide system folders in Files", "Recycle bin, System Volume Information and other system folders", vm.hideSystemFolders, onChange = vm::updateHideSystemFolders)
                             OutlinedButton(onClick = { vm.ui.setFlag("settings.hidden", true) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
                         }
                         "Appearance" -> ThemeSettings()

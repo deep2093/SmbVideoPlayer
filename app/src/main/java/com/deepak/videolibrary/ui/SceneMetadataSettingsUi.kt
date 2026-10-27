@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.deepak.videolibrary.ServiceLocator
 import com.deepak.videolibrary.metadata.SceneMetadataClient
 import com.deepak.videolibrary.metadata.SceneMetadataSettings
+import com.deepak.videolibrary.metadata.FolderCoverChoice
 import com.deepak.videolibrary.metadata.SceneMetadataWorker
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -77,111 +78,161 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     var consentOpen by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
 
-    Text("Scene metadata", style = MaterialTheme.typography.titleMedium)
+    val artwork by vm.artworkSettings.collectAsStateWithLifecycle()
+    var portraitConsent by remember { mutableStateOf(false) }
+    Text("Artwork & metadata", style = MaterialTheme.typography.titleMedium)
     Text(
-        "Fetch scene titles, studios, performers, dates and available artwork. Metadata is stored separately and never renames SMB files, changes virtual folders or replaces your existing covers.",
+        "Choose what artwork appears on video cards and in each folder section. Scene posters and performer portraits work independently. Manual covers always win.",
         style = MaterialTheme.typography.bodySmall,
     )
-    SwitchRow("Enable online metadata", null, options.enabled) { enabled ->
-        prefs.update { it.copy(enabled = enabled) }
-        if (!enabled) SceneMetadataWorker.cancel(context, service.libraryId)
+
+    MetadataPanel(vm, "placements", "Where pictures appear",
+        "Videos: scene posters only · Four independent folder sections", initialOpen = true) {
+        SwitchRow(
+            "Scene posters on video cards",
+            "Uses an approved scene cover when available, otherwise your video frame or custom cover. Never uses performer portraits.",
+            options.videoPosters,
+        ) { on -> prefs.update { it.copy(videoPosters = on) }; if (on) ScenePosterWorker.enqueue(context, service.libraryId) }
+
+        SettingsLabel("Folder covers")
+        Text("Each section has two independent choices. Turn neither on to keep its normal covers. Turning one on turns off the other for that section.", style = MaterialTheme.typography.bodySmall)
+        FolderArtworkTarget("Original SMB folders", "original", options.originalFolderCover, vm)
+        FolderArtworkTarget("Custom folders", "custom", options.customFolderCover, vm)
+        FolderArtworkTarget("Virtual folders", "virtual", options.virtualFolderCover, vm)
+        FolderArtworkTarget("Generated name subfolders", "generated", options.generatedFolderCover, vm)
+        Text("For multi-video folders, Skywing uses an available confirmed scene poster from one of the videos. If no scene poster or performer portrait is available, the original folder cover remains.", style = MaterialTheme.typography.bodySmall)
     }
 
-    if (options.enabled) {
-        SwitchRow(
-            "Allow sending search terms and fingerprints",
-            "Cleaned filenames, OSHash and optionally pHash can identify scenes. No SMB path or account credentials are sent.",
-            options.allowedOnlineLookup,
-        ) { allow ->
-            if (allow) consentOpen = true
-            else {
-                prefs.update { it.copy(allowedOnlineLookup = false) }
-                SceneMetadataWorker.cancel(context, service.libraryId)
+    MetadataPanel(vm, "scene", "Scene metadata & posters",
+        if (options.enabled) "Enabled · " + options.posterMode.label else "Disabled") {
+        SwitchRow("Enable scene matching", "Find titles, dates, studios, performers and scene-specific covers.", options.enabled) { on ->
+            prefs.update { it.copy(enabled = on) }
+            if (!on) SceneMetadataWorker.cancel(context, service.libraryId)
+        }
+        if (options.enabled) {
+            SwitchRow(
+                "Allow online matching",
+                "Cleaned filenames and optional fingerprints go to your selected providers. SMB paths and account details are never sent.",
+                options.allowedOnlineLookup,
+            ) { allow ->
+                if (allow) consentOpen = true
+                else {
+                    prefs.update { it.copy(allowedOnlineLookup = false) }
+                    SceneMetadataWorker.cancel(context, service.libraryId)
+                }
+            }
+            SettingsLabel("Poster approval")
+            PosterMode.entries.forEach { mode ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    androidx.compose.material3.RadioButton(
+                        selected = options.posterMode == mode,
+                        onClick = {
+                            prefs.update { it.copy(posterMode = mode) }
+                            if (mode != PosterMode.DISABLED) ScenePosterWorker.enqueue(context, service.libraryId)
+                        },
+                    )
+                    TextButton(onClick = {
+                        prefs.update { it.copy(posterMode = mode) }
+                        if (mode != PosterMode.DISABLED) ScenePosterWorker.enqueue(context, service.libraryId)
+                    }) { Text(mode.label) }
+                }
+            }
+            Button(
+                onClick = { vm.ui.metadataReviewOpen = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Review suggested scene matches") }
+            OutlinedButton(
+                onClick = {
+                    SceneMetadataWorker.enqueue(context, service.libraryId, manual = true)
+                    status = "Finding missing scene details. Existing confirmed results stay saved."
+                },
+                enabled = options.allowedOnlineLookup &&
+                    (vm.providerHasKey(SceneMetadataSettings.STASHDB) || vm.providerHasKey(SceneMetadataSettings.TPDB)),
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Find missing scene metadata now") }
+            status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            SwitchRow("Look up scenes after scanning", "Automatically looks up new indexed videos, without changing the original files.", options.automatic) {
+                prefs.update { current -> current.copy(automatic = it) }
             }
         }
+    }
 
-        SettingsLabel("Search order")
-        listOf(SceneMetadataSettings.STASHDB, SceneMetadataSettings.TPDB).forEach { id ->
-            val name = if (id == SceneMetadataSettings.STASHDB) "StashDB" else "ThePornDB"
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                androidx.compose.material3.RadioButton(
-                    selected = options.primary == id,
-                    onClick = { prefs.update { it.copy(primary = id) } },
-                )
-                TextButton(onClick = { prefs.update { it.copy(primary = id) } }) { Text("Search $name first") }
+    MetadataPanel(vm, "portraits", "Performer portraits",
+        if (artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders) "On for selected folders" else "Off") {
+        Text("Performer photos are only used in folder sections set to Performer portrait. They are never placed on video cards.", style = MaterialTheme.typography.bodySmall)
+        SwitchRow("Enable performer portraits on folders",
+            "Search for portraits by folder/person name. Separate from scene identification.",
+            artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders,
+        ) { on ->
+            if (on) portraitConsent = true
+            else vm.updateArtwork { it.copy(portraitsOnFolders = false) }
+        }
+        SwitchRow("Look up missing portraits after scans",
+            "Search for missing folder portraits after an SMB scan. Skips covers you selected manually.",
+            artwork.autoFetchOnScan,
+            artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders,
+        ) { on -> vm.updateArtwork { it.copy(autoFetchOnScan = on) } }
+        OutlinedButton(
+            onClick = vm::fetchPortraitsNow,
+            enabled = artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Find missing performer portraits now") }
+        Text(vm.artworkBackgroundNote() ?: "No recent portrait lookup.", style = MaterialTheme.typography.bodySmall)
+    }
+
+    MetadataPanel(vm, "providers", "StashDB & ThePornDB",
+        "Your provider keys, entered once for both features") {
+        Text("Select which provider to try first. Both providers can return suggestions. Artwork and Scene metadata share the encrypted API keys.", style = MaterialTheme.typography.bodySmall)
+        listOf(SceneMetadataSettings.TPDB, SceneMetadataSettings.STASHDB).forEach { id ->
+            val title = if (id == SceneMetadataSettings.TPDB) "ThePornDB" else "StashDB"
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                androidx.compose.material3.RadioButton(selected = options.primary == id, onClick = {
+                    prefs.update { it.copy(primary = id) }
+                })
+                TextButton(onClick = { prefs.update { it.copy(primary = id) } }) { Text("Search $title first") }
             }
         }
-        Text("The second provider is searched if the first returns no match.", style = MaterialTheme.typography.bodySmall)
-
-        SettingsDivider()
-        SettingsLabel("Your API keys")
         SceneKeyEntry(vm, SceneMetadataSettings.STASHDB, "StashDB", keyRevision)
         SceneKeyEntry(vm, SceneMetadataSettings.TPDB, "ThePornDB", keyRevision)
-        Text("Each key is encrypted using Android Keystore and is never included in a build or sent to the other provider.", style = MaterialTheme.typography.bodySmall)
+        Text("Keys are encrypted using Android Keystore and are never embedded in the APK.", style = MaterialTheme.typography.bodySmall)
+    }
 
-        SettingsDivider()
-        SwitchRow("Fetch automatically after scans", "Runs as a separate background worker on unmetered connections with battery safeguards.", options.automatic) {
-            prefs.update { old -> old.copy(automatic = it) }
+    MetadataPanel(vm, "advanced", "Advanced matching & repairs", "Fingerprint methods and troubleshooting") {
+        SwitchRow("Try video pHash", "Experimental and slower over SMB. Suggested results always need review.", options.phash) {
+            prefs.update { it.copy(phash = it) }
         }
-        SwitchRow("Use video pHash matching", "Slower on SMB. Experimental Android compatibility; proposed pHash matches always require review.", options.phash) {
-            prefs.update { old -> old.copy(phash = it) }
+        SwitchRow("Review uncertain matches", "Filename matches and multiple possibilities require confirmation.", options.reviewUncertain) {
+            prefs.update { it.copy(reviewUncertain = it) }
         }
-        SwitchRow("Review uncertain matches", "Filename matches and multiple results wait for your confirmation.", options.reviewUncertain) {
-            prefs.update { old -> old.copy(reviewUncertain = it) }
-        }
-
-        SettingsDivider()
-        SettingsLabel("Scene poster artwork")
-        Text("Scene posters are separate from existing artwork. Custom covers and hand-picked frames always win.", style = MaterialTheme.typography.bodySmall)
-        PosterMode.entries.forEach { mode ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                androidx.compose.material3.RadioButton(selected = options.posterMode == mode, onClick = {
-                    prefs.update { it.copy(posterMode = mode) }
-                    if (mode != PosterMode.DISABLED) ScenePosterWorker.enqueue(context, service.libraryId)
-                })
-                TextButton(onClick = {
-                    prefs.update { it.copy(posterMode = mode) }
-                    if (mode != PosterMode.DISABLED) ScenePosterWorker.enqueue(context, service.libraryId)
-                }) { Text(mode.label) }
-            }
-        }
-        SwitchRow("Use posters on video cards", "Keeps manually selected covers.", options.videoPosters) {
-            prefs.update { old -> old.copy(videoPosters = it) }
-            if (it) ScenePosterWorker.enqueue(context, service.libraryId)
-        }
-        SwitchRow("Posters for one-video folders", "Multi-video folders retain their existing collages and portraits.", options.folderPosters) {
-            prefs.update { old -> old.copy(folderPosters = it) }
-            if (it) ScenePosterWorker.enqueue(context, service.libraryId)
-        }
+        OutlinedButton(
+            onClick = {
+                val count = service.sceneMetadataStore.retryUnresolved()
+                SceneMetadataWorker.enqueue(context, service.libraryId, manual = true)
+                status = "Rechecking " + count + " unresolved entries."
+            },
+            enabled = options.allowedOnlineLookup,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Recheck unconfirmed with preferred provider") }
         OutlinedButton(onClick = {
             ScenePosterWorker.enqueue(context, service.libraryId)
-            status = "Poster downloads queued for confirmed metadata."
-        }, enabled = options.posterMode != PosterMode.DISABLED, modifier = Modifier.fillMaxWidth()) { Text("Apply posters from confirmed matches") }
-
-        SettingsDivider()
-        OutlinedButton(onClick = {
-            val count = service.sceneMetadataStore.retryUnresolved()
-            SceneMetadataWorker.enqueue(context, service.libraryId, manual = true)
-            status = "Rechecking " + count + " unresolved matches using the selected provider first."
-        }, enabled = options.allowedOnlineLookup, modifier = Modifier.fillMaxWidth()) { Text("Recheck unconfirmed using preferred provider") }
-        Text("Confirmed matches and rejected files are kept. Review individual files to search TPDB or StashDB directly.", style = MaterialTheme.typography.bodySmall)
-
-        SettingsDivider()
-        Button(onClick = {
-            if (!options.allowedOnlineLookup) status = "Allow online lookups before starting."
-            else {
-                SceneMetadataWorker.enqueue(context, service.libraryId, manual = true)
-                status = "Metadata lookup queued. Results are cached locally."
-            }
-        }, enabled = options.allowedOnlineLookup && (
-            vm.providerHasKey(SceneMetadataSettings.STASHDB) || vm.providerHasKey(SceneMetadataSettings.TPDB)
-        ), modifier = Modifier.fillMaxWidth()) { Text("Fetch metadata now") }
-
-        OutlinedButton(onClick = { vm.ui.metadataReviewOpen = true }, modifier = Modifier.fillMaxWidth()) {
-            Text("Review scene matches")
+            status = "Confirmed artwork downloads queued."
+        }, enabled = options.posterMode != PosterMode.DISABLED, modifier = Modifier.fillMaxWidth()) {
+            Text("Apply posters from confirmed matches")
         }
-        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
+
+    if (portraitConsent) AlertDialog(
+        onDismissRequest = { portraitConsent = false },
+        title = { Text("Allow online performer portraits?") },
+        text = { Text("Only cleaned folder and performer names will be sent to the enabled providers to find pictures. SMB server details and your passwords are not shared.") },
+        confirmButton = { TextButton(onClick = {
+            portraitConsent = false
+            vm.updateArtwork {
+                it.copy(enabled = true, adultConsent = true, portraitsOnFolders = true, portraitsOnVideos = false)
+            }
+        }) { Text("Allow portraits") } },
+        dismissButton = { TextButton(onClick = { portraitConsent = false }) { Text("Cancel") } },
+    )
 
     if (consentOpen) AlertDialog(
         onDismissRequest = { consentOpen = false },
@@ -199,6 +250,53 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         onPreviewVideo = onPreviewVideo,
         onDismiss = { vm.ui.metadataReviewOpen = false },
     )
+}
+
+/** Keep rarely needed options hidden; the placement panel stays open by default. */
+@Composable
+private fun MetadataPanel(
+    vm: LibraryViewModel,
+    id: String,
+    title: String,
+    summary: String,
+    initialOpen: Boolean = false,
+    body: @Composable () -> Unit,
+) {
+    var open by vm.ui.flagState("unified.metadata.$id", initialOpen)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        TextButton(onClick = { open = !open }, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth()) {
+                Text((if (open) "▾ " else "▸ ") + title, style = MaterialTheme.typography.titleSmall)
+                Text(summary, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (open) Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            body()
+        }
+        SettingsDivider()
+    }
+}
+
+/** A pair of exclusive toggles for this folder section; both off means original cover. */
+@Composable
+private fun FolderArtworkTarget(
+    title: String,
+    section: String,
+    choice: FolderCoverChoice,
+    vm: LibraryViewModel,
+) {
+    val context = LocalContext.current
+    Text(title, style = MaterialTheme.typography.titleSmall)
+    SwitchRow("Performer portrait", null, choice == FolderCoverChoice.PERFORMER) { enabled ->
+        vm.updateFolderCoverChoice(section, if (enabled) FolderCoverChoice.PERFORMER else FolderCoverChoice.ORIGINAL)
+        if (enabled) vm.fetchPortraitsNow()
+    }
+    SwitchRow("Scene poster with metadata", null, choice == FolderCoverChoice.SCENE) { enabled ->
+        vm.updateFolderCoverChoice(section, if (enabled) FolderCoverChoice.SCENE else FolderCoverChoice.ORIGINAL)
+        if (enabled) {
+            ScenePosterWorker.enqueue(context, ServiceLocator.get(context).libraryId)
+        }
+    }
 }
 
 @Composable

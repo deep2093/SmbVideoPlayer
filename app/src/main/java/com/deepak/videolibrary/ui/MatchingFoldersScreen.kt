@@ -131,7 +131,7 @@ internal fun MatchingFoldersScreen(
         ) {
             LazyVerticalGrid(
                 state = gridState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().pinchLibraryGrid(vm, folders = true),
                 columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
@@ -384,7 +384,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<
         }
         LazyVerticalGrid(
             state = gridState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            modifier = Modifier.weight(1f).fillMaxWidth().pinchLibraryGrid(vm, folders = true),
             columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
             horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
             verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),

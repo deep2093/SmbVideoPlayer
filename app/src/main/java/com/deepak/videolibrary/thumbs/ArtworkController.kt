@@ -27,9 +27,27 @@ internal class ArtworkController(private val services: ServiceLocator) {
     /** Stored artwork changed for some folders: screens look again, but unchanged folders keep their covers. */
     fun refresh() { revision++ }
     suspend fun cover(identity: String, key: String, scope: LibraryScope): File? {
-        cached(key)?.let { return it }
+        val options = services.sceneMetadataPreferences.settings.value
+        val placement = options.folderChoice(identity)
+        // Only the default cover can change. A hand-picked image or other manual
+        // folder override has absolute priority in every section.
         val art = services.artwork
-        val decision = art.decideFolder(identity)
+        val manual = art.effectiveRow(identity)?.manual == true
+        if (manual || placement == com.deepak.videolibrary.metadata.FolderCoverChoice.ORIGINAL) {
+            cached(key)?.let { return it }
+        }
+        if (!manual && placement == com.deepak.videolibrary.metadata.FolderCoverChoice.PERFORMER) {
+            val portrait = if (art.settings.value.enabled && art.settings.value.adultConsent &&
+                art.settings.value.portraitsOnFolders)
+                art.effectiveRow(identity)?.takeIf { !it.manual }?.imageName?.let(art::imageFile) else null
+            if (portrait != null) { files.put(key, portrait); return portrait }
+        }
+        // When this section explicitly requests a scene, don't let a legacy
+        // automatically fetched performer image short-circuit the scene lookup.
+        // The manually selected cover path above retains absolute precedence.
+        val decision = if (!manual && placement == com.deepak.videolibrary.metadata.FolderCoverChoice.SCENE)
+            com.deepak.videolibrary.artwork.ArtworkDecision(com.deepak.videolibrary.artwork.ArtworkSource.LEGACY)
+        else art.decideFolder(identity)
         when (decision.source) {
             com.deepak.videolibrary.artwork.ArtworkSource.NONE -> return null
             com.deepak.videolibrary.artwork.ArtworkSource.IMAGE ->
@@ -43,14 +61,15 @@ internal class ArtworkController(private val services: ServiceLocator) {
         }
         return try {
             val ids = withContext(Dispatchers.IO) { services.db.libraryState().ids(LibraryQueries.coverIds(scope)) }
-            val metadataOptions = services.sceneMetadataPreferences.settings.value
-            if (ids.size == 1 && metadataOptions.enabled && metadataOptions.folderPosters &&
-                metadataOptions.posterMode != com.deepak.videolibrary.metadata.PosterMode.DISABLED &&
-                decision.source == com.deepak.videolibrary.artwork.ArtworkSource.LEGACY &&
-                art.effectiveRow(identity)?.manual != true) {
-                val video = withContext(Dispatchers.IO) { services.db.dao().findVideoById(ids.first()) }
-                if (video != null && !CustomThumbs.has(services.artworkContext, video.id)) {
-                    services.scenePosters.fileFor(video)?.let { files.put(key, it); return it }
+            // Find one confirmed scene poster among this folder's indexed videos.
+            // This also supports multi-video folders; if none is available keep the normal cover.
+            if (!manual && placement == com.deepak.videolibrary.metadata.FolderCoverChoice.SCENE &&
+                options.enabled && options.posterMode != com.deepak.videolibrary.metadata.PosterMode.DISABLED) {
+                for (id in ids.take(160)) {
+                    val video = withContext(Dispatchers.IO) { services.db.dao().findVideoById(id) } ?: continue
+                    val poster = services.scenePosters.fileFor(video) ?: continue
+                    files.put(key, poster)
+                    return poster
                 }
             }
             val tiles = art.settings.value.collageTiles

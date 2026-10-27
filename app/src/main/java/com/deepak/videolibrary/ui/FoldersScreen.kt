@@ -243,14 +243,6 @@ fun FoldersScreen(
                     }
                     androidx.compose.material3.HorizontalDivider()
                     DropdownMenuItem(
-                        text = { Text(if (vm.folderListMode) "Show as grid" else "Show as list") },
-                        leadingIcon = { Icon(if (vm.folderListMode) Icons.Filled.GridView else Icons.Filled.ViewList, contentDescription = null) },
-                        onClick = {
-                            vm.toggleFolderLayout()
-                            folderMenu = false
-                        },
-                    )
-                    DropdownMenuItem(
                         text = { Text(if (editFolders) "Finish organizing" else "Organize folders") },
                         onClick = {
                             editFolders = !editFolders
@@ -293,7 +285,7 @@ fun FoldersScreen(
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
-                modifier = Modifier.fillMaxSize().testTag("virtual-folder-grid"),
+                modifier = Modifier.fillMaxSize().pinchLibraryGrid(vm, folders = true).testTag("virtual-folder-grid"),
             ) {
                 if (shownGroups.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {

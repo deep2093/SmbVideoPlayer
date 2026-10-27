@@ -14,7 +14,7 @@ data class PerformerCandidate(
 )
 
 enum class ProviderFailure(val message: String) {
-    NO_KEY("Add an API key for this provider in Settings > Artwork."),
+    NO_KEY("Add this provider's API key in Settings > Scene metadata."),
     UNAUTHORIZED("The provider rejected the API key (401). Check or replace the key."),
     FORBIDDEN("The provider refused this request (403). Your key may not have access."),
     RATE_LIMITED("The provider's rate limit was reached (429). Try again later."),

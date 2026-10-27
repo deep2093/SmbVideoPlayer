@@ -171,7 +171,7 @@ fun VideosScreen(
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().pinchLibraryGrid(vm, folders = false),
             ) {
                 if (group == null && matchFolder == null && query.isEmpty() && continueWatching.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
@@ -430,12 +430,6 @@ internal fun VideoCard(
 
 @Composable
 internal fun LibraryDisplayMenu(vm: LibraryViewModel) {
-    IconButton(onClick = vm::toggleVideoLayout) {
-        Icon(
-            if (vm.videoListMode) Icons.Filled.GridView else Icons.Filled.ViewList,
-            contentDescription = if (vm.videoListMode) "Show video grid" else "Show video list",
-        )
-    }
     Box {
         var expanded by remember { mutableStateOf(false) }
         IconButton(onClick = { expanded = true }) { Icon(Icons.Filled.Sort, contentDescription = "Sort videos") }

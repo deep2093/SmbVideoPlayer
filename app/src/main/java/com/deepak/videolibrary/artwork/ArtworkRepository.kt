@@ -97,9 +97,15 @@ class ArtworkRepository(
     /** The picture to show for a video, or null for the neutral placeholder. */
     fun videoFile(video: VideoEntity): File? {
         val legacy = { ThumbStore.displayFile(context, video.id, video.thumbStatus) }
-        val s = settings.value
+        // Video cards never inherit performer portraits from folders, even when upgrading
+        // from a saved legacy PORTRAIT video-mode preference. Manual video covers still win.
+        val current = settings.value
+        val s = current.copy(
+            videoMode = if (current.videoMode == ArtworkMode.PORTRAIT) ArtworkMode.EXISTING else current.videoMode,
+            portraitsOnVideos = false,
+        )
         if (!s.enabled) return legacy()
-        val group = rows[ArtworkKeys.virtualFolder(video.customGroup ?: video.groupKey)]
+        val group: ArtworkOverride? = null
         val decision = ArtworkResolver.decide(
             ArtworkScope.VIDEO,
             rows[ArtworkKeys.video(video.id)],

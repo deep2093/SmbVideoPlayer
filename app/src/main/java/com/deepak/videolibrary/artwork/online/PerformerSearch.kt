@@ -13,9 +13,14 @@ sealed class SearchOutcome {
 class PerformerSearch(
     private val providers: List<PerformerProvider>,
     private val keys: ProviderKeys,
+    private val metadataPreferences: com.deepak.videolibrary.metadata.SceneMetadataPreferences? = null,
 ) {
-    fun configured(settings: ArtworkSettings): List<PerformerProvider> =
-        settings.enabledProviders().mapNotNull { id -> providers.firstOrNull { it.id == id } }.filter { keys.has(it.id) }
+    fun configured(settings: ArtworkSettings): List<PerformerProvider> {
+        val order = metadataPreferences?.settings?.value?.providers() ?: settings.enabledProviders()
+        return order.filterNot { it in settings.disabledProviders }
+            .mapNotNull { id -> providers.firstOrNull { it.id == id } }
+            .filter { keys.get(it.id) != null }
+    }
 
     /** Searches one provider with its stored key. Throws [ProviderException]. */
     suspend fun searchOne(provider: PerformerProvider, query: String, settings: ArtworkSettings): List<PerformerCandidate> {
@@ -47,6 +52,9 @@ class PerformerSearch(
     }
 
     companion object {
-        fun default(keys: ProviderKeys) = PerformerSearch(listOf(StashDbProvider()), keys)
+        fun default(
+            keys: ProviderKeys,
+            metadataPreferences: com.deepak.videolibrary.metadata.SceneMetadataPreferences? = null,
+        ) = PerformerSearch(listOf(StashDbProvider(), ThePornDbProvider()), keys, metadataPreferences)
     }
 }

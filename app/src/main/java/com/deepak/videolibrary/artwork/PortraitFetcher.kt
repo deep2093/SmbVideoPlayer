@@ -19,6 +19,7 @@ class PortraitFetcher(
     private val context: Context,
     private val repository: ArtworkRepository,
     private val search: PerformerSearch,
+    private val scenePreferences: com.deepak.videolibrary.metadata.SceneMetadataPreferences,
 ) {
     sealed class Outcome {
         object Applied : Outcome()
@@ -40,7 +41,10 @@ class PortraitFetcher(
         val settings = repository.settings.value
         val scope = ArtworkKeys.scopeOf(identity)
         // Includes Custom mode, where the user searches or picks images themselves and nothing runs in the background.
-        if (!settings.portraitLookupWanted(scope)) return Outcome.Skipped
+        if (scenePreferences.settings.value.folderChoice(identity) !=
+            com.deepak.videolibrary.metadata.FolderCoverChoice.PERFORMER ||
+            !settings.enabled || !settings.adultConsent || !settings.portraitsOnFolders ||
+            settings.selectionFor(scope) == PortraitSelection.CUSTOM) return Outcome.Skipped
         val selection = settings.selectionFor(scope)
         val existing = repository.row(identity)
         if (existing != null && existing.manual) return Outcome.Skipped

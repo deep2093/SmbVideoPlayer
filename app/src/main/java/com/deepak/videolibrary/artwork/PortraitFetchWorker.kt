@@ -109,7 +109,10 @@ internal object FolderTargets {
         val out = LinkedHashMap<String, String>()
         fun consider(identity: String, label: String) {
             val scope = ArtworkKeys.scopeOf(identity)
-            if (!settings.portraitLookupWanted(scope)) return
+            if (services.sceneMetadataPreferences.settings.value.folderChoice(identity) !=
+                com.deepak.videolibrary.metadata.FolderCoverChoice.PERFORMER) return
+            if (!settings.enabled || !settings.adultConsent || !settings.portraitsOnFolders ||
+                settings.selectionFor(scope) == PortraitSelection.CUSTOM) return
             // A folder whose cover you chose, or that already has a portrait (also from earlier folders of the same
             // name), is never looked up again.
             val row = repo.effectiveRow(identity)
@@ -128,6 +131,7 @@ internal object FolderTargets {
         // Groups of single videos inside Custom folders.
         val customRules = com.deepak.videolibrary.scan.GroupingPrefs.load(services.artworkContext, com.deepak.videolibrary.scan.GroupingPrefs.CUSTOM)
         for (own in com.deepak.videolibrary.data.OwnFolderStore(services.artworkContext).load(serverKey)) {
+            consider("own:${own.id}", own.name)
             if (own.files.isEmpty()) continue
             val videos = own.files.chunked(500).flatMap { dao.videosByPaths(it) }
             com.deepak.videolibrary.data.groupByNames(videos, customRules).keys.forEach { identity ->
@@ -135,6 +139,7 @@ internal object FolderTargets {
             }
         }
         for (set in services.virtualSets.load(serverKey)) {
+            consider(ArtworkKeys.virtualSet(set.id), set.name)
             if (set.isEmpty) continue
             val videos = services.db.libraryState().videoList(
                 com.deepak.videolibrary.data.LibraryQueries.videos(

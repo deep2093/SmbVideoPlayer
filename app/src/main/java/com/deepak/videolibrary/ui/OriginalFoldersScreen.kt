@@ -149,7 +149,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
             verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
             contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
-            modifier = Modifier.fillMaxSize().testTag("original-folder-grid"),
+            modifier = Modifier.fillMaxSize().pinchLibraryGrid(vm, folders = true).testTag("original-folder-grid"),
         ) {
             if (count == 0 &&
                 children.isEmpty()

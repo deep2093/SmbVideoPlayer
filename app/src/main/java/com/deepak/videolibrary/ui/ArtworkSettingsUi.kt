@@ -132,23 +132,22 @@ private fun ArtworkGroup(vm: LibraryViewModel, id: String, title: String, summar
 @Composable
 internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
     val settings by vm.artworkSettings.collectAsStateWithLifecycle()
-    val keyRevision by vm.providerKeyRevision.collectAsStateWithLifecycle()
+    val sceneSettings by vm.metadataSettings.collectAsStateWithLifecycle()
     val review by vm.portraitReview.collectAsStateWithLifecycle()
     var consentDialog by remember { mutableStateOf(false) }
     var reviewOpen by remember { mutableStateOf(false) }
     val s = settings
     val portraitsOn = s.enabled && s.adultConsent
 
-    ToggleRow("Use artwork", "Choose covers for videos and folders. Off keeps the automatic thumbnails.", s.enabled) { on ->
+    ToggleRow("Enable existing artwork overrides", "Preserve previously selected covers and folder fallback styles.", s.enabled) { on ->
         vm.updateArtwork { it.copy(enabled = on) }
     }
 
     ArtworkGroup(
-        vm, "covers", "Default covers",
-        "Videos: ${s.videoMode.label} · Drive folders: ${s.smbFolderMode.label} · Virtual: ${s.virtualFolderMode.label}",
+        vm, "covers", "Fallback covers",
+        "Fallbacks · Drive folders: ${s.smbFolderMode.label} · Virtual: ${s.virtualFolderMode.label}",
         s.enabled,
     ) {
-        ModePicker("Videos", ArtworkScope.VIDEO, s.videoMode, true) { m -> vm.updateArtwork { it.withMode(ArtworkScope.VIDEO, m) } }
         ModePicker("Drive folders", ArtworkScope.SMB_FOLDER, s.smbFolderMode, true) { m -> vm.updateArtwork { it.withMode(ArtworkScope.SMB_FOLDER, m) } }
         ModePicker("Virtual and custom folders", ArtworkScope.VIRTUAL_FOLDER, s.virtualFolderMode, true) { m -> vm.updateArtwork { it.withMode(ArtworkScope.VIRTUAL_FOLDER, m) } }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -165,27 +164,24 @@ internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
         else listOfNotNull(
             "On",
             "folders".takeIf { s.portraitsOnFolders },
-            "videos".takeIf { s.portraitsOnVideos },
             "after scans".takeIf { s.autoFetchOnScan },
-            if (vm.providerHasKey(ProviderIds.STASH_DB)) "StashDB ready" else "StashDB key missing",
+            if (vm.providerHasKey(ProviderIds.STASH_DB) || vm.providerHasKey(ProviderIds.TPDB)) "Provider key ready" else "Provider key missing",
         ).joinToString(" · "),
         s.enabled,
     ) {
-        ToggleRow("Allow internet portraits", "Only the cleaned name is sent, to StashDB with your own key.", s.adultConsent) { on ->
-            if (on) consentDialog = true else vm.updateArtwork { it.copy(adultConsent = false) }
-        }
-        ToggleRow("Use on folders", null, s.portraitsOnFolders, portraitsOn) { on -> vm.updateArtwork { it.copy(portraitsOnFolders = on) } }
-        ToggleRow("Use on videos", "Videos show their folder's portrait.", s.portraitsOnVideos, portraitsOn) { on -> vm.updateArtwork { it.copy(portraitsOnVideos = on) } }
-        ToggleRow(
-            "Look up after each scan",
-            "Only where the default cover is Internet portrait.",
-            s.autoFetchOnScan,
-            portraitsOn && (s.portraitsOnFolders || s.portraitsOnVideos),
-        ) { on -> vm.updateArtwork { it.copy(autoFetchOnScan = on) } }
+        Text("Online portrait permission is managed above in Artwork & scene metadata.", style = MaterialTheme.typography.bodySmall)
         SelectionPicker("Drive folders", s.smbFolderSelection, portraitsOn) { sel -> vm.updateArtwork { it.withSelection(ArtworkScope.SMB_FOLDER, sel) } }
         SelectionPicker("Virtual and custom folders", s.virtualFolderSelection, portraitsOn) { sel -> vm.updateArtwork { it.withSelection(ArtworkScope.VIRTUAL_FOLDER, sel) } }
         ToggleRow("Wi-Fi only", null, s.wifiOnly, portraitsOn) { on -> vm.updateArtwork { it.copy(wifiOnly = on) } }
-        StashDbKey(vm, s, keyRevision, portraitsOn)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "API keys: " + (if (sceneSettings.primary == com.deepak.videolibrary.metadata.SceneMetadataSettings.TPDB) "ThePornDB first" else "StashDB first") + ". Manage both keys in Scene metadata.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { vm.ui.settingsSection = "Artwork" }) { Text("Manage") }
+        }
+        PortraitProviderAdvanced(vm, s, portraitsOn)
     }
 
     // The names sent to the search are set in Settings > Auto grouping.
@@ -198,7 +194,7 @@ internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
         OutlinedButton(onClick = { reviewOpen = true }, enabled = review.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
             Text(if (review.isEmpty()) "Review suggestions (none waiting)" else "Review suggestions (${review.size})")
         }
-        OutlinedButton(onClick = vm::fetchPortraitsNow, enabled = portraitsOn && (s.portraitsOnFolders || s.portraitsOnVideos), modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = vm::fetchPortraitsNow, enabled = portraitsOn && s.portraitsOnFolders, modifier = Modifier.fillMaxWidth()) {
             Text("Look up portraits now")
         }
         val note = remember(settings) { vm.artworkBackgroundNote() }
@@ -214,8 +210,7 @@ internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
             title = { Text("Allow internet portraits?") },
             text = {
                 Text(
-                    "When you look up a picture, only the name you search for (a cleaned folder or file name) is sent to StashDB, " +
-                        "using your own API key. No paths, server names or addresses are sent. You can turn this off at any time.",
+                    "When you search for a portrait, the app sends only a cleaned name to the metadata providers you've configured (StashDB or ThePornDB). No SMB paths, server addresses or passwords are sent. You can turn this off at any time.",
                 )
             },
             confirmButton = {
@@ -234,43 +229,37 @@ private fun Hint(text: String) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-/** StashDB's key (stored encrypted), with the optional own address behind "Advanced". */
+/** Advanced portrait network and self-hosted endpoint choices. Keys are only managed in Scene metadata. */
 @Composable
-private fun StashDbKey(vm: LibraryViewModel, s: ArtworkSettings, keyRevision: Int, enabled: Boolean) {
+private fun PortraitProviderAdvanced(vm: LibraryViewModel, s: ArtworkSettings, enabled: Boolean) {
+    var advanced by vm.ui.flagState("artwork.providerAdvanced")
+    TextButton(onClick = { advanced = !advanced }, enabled = enabled) {
+        Text(if (advanced) "Hide advanced portrait network options" else "Advanced portrait network options")
+    }
+    if (!advanced || !enabled) return
+    ToggleRow("Allow metered connections", "Off blocks portrait searches on metered networks.", s.allowMetered) {
+        vm.updateArtwork { it.copy(allowMetered = it) }
+    }
     val id = ProviderIds.STASH_DB
-    var key by remember { mutableStateOf("") }
-    var advanced by vm.ui.flagState("artwork.advanced")
     var endpoint by remember(s.customEndpoints[id]) { mutableStateOf(s.customEndpoints[id].orEmpty()) }
-    val hasKey = remember(keyRevision) { vm.providerHasKey(id) }
     val endpointOk = endpoint.isBlank() || EndpointPolicy.isAllowed(endpoint)
-    Text("StashDB", style = MaterialTheme.typography.titleSmall)
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        PillTextField(
-            value = key,
-            onValueChange = { key = it },
-            label = if (hasKey) "API key saved · type to replace" else "API key",
-            visualTransformation = PasswordVisualTransformation(),
-            enabled = enabled,
-            modifier = Modifier.weight(1f),
-        )
-        TextButton(enabled = enabled && key.isNotBlank(), onClick = { if (vm.saveProviderKey(id, key)) key = "" }) { Text("Save") }
-        if (hasKey) TextButton(enabled = enabled, onClick = { vm.clearProviderKey(id) }) { Text("Remove") }
-    }
-    TextButton(onClick = { advanced = !advanced }, enabled = enabled) { Text(if (advanced) "Hide advanced" else "Advanced") }
-    if (advanced && enabled) {
-        ToggleRow("Allow metered connections", "Off blocks look-ups on metered networks.", s.allowMetered) { on -> vm.updateArtwork { it.copy(allowMetered = on) } }
-        PillTextField(
-            value = endpoint,
-            onValueChange = { endpoint = it },
-            label = "Own stash-box address (https://, optional)",
-            modifier = Modifier.fillMaxWidth(),
-        )
-        if (!endpointOk) {
-            Text("The address must start with https:// and name a server.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        }
-        OutlinedButton(enabled = endpointOk && endpoint.trim() != s.customEndpoints[id].orEmpty(), onClick = {
-            vm.updateArtwork { a -> a.copy(customEndpoints = if (endpoint.isBlank()) a.customEndpoints - id else a.customEndpoints + (id to endpoint.trim().trimEnd('/'))) }
-        }) { Text(if (endpoint.isBlank()) "Use stashdb.org" else "Save address") }
-        Hint("Default: https://stashdb.org/graphql. A self-hosted stash-box address also works.")
-    }
+    PillTextField(
+        value = endpoint,
+        onValueChange = { endpoint = it },
+        label = "Custom StashDB HTTPS endpoint (optional)",
+        modifier = Modifier.fillMaxWidth(),
+    )
+    if (!endpointOk) Hint("The endpoint must be a valid https:// address.")
+    OutlinedButton(
+        enabled = endpointOk && endpoint.trim() != s.customEndpoints[id].orEmpty(),
+        modifier = Modifier.fillMaxWidth(),
+        onClick = {
+            vm.updateArtwork { current ->
+                current.copy(customEndpoints =
+                    if (endpoint.isBlank()) current.customEndpoints - id
+                    else current.customEndpoints + (id to endpoint.trim().trimEnd('/'))
+                )
+            }
+        },
+    ) { Text(if (endpoint.isBlank()) "Use default StashDB endpoint" else "Save endpoint") }
 }

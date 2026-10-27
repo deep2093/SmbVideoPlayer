@@ -14,7 +14,7 @@ enum class ArtworkScope(val label: String) {
         get() = if (isFolder) {
             listOf(ArtworkMode.EXISTING, ArtworkMode.FIRST_FRAME, ArtworkMode.COLLAGE, ArtworkMode.PORTRAIT, ArtworkMode.CUSTOM)
         } else {
-            listOf(ArtworkMode.EXISTING, ArtworkMode.FRAME, ArtworkMode.PORTRAIT, ArtworkMode.CUSTOM)
+            listOf(ArtworkMode.EXISTING, ArtworkMode.FRAME, ArtworkMode.CUSTOM)
         }
 }
 
@@ -95,7 +95,7 @@ data class ArtworkSettings(
     val smbFolderSelection: PortraitSelection = PortraitSelection.AUTOMATIC,
     val virtualFolderSelection: PortraitSelection = PortraitSelection.AUTOMATIC,
 ) {
-    /** The portrait selection rule for a folder kind (videos follow their virtual folder). */
+    /** The portrait selection rule for a folder kind. Video cards use scene posters only. */
     fun selectionFor(scope: ArtworkScope): PortraitSelection =
         if (scope == ArtworkScope.SMB_FOLDER) smbFolderSelection else virtualFolderSelection
 
@@ -116,7 +116,7 @@ data class ArtworkSettings(
 
     /** Internet portraits may be used for this kind of item only when the user turned that on explicitly. */
     fun portraitsAllowedFor(scope: ArtworkScope): Boolean =
-        adultConsent && if (scope == ArtworkScope.VIDEO) portraitsOnVideos else portraitsOnFolders
+        adultConsent && scope.isFolder && portraitsOnFolders
 
     /**
      * Whether portraits may be looked up for a folder of this kind: its own default is the portrait and portraits are
@@ -126,8 +126,7 @@ data class ArtworkSettings(
     fun portraitLookupWanted(scope: ArtworkScope): Boolean {
         if (!enabled || !scope.isFolder || selectionFor(scope) == PortraitSelection.CUSTOM) return false
         val forFolder = portraitsAllowedFor(scope) && modeFor(scope) == ArtworkMode.PORTRAIT
-        val forVideos = scope == ArtworkScope.VIRTUAL_FOLDER && portraitsAllowedFor(ArtworkScope.VIDEO) && videoMode == ArtworkMode.PORTRAIT
-        return forFolder || forVideos
+        return forFolder
     }
 
     fun enabledProviders(): List<String> = providerOrder.filter { it !in disabledProviders }
@@ -144,6 +143,8 @@ data class ArtworkSettings(
 
 object ProviderIds {
     const val STASH_DB = "stashdb"
+    /** Shares the encrypted API key configured for the scene metadata service. */
+    const val TPDB = "stashbox_tpdb"
 
     /** Removed provider (paid API). Only used to delete what an older version stored for it. */
     internal const val RETIRED_THE_PORN_DB = "theporndb"

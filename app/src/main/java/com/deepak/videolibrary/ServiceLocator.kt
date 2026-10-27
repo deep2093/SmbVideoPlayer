@@ -35,8 +35,8 @@ class ServiceLocator internal constructor(context: Context, val libraryId: Strin
     val artwork = com.deepak.videolibrary.artwork.ArtworkRepository(
         artworkContext, artworkDb, com.deepak.videolibrary.artwork.ArtworkPreferences(context, libraryId),
     )
-    val performerSearch = com.deepak.videolibrary.artwork.online.PerformerSearch.default(providerKeys)
-    val portraitFetcher = com.deepak.videolibrary.artwork.PortraitFetcher(context, artwork, performerSearch)
+    val performerSearch = com.deepak.videolibrary.artwork.online.PerformerSearch.default(providerKeys, sceneMetadataPreferences)
+    val portraitFetcher = com.deepak.videolibrary.artwork.PortraitFetcher(context, artwork, performerSearch, sceneMetadataPreferences)
 
     companion object {
         private val instances = HashMap<String, ServiceLocator>()

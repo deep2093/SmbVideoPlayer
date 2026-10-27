@@ -28,7 +28,7 @@ class ScenePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         val services = ServiceLocator.get(applicationContext)
         if (services.libraryId != inputData.getString("libraryId")) return Result.failure()
         val s = services.sceneMetadataPreferences.settings.value
-        if (!s.enabled || !s.allowedOnlineLookup || s.posterMode == PosterMode.DISABLED || (!s.videoPosters && !s.folderPosters)) return Result.success()
+        if (!s.enabled || !s.allowedOnlineLookup || s.posterMode == PosterMode.DISABLED || (!s.videoPosters && !s.needsFolderScenePosters())) return Result.success()
 
         services.artwork.ensureLoaded()
         val records = services.sceneMetadataStore.confirmed()
@@ -44,8 +44,9 @@ class ScenePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
             if (shouldFetch && record.result != null) {
                 val video = dao.findVideo(record.path)
                 if (video != null && video.size == record.size && video.modified == record.modified &&
-                    !CustomThumbs.has(services.artworkContext, video.id) &&
-                    services.artwork.row(ArtworkKeys.video(video.id))?.manual != true) {
+                    (fresh.needsFolderScenePosters() || (
+                        !CustomThumbs.has(services.artworkContext, video.id) &&
+                        services.artwork.row(ArtworkKeys.video(video.id))?.manual != true))) {
                     try {
                         val selected = JSONObject(record.result)
                         if (services.scenePosters.fetch(video, selected)) fetched++

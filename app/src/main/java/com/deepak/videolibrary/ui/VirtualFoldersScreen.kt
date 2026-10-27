@@ -187,7 +187,7 @@ private fun VirtualSetList(
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(top = 12.dp, bottom = if (floatingPadding(vm)) 112.dp else 24.dp),
-                modifier = Modifier.fillMaxSize().testTag("virtual-folder-grid"),
+                modifier = Modifier.fillMaxSize().pinchLibraryGrid(vm, folders = true).testTag("virtual-folder-grid"),
             ) {
                 if (shown.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -249,11 +249,6 @@ private fun VirtualMenu(vm: LibraryViewModel, showSort: Boolean, extra: @Composa
                 }
                 HorizontalDivider()
             }
-            DropdownMenuItem(
-                text = { Text(if (vm.folderListMode) "Show as grid" else "Show as list") },
-                leadingIcon = { Icon(if (vm.folderListMode) Icons.Filled.GridView else Icons.Filled.ViewList, contentDescription = null) },
-                onClick = { vm.toggleFolderLayout(); open = false },
-            )
             extra { open = false }
         }
     }
@@ -503,7 +498,7 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<
             ) {
             LazyVerticalGrid(
                 state = gridState,
-                modifier = Modifier.fillMaxSize().testTag(if (groupId == null) "virtual-subfolder-grid" else "virtual-subfolder-videos"),
+                modifier = Modifier.fillMaxSize().pinchLibraryGrid(vm, folders = true).testTag(if (groupId == null) "virtual-subfolder-grid" else "virtual-subfolder-videos"),
                 columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),

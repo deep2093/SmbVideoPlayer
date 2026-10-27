@@ -65,7 +65,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
     val listState = rememberLazyListState()
     var searchExpanded by rememberSaveable { mutableStateOf(vm.explorerQuery.isNotBlank()) }
     val searching = vm.explorerQuery.isNotBlank()
-    // Hidden items (Hide in a menu) and, unless turned off in Settings, system folders are left out.
+    // User-hidden items and known system folders are always excluded.
     val hiddenItems by vm.hiddenItems.collectAsStateWithLifecycle()
     val hiddenPaths = remember(hiddenItems) { hiddenItems.filter { it.kind == "DIRECTORY" || it.kind == "FILE" }.map { it.target.trim('/') }.toSet() }
     val listed = (
@@ -76,7 +76,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                 ExplorerHit(listOf(vm.explorerPath, it.name).filter { part -> part.isNotBlank() }.joinToString("/"), it)
             }
         }
-        ).filterNot { com.deepak.videolibrary.files.ExplorerHiding.shouldHide(it.path, it.entry.name, vm.hideSystemFolders, hiddenPaths) }
+        ).filterNot { com.deepak.videolibrary.files.ExplorerHiding.shouldHide(it.path, it.entry.name, true, hiddenPaths) }
     val shown = remember(listed, vm.explorerSort, vm.explorerSortDescending) {
         sortExplorerHits(listed, vm.explorerSort, vm.explorerSortDescending)
     }
