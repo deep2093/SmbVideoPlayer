@@ -20,6 +20,11 @@ class UiSession {
 
     /** Settings scroll position in pixels. */
     var settingsScroll = 0
+    /** Preserve metadata review across the normal full-screen player replacing Settings composition. */
+    var metadataReviewOpen by mutableStateOf(false)
+    var metadataReviewIndex = 0
+    var metadataReviewOffset = 0
+
 
     /** Folders being selected on a folder page, or null. */
     var folderSelection by mutableStateOf<FolderSelection?>(null)
