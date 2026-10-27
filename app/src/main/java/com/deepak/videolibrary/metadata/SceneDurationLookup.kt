@@ -9,7 +9,6 @@ import com.deepak.videolibrary.thumbs.SmbMediaDataSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 /**
@@ -24,8 +23,9 @@ internal object SceneDurationLookup {
         if (video.size <= 0) return null
         val cacheKey = "${service.libraryId}:${video.relativePath}:${video.size}:${video.modified}"
         synchronized(cache) { cache.get(cacheKey) }?.let { return it.takeIf { value -> value > 0L } }
-        return reads.withPermit {
-            synchronized(cache) { cache.get(cacheKey) }?.let { return@withPermit it.takeIf { value -> value > 0L } }
+        reads.acquire()
+        return try {
+            synchronized(cache) { cache.get(cacheKey) }?.let { return it.takeIf { value -> value > 0L } }
             val duration = withContext(Dispatchers.IO) {
                 val conn = SmbConnection(service.settings.toProfile(service.settings.load()))
                 var source: SmbMediaDataSource? = null
@@ -49,6 +49,8 @@ internal object SceneDurationLookup {
             }
             synchronized(cache) { cache.put(cacheKey, duration ?: 0L) }
             duration
+        } finally {
+            reads.release()
         }
     }
 }
