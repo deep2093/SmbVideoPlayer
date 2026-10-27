@@ -198,11 +198,11 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     }
 
     MetadataPanel(vm, "advanced", "Advanced matching & repairs", "Fingerprint methods and troubleshooting") {
-        SwitchRow("Try video pHash", "Experimental and slower over SMB. Suggested results always need review.", options.phash) {
-            prefs.update { it.copy(phash = it) }
+        SwitchRow("Try video pHash", "Experimental and slower over SMB. Suggested results always need review.", options.phash) { enabled ->
+            prefs.update { old -> old.copy(phash = enabled) }
         }
-        SwitchRow("Review uncertain matches", "Filename matches and multiple possibilities require confirmation.", options.reviewUncertain) {
-            prefs.update { it.copy(reviewUncertain = it) }
+        SwitchRow("Review uncertain matches", "Filename matches and multiple possibilities require confirmation.", options.reviewUncertain) { enabled ->
+            prefs.update { old -> old.copy(reviewUncertain = enabled) }
         }
         OutlinedButton(
             onClick = {
