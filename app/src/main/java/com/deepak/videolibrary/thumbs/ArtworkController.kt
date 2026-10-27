@@ -12,7 +12,7 @@ import java.io.File
 internal class ArtworkController(private val services: ServiceLocator) {
     private val files = android.util.LruCache<String,File>(100)
     var revision by mutableIntStateOf(0)
-    fun key(name: String,count: Int,done: Int,modified: Long) = "${services.libraryId}:$name:$count:$done:$modified:$revision:${services.artwork.revision.value}:${services.scenePosters.revision.value}"
+    fun key(name: String,count: Int,done: Int,modified: Long) = "${services.libraryId}:$name:$count:$done:$modified:$revision:${services.artwork.revision.value}:${services.scenePosters.revision.value}:${services.moviePosters.revision.value}"
     fun cached(key: String): File? = files.get(key)?.takeIf { it.isFile }
     /**
      * The last cover built for each folder and what it was built from. When artwork changes somewhere else (a
@@ -42,11 +42,16 @@ internal class ArtworkController(private val services: ServiceLocator) {
                 art.effectiveRow(identity)?.takeIf { !it.manual }?.imageName?.let(art::imageFile) else null
             if (portrait != null) { files.put(key, portrait); return portrait }
         }
+        // A full movie poster found for this folder (a cover you chose yourself still wins).
+        if (!manual && placement == com.deepak.videolibrary.metadata.FolderCoverChoice.MOVIE) {
+            services.moviePosters.fileFor(identity)?.let { files.put(key, it); return it }
+        }
         // Don't let an old automatic portrait override a selected scene.
         // If no scene image is cached, honour the user's configured FIRST_FRAME
         // or COLLAGE fallback before returning to Skywing's original thumbnail.
         // Manual artwork remains the highest priority.
-        val decision = if (!manual && placement == com.deepak.videolibrary.metadata.FolderCoverChoice.SCENE) {
+        val decision = if (!manual && (placement == com.deepak.videolibrary.metadata.FolderCoverChoice.SCENE ||
+                placement == com.deepak.videolibrary.metadata.FolderCoverChoice.MOVIE)) {
             val fallback = if (art.settings.value.enabled)
                 art.settings.value.modeFor(com.deepak.videolibrary.artwork.ArtworkKeys.scopeOf(identity))
             else com.deepak.videolibrary.artwork.ArtworkMode.EXISTING

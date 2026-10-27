@@ -58,6 +58,9 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
                 val batch = dao.nextPendingThumbs(BATCH)
                 if (batch.isEmpty()) {
                     if (shouldStop()) return true
+                    // Nothing to do right now: let go of the drive while waiting, so a hard disk can sleep.
+                    // A new connection is opened only when there is work again.
+                    closeIdle(connections)
                     delay(IDLE_POLL_MS)
                     continue
                 }
@@ -65,6 +68,16 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
             }
         } finally {
             withContext(NonCancellable) { connections.forEach { c -> c?.let { runCatching { it.close() } } } }
+        }
+    }
+
+    private suspend fun closeIdle(connections: Array<SmbConnection?>) {
+        if (connections.none { it != null }) return
+        withContext(NonCancellable + Dispatchers.IO) {
+            for (i in connections.indices) {
+                connections[i]?.let { runCatching { it.close() } }
+                connections[i] = null
+            }
         }
     }
 

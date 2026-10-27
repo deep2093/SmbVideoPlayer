@@ -23,6 +23,7 @@ enum class FolderCoverChoice(val label: String) {
     ORIGINAL("Original / existing cover"),
     PERFORMER("Performer portrait"),
     SCENE("Scene poster"),
+    MOVIE("Full movie poster"),
 }
 
 data class SceneMetadataSettings(
@@ -64,6 +65,10 @@ data class SceneMetadataSettings(
     fun needsFolderScenePosters() = listOf(
         originalFolderCover, customFolderCover, virtualFolderCover, generatedFolderCover, virtualGeneratedFolderCover,
     ).any { it == FolderCoverChoice.SCENE }
+
+    fun needsMoviePosters() = listOf(
+        originalFolderCover, customFolderCover, virtualFolderCover, generatedFolderCover, virtualGeneratedFolderCover,
+    ).any { it == FolderCoverChoice.MOVIE }
 
 }
 

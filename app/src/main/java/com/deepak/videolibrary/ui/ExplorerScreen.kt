@@ -215,7 +215,7 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
         if (vm.explorerGridMode) {
             LazyVerticalGrid(
                 state = gridState,
-                columns = GridCells.Fixed(libraryColumns(vm.videoGridPreset, floatingPadding(vm))),
+                columns = GridCells.Fixed(libraryColumns(vm, folders = false)),
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(bottom = if (floatingPadding(vm)) 112.dp else 16.dp),

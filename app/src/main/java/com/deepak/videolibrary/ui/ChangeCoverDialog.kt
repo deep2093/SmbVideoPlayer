@@ -81,6 +81,7 @@ internal data class CoverTarget(val key: String, val title: String, val label: S
 private enum class CoverTab(val label: String) {
     AUTO("Auto frame"),
     SCENE("Scene poster"),
+    MOVIE("Movie poster"),
     COLLAGE("Folder collage"),
     PHOTOS("Photo collage"),
     INTERNET("StashDB"),
@@ -125,6 +126,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
     var query by remember(target.key) { mutableStateOf(vm.artworkSearchTerm(target.key, target.label)) }
     var oneOff by remember { mutableStateOf(false) }
     var results by remember { mutableStateOf<List<PerformerCandidate>?>(null) }
+    var movieResults by remember { mutableStateOf<List<com.deepak.videolibrary.artwork.online.MovieCandidate>?>(null) }
     var photosOf by remember { mutableStateOf<PerformerCandidate?>(null) }
     // StashDB answers a few matches at a time: this page of matches, and whether another page may exist.
     var resultPage by remember { mutableIntStateOf(1) }
@@ -426,6 +428,53 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                                 } else if (scene.imageUrl != null) load(null, scene.imageUrl)
                                             },
                                         ) { Text("Choose this scene image") }
+                                    }
+                                }
+                            }
+                        }
+                        CoverTab.MOVIE -> {
+                            val allowed = settings.adultConsent || oneOff
+                            if (!allowed) {
+                                Text(
+                                    "Searching sends only the name below to ThePornDB, using the key saved under Scene metadata. Nothing is sent until you allow it.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = oneOff, onCheckedChange = { oneOff = it })
+                                    Text("Allow this one search")
+                                }
+                            } else {
+                                SearchField(query, { query = it }, choices, label = "Movie title or file name")
+                                Button(enabled = query.isNotBlank() && !busy, onClick = {
+                                    busy = true
+                                    error = null
+                                    movieResults = null
+                                    scope.launch {
+                                        try {
+                                            val found = vm.searchMovies(query.trim())
+                                            movieResults = found
+                                            if (found.isEmpty()) error = "No movies found. Try the movie's title, or a file name."
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: ProviderException) {
+                                            error = e.failure.message
+                                        } finally {
+                                            busy = false
+                                        }
+                                    }
+                                }) { Text("Search ThePornDB movies") }
+                                movieResults?.forEach { movie ->
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        RemoteThumb(vm, movie.previewUrl, Modifier.size(width = 64.dp, height = 96.dp).clip(RoundedCornerShape(10.dp)))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(movie.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            Text(
+                                                listOfNotNull(movie.year, movie.site).joinToString(" · ").ifEmpty { "ThePornDB" },
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                        OutlinedButton(enabled = !busy && movie.posterUrl != null, onClick = { movie.posterUrl?.let { load(null, it) } }) { Text("Choose") }
                                     }
                                 }
                             }

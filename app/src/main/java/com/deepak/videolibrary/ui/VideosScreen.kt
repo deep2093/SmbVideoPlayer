@@ -147,7 +147,7 @@ fun VideosScreen(
             LibraryDisplayMenu(vm)
         }
         }
-        val columns = libraryColumns(vm.videoGridPreset, floatingPadding(vm))
+        val columns = libraryColumns(vm, folders = false)
         // Grid rows before the first video, so the fast scroller can map a position to a filename.
         val headerRows = (if (group == null && matchFolder == null && query.isEmpty() && continueWatching.isNotEmpty()) 1 else 0) +
             (if (videos.loadState.refresh is androidx.paging.LoadState.Loading) 1 else 0) +
@@ -166,13 +166,13 @@ fun VideosScreen(
             },
             bottomInset = if (floatingPadding(vm)) 100.dp else 16.dp,
         ) {
-            LazyVerticalGrid(
+            LibraryPullRefresh(vm, Modifier.fillMaxSize()) { LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(if (vm.videoListMode) 1 else columns),
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
-                modifier = Modifier.fillMaxSize().pinchLibraryGrid(vm, folders = false),
+                modifier = Modifier.fillMaxSize(),
             ) {
                 if (group == null && matchFolder == null && query.isEmpty() && continueWatching.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }, key = "continue") {
@@ -242,7 +242,7 @@ fun VideosScreen(
                 }
                 // The total sits at the end of the list.
                 if (count > 0) item(span = { GridItemSpan(maxLineSpan) }, key = "count") { ListTotal("$count videos · ${vm.videoSort.label}") }
-            }
+            } }
         }
     }
 

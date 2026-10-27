@@ -192,10 +192,13 @@ internal object FolderTargets {
             out[identity] = label
         }
         dao.allMatchFolders().forEach { consider(ArtworkKeys.matchFolder(it.id), it.name) }
-        dao.allParentDirs().forEach { consider(ArtworkKeys.originalFolder(it), it.substringAfterLast('/')) }
         // The subfolders generated inside the user's Virtual folders are named after people too.
         val saved = services.settings.load()
         val serverKey = saved.host.trim().lowercase(java.util.Locale.ROOT) + "/" + saved.share.trim().lowercase(java.util.Locale.ROOT)
+        // Original folders: the folders you added there and every real sub-folder inside them, by their own names.
+        for (path in OriginalFolderPaths.within(com.deepak.videolibrary.data.OriginalRootStore(services.artworkContext).load(serverKey), dao.allParentDirs())) {
+            consider(ArtworkKeys.originalFolder(path), path.substringAfterLast('/'))
+        }
         // Groups of single videos inside Custom folders.
         val customRules = com.deepak.videolibrary.scan.GroupingPrefs.load(services.artworkContext, com.deepak.videolibrary.scan.GroupingPrefs.CUSTOM)
         for (own in com.deepak.videolibrary.data.OwnFolderStore(services.artworkContext).load(serverKey)) {
@@ -218,5 +221,22 @@ internal object FolderTargets {
             com.deepak.videolibrary.data.VirtualGroups.build(set, videos, rules).forEach { consider(ArtworkKeys.virtualSub(set.id, it.identity), it.title) }
         }
         return out.entries.map { it.key to it.value }
+    }
+}
+
+/** The Original folders a lookup covers: each added folder and every folder between it and an indexed video. */
+internal object OriginalFolderPaths {
+    fun within(roots: List<String>, parentDirs: List<String>): List<String> {
+        val out = LinkedHashSet<String>()
+        roots.forEach { out += it }
+        for (dir in parentDirs) {
+            val root = roots.firstOrNull { dir == it || dir.startsWith("$it/") } ?: continue
+            var current = dir
+            while (current.length > root.length) {
+                out += current
+                current = current.substringBeforeLast('/', root)
+            }
+        }
+        return out.toList()
     }
 }

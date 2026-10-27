@@ -365,6 +365,7 @@ private fun FolderArtworkTarget(
         FolderCoverChoice.PERFORMER -> "Showing performer portraits"
         FolderCoverChoice.SCENE -> "Showing matched scene posters"
         FolderCoverChoice.ORIGINAL -> "Keeping existing folder thumbnails"
+        FolderCoverChoice.MOVIE -> "Showing full movie posters from ThePornDB"
     }
     androidx.compose.material3.Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -391,6 +392,18 @@ private fun FolderArtworkTarget(
                 choice == FolderCoverChoice.SCENE) { enabled ->
                 vm.updateFolderCoverChoice(section, if (enabled) FolderCoverChoice.SCENE else FolderCoverChoice.ORIGINAL)
                 if (enabled) ScenePosterWorker.enqueue(context, ServiceLocator.get(context).libraryId)
+            }
+            if (section == "original") {
+                SwitchRow("Full movie poster", "Searches ThePornDB movies by the folder's name, then by the file names inside it. Uses your ThePornDB key; a cover you pick yourself always stays.",
+                    choice == FolderCoverChoice.MOVIE) { enabled ->
+                    vm.updateFolderCoverChoice(section, if (enabled) FolderCoverChoice.MOVIE else FolderCoverChoice.ORIGINAL)
+                    if (enabled) vm.findMoviePostersIfWanted()
+                }
+                if (choice == FolderCoverChoice.MOVIE) {
+                    androidx.compose.material3.OutlinedButton(onClick = { vm.findMoviePostersIfWanted(again = true) }) {
+                        Text("Search again for folders without a poster")
+                    }
+                }
             }
         }
     }

@@ -16,12 +16,12 @@ class LibraryPresentationTest {
         addedAt = added,
     )
 
-    @Test fun originalFolderLabelsStopAtFirstDelimiterAndPreserveCase() {
-        assertEquals("Tom Cruise", originalFolderLabel("Movies/Tom Cruise- movie"))
-        assertEquals("Tom Cruise", originalFolderLabel("Movies/Tom Cruise, Brad Pitt- movie"))
+    @Test fun originalFolderLabelsUseTheFolderNameAsItIs() {
+        assertEquals("Tom Cruise- movie", originalFolderLabel("Movies/Tom Cruise- movie"))
+        assertEquals("Tom Cruise, Brad Pitt- movie", originalFolderLabel("Movies/Tom Cruise, Brad Pitt- movie"))
         assertEquals("Help Wanted", originalFolderLabel("1/Allherluv/Help Wanted"))
         assertEquals("Actor 2", originalFolderLabel("Actor 2"))
-        assertEquals("tom", originalFolderLabel("tom-cruise, other"))
+        assertEquals("tom-cruise, other", originalFolderLabel("tom-cruise, other/"))
     }
 
     @Test fun legacyPresetsMigrateWithoutChangingColumnCount() {

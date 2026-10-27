@@ -176,6 +176,23 @@ object LibraryQueries {
             ).toTypedArray(),
         )
     }
+    /**
+     * One row per folder you added to Original folders, in the given order, with the visible videos inside it
+     * (sub-folders included). A folder that has not been scanned yet still gets a row, with 0.
+     */
+    fun roots(s: LibraryScope, roots: List<String>): SimpleSQLiteQuery {
+        if (roots.isEmpty()) return SimpleSQLiteQuery("SELECT '' path, 0 count, 0 thumbsDone WHERE 0")
+        val (w, a) = where(s)
+        val args = ArrayList<Any?>()
+        val parts = roots.map { root ->
+            args += root
+            args.addAll(a)
+            args.addAll(listOf(root, root, root))
+            "SELECT ? path, COUNT(*) count, COALESCE(SUM(CASE WHEN v.thumbStatus='DONE' THEN 1 ELSE 0 END),0) thumbsDone " +
+                "FROM videos v WHERE $w AND (v.parentDir=? OR substr(v.parentDir,1,length(?)+1)=?||'/')"
+        }
+        return SimpleSQLiteQuery(parts.joinToString(" UNION ALL "), args.toTypedArray())
+    }
     fun allDirectories(s: LibraryScope): SimpleSQLiteQuery {
         val(w, a) = where(s.copy(subtree = true, pathMatches = true))
         return SimpleSQLiteQuery(

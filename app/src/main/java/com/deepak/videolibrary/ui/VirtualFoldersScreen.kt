@@ -181,13 +181,13 @@ private fun VirtualSetList(
             labelFor = { index -> shown.getOrNull(index)?.name?.let(::sectionLetter) },
             bottomInset = if (floatingPadding(vm)) 100.dp else 16.dp,
         ) {
-            LazyVerticalGrid(
+            LibraryPullRefresh(vm, Modifier.fillMaxSize()) { LazyVerticalGrid(
                 state = gridState,
-                columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
+                columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm, folders = true)),
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(top = 12.dp, bottom = if (floatingPadding(vm)) 112.dp else 24.dp),
-                modifier = Modifier.fillMaxSize().pinchLibraryGrid(vm, folders = true).testTag("virtual-folder-grid"),
+                modifier = Modifier.fillMaxSize().testTag("virtual-folder-grid"),
             ) {
                 if (shown.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -209,7 +209,7 @@ private fun VirtualSetList(
                 if (shown.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
                     ListTotal("${shown.size} ${if (shown.size == 1) "folder" else "folders"}")
                 }
-            }
+            } }
         }
     }
     if (naming) {
@@ -503,10 +503,10 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<
                 },
                 bottomInset = if (floatingPadding(vm)) 100.dp else 16.dp,
             ) {
-            LazyVerticalGrid(
+            LibraryPullRefresh(vm, Modifier.fillMaxSize()) { LazyVerticalGrid(
                 state = gridState,
-                modifier = Modifier.fillMaxSize().pinchLibraryGrid(vm, folders = true).testTag(if (groupId == null) "virtual-subfolder-grid" else "virtual-subfolder-videos"),
-                columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
+                modifier = Modifier.fillMaxSize().testTag(if (groupId == null) "virtual-subfolder-grid" else "virtual-subfolder-videos"),
+                columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm, folders = true)),
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(top = 8.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
@@ -552,7 +552,7 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<
                         )
                     }
                 }
-            }
+            } }
             }
         }
     }

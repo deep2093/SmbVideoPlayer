@@ -58,6 +58,11 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             if (metadata.enabled && metadata.automatic && metadata.allowedOnlineLookup) {
                 com.deepak.videolibrary.metadata.SceneMetadataWorker.enqueue(applicationContext, services.libraryId)
             }
+            // Full movie posters for Original folders, when that is the chosen cover there.
+            if (metadata.enabled && metadata.allowedOnlineLookup &&
+                metadata.originalFolderCover == com.deepak.videolibrary.metadata.FolderCoverChoice.MOVIE) {
+                com.deepak.videolibrary.artwork.MoviePosterWorker.enqueue(applicationContext, services.libraryId)
+            }
         }
         return if (finished) Result.success() else Result.retry()
     }

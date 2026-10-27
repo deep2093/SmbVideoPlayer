@@ -48,6 +48,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -376,8 +377,11 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                                 TextButton(onClick = { vm.updateNavigationPosition("FLOATING") }) { Text(stringResource(R.string.ui_floating_bottom_bar_b162779)) }
                             }
                             }
-                            SettingsStaticCard("Grid & list gestures") {
-                                Text("Pinch with two fingers in Folders or Videos to change grid size or switch to a list.", style = MaterialTheme.typography.bodySmall)
+                            SettingsStaticCard("Folder pages") {
+                                GridSizeSetting(vm, folders = true)
+                            }
+                            SettingsStaticCard("Video pages") {
+                                GridSizeSetting(vm, folders = false)
                             }
                             SettingsStaticCard("Hidden files and folders") {
                                 OutlinedButton(onClick = { vm.ui.setFlag("settings.hidden", true) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
@@ -538,4 +542,44 @@ private fun GroupingSwitchesSetting(
     SwitchRow("Stop at the first hyphen", "Only the text before \"-\" is used", rules.stopAtHyphen) { onChange(rules.copy(stopAtHyphen = it)) }
     SwitchRow("Split names at commas", "Each name gets a folder; the video shows in each", rules.splitAtCommas) { onChange(rules.copy(splitAtCommas = it)) }
     SwitchRow("Otherwise the first two words", "\"tom cruise top gun movie\" becomes Tom Cruise", rules.firstTwoWords) { onChange(rules.copy(firstTwoWords = it)) }
+}
+
+/** Grid or list, and how many columns, chosen separately for portrait and landscape. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun GridSizeSetting(vm: LibraryViewModel, folders: Boolean) {
+    val list = if (folders) vm.folderListMode else vm.videoListMode
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text(
+                if (folders) "Show folders as a list" else "Show videos as a list",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Switch(checked = list, onCheckedChange = { if (folders) vm.setFolderListMode(it) else vm.setVideoListMode(it) })
+        }
+        if (!list) {
+            for (landscape in listOf(false, true)) {
+                Text(
+                    if (landscape) "Columns in landscape" else "Columns in portrait",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LibraryLayout.presets.forEach { preset ->
+                        FilterChip(
+                            selected = vm.gridPreset(folders, landscape) == preset,
+                            onClick = { vm.updateGridPreset(folders, landscape, preset) },
+                            label = { Text(preset) },
+                        )
+                    }
+                }
+            }
+            Text(
+                "A narrow screen may show fewer columns than chosen so cards stay readable.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
 }

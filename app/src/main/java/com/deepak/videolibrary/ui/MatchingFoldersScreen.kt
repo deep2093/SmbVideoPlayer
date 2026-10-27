@@ -129,10 +129,10 @@ internal fun MatchingFoldersScreen(
             labelFor = { index -> (shownOwn.map { it.name } + folders.map { it.folder.name }).getOrNull(index)?.let(::sectionLetter) },
             bottomInset = if (floatingPadding(vm)) 100.dp else 16.dp,
         ) {
-            LazyVerticalGrid(
+            LibraryPullRefresh(vm, Modifier.fillMaxSize()) { LazyVerticalGrid(
                 state = gridState,
-                modifier = Modifier.fillMaxSize().pinchLibraryGrid(vm, folders = true),
-                columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
+                modifier = Modifier.fillMaxSize(),
+                columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm, folders = true)),
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(top = 16.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
@@ -150,7 +150,7 @@ internal fun MatchingFoldersScreen(
                 items(folders, key = { it.folder.id }) { row -> MatchingFolderCard(vm, row, aspect, onOpen, onPlay, vm.ui.tick(selectPage, "match:" + row.folder.id)) }
                 val total = shownOwn.size + folders.size
                 if (total > 0) item(span = { GridItemSpan(maxLineSpan) }, key = "count") { ListTotal("$total ${if (total == 1) "folder" else "folders"}") }
-            }
+            } }
         }
     }
     if (picking) SourceFolderPicker(vm, folders.map { it.folder }, onClose = { picking = false })
@@ -390,10 +390,10 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<
                 Button(onClick = { edit = true }) { Text("Choose folders and files") }
             }
         }
-        LazyVerticalGrid(
+        LibraryPullRefresh(vm, Modifier.weight(1f).fillMaxWidth()) { LazyVerticalGrid(
             state = gridState,
-            modifier = Modifier.weight(1f).fillMaxWidth().pinchLibraryGrid(vm, folders = true),
-            columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
+            modifier = Modifier.fillMaxSize(),
+            columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm, folders = true)),
             horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
             verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
             contentPadding = PaddingValues(top = 8.dp, bottom = if (floatingPadding(vm)) 112.dp else 16.dp),
@@ -446,7 +446,7 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<
                     })
                 }
             }
-        }
+        } }
     }
     if (edit) OwnFolderContentsPicker(vm, folder) { edit = false }
     if (naming) {

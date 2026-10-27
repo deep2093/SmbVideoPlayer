@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.PlayArrow
@@ -37,10 +38,13 @@ import com.deepak.videolibrary.scan.ScanMode
 @Composable
 fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) -> Unit, active: Boolean = true) {
     val listing by vm.originalListing.collectAsStateWithLifecycle()
+    val roots by vm.originalRoots.collectAsStateWithLifecycle()
     val root = vm.settings.rootPath.trim('/')
-    val path = vm.originalPath.takeIf { isWithinFolder(it, root) } ?: root
+    // Only the top and folders inside the ones you added can be open; anything else goes back to the top.
+    val path = vm.originalPath.takeIf { vm.originalPathAllowed(it, roots) } ?: root
     val query = vm.originalQuery
-    val videos = remember(path,query,vm.videoSort,vm.sortDescending) { vm.originalPagesFor(path,query) }.collectAsLazyPagingItems()
+    val videos = remember(path,query,vm.videoSort,vm.sortDescending,roots) { vm.originalPagesFor(path,query,roots) }.collectAsLazyPagingItems()
+    var adding by remember { mutableStateOf(false) }
     val ready = listing.ready && listing.path == path && listing.query == query
     val children = if(ready) listing.rows else emptyList()
     val count = if(ready) listing.totalCount else 0
@@ -63,7 +67,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
     }
     fun up() {
         vm.originalQuery = ""
-        vm.originalPath = path.substringBeforeLast('/', "").takeIf { isWithinFolder(it, root) } ?: root
+        vm.originalPath = vm.originalParent(path)
     }
     BackHandler(enabled = query.isNotEmpty() || path != root) { if (query.isNotEmpty())vm.originalQuery = "" else up() }
     val selectPage = SelectionPages.ORIGINAL
@@ -87,11 +91,16 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                     selection.keys.forEach(vm::downloadDirectory)
                     vm.ui.endSelection(selectPage)
                 },
-                onHide = {
+                // At the top the cards are the folders you added: they are taken out of this list, not hidden.
+                onHide = if (inside) ({
                     selection.keys.forEach { vm.hidePath(it, true) }
                     vm.ui.endSelection(selectPage)
-                },
-                onRemove = null,
+                }) else null,
+                onRemove = if (inside) null else ({
+                    vm.removeOriginalRoots(selection.keys)
+                    vm.ui.endSelection(selectPage)
+                }),
+                removeLabel = "Remove from Original folders",
             )
         } else
         SearchableTopBar(
@@ -107,7 +116,8 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             onQueryChange = { vm.originalQuery = it },
             placeholder = stringResource(R.string.ui_search_folder_and_video_names_b2eeabc),
         ) {
-            IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0, onClick = { vm.playLibrary("originals", onPlay = onPlay) })
+            if (!inside) IconAction(Icons.Filled.CreateNewFolder, "Add folders", onClick = { adding = true })
+            IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0 || listing.totalCount > 0, onClick = { vm.playLibrary("originals", onPlay = onPlay) })
             CardShapeButton(vm, Pages.original(path))
             IconAction(Icons.Filled.Refresh, stringResource(R.string.ui_refresh_index_2b7da4d), onClick = { vm.startScan(ScanMode.REFRESH) })
         }
@@ -143,13 +153,13 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             }
         } else if(!ready || videos.itemCount != listing.videoCount || videos.loadState.refresh is androidx.paging.LoadState.Loading) {
             Box(Modifier.fillMaxSize(), contentAlignment=Alignment.Center) { CircularProgressIndicator() }
-        } else LazyVerticalGrid(
+        } else LibraryPullRefresh(vm, Modifier.fillMaxSize()) { LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Fixed(if (vm.folderListMode)1 else libraryColumns(vm.folderGridPreset, floatingPadding(vm))),
+            columns = GridCells.Fixed(if (vm.folderListMode)1 else libraryColumns(vm, folders = true)),
             horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
             verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
             contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
-            modifier = Modifier.fillMaxSize().pinchLibraryGrid(vm, folders = true).testTag("original-folder-grid"),
+            modifier = Modifier.fillMaxSize().testTag("original-folder-grid"),
         ) {
             if (count == 0 &&
                 children.isEmpty()
@@ -157,8 +167,13 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                 item(span = {
                     GridItemSpan(maxLineSpan)
                 }) {
-                    Text(
-                        if (query.isBlank())"No visible indexed videos here. Scan your library or check Hidden items in Settings." else "No matching visible folders or videos.",
+                    if (!inside && query.isBlank() && roots.isEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Add the drive folders you want here. Their sub-folders show exactly as they are on the drive.")
+                            Button(onClick = { adding = true }) { Text("Add folders") }
+                        }
+                    } else Text(
+                        if (query.isBlank())"No visible indexed videos here. Pull down to refresh the library, or check Hidden items in Settings." else "No matching visible folders or videos.",
                     )
                 }
             }
@@ -194,6 +209,22 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             }
         }
         }
+        }
+        }
+    }
+    if (adding) {
+        DrivePicker(
+            vm = vm,
+            title = "Original folders",
+            explanation = "Tick the drive folders to list here. Inside each one, its sub-folders show exactly as they are on the drive. Untick to take a folder out. Nothing on your drive changes.",
+            confirmLabel = "Done",
+            withFiles = false,
+            initialFolders = roots.toSet(),
+            marked = roots.toSet(),
+            onDismiss = { adding = false },
+        ) { folders, _ ->
+            vm.setOriginalRoots(folders)
+            adding = false
         }
     }
 }

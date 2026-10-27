@@ -90,6 +90,13 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     private val folderQueryFlow = MutableStateFlow("")
     private val originalQueryFlow = MutableStateFlow("")
     private val originalLocation = MutableStateFlow(settings.rootPath.trim('/'))
+    private val originalRootStore = OriginalRootStore(app)
+    private val originalRootsRevision = MutableStateFlow(0)
+
+    /** The drive folders you added to Original folders: the only ones that section lists at its top. */
+    val originalRoots: StateFlow<List<String>> = combine(namespace, originalRootsRevision) { key, _ ->
+        originalRootStore.load(key)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, originalRootStore.load(namespace.value))
     private fun connectionKey(s: SmbSettings) =
         s.host.trim().lowercase(java.util.Locale.ROOT) + "/" + s.share.trim().lowercase(java.util.Locale.ROOT)
 
@@ -114,10 +121,24 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     private fun restoredGrid(key: String, default: String): String =
         LibraryLayout.normalize(layoutPrefs.getString(key, default), default)
 
-    var videoGridPreset by mutableStateOf(restoredGrid("video_grid_preset", if (isTablet) "4" else "2"))
+    // Columns are set in Settings > App layout, separately for portrait and landscape. The first time, both start
+    // from the single size used before (which pinching used to change).
+    var videoGridPortrait by mutableStateOf(restoredGrid("video_grid_portrait", restoredGrid("video_grid_preset", if (isTablet) "4" else "2")))
         private set
-    var folderGridPreset by mutableStateOf(restoredGrid("folder_grid_preset", if (isTablet) "3" else "2"))
+    var videoGridLandscape by mutableStateOf(restoredGrid("video_grid_landscape", if (isTablet) "5" else "4"))
         private set
+    var folderGridPortrait by mutableStateOf(restoredGrid("folder_grid_portrait", restoredGrid("folder_grid_preset", if (isTablet) "3" else "2")))
+        private set
+    var folderGridLandscape by mutableStateOf(restoredGrid("folder_grid_landscape", if (isTablet) "5" else "4"))
+        private set
+
+    /** The column choice for folder or video pages in the current orientation. */
+    fun gridPreset(folders: Boolean, landscape: Boolean): String = when {
+        folders && landscape -> folderGridLandscape
+        folders -> folderGridPortrait
+        landscape -> videoGridLandscape
+        else -> videoGridPortrait
+    }
 
     var videoListMode by mutableStateOf(layoutPrefs.getBoolean("video_list", false))
         private set
@@ -208,37 +229,24 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             .apply()
     }
 
-    fun updateVideoGridPreset(preset: String) {
+    fun updateGridPreset(folders: Boolean, landscape: Boolean, preset: String) {
         if (preset !in allowedGridPresets) return
-        videoGridPreset = preset
-        layoutPrefs.edit().putString("video_grid_preset", preset).apply()
-    }
-
-    fun updateFolderGridPreset(preset: String) {
-        if (preset !in allowedGridPresets) return
-        folderGridPreset = preset
-        layoutPrefs.edit().putString("folder_grid_preset", preset).apply()
-    }
-
-    /** Pinch out for larger cards / list, pinch in for denser grids. */
-    fun pinchLibraryLayout(folders: Boolean, step: Int) {
-        if (step == 0) return
-        val presets = LibraryLayout.presets.sortedBy { it.toIntOrNull() ?: Int.MAX_VALUE }
-        if (presets.isEmpty()) return
-        val inList = if (folders) folderListMode else videoListMode
-        val current = if (folders) folderGridPreset else videoGridPreset
-        val at = if (inList) 0 else presets.indexOf(current).coerceAtLeast(0) + 1
-        val next = (at + step.coerceIn(-1, 1)).coerceIn(0, presets.size)
-        if (next == at) return
-        if (next == 0) {
-            if (!inList) { if (folders) toggleFolderLayout() else toggleVideoLayout() }
-        } else if (folders) {
-            updateFolderGridPreset(presets[next - 1])
-            if (folderListMode) toggleFolderLayout()
-        } else {
-            updateVideoGridPreset(presets[next - 1])
-            if (videoListMode) toggleVideoLayout()
+        when {
+            folders && landscape -> folderGridLandscape = preset
+            folders -> folderGridPortrait = preset
+            landscape -> videoGridLandscape = preset
+            else -> videoGridPortrait = preset
         }
+        val key = (if (folders) "folder" else "video") + "_grid_" + (if (landscape) "landscape" else "portrait")
+        layoutPrefs.edit().putString(key, preset).apply()
+    }
+
+    fun setFolderListMode(list: Boolean) {
+        if (folderListMode != list) toggleFolderLayout()
+    }
+
+    fun setVideoListMode(list: Boolean) {
+        if (videoListMode != list) toggleVideoLayout()
     }
 
     // ---- library ----
@@ -277,8 +285,24 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     private val folderScope = combine(folderQueryFlow.debounce(200), sortChoice, namespace) { q, sort, key ->
         LibraryScope(key, q, groupMatches = true, sort = sort.first, descending = sort.second)
     }
-    private val originalScope = combine(originalLocation, originalQueryFlow.debounce(200), sortChoice, namespace) { dir, q, sort, key ->
-        LibraryScope(key, q, directory = dir, subtree = q.isNotBlank(), pathMatches = true, sort = sort.first, descending = sort.second)
+    /** What the Original folders page shows: the added folders at its top, the real drive folders inside them. */
+    private data class OriginalPage(val dir: String, val query: String, val atTop: Boolean, val roots: List<String>, val key: String, val sort: String, val descending: Boolean)
+    private val originalPage = combine(originalLocation, originalQueryFlow.debounce(200), sortChoice, namespace, originalRoots) { dir, q, sort, key, roots ->
+        OriginalPage(dir, q, dir == settings.rootPath.trim('/'), roots, key, sort.first, sort.second)
+    }
+
+    /** The videos listed on an Original folders page: none at the top (only the added folders), unless searching them. */
+    private fun originalVideoScope(p: OriginalPage): LibraryScope = if (p.atTop) {
+        LibraryScope(p.key, p.query, members = FolderMembers(if (p.query.isBlank()) emptyList() else p.roots, emptyList()), pathMatches = true, sort = p.sort, descending = p.descending)
+    } else {
+        LibraryScope(p.key, p.query, directory = p.dir, subtree = p.query.isNotBlank(), pathMatches = true, sort = p.sort, descending = p.descending)
+    }
+
+    /** Everything under the page: all added folders at the top, the folder and its sub-folders inside one. */
+    private fun originalTotalScope(p: OriginalPage): LibraryScope = if (p.atTop) {
+        LibraryScope(p.key, p.query, members = FolderMembers(p.roots, emptyList()), pathMatches = true)
+    } else {
+        LibraryScope(p.key, p.query, directory = p.dir, subtree = true, pathMatches = true)
     }
     private fun pages(scopes: Flow<LibraryScope>) = scopes
         .flatMapLatest { scope ->
@@ -356,16 +380,86 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
     suspend fun matchingCover(folder: MatchFolderEntity, key: String): File? = artwork.cover("match:${folder.id}",key,
         LibraryScope(namespace.value,match=folder.takeIf { it.sourcePath == null }?.term,sourcePath=folder.sourcePath,includeSubfolders=folder.includeSubfolders))
-    val originalListing = originalScope.flatMapLatest { scope ->
-        val directories = if(scope.directory == settings.rootPath.trim('/')) LibraryQueries.allDirectories(scope) else LibraryQueries.directories(scope)
-        combine(stateDao.directories(directories), stateDao.count(LibraryQueries.count(scope)), stateDao.count(LibraryQueries.count(scope.copy(subtree=true)))) { rows, direct, total ->
-            OriginalListing(scope.directory.orEmpty(),scope.query,
-                rows.sortedWith(compareBy<DirectorySummary> { originalFolderLabel(it.path).lowercase(java.util.Locale.ROOT) }.thenBy { it.path }),direct,total,true)
+    val originalListing = originalPage.flatMapLatest { p ->
+        val directories = when {
+            // The top lists exactly the folders you added (searching looks inside them).
+            p.atTop && p.query.isBlank() -> LibraryQueries.roots(LibraryScope(p.key), p.roots)
+            p.atTop -> LibraryQueries.allDirectories(originalTotalScope(p))
+            // Inside an added folder: its real sub-folders, named as on the drive.
+            else -> LibraryQueries.directories(originalVideoScope(p))
+        }
+        combine(stateDao.directories(directories), stateDao.count(LibraryQueries.count(originalVideoScope(p))), stateDao.count(LibraryQueries.count(originalTotalScope(p)))) { rows, direct, total ->
+            OriginalListing(p.dir, p.query,
+                rows.sortedWith(compareBy<DirectorySummary> { originalDisplayName(it.path).lowercase(java.util.Locale.ROOT) }.thenBy { it.path }), direct, total, true)
         }
     }.state(OriginalListing())
-    fun originalPagesFor(path: String, text: String): Flow<androidx.paging.PagingData<VideoEntity>> {
-        val scope=LibraryScope(namespace.value,text,directory=path,subtree=text.isNotBlank(),pathMatches=true,sort=videoSort.name,descending=sortDescending)
+    fun originalPagesFor(path: String, text: String, roots: List<String>): Flow<androidx.paging.PagingData<VideoEntity>> {
+        val page = OriginalPage(path, text, path == settings.rootPath.trim('/'), roots, namespace.value, videoSort.name, sortDescending)
+        val scope = originalVideoScope(page)
         return Pager(PagingConfig(pageSize=60,initialLoadSize=90,enablePlaceholders=true,jumpThreshold=180),pagingSourceFactory={stateDao.pages(LibraryQueries.videos(scope))}).flow
+    }
+
+    /** Whether [path] can be shown in Original folders: the top, or a folder inside one you added. */
+    fun originalPathAllowed(path: String, roots: List<String> = originalRoots.value): Boolean {
+        val top = settings.rootPath.trim('/')
+        return path == top || roots.any { isWithinFolder(path, it) }
+    }
+
+    /** One level up from [path]: an added folder goes back to the top, a sub-folder to its parent. */
+    fun originalParent(path: String): String {
+        val top = settings.rootPath.trim('/')
+        if (path in originalRoots.value) return top
+        val parent = path.substringBeforeLast('/', "")
+        return parent.takeIf { originalPathAllowed(it) } ?: top
+    }
+
+    /** Sets the drive folders listed in Original folders. Folders not scanned yet are scanned in the background. */
+    fun setOriginalRoots(paths: Collection<String>) {
+        val clean = OriginalRootStore.normalize(paths)
+        if (paths.map { it.trim('/') }.filter { it.isNotEmpty() }.distinct().size > OriginalRootStore.MAX_ROOTS) {
+            notice = "Original folders can list up to ${OriginalRootStore.MAX_ROOTS} drive folders; the rest were left out."
+        }
+        originalRootStore.save(namespace.value, clean)
+        originalRootsRevision.value++
+        coverRevision++
+        scanVirtualMembersIfNeeded(clean, emptyList())
+        findMoviePostersIfWanted()
+    }
+
+    /** Looks for full movie posters for Original folders when that is the cover chosen there. */
+    fun findMoviePostersIfWanted(again: Boolean = false) {
+        val options = services.sceneMetadataPreferences.settings.value
+        if (options.originalFolderCover != com.deepak.videolibrary.metadata.FolderCoverChoice.MOVIE) return
+        if (!options.enabled || !options.allowedOnlineLookup) {
+            notice = "Allow online lookups under Scene metadata to find movie posters."
+            return
+        }
+        if (services.providerKeys.get(com.deepak.videolibrary.artwork.ProviderIds.TPDB) == null) {
+            notice = "Add your ThePornDB API key under Scene metadata to find movie posters."
+            return
+        }
+        if (again) services.moviePosters.forgetChecks()
+        com.deepak.videolibrary.artwork.MoviePosterWorker.enqueue(getApplication(), services.libraryId)
+    }
+
+    /** ThePornDB movies matching [text], for choosing a full movie poster by hand. */
+    suspend fun searchMovies(text: String): List<com.deepak.videolibrary.artwork.online.MovieCandidate> {
+        if (!com.deepak.videolibrary.artwork.online.NetworkPolicy.allowed(getApplication(), artworkSettings.value)) {
+            throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.BLOCKED_BY_SETTINGS)
+        }
+        val key = services.providerKeys.get(com.deepak.videolibrary.artwork.ProviderIds.TPDB)
+            ?: throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.NO_KEY)
+        return withContext(Dispatchers.IO) {
+            val byTitle = com.deepak.videolibrary.artwork.online.TpdbMovies.search(key, text, byFileName = false)
+            byTitle.ifEmpty { com.deepak.videolibrary.artwork.online.TpdbMovies.search(key, text, byFileName = true) }
+        }
+    }
+
+    /** Takes folders out of Original folders. Nothing on the drive changes. */
+    fun removeOriginalRoots(paths: Collection<String>) {
+        val drop = paths.map { it.trim('/') }.toSet()
+        setOriginalRoots(originalRootStore.load(namespace.value).filterNot { it in drop })
+        if (originalLocation.value.let { here -> drop.any { isWithinFolder(here, it) } }) originalPath = settings.rootPath.trim('/')
     }
     val continuing = namespace.flatMapLatest { stateDao.continuing(LibraryQueries.continuing(it)) }.state(emptyList())
     val hiddenItems = namespace.flatMapLatest { stateDao.hiddenItems(it) }.state(emptyList())
@@ -449,7 +543,17 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
     private fun selectedScopeFor(mode: String): LibraryScope = when (mode) {
         "folders" -> LibraryScope(namespace.value, folderSearch, groupMatches = true, sort = videoSort.name, descending = sortDescending)
-        "originals" -> LibraryScope(
+        "originals" -> if (originalPath == settings.rootPath.trim('/')) {
+            // Play all at the top plays the folders you added, not the whole drive.
+            LibraryScope(
+                namespace.value,
+                originalQuery,
+                members = FolderMembers(originalRootStore.load(namespace.value), emptyList()),
+                pathMatches = true,
+                sort = videoSort.name,
+                descending = sortDescending,
+            )
+        } else LibraryScope(
             namespace.value,
             originalQuery,
             directory = originalPath,

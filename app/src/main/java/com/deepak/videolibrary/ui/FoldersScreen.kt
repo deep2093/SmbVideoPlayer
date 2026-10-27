@@ -263,7 +263,7 @@ fun FoldersScreen(
         }
         Spacer(Modifier.height(12.dp))
         vm.organizerError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        val columns = libraryColumns(vm.folderGridPreset, floatingPadding(vm))
+        val columns = libraryColumns(vm, folders = true)
         val aspect = cardAspect(vm, Pages.VIRTUAL)
         FastScrollBox(
             state = gridState,
@@ -279,13 +279,13 @@ fun FoldersScreen(
             },
             bottomInset = if (floatingPadding(vm)) 100.dp else 16.dp,
         ) {
-            LazyVerticalGrid(
+            LibraryPullRefresh(vm, Modifier.fillMaxSize()) { LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(if (vm.folderListMode) 1 else columns),
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
-                modifier = Modifier.fillMaxSize().pinchLibraryGrid(vm, folders = true).testTag("virtual-folder-grid"),
+                modifier = Modifier.fillMaxSize().testTag("virtual-folder-grid"),
             ) {
                 if (shownGroups.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -339,7 +339,7 @@ fun FoldersScreen(
                         } + if (vm.folderSortDescending) " ↓" else " ↑",
                     )
                 }
-            }
+            } }
         }
     }
     if (sourceFolder != null) {
