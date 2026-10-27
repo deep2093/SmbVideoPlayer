@@ -54,6 +54,12 @@ import com.deepak.videolibrary.artwork.online.ImageUrlPolicy
 import com.deepak.videolibrary.metadata.SceneMetadataRecord
 import com.deepak.videolibrary.thumbs.ThumbStore
 import org.json.JSONObject
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.DisposableEffect
+import com.deepak.videolibrary.metadata.SceneDurationLookup
+import com.deepak.videolibrary.metadata.sceneDurationLabel
+import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.metadata.PosterMode
 import com.deepak.videolibrary.metadata.ScenePosterWorker
 import com.deepak.videolibrary.thumbs.CustomThumbs
@@ -62,14 +68,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 
 /** Separate Settings page. Artwork defaults, manually chosen covers and virtual folders are untouched. */
 @Composable
-internal fun SceneMetadataSettingsSection(vm: LibraryViewModel) {
+internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: (VideoEntity) -> Unit = {}) {
     val context = LocalContext.current
     val service = remember(vm, context) { ServiceLocator.get(context) }
     val prefs = service.sceneMetadataPreferences
     val options by prefs.settings.collectAsStateWithLifecycle()
     val keyRevision by vm.providerKeyRevision.collectAsStateWithLifecycle()
     var consentOpen by remember { mutableStateOf(false) }
-    var reviewOpen by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
 
     Text("Scene metadata", style = MaterialTheme.typography.titleMedium)
@@ -172,7 +177,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel) {
             vm.providerHasKey(SceneMetadataSettings.STASHDB) || vm.providerHasKey(SceneMetadataSettings.TPDB)
         ), modifier = Modifier.fillMaxWidth()) { Text("Fetch metadata now") }
 
-        OutlinedButton(onClick = { reviewOpen = true }, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { vm.ui.metadataReviewOpen = true }, modifier = Modifier.fillMaxWidth()) {
             Text("Review scene matches")
         }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
@@ -188,7 +193,12 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel) {
         }) { Text("Allow lookups") } },
         dismissButton = { TextButton(onClick = { consentOpen = false }) { Text("Cancel") } },
     )
-    if (reviewOpen) SceneMetadataReviewDialog(service, onDismiss = { reviewOpen = false })
+    if (vm.ui.metadataReviewOpen) SceneMetadataReviewDialog(
+        service = service,
+        vm = vm,
+        onPreviewVideo = onPreviewVideo,
+        onDismiss = { vm.ui.metadataReviewOpen = false },
+    )
 }
 
 @Composable
@@ -239,6 +249,8 @@ private fun SceneMatchCandidate(
     suggestion: JSONObject,
     onConfirm: () -> Unit,
     onReject: () -> Unit,
+    vm: LibraryViewModel,
+    onPreviewVideo: (VideoEntity) -> Unit,
 ) {
     val scene = suggestion.optJSONObject("scene") ?: return
     val method = suggestion.optString("method")
@@ -258,11 +270,8 @@ private fun SceneMatchCandidate(
     val studio = scene.optJSONObject("studio")?.optString("name").orEmpty()
     val date = scene.optString("release_date").ifBlank { scene.optString("date") }
     val durationSeconds = scene.optInt("duration", 0)
-    val duration = if (durationSeconds > 0) {
-        val hours = durationSeconds / 3600
-        if (hours > 0) "%d:%02d:%02d".format(hours, (durationSeconds / 60) % 60, durationSeconds % 60)
-        else "%d:%02d".format(durationSeconds / 60, durationSeconds % 60)
-    } else null
+    val durationMs = durationSeconds.takeIf { it > 0 }?.toLong()?.times(1000L)
+    val duration = if (durationMs != null) sceneDurationLabel(durationMs) else null
     val methodLabel = when (method) {
         "OSHASH" -> "File fingerprint: exact OSHash"
         "PHASH" -> "Video similarity: pHash (experimental)"
@@ -273,11 +282,11 @@ private fun SceneMatchCandidate(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Your video", style = MaterialTheme.typography.labelMedium)
-                LocalSceneThumbnail(service, record.path)
+                LocalSceneThumbnail(service, vm, record.path, onPreviewVideo)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("$provider cover", style = MaterialTheme.typography.labelMedium)
-                ProviderSceneThumbnail(url)
+                ProviderSceneThumbnail(url, durationMs)
             }
         }
         // Keep the actual indexed SMB file name visible for EVERY candidate, not only at
@@ -338,25 +347,62 @@ private fun SceneMatchCandidate(
     }
 }
 
-/** Use the same manually chosen or generated thumbnail that the library already displays. */
+/** Existing Skywing thumbnail opens the same full-screen SMB player as Videos. */
 @Composable
-private fun LocalSceneThumbnail(service: ServiceLocator, path: String) {
-    val video by produceState<com.deepak.videolibrary.data.VideoEntity?>(null, service.libraryId, path) {
+private fun LocalSceneThumbnail(
+    service: ServiceLocator,
+    vm: LibraryViewModel,
+    path: String,
+    onPreviewVideo: (VideoEntity) -> Unit,
+) {
+    val video by produceState<VideoEntity?>(null, service.libraryId, path) {
         value = withContext(Dispatchers.IO) { service.db.dao().findVideo(path) }
     }
-    val source = video?.let { ThumbStore.displayFile(service.artworkContext, it.id, it.thumbStatus) }
-    FileImage(
-        source,
-        Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)),
-    )
-    if (source == null) {
-        Text("No local thumbnail", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    // Reading video duration is on-demand for visible review items; playback history
+    // is reused when possible, and expensive SMB probes are cached and concurrency-limited.
+    val progress by remember(vm, path) { vm.progressFlow(path) }.collectAsStateWithLifecycle(initialValue = null)
+    val length by produceState<Long?>(progress?.durationMs?.takeIf { it > 0L }, video, progress?.durationMs) {
+        value = progress?.durationMs?.takeIf { it > 0L }
+            ?: video?.let { SceneDurationLookup.durationMs(service, it) }
     }
+    val source = video?.let { ThumbStore.displayFile(service.artworkContext, it.id, it.thumbStatus) }
+    Box(
+        Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = video != null, onClickLabel = "Play video to verify metadata") {
+                video?.let(onPreviewVideo)
+            },
+    ) {
+        FileImage(source, Modifier.fillMaxSize())
+        SceneLengthBadge(length, Modifier.align(Alignment.BottomEnd))
+    }
+    TextButton(
+        onClick = { video?.let(onPreviewVideo) },
+        enabled = video != null,
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text("Play video") }
+    if (video == null) Text(
+        "Video unavailable in library index",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@Composable
+private fun SceneLengthBadge(milliseconds: Long?, modifier: Modifier = Modifier) {
+    Text(
+        text = if (milliseconds != null) sceneDurationLabel(milliseconds) else "Length unknown",
+        color = androidx.compose.ui.graphics.Color.White,
+        style = MaterialTheme.typography.labelSmall,
+        modifier = modifier.padding(4.dp)
+            .background(androidx.compose.ui.graphics.Color(0xC9000000), RoundedCornerShape(5.dp))
+            .padding(horizontal = 6.dp, vertical = 3.dp),
+    )
 }
 
 /** Untrusted scene images are fetched with the app's existing HTTPS and image-size safeguards. */
 @Composable
-private fun ProviderSceneThumbnail(url: String?) {
+private fun ProviderSceneThumbnail(url: String?, durationMs: Long?) {
     val preview by produceState<ImageBitmap?>(null, url) {
         value = if (ImageUrlPolicy.isAllowed(url)) {
             try {
@@ -380,6 +426,7 @@ private fun ProviderSceneThumbnail(url: String?) {
             Image(bitmap = preview!!, contentDescription = "Matched scene cover",
                 contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
         }
+        SceneLengthBadge(durationMs, Modifier.align(Alignment.BottomEnd))
     }
 }
 
