@@ -343,7 +343,15 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                     playing = video
                                     playQueue = queue
                                 })
-                                else -> SettingsScreen(vm)
+                                else -> SettingsScreen(vm, onPreviewVideo = { video ->
+                                    // Playback from metadata review uses only this file, never a folder queue.
+                                    // The Settings tab, open Metadata page and review-scroll snapshot survive
+                                    // until the built-in player closes through its normal Back handling.
+                                    vm.resetPlaybackQueue()
+                                    playQueue = listOf(video)
+                                    closing = false
+                                    playing = video
+                                })
                             }
                         }
                         }
