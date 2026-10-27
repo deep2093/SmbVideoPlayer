@@ -556,7 +556,7 @@ private fun GridSizeSetting(vm: LibraryViewModel, folders: Boolean) {
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Switch(checked = list, onCheckedChange = { if (folders) vm.setFolderListMode(it) else vm.setVideoListMode(it) })
+            Switch(checked = list, onCheckedChange = { if (folders) vm.chooseFolderListMode(it) else vm.chooseVideoListMode(it) })
         }
         if (!list) {
             for (landscape in listOf(false, true)) {

@@ -241,11 +241,11 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         layoutPrefs.edit().putString(key, preset).apply()
     }
 
-    fun setFolderListMode(list: Boolean) {
+    fun chooseFolderListMode(list: Boolean) {
         if (folderListMode != list) toggleFolderLayout()
     }
 
-    fun setVideoListMode(list: Boolean) {
+    fun chooseVideoListMode(list: Boolean) {
         if (videoListMode != list) toggleVideoLayout()
     }
 
