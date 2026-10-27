@@ -42,14 +42,15 @@ class PortraitSelectionTest {
         assertFalse(base.portraitLookupWanted(ArtworkScope.VIDEO))
     }
 
-    @Test fun videosCanUsePortraitsWithoutFolderCoversChanging() {
+    @Test fun olderVideoPortraitSettingsDoNotFetchOrDisplayPerformerPhotos() {
         val s = ArtworkSettings(enabled = true, adultConsent = true, portraitsOnVideos = true, videoMode = ArtworkMode.PORTRAIT)
-        // Virtual folders are looked up so their videos can inherit, while folder covers stay as they were.
-        assertTrue(s.portraitLookupWanted(ArtworkScope.VIRTUAL_FOLDER))
+        // An older saved setting never enables video-card portraits, nor redundant
+        // folder lookups to satisfy a video-only portrait preference.
+        assertFalse(s.portraitLookupWanted(ArtworkScope.VIRTUAL_FOLDER))
         assertFalse(s.portraitLookupWanted(ArtworkScope.SMB_FOLDER))
         val fetched = ArtworkOverride("virtual:Ann", ArtworkMode.PORTRAIT, false, "p.jpg")
         assertEquals(ArtworkSource.LEGACY, ArtworkResolver.decide(ArtworkScope.VIRTUAL_FOLDER, fetched, null, false, s).source)
-        assertEquals(ArtworkSource.IMAGE, ArtworkResolver.decide(ArtworkScope.VIDEO, null, fetched, false, s).source)
+        assertEquals(ArtworkSource.LEGACY, ArtworkResolver.decide(ArtworkScope.VIDEO, null, fetched, false, s).source)
     }
 
     @Test fun automaticThumbnailStaysWhenNothingWasChosen() {
