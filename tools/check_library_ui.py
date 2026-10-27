@@ -165,13 +165,15 @@ try:
     find('Hollywood')
     print('PASS: a virtual folder reads its chosen drive folder and shows the subfolder of the video filed there')
     click('Settings')
-    find('Connection');scroll_to('Playback');scroll_to('Sync & scanning',up=True)
+    find('Connection');scroll_to('Artwork & scene metadata');scroll_to('Sync & scanning',up=True)
     # Diagnostics is the last page; it may sit below the fold on a phone.
     scroll_to('Backup & diagnostics');scroll_to('Connection',up=True)
     screenshot('settings-categories')
     click('Connection');find('Server address');find('Share name');click('Advanced connection options');find('Domain (optional)');find('Require SMB encryption')
     click('Back to Settings')
-    scroll_to('Playback');click('Playback');find('Brightness and volume swipe')
+    # Playback settings were intentionally removed. Gestures stay enabled in the player.
+    scroll_to('Artwork & scene metadata');click('Artwork & scene metadata')
+    find('1 · Where covers appear')
     click('Back to Settings')
     scroll_to('Appearance',up=True);click('Appearance')
     current='Dark grey'
@@ -233,7 +235,9 @@ try:
     # Put many live, unindexed files before the failed video in the real listing.
     for i in range(80):
         (target.parent/f'A{i:03}.txt').write_text('fixture')
-    click('Settings');open_section('Artwork & thumbnails','View failed thumbnails');click('View failed thumbnails');scroll_to(NAME);click(NAME);click('Open folder in File Explorer')
+    click('Settings');open_section('Artwork & scene metadata','Thumbnail generation & reset')
+    click('Thumbnail generation & reset')
+    scroll_to('View failed thumbnails');click('View failed thumbnails');scroll_to(NAME);click(NAME);click('Open folder in File Explorer')
     find('Target file: '+NAME);screenshot('exact-file-jump')
     labels=[n.get('text','') for n in tree().iter('node')]
     assert 'A000.txt' not in labels, 'Shortcut must scroll beyond the first page'
