@@ -281,10 +281,7 @@ private fun prettyStatus(status: String) =
 /** A titled part of a Settings section: a small heading and its rows, with no box around it. */
 @Composable
 internal fun ScanSection(title: String, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SettingsLabel(title)
-        content()
-    }
+    SettingsStaticCard(title, content)
 }
 
 /** Compact value-over-label tile used for scan and thumbnail counters. */

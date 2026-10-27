@@ -529,6 +529,7 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<
                                 vm = vm,
                                 listMode = vm.folderListMode,
                                 selectionScope = "own",
+                                insideVirtualGeneratedFolder = true,
                                 aspect = aspect,
                             )
                             if (ticked != null) SelectionBadge(ticked, Modifier.align(Alignment.TopEnd).padding(8.dp))

@@ -28,7 +28,7 @@ class ScenePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         val services = ServiceLocator.get(applicationContext)
         if (services.libraryId != inputData.getString("libraryId")) return Result.failure()
         val s = services.sceneMetadataPreferences.settings.value
-        if (!s.enabled || !s.allowedOnlineLookup || s.posterMode == PosterMode.DISABLED || (!s.videoPosters && !s.needsFolderScenePosters())) return Result.success()
+        if (!s.enabled || !s.allowedOnlineLookup || s.posterMode == PosterMode.DISABLED || (!s.videoPosters && !s.virtualGeneratedVideoScenes && !s.needsFolderScenePosters())) return Result.success()
 
         services.artwork.ensureLoaded()
         val records = services.sceneMetadataStore.confirmed()

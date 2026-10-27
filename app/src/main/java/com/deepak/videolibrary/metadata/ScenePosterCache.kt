@@ -43,6 +43,17 @@ class ScenePosterCache(context: Context, private val libraryId: String) {
         preferences.edit().putBoolean(digest(path), true).apply()
     }
 
+    /** Clear only downloaded automatic scene posters and approval flags for this library. */
+    @Synchronized
+    fun clearDownloaded(): Int {
+        val items = root.listFiles().orEmpty().filter { it.isFile && it.name.endsWith(".jpg") }
+        val removed = items.count { it.delete() }
+        preferences.edit().clear().apply()
+        known.clear()
+        signals.value++
+        return removed
+    }
+
     /** Save only if a remote image is valid. Does not update existing artwork or SMB data. */
     suspend fun fetch(video: VideoEntity, selected: JSONObject): Boolean {
         val scene = selected.optJSONObject("scene") ?: return false

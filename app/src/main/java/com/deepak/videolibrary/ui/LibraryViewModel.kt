@@ -1235,11 +1235,11 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
 
     val metadataPosterRevision: StateFlow<Int> get() = services.scenePosters.revision
 
-    fun videoArtwork(video: VideoEntity): File? {
+    fun videoArtwork(video: VideoEntity, insideVirtualGeneratedFolder: Boolean = false): File? {
         val existing = services.artwork.videoFile(video)
         val options = services.sceneMetadataPreferences.settings.value
         if (!options.enabled || options.posterMode == com.deepak.videolibrary.metadata.PosterMode.DISABLED ||
-            !options.videoPosters) return existing
+            !(options.videoPosters || (insideVirtualGeneratedFolder && options.virtualGeneratedVideoScenes))) return existing
         // Hand-picked video images or frames always override automatic scene posters.
         if (com.deepak.videolibrary.thumbs.CustomThumbs.has(services.artworkContext, video.id) ||
             services.artwork.row(com.deepak.videolibrary.artwork.ArtworkKeys.video(video.id))?.manual == true
@@ -1257,6 +1257,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
                 "custom" -> current.copy(customFolderCover = value)
                 "virtual" -> current.copy(virtualFolderCover = value)
                 "generated" -> current.copy(generatedFolderCover = value)
+                "virtual-generated" -> current.copy(virtualGeneratedFolderCover = value)
                 else -> current
             }
         }

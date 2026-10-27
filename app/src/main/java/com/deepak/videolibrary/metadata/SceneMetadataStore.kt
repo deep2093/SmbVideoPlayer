@@ -39,6 +39,10 @@ data class SceneMetadataSettings(
     val customFolderCover: FolderCoverChoice = FolderCoverChoice.ORIGINAL,
     val virtualFolderCover: FolderCoverChoice = FolderCoverChoice.ORIGINAL,
     val generatedFolderCover: FolderCoverChoice = FolderCoverChoice.ORIGINAL,
+    /** Virtual Set name-generated folder portraits are separate from other generated folders. */
+    val virtualGeneratedFolderCover: FolderCoverChoice = FolderCoverChoice.PERFORMER,
+    /** The videos inside only Virtual Set generated folders may show scene art independently. */
+    val virtualGeneratedVideoScenes: Boolean = true,
 ) {
     companion object {
         const val STASHDB = "stashdb"
@@ -52,13 +56,13 @@ data class SceneMetadataSettings(
         identity.startsWith("original:") -> originalFolderCover
         identity.startsWith("own:") || identity.startsWith("match:") -> customFolderCover
         identity.startsWith("virtual:") -> generatedFolderCover
-        identity.startsWith("vset:") && identity.removePrefix("vset:").contains(':') -> generatedFolderCover
+        identity.startsWith("vset:") && identity.removePrefix("vset:").contains(':') -> virtualGeneratedFolderCover
         identity.startsWith("vset:") -> virtualFolderCover
         else -> customFolderCover
     }
 
     fun needsFolderScenePosters() = listOf(
-        originalFolderCover, customFolderCover, virtualFolderCover, generatedFolderCover,
+        originalFolderCover, customFolderCover, virtualFolderCover, generatedFolderCover, virtualGeneratedFolderCover,
     ).any { it == FolderCoverChoice.SCENE }
 
 }
@@ -83,11 +87,13 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
         customFolderCover = savedChoice("custom_folder_cover"),
         virtualFolderCover = savedChoice("virtual_folder_cover"),
         generatedFolderCover = savedChoice("generated_folder_cover"),
+        virtualGeneratedFolderCover = savedChoice("virtual_generated_cover", FolderCoverChoice.PERFORMER),
+        virtualGeneratedVideoScenes = prefs.getBoolean("virtual_generated_video_scenes", true),
     )
 
-    private fun savedChoice(key: String): FolderCoverChoice =
-        runCatching { FolderCoverChoice.valueOf(prefs.getString(key, FolderCoverChoice.ORIGINAL.name)!!) }
-            .getOrDefault(FolderCoverChoice.ORIGINAL)
+    private fun savedChoice(key: String, default: FolderCoverChoice = FolderCoverChoice.ORIGINAL): FolderCoverChoice =
+        runCatching { FolderCoverChoice.valueOf(prefs.getString(key, default.name)!!) }
+            .getOrDefault(default)
 
     @Synchronized
     fun update(change: (SceneMetadataSettings) -> SceneMetadataSettings) {
@@ -107,6 +113,8 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
             .putString("custom_folder_cover", next.customFolderCover.name)
             .putString("virtual_folder_cover", next.virtualFolderCover.name)
             .putString("generated_folder_cover", next.generatedFolderCover.name)
+            .putString("virtual_generated_cover", next.virtualGeneratedFolderCover.name)
+            .putBoolean("virtual_generated_video_scenes", next.virtualGeneratedVideoScenes)
             .apply()
         state.value = next
     }
@@ -243,4 +251,7 @@ class SceneMetadataStore(context: Context, libraryId: String) :
     fun retry(path: String) {
         writableDatabase.delete("scene_metadata", "path=?", arrayOf(path))
     }
+
+    /** Clear local scene results only. Does not touch SMB files or manual covers. */
+    fun clearMatches(): Int = writableDatabase.delete("scene_metadata", null, null)
 }

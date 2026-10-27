@@ -99,28 +99,8 @@ private fun ModePicker(label: String, scope: ArtworkScope, current: ArtworkMode,
 /** A collapsible group inside Settings > Artwork: a title, a one-line summary, and its options when opened. */
 @Composable
 private fun ArtworkGroup(vm: LibraryViewModel, id: String, title: String, summary: String, enabled: Boolean, content: @Composable () -> Unit) {
-    var open by vm.ui.flagState("artwork.$id")
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                .clickable(enabled = enabled, onClickLabel = if (open) "Collapse $title" else "Expand $title") { open = !open }
-                .padding(vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
-            }
-            Icon(
-                if (open && enabled) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (open && enabled) {
-            Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
-        }
-        HorizontalDivider()
+    SettingsAccordion(vm, "Artwork", "legacy-$id", title, summary, enabled = enabled) {
+        content()
     }
 }
 
@@ -194,12 +174,10 @@ internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
         OutlinedButton(onClick = { reviewOpen = true }, enabled = review.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
             Text(if (review.isEmpty()) "Review suggestions (none waiting)" else "Review suggestions (${review.size})")
         }
-        OutlinedButton(onClick = vm::fetchPortraitsNow, enabled = portraitsOn && s.portraitsOnFolders, modifier = Modifier.fillMaxWidth()) {
-            Text("Look up portraits now")
-        }
+
         val note = remember(settings) { vm.artworkBackgroundNote() }
         if (note != null) Hint(note)
-        OutlinedButton(onClick = vm::clearFetchedPortraits, modifier = Modifier.fillMaxWidth()) { Text("Clear looked-up portraits") }
+
         Hint("Pictures you chose yourself are kept. Videos on your server are never changed.")
     }
     if (reviewOpen) ReviewPortraitsDialog(vm, onDismiss = { reviewOpen = false })

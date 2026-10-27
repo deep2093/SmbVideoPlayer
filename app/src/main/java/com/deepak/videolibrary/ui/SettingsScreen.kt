@@ -203,6 +203,7 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                         Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             when (page) {
                         "Connection" -> {
+                            SettingsStaticCard("Server & account") {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 PillTextField(
                                     value = host,
@@ -345,29 +346,26 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                             }
                             SettingsDivider()
                             // Remote access is part of reaching the server, so it lives here, folded away until needed.
-                            var vpnOpen by vm.ui.flagState("settings.vpn")
-                            ExpandRow("Remote access (VPN)", "WireGuard, for reaching your server away from home", vpnOpen) { vpnOpen = !vpnOpen }
-                            if (vpnOpen) VpnSettings()
+                            SettingsAccordion(vm, "Connection", "vpn", "Remote access (VPN)",
+                                "WireGuard, for reaching your server away from home") { VpnSettings() }
+                            }
                         }
                         "Sync" -> SyncAndThumbnailsSettings(vm, scan = true, thumbnails = false)
-                        "Grouping" -> AutoGroupingSettings(vm)
+                        "Grouping" -> SettingsStaticCard("Folder naming rules") { AutoGroupingSettings(vm) }
                         "Artwork" -> {
                             SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo)
-                            var openAdvanced by vm.ui.flagState("unified.artwork.advanced")
-                            ExpandRow(
-                                "More artwork & thumbnail tools",
-                                "Fallback covers, thumbnail generation, portrait review and reset",
-                                openAdvanced,
-                            ) { openAdvanced = !openAdvanced }
-                            if (openAdvanced) {
-                                ArtworkSettingsSection(vm)
-                                SettingsDivider()
+                            ArtworkSettingsSection(vm)
+                            SettingsAccordion(
+                                vm, "Artwork", "thumbnail-tools",
+                                "Thumbnail generation & reset",
+                                "Generate, retry, clear cache and reset manually chosen artwork",
+                            ) {
                                 SyncAndThumbnailsSettings(vm, scan = false, thumbnails = true)
-                                SettingsDivider()
                                 ResetChoicesSetting(vm)
                             }
                         }
                         "Layout" -> {
+                            SettingsStaticCard("Folders & navigation") {
                             FolderTabsSetting(vm)
                             SettingsDivider()
                             SettingsLabel("Navigation")
@@ -381,12 +379,14 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                             Text("Pinch with two fingers in Folders or Videos to switch between grid sizes and list view.", style = MaterialTheme.typography.bodySmall)
                             SettingsLabel("What is shown")
                             OutlinedButton(onClick = { vm.ui.setFlag("settings.hidden", true) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
+                            }
                         }
-                        "Appearance" -> ThemeSettings()
+                        "Appearance" -> SettingsStaticCard("Themes & readability") { ThemeSettings() }
                         "Diagnostics" -> {
-                            LibraryBackupActions(vm)
-                            SettingsDivider()
-                            DiagnosticsSettings()
+                            SettingsStaticCard("Backup & diagnostics") {
+                                LibraryBackupActions(vm)
+                                DiagnosticsSettings()
+                            }
                         }
                         else -> Unit
                             }

@@ -78,6 +78,8 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     val keyRevision by vm.providerKeyRevision.collectAsStateWithLifecycle()
     var consentOpen by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf<String?>(null) }
+    var clearPrompt by remember { mutableStateOf<String?>(null) }
+    val actionScope = rememberCoroutineScope()
 
     val artwork by vm.artworkSettings.collectAsStateWithLifecycle()
     var portraitConsent by remember { mutableStateOf(false) }
@@ -86,7 +88,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         style = MaterialTheme.typography.bodySmall)
 
     MetadataPanel(vm, "placements", "Where pictures appear",
-        "Videos and four folder sections · Choose independently", initialOpen = true) {
+        "Videos and five folder categories · Choose independently", initialOpen = true) {
         SettingsLabel("VIDEOS")
         SwitchRow(
             "Scene posters on video cards",
@@ -100,6 +102,19 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         FolderArtworkTarget("Custom folders", "custom", options.customFolderCover, vm)
         FolderArtworkTarget("Virtual folders", "virtual", options.virtualFolderCover, vm)
         FolderArtworkTarget("Generated name subfolders", "generated", options.generatedFolderCover, vm)
+        SettingsLabel("ONLY INSIDE VIRTUAL FOLDERS")
+        FolderArtworkTarget(
+            "Virtual Folder · generated name subfolders", "virtual-generated",
+            options.virtualGeneratedFolderCover, vm,
+        )
+        SwitchRow(
+            "Scene images for videos inside these subfolders",
+            "Each video shows its own approved scene image. Independent of the main Videos setting; never a performer portrait.",
+            options.virtualGeneratedVideoScenes,
+        ) { on ->
+            prefs.update { it.copy(virtualGeneratedVideoScenes = on) }
+            if (on) ScenePosterWorker.enqueue(context, service.libraryId)
+        }
         Text("For multi-video folders, Skywing uses an available confirmed scene poster from one of the videos. If no scene poster or performer portrait is available, the original folder cover remains.", style = MaterialTheme.typography.bodySmall)
     }
 
@@ -141,16 +156,6 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
                 onClick = { vm.ui.metadataReviewOpen = true },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Review suggested scene matches") }
-            OutlinedButton(
-                onClick = {
-                    SceneMetadataWorker.enqueue(context, service.libraryId, manual = true)
-                    status = "Finding missing scene details. Existing confirmed results stay saved."
-                },
-                enabled = options.allowedOnlineLookup &&
-                    (vm.providerHasKey(SceneMetadataSettings.STASHDB) || vm.providerHasKey(SceneMetadataSettings.TPDB)),
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Find missing scene metadata now") }
-            status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             SwitchRow("Look up scenes after scanning", "Automatically looks up new indexed videos, without changing the original files.", options.automatic) {
                 prefs.update { current -> current.copy(automatic = it) }
             }
@@ -172,11 +177,6 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
             artwork.autoFetchOnScan,
             artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders,
         ) { on -> vm.updateArtwork { it.copy(autoFetchOnScan = on) } }
-        OutlinedButton(
-            onClick = vm::fetchPortraitsNow,
-            enabled = artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Find missing performer portraits now") }
         Text(vm.artworkBackgroundNote() ?: "No recent portrait lookup.", style = MaterialTheme.typography.bodySmall)
     }
 
@@ -213,12 +213,97 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
             enabled = options.allowedOnlineLookup,
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Recheck unconfirmed with preferred provider") }
-        OutlinedButton(onClick = {
-            ScenePosterWorker.enqueue(context, service.libraryId)
-            status = "Confirmed artwork downloads queued."
-        }, enabled = options.posterMode != PosterMode.DISABLED, modifier = Modifier.fillMaxWidth()) {
-            Text("Apply posters from confirmed matches")
+    }
+
+    MetadataPanel(
+        vm, "actions", "Artwork actions & cleanup",
+        "Look up scenes or portraits · apply posters · safely clear saved results",
+    ) {
+        SettingsLabel("LOOK UP")
+        OutlinedButton(
+            onClick = {
+                SceneMetadataWorker.enqueue(context, service.libraryId, manual = true)
+                status = "Scene lookup queued."
+            },
+            enabled = options.enabled && options.allowedOnlineLookup &&
+                (vm.providerHasKey(SceneMetadataSettings.STASHDB) || vm.providerHasKey(SceneMetadataSettings.TPDB)),
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Look up missing scenes now") }
+        OutlinedButton(
+            onClick = {
+                vm.fetchPortraitsNow()
+                status = "Missing portrait lookup queued."
+            },
+            enabled = artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Look up missing performer portraits") }
+        OutlinedButton(
+            onClick = {
+                ScenePosterWorker.enqueue(context, service.libraryId)
+                status = "Confirmed scene poster downloads queued."
+            },
+            enabled = options.enabled && options.allowedOnlineLookup &&
+                options.posterMode != PosterMode.DISABLED,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Apply confirmed scene posters") }
+        SettingsLabel("CLEAR SAVED RESULTS")
+        Text("These remove only Skywing's local caches. Your SMB videos and hand-picked covers remain untouched.",
+            style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = { clearPrompt = "scene" }, modifier = Modifier.fillMaxWidth()) {
+            Text("Clear scene matches…")
         }
+        OutlinedButton(onClick = { clearPrompt = "poster" }, modifier = Modifier.fillMaxWidth()) {
+            Text("Clear downloaded scene posters…")
+        }
+        OutlinedButton(onClick = { clearPrompt = "portrait" }, modifier = Modifier.fillMaxWidth()) {
+            Text("Clear fetched performer portraits…")
+        }
+        status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    }
+
+    if (clearPrompt != null) {
+        val selected = clearPrompt!!
+        val title = when (selected) {
+            "scene" -> "Clear saved scene matches?"
+            "poster" -> "Clear downloaded scene posters?"
+            else -> "Clear downloaded performer portraits?"
+        }
+        AlertDialog(
+            onDismissRequest = { clearPrompt = null },
+            title = { Text(title) },
+            text = { Text(
+                "This removes only this library's saved " + when (selected) {
+                    "scene" -> "scene identification results and suggestions. They may be looked up again."
+                    "poster" -> "automatic scene posters and approval flags. Confirmed scene metadata stays saved."
+                    else -> "automatically fetched performer portraits. Hand-picked covers remain saved."
+                } + " Nothing on your SMB server is deleted."
+            ) },
+            confirmButton = {
+                TextButton(onClick = {
+                    clearPrompt = null
+                    actionScope.launch {
+                        val amount = when (selected) {
+                            "scene" -> {
+                                SceneMetadataWorker.cancel(context, service.libraryId)
+                                withContext(Dispatchers.IO) { service.sceneMetadataStore.clearMatches() }
+                            }
+                            "poster" -> {
+                                androidx.work.WorkManager.getInstance(context).cancelUniqueWork(
+                                    ScenePosterWorker.workName(service.libraryId)
+                                )
+                                withContext(Dispatchers.IO) { service.scenePosters.clearDownloaded() }
+                            }
+                            else -> {
+                                vm.clearFetchedPortraits()
+                                -1
+                            }
+                        }
+                        status = if (amount >= 0) "Removed $amount saved items." else "Portrait cleanup requested."
+                    }
+                }) { Text("Clear saved data") }
+            },
+            dismissButton = { TextButton(onClick = { clearPrompt = null }) { Text("Cancel") } },
+        )
     }
 
     if (portraitConsent) AlertDialog(
@@ -262,38 +347,8 @@ private fun MetadataPanel(
     initialOpen: Boolean = false,
     body: @Composable () -> Unit,
 ) {
-    var open by vm.ui.flagState("unified.metadata.$id", initialOpen)
-    androidx.compose.material3.Surface(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Box(
-                    Modifier.widthIn(min = 4.dp).height(40.dp)
-                        .background(MaterialTheme.colorScheme.tertiary, RoundedCornerShape(6.dp)),
-                )
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                    Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text(if (open) "▾" else "▸",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.tertiary)
-            }
-            if (open) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    body()
-                }
-            }
-        }
+    SettingsAccordion(vm, "Artwork", id, title, summary, initialOpen = initialOpen) {
+        body()
     }
 }
 

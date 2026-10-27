@@ -289,22 +289,109 @@ private fun DownloadRow(vm: LibraryViewModel, item: DownloadItem, bytesPerSecond
  * While artwork is being looked up: one quiet line at the top of the app ("Looking up artwork · 12 of 80") over a
  * thin bar that fills from left to right as folders are done. Theme colours keep it readable everywhere.
  */
+private data class CurrentActivity(val name: String, val fraction: Float?, val detail: String)
+
+/**
+ * Global activity strip: all WorkManager jobs plus library scan, thumbnail generation
+ * and downloads. Stays above navigation/content regardless of selected tab.
+ */
 @Composable
 internal fun ArtworkProgressStrip(vm: LibraryViewModel) {
-    val progress by vm.portraitProgress.collectAsStateWithLifecycle()
-    androidx.compose.animation.AnimatedVisibility(visible = progress != null) {
-        val (done, total) = progress ?: (0 to 0)
-        val fraction by androidx.compose.animation.core.animateFloatAsState(
-            if (total > 0) done.toFloat() / total else 0f,
-            androidx.compose.animation.core.tween(600),
-            label = "artwork_progress",
+    val context = LocalContext.current
+    val libraryId = remember(context) { com.deepak.videolibrary.ServiceLocator.get(context).libraryId }
+    val manager = remember(context) { androidx.work.WorkManager.getInstance(context) }
+    val sceneFlow = remember(manager, libraryId) {
+        manager.getWorkInfosForUniqueWorkFlow(com.deepak.videolibrary.metadata.SceneMetadataWorker.workName(libraryId))
+    }
+    val posterFlow = remember(manager, libraryId) {
+        manager.getWorkInfosForUniqueWorkFlow(com.deepak.videolibrary.metadata.ScenePosterWorker.workName(libraryId))
+    }
+    val scenes by sceneFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val posters by posterFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val scanActive by vm.scanActive.collectAsStateWithLifecycle()
+    val session by vm.session.collectAsStateWithLifecycle()
+    val thumbsActive by vm.thumbsActive.collectAsStateWithLifecycle()
+    val done by vm.thumbsDone.collectAsStateWithLifecycle()
+    val pending by vm.thumbsPending.collectAsStateWithLifecycle()
+    val failed by vm.thumbsFailed.collectAsStateWithLifecycle()
+    val portrait by vm.portraitProgress.collectAsStateWithLifecycle()
+    val transfers by vm.transfers.collectAsStateWithLifecycle()
+    val downloads by vm.downloads.collectAsStateWithLifecycle()
+
+    fun running(infos: List<androidx.work.WorkInfo>): androidx.work.WorkInfo? =
+        infos.firstOrNull { it.state == androidx.work.WorkInfo.State.RUNNING }
+    fun jobStatus(name: String, info: androidx.work.WorkInfo?): CurrentActivity? {
+        info ?: return null
+        val doneCount = info.progress.getInt("done", 0)
+        val totalCount = info.progress.getInt("total", 0)
+        return CurrentActivity(
+            name,
+            if (totalCount > 0) (doneCount.toFloat() / totalCount).coerceIn(0f, 1f) else null,
+            if (totalCount > 0) "$doneCount of $totalCount" else "Working…",
         )
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(Modifier.fillMaxWidth()) {
-                Text("Looking up artwork", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-                Text(if (total > 0) "$done of $total" else "Starting…", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+
+    val active = buildList {
+        if (scanActive) add(CurrentActivity(
+            "Scanning library", null,
+            session?.let { "${it.dirsScanned} folders · ${it.videosFound} videos" } ?: "Scanning…",
+        ))
+        if (thumbsActive) {
+            val total = done + pending + failed
+            add(CurrentActivity(
+                "Generating thumbnails", if (total > 0) done.toFloat() / total else null,
+                if (total > 0) "$done of $total" else "Working…",
+            ))
+        }
+        jobStatus("Identifying scenes", running(scenes))?.let(::add)
+        jobStatus("Downloading scene posters", running(posters))?.let(::add)
+        portrait?.let { (completed, total) ->
+            add(CurrentActivity(
+                "Looking up performer portraits",
+                if (total > 0) (completed.toFloat() / total).coerceIn(0f, 1f) else null,
+                if (total > 0) "$completed of $total" else "Working…",
+            ))
+        }
+        val copies = transfers.count { it.state == androidx.work.WorkInfo.State.RUNNING }
+        if (copies > 0) add(CurrentActivity("File operations", null, "$copies active"))
+        val downloading = downloads.filter { it.active }
+        if (downloading.isNotEmpty()) {
+            add(CurrentActivity(
+                "Downloading files", activeProgress(downloads),
+                "${downloading.size} downloading",
+            ))
+        }
+        if (vm.artworkMaintenance) add(CurrentActivity("Updating artwork", null, "Working…"))
+    }
+    androidx.compose.animation.AnimatedVisibility(visible = active.isNotEmpty()) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            active.forEach { task ->
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            task.name,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Text(task.detail, style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (task.fraction == null) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
+                    } else {
+                        LinearProgressIndicator(
+                            progress = { task.fraction },
+                            modifier = Modifier.fillMaxWidth().height(3.dp),
+                            gapSize = 0.dp,
+                            drawStopIndicator = {},
+                        )
+                    }
+                }
             }
-            FillBar(fraction, Modifier.fillMaxWidth())
         }
     }
 }

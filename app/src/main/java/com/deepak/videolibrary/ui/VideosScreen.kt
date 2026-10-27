@@ -288,6 +288,7 @@ internal fun VideoCard(
     onRemoveFromContinue: (() -> Unit)? = null,
     listMode: Boolean = false,
     selectionScope: String = "videos",
+    insideVirtualGeneratedFolder: Boolean = false,
     /** Card shape of the page: 16:9 (default) or 3:4. */
     aspect: Float = com.deepak.videolibrary.artwork.CoverCrop.CARD_ASPECT,
 ) {
@@ -303,8 +304,8 @@ internal fun VideoCard(
     val metadataSettings by vm.metadataSettings.collectAsStateWithLifecycle()
     val artworkOn = rememberArtworkEnabled(vm)
     val tall = aspect < 1f
-    val thumb: File? = remember(video.id, video.thumbStatus, video.customGroup, video.groupKey, customRevision, artRevision, metadataRevision, metadataSettings, tall) {
-        com.deepak.videolibrary.artwork.ArtworkRepository.forShape(vm.videoArtwork(video), tall)
+    val thumb: File? = remember(video.id, video.thumbStatus, video.customGroup, video.groupKey, customRevision, artRevision, metadataRevision, metadataSettings, tall, insideVirtualGeneratedFolder) {
+        com.deepak.videolibrary.artwork.ArtworkRepository.forShape(vm.videoArtwork(video, insideVirtualGeneratedFolder), tall)
     }
     var pickThumbnail by remember(video.relativePath) { mutableStateOf(false) }
     var changeCover by remember(video.relativePath) { mutableStateOf(false) }

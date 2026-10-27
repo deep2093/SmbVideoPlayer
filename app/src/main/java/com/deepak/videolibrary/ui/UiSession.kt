@@ -14,6 +14,16 @@ import androidx.compose.runtime.setValue
 class UiSession {
     /** Open/closed state of expandable parts, by name. */
     val flags = mutableStateMapOf<String, Boolean>()
+    /** Only one expanded card per Settings page, even across nested artwork groups. */
+    private val accordion = mutableStateMapOf<String, String>()
+
+    fun accordionOpen(page: String, id: String, initiallyOpen: Boolean = false): Boolean {
+        val selected = accordion[page]
+        return selected == id || (selected == null && initiallyOpen)
+    }
+    fun setAccordionOpen(page: String, id: String, expanded: Boolean) {
+        accordion[page] = if (expanded) id else ""
+    }
 
     /** Selected Settings page, or null for the Settings index. */
     var settingsSection by mutableStateOf<String?>(null)
