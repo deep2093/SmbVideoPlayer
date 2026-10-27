@@ -83,39 +83,33 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
 
     val artwork by vm.artworkSettings.collectAsStateWithLifecycle()
     var portraitConsent by remember { mutableStateOf(false) }
-    Text("Choose your covers", style = MaterialTheme.typography.titleMedium)
-    Text("Set a different cover style for Videos and every folder category. Custom covers stay protected.",
+    Text("Where covers come from", style = MaterialTheme.typography.titleMedium)
+    Text("Each kind of page has one automatic source. Covers you pick yourself always stay.",
         style = MaterialTheme.typography.bodySmall)
 
     MetadataPanel(vm, "placements", "1 · Where covers appear",
-        "Videos and five folder categories · Choose independently", initialOpen = true) {
-        SettingsLabel("VIDEOS")
+        "Scene posters on videos · movie posters in Original folders", initialOpen = true) {
         SwitchRow(
-            "Scene posters on video cards",
-            "Uses an approved scene cover when available, otherwise your video frame or custom cover. Never uses performer portraits.",
+            "Scene posters on videos",
+            "Every video is matched to its scene and shows that scene's poster. Otherwise your video frame or custom cover.",
             options.videoPosters,
         ) { on -> prefs.update { it.copy(videoPosters = on) }; if (on) ScenePosterWorker.enqueue(context, service.libraryId) }
-
-        SettingsLabel("FOLDER COVERS")
-        Text("Choose one type in each card below, or leave both switches off to keep the original thumbnail.", style = MaterialTheme.typography.bodySmall)
-        FolderArtworkTarget("Original SMB folders", "original", options.originalFolderCover, vm)
-        FolderArtworkTarget("Custom folders", "custom", options.customFolderCover, vm)
-        FolderArtworkTarget("Virtual folders", "virtual", options.virtualFolderCover, vm)
-        FolderArtworkTarget("Generated name subfolders", "generated", options.generatedFolderCover, vm)
-        SettingsLabel("ONLY INSIDE VIRTUAL FOLDERS")
-        FolderArtworkTarget(
-            "Virtual Folder · generated name subfolders", "virtual-generated",
-            options.virtualGeneratedFolderCover, vm,
-        )
         SwitchRow(
-            "Scene images for videos inside these subfolders",
-            "Each video shows its own approved scene image. Independent of the main Videos setting; never a performer portrait.",
-            options.virtualGeneratedVideoScenes,
+            "Full movie posters in Original folders",
+            "Each movie folder inside a folder you added gets its movie poster from ThePornDB. The folder you added is skipped. " +
+                "Searches by the folder's name, then by the file names inside it. Needs your ThePornDB key and Allow online matching.",
+            options.originalFolderCover == FolderCoverChoice.MOVIE,
         ) { on ->
-            prefs.update { it.copy(virtualGeneratedVideoScenes = on) }
-            if (on) ScenePosterWorker.enqueue(context, service.libraryId)
+            vm.updateFolderCoverChoice("original", if (on) FolderCoverChoice.MOVIE else FolderCoverChoice.ORIGINAL)
+            if (on) vm.findMoviePostersIfWanted()
         }
-        Text("For multi-video folders, Skywing uses an available confirmed scene poster from one of the videos. If no scene poster or performer portrait is available, the original folder cover remains.", style = MaterialTheme.typography.bodySmall)
+        if (options.originalFolderCover == FolderCoverChoice.MOVIE) {
+            OutlinedButton(onClick = { vm.findMoviePostersIfWanted(again = true) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Search again for folders without a poster")
+            }
+        }
+        Text("Virtual and Custom folders show performer portraits (see Performer portraits). If nothing is found, the normal cover stays.",
+            style = MaterialTheme.typography.bodySmall)
     }
 
     MetadataPanel(vm, "scene", "2 · Scene matching & automatic posters",
@@ -292,63 +286,6 @@ private fun MetadataPanel(
 ) {
     SettingsAccordion(vm, "Artwork", id, title, summary, initialOpen = initialOpen) {
         body()
-    }
-}
-
-/** Visually separate Original / Custom / Virtual / Generated folders. */
-@Composable
-private fun FolderArtworkTarget(
-    title: String,
-    section: String,
-    choice: FolderCoverChoice,
-    vm: LibraryViewModel,
-) {
-    val context = LocalContext.current
-    val summary = when (choice) {
-        FolderCoverChoice.PERFORMER -> "Showing performer portraits"
-        FolderCoverChoice.SCENE -> "Showing matched scene posters"
-        FolderCoverChoice.ORIGINAL -> "Keeping existing folder thumbnails"
-        FolderCoverChoice.MOVIE -> "Showing full movie posters from ThePornDB"
-    }
-    androidx.compose.material3.Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (choice == FolderCoverChoice.ORIGINAL) MaterialTheme.colorScheme.outlineVariant
-            else MaterialTheme.colorScheme.tertiary,
-        ),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-            Text(summary, style = MaterialTheme.typography.bodySmall,
-                color = if (choice == FolderCoverChoice.ORIGINAL) MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.tertiary)
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            SwitchRow("Performer portrait", "Uses a portrait only in this folder section.",
-                choice == FolderCoverChoice.PERFORMER) { enabled ->
-                vm.updateFolderCoverChoice(section, if (enabled) FolderCoverChoice.PERFORMER else FolderCoverChoice.ORIGINAL)
-                if (enabled) vm.fetchPortraitsNow()
-            }
-            SwitchRow("Matched scene poster", "Uses artwork from a confirmed video scene inside the folder.",
-                choice == FolderCoverChoice.SCENE) { enabled ->
-                vm.updateFolderCoverChoice(section, if (enabled) FolderCoverChoice.SCENE else FolderCoverChoice.ORIGINAL)
-                if (enabled) ScenePosterWorker.enqueue(context, ServiceLocator.get(context).libraryId)
-            }
-            if (section == "original") {
-                SwitchRow("Full movie poster", "Searches ThePornDB movies by the folder's name, then by the file names inside it. Uses your ThePornDB key; a cover you pick yourself always stays.",
-                    choice == FolderCoverChoice.MOVIE) { enabled ->
-                    vm.updateFolderCoverChoice(section, if (enabled) FolderCoverChoice.MOVIE else FolderCoverChoice.ORIGINAL)
-                    if (enabled) vm.findMoviePostersIfWanted()
-                }
-                if (choice == FolderCoverChoice.MOVIE) {
-                    androidx.compose.material3.OutlinedButton(onClick = { vm.findMoviePostersIfWanted(again = true) }) {
-                        Text("Search again for folders without a poster")
-                    }
-                }
-            }
-        }
     }
 }
 

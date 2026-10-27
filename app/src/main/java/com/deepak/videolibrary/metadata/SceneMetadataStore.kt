@@ -53,23 +53,20 @@ data class SceneMetadataSettings(
 
     fun providers(): List<String> = if (primary == TPDB) listOf(TPDB, STASHDB) else listOf(STASHDB, TPDB)
 
+    /**
+     * What a folder's automatic cover is. Original folders show a full movie poster when that switch is on (the folder
+     * you added is a container, its movie subfolders get the posters). Every other folder (Virtual, Custom, generated
+     * name subfolders) shows a performer portrait when portraits are on. Scene posters belong to each video.
+     */
     fun folderChoice(identity: String): FolderCoverChoice = when {
-        identity.startsWith("original:") -> originalFolderCover
-        identity.startsWith("own:") || identity.startsWith("match:") -> customFolderCover
-        identity.startsWith("virtual:") -> generatedFolderCover
-        identity.startsWith("vset:") && identity.removePrefix("vset:").contains(':') -> virtualGeneratedFolderCover
-        identity.startsWith("vset:") -> virtualFolderCover
-        else -> customFolderCover
+        identity.startsWith("original:") ->
+            if (originalFolderCover == FolderCoverChoice.MOVIE) FolderCoverChoice.MOVIE else FolderCoverChoice.ORIGINAL
+        else -> FolderCoverChoice.PERFORMER
     }
 
-    fun needsFolderScenePosters() = listOf(
-        originalFolderCover, customFolderCover, virtualFolderCover, generatedFolderCover, virtualGeneratedFolderCover,
-    ).any { it == FolderCoverChoice.SCENE }
+    fun needsFolderScenePosters() = false
 
-    fun needsMoviePosters() = listOf(
-        originalFolderCover, customFolderCover, virtualFolderCover, generatedFolderCover, virtualGeneratedFolderCover,
-    ).any { it == FolderCoverChoice.MOVIE }
-
+    fun needsMoviePosters() = originalFolderCover == FolderCoverChoice.MOVIE
 }
 
 class SceneMetadataPreferences(context: Context, libraryId: String) {

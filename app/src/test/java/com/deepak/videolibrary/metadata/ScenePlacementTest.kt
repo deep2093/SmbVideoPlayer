@@ -1,34 +1,30 @@
 package com.deepak.videolibrary.metadata
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScenePlacementTest {
-    @Test fun virtualGeneratedSubfolderUsesPerformerByDefault() {
+    @Test fun virtualCustomAndGeneratedFoldersUsePerformerPortraits() {
         val settings = SceneMetadataSettings()
         assertEquals(FolderCoverChoice.PERFORMER, settings.folderChoice("vset:my-set:Tom Cruise"))
-        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("vset:my-set"))
+        assertEquals(FolderCoverChoice.PERFORMER, settings.folderChoice("vset:my-set"))
+        assertEquals(FolderCoverChoice.PERFORMER, settings.folderChoice("virtual:Another group"))
+        assertEquals(FolderCoverChoice.PERFORMER, settings.folderChoice("own:12"))
         assertTrue(settings.virtualGeneratedVideoScenes)
     }
 
-    @Test fun virtualOnlyOverridesNeverChangeOtherSections() {
-        val settings = SceneMetadataSettings(
-            generatedFolderCover = FolderCoverChoice.SCENE,
-            virtualGeneratedFolderCover = FolderCoverChoice.PERFORMER,
-            virtualGeneratedVideoScenes = true,
-        )
-        assertEquals(FolderCoverChoice.PERFORMER, settings.folderChoice("vset:some-set:group"))
-        assertEquals(FolderCoverChoice.SCENE, settings.folderChoice("virtual:Another group"))
-        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("original:Videos"))
+    @Test fun originalFoldersKeepTheirCoverUnlessMoviePostersAreOn() {
+        assertEquals(FolderCoverChoice.ORIGINAL, SceneMetadataSettings().folderChoice("original:Tiger/Heat"))
+        val on = SceneMetadataSettings(originalFolderCover = FolderCoverChoice.MOVIE)
+        assertEquals(FolderCoverChoice.MOVIE, on.folderChoice("original:Tiger/Heat"))
+        assertTrue(on.needsMoviePosters())
     }
 
-    @Test fun enablingSceneCoverInVirtualGeneratedFoldersRequestsPosterCache() {
-        val settings = SceneMetadataSettings(
-            videoPosters = false, virtualGeneratedVideoScenes = true,
-            virtualGeneratedFolderCover = FolderCoverChoice.PERFORMER,
-        )
-        assertTrue(settings.virtualGeneratedVideoScenes)
-        assertEquals(FolderCoverChoice.PERFORMER, settings.folderChoice("vset:group:performer"))
+    @Test fun foldersNeverUseScenePosters() {
+        val settings = SceneMetadataSettings(originalFolderCover = FolderCoverChoice.SCENE)
+        assertEquals(FolderCoverChoice.ORIGINAL, settings.folderChoice("original:Tiger"))
+        assertFalse(settings.needsFolderScenePosters())
     }
 }

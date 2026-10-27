@@ -1412,10 +1412,6 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         services.sceneMetadataPreferences.update { current ->
             when (section) {
                 "original" -> current.copy(originalFolderCover = value)
-                "custom" -> current.copy(customFolderCover = value)
-                "virtual" -> current.copy(virtualFolderCover = value)
-                "generated" -> current.copy(generatedFolderCover = value)
-                "virtual-generated" -> current.copy(virtualGeneratedFolderCover = value)
                 else -> current
             }
         }

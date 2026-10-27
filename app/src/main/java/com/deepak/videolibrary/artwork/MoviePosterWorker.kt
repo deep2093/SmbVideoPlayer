@@ -31,8 +31,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * Finds full movie posters on ThePornDB for Original folders whose cover is set to "Full movie poster": first by the
- * folder's own name, then (when that finds nothing certain) by the names of the video files inside it. Only an
+ * Finds full movie posters on ThePornDB for the movie folders inside your Original folders (the subfolders of a folder you
+ * added): first by the folder's own name, then (when that finds nothing certain) by the names of the video files inside it. Only an
  * unambiguous match is applied; folders with a cover you chose yourself are never touched. Reads only the app's own
  * index, never the drive.
  */
@@ -51,7 +51,7 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         if (roots.isEmpty()) return Result.success()
         services.artwork.ensureLoaded()
         val movies = services.moviePosters
-        val targets = OriginalFolderPaths.within(roots, services.db.dao().allParentDirs()).filter { path ->
+        val targets = OriginalFolderPaths.movieFolders(roots, services.db.dao().allParentDirs()).filter { path ->
             val identity = ArtworkKeys.originalFolder(path)
             services.artwork.effectiveRow(identity)?.manual != true &&
                 movies.fileFor(identity) == null && !movies.checkedRecently(identity)

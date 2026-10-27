@@ -224,6 +224,15 @@ internal object FolderTargets {
     }
 }
 
+/**
+ * The folders that get a full movie poster. A folder you added is a container for movies, so its subfolders get the
+ * posters and it does not. An added folder with no subfolders holds the movie's videos itself, so it gets one.
+ */
+internal fun OriginalFolderPaths.movieFolders(roots: List<String>, parentDirs: List<String>): List<String> {
+    val containers = roots.filter { root -> parentDirs.any { it.startsWith("$root/") } }.toSet()
+    return within(roots, parentDirs).filter { it !in containers }
+}
+
 /** The Original folders a lookup covers: each added folder and every folder between it and an indexed video. */
 internal object OriginalFolderPaths {
     fun within(roots: List<String>, parentDirs: List<String>): List<String> {
