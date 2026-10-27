@@ -22,7 +22,9 @@ class ThePornDbProvider : PerformerProvider {
         val request = JSONObject().put("query", document).put("variables", variables).toString()
         val body = ArtworkHttp.postJson(
             EndpointPolicy.normalize(endpoint) ?: "https://theporndb.net/graphql",
-            mapOf("ApiKey" to apiKey, "Accept" to "application/json"),
+            com.deepak.videolibrary.metadata.StashBoxHeaders.forProvider(
+                com.deepak.videolibrary.metadata.SceneMetadataSettings.TPDB, apiKey,
+            ),
             request,
         )
         return StashDbProvider.parse(body).map { it.copy(providerId = id, providerName = displayName) }
