@@ -169,12 +169,12 @@ internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
     // The names sent to the search are set in Settings > Auto grouping.
 
     ArtworkGroup(
-        vm, "tools", "Tools",
-        if (review.isEmpty()) "No suggestions waiting" else "${review.size} suggestions waiting for you",
+        vm, "tools", "Review folder portrait suggestions",
+        if (review.isEmpty()) "No suggestions awaiting approval" else "${review.size} performer portraits need your review",
         s.enabled,
     ) {
         OutlinedButton(onClick = { reviewOpen = true }, enabled = review.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-            Text(if (review.isEmpty()) "Review suggestions (none waiting)" else "Review suggestions (${review.size})")
+            Text(if (review.isEmpty()) "No folder portraits to review" else "Review folder portrait suggestions (${review.size})")
         }
 
         val note = remember(settings) { vm.artworkBackgroundNote() }

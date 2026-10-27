@@ -162,6 +162,23 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         }
     }
 
+    MetadataPanel(vm, "providers", "3 · Provider accounts & priority",
+        "Your provider keys, entered once for both features") {
+        Text("Select which provider to try first. Both providers can return suggestions. Artwork and Scene metadata share the encrypted API keys.", style = MaterialTheme.typography.bodySmall)
+        listOf(SceneMetadataSettings.TPDB, SceneMetadataSettings.STASHDB).forEach { id ->
+            val title = if (id == SceneMetadataSettings.TPDB) "ThePornDB" else "StashDB"
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                androidx.compose.material3.RadioButton(selected = options.primary == id, onClick = {
+                    prefs.update { it.copy(primary = id) }
+                })
+                TextButton(onClick = { prefs.update { it.copy(primary = id) } }) { Text("Search $title first") }
+            }
+        }
+        SceneKeyEntry(vm, SceneMetadataSettings.STASHDB, "StashDB", keyRevision)
+        SceneKeyEntry(vm, SceneMetadataSettings.TPDB, "ThePornDB", keyRevision)
+        Text("Keys are encrypted using Android Keystore and are never embedded in the APK.", style = MaterialTheme.typography.bodySmall)
+    }
+
     MetadataPanel(vm, "portraits", "4 · Performer portraits",
         if (artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders) "On for selected folders" else "Off") {
         Text("Performer photos are only used in folder sections set to Performer portrait. They are never placed on video cards.", style = MaterialTheme.typography.bodySmall)
@@ -178,23 +195,6 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
             artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders,
         ) { on -> vm.updateArtwork { it.copy(autoFetchOnScan = on) } }
         Text(vm.artworkBackgroundNote() ?: "No recent portrait lookup.", style = MaterialTheme.typography.bodySmall)
-    }
-
-    MetadataPanel(vm, "providers", "3 · Provider accounts & priority",
-        "Your provider keys, entered once for both features") {
-        Text("Select which provider to try first. Both providers can return suggestions. Artwork and Scene metadata share the encrypted API keys.", style = MaterialTheme.typography.bodySmall)
-        listOf(SceneMetadataSettings.TPDB, SceneMetadataSettings.STASHDB).forEach { id ->
-            val title = if (id == SceneMetadataSettings.TPDB) "ThePornDB" else "StashDB"
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                androidx.compose.material3.RadioButton(selected = options.primary == id, onClick = {
-                    prefs.update { it.copy(primary = id) }
-                })
-                TextButton(onClick = { prefs.update { it.copy(primary = id) } }) { Text("Search $title first") }
-            }
-        }
-        SceneKeyEntry(vm, SceneMetadataSettings.STASHDB, "StashDB", keyRevision)
-        SceneKeyEntry(vm, SceneMetadataSettings.TPDB, "ThePornDB", keyRevision)
-        Text("Keys are encrypted using Android Keystore and are never embedded in the APK.", style = MaterialTheme.typography.bodySmall)
     }
 
     MetadataPanel(
