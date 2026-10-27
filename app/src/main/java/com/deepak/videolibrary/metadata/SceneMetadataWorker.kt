@@ -46,7 +46,7 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
         if (services.libraryId != libraryId) return Result.failure()
         val manual = inputData.getBoolean("manual", false)
         val settings = services.sceneMetadataPreferences.settings.value
-        if (!settings.enabled || !settings.allowedOnlineLookup || (!settings.automatic && !manual)) return Result.success()
+        if (!settings.enabled || !settings.allowedOnlineLookup) return Result.success()
 
         val profile = services.settings.loadProfile() ?: return Result.success()
         if (profile.username.isNotBlank() && profile.password.isBlank()) return Result.success()
@@ -141,10 +141,10 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
             result.first.isEmpty() -> services.sceneMetadataStore.save(video, if (result.second) "RETRY" else "NO_MATCH")
             else -> {
                 val matches = result.first.distinctBy { it.provider + ":" + it.id }
-                // Only exactly one verified OSHASH result is accepted automatically.
-                // Text matches and Android pHash always wait for confirmation.
-                val safeAuto = matches.size == 1 && matches[0].method == "OSHASH"
-                if (safeAuto) services.sceneMetadataStore.save(video, "CONFIRMED", matches[0].encoded().toString())
+                // A file-hash match, or a title that clearly is this file's, is applied automatically.
+                // Anything unclear (several scenes, a partial title, Android pHash) waits in Review.
+                val chosen = SceneAutoMatch.choose(matches, video.name, services.sceneMetadataPreferences.settings.value.providers())
+                if (chosen != null) services.sceneMetadataStore.save(video, "CONFIRMED", chosen.encoded().toString())
                 else {
                     val proposals = JSONArray()
                     matches.take(20).forEach { proposals.put(it.encoded()) }

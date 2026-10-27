@@ -33,7 +33,7 @@ data class SceneMetadataSettings(
     val phash: Boolean = false,
     val reviewUncertain: Boolean = true,
     val allowedOnlineLookup: Boolean = false,
-    val posterMode: PosterMode = PosterMode.REVIEW_FIRST,
+    val posterMode: PosterMode = PosterMode.AUTOMATIC,
     val videoPosters: Boolean = true,
     val folderPosters: Boolean = false,
     val originalFolderCover: FolderCoverChoice = FolderCoverChoice.ORIGINAL,
@@ -81,11 +81,12 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
         enabled = prefs.getBoolean("enabled", true),
         primary = prefs.getString("primary", SceneMetadataSettings.STASHDB)
             ?.takeIf { it == SceneMetadataSettings.TPDB } ?: SceneMetadataSettings.STASHDB,
-        automatic = prefs.getBoolean("automatic", true),
+        automatic = true,
         phash = prefs.getBoolean("phash", false),
         reviewUncertain = prefs.getBoolean("review_uncertain", true),
         allowedOnlineLookup = prefs.getBoolean("online_consent", false),
-        posterMode = runCatching { PosterMode.valueOf(prefs.getString("poster_mode", PosterMode.REVIEW_FIRST.name)!!) }.getOrDefault(PosterMode.REVIEW_FIRST),
+        // Confirmed scene posters are always applied automatically; there is no approval step or off switch.
+        posterMode = PosterMode.AUTOMATIC,
         videoPosters = prefs.getBoolean("video_posters", true),
         folderPosters = prefs.getBoolean("folder_posters", false),
         originalFolderCover = savedChoice("original_folder_cover"),
@@ -228,6 +229,10 @@ class SceneMetadataStore(context: Context, libraryId: String) :
             arrayOf(suggestions, System.currentTimeMillis(), path),
         )
     }
+
+    /** Forget "no match" and failed lookups so the next lookup tries them again. Confirmed and pending-review results stay. */
+    @Synchronized
+    fun forgetMisses(): Int = writableDatabase.delete("scene_metadata", "status IN ('NO_MATCH','RETRY')", null)
 
     /** Change of primary provider: retry only unresolved results, preserving confirmed and dismissed decisions. */
     @Synchronized

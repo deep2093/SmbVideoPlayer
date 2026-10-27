@@ -40,7 +40,7 @@ class PortraitFetchWorker(context: Context, params: WorkerParameters) : Coroutin
         val settings = repo.settings.value
         val forced = inputData.getBoolean("force", false)
         if (!settings.enabled || !settings.adultConsent) return Result.success()
-        if (!forced && !settings.autoFetchOnScan) return Result.success()
+        if (!settings.portraitsOnFolders && !settings.portraitsOnVideos) return Result.success()
 
         // A run that was stopped and restarted (time limit, rate limit) continues where it left off: items already
         // looked up since the run was requested are skipped.

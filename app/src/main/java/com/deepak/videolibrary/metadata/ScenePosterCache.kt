@@ -38,6 +38,13 @@ class ScenePosterCache(context: Context, private val libraryId: String) {
         return File(root, name).takeIf { it.isFile }?.also { known[k] = it }
     }
 
+    /** Forget pictures that failed to download, so the next run tries them again instead of waiting out the cooldown. */
+    fun forgetFailures() {
+        val edit = preferences.edit()
+        preferences.all.keys.filter { it.startsWith("failed:") }.forEach { edit.remove(it) }
+        edit.apply()
+    }
+
     fun approved(path: String): Boolean = preferences.getBoolean(digest(path), false)
 
     fun markApproved(path: String) {

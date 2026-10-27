@@ -119,7 +119,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     }
 
     MetadataPanel(vm, "scene", "2 · Scene matching & automatic posters",
-        if (options.enabled) "Enabled · " + options.posterMode.label else "Disabled") {
+        if (options.enabled) "On · applied automatically" else "Off") {
         SwitchRow("Enable scene matching", "Find titles, dates, studios, performers and scene-specific covers.", options.enabled) { on ->
             prefs.update { it.copy(enabled = on) }
             if (!on) SceneMetadataWorker.cancel(context, service.libraryId)
@@ -136,29 +136,11 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
                     SceneMetadataWorker.cancel(context, service.libraryId)
                 }
             }
-            SettingsLabel("Poster approval")
-            PosterMode.entries.forEach { mode ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    androidx.compose.material3.RadioButton(
-                        selected = options.posterMode == mode,
-                        onClick = {
-                            prefs.update { it.copy(posterMode = mode) }
-                            if (mode != PosterMode.DISABLED) ScenePosterWorker.enqueue(context, service.libraryId)
-                        },
-                    )
-                    TextButton(onClick = {
-                        prefs.update { it.copy(posterMode = mode) }
-                        if (mode != PosterMode.DISABLED) ScenePosterWorker.enqueue(context, service.libraryId)
-                    }) { Text(mode.label) }
-                }
-            }
             Button(
                 onClick = { vm.ui.metadataReviewOpen = true },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text("Review suggested scene matches") }
-            SwitchRow("Look up scenes after scanning", "Automatically looks up new indexed videos, without changing the original files.", options.automatic) {
-                prefs.update { current -> current.copy(automatic = it) }
-            }
+            Text("Matches are applied automatically after every scan and pull to refresh. Only unclear matches wait in Review.", style = MaterialTheme.typography.bodySmall)
         }
     }
 
@@ -189,11 +171,6 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
             if (on) portraitConsent = true
             else vm.updateArtwork { it.copy(portraitsOnFolders = false) }
         }
-        SwitchRow("Look up missing portraits after scans",
-            "Search for missing folder portraits after an SMB scan. Skips covers you selected manually.",
-            artwork.autoFetchOnScan,
-            artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders,
-        ) { on -> vm.updateArtwork { it.copy(autoFetchOnScan = on) } }
         Text(vm.artworkBackgroundNote() ?: "No recent portrait lookup.", style = MaterialTheme.typography.bodySmall)
     }
 
@@ -246,9 +223,6 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     MetadataPanel(vm, "advanced", "6 · Advanced matching & troubleshooting", "Fingerprint methods and troubleshooting") {
         SwitchRow("Try video pHash", "Experimental and slower over SMB. Suggested results always need review.", options.phash) { enabled ->
             prefs.update { old -> old.copy(phash = enabled) }
-        }
-        SwitchRow("Review uncertain matches", "Filename matches and multiple possibilities require confirmation.", options.reviewUncertain) { enabled ->
-            prefs.update { old -> old.copy(reviewUncertain = enabled) }
         }
         OutlinedButton(
             onClick = {

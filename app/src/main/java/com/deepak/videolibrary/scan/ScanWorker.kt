@@ -47,15 +47,23 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             if (!thumbs.await()) com.deepak.videolibrary.thumbs.ThumbnailWorker.enqueue(applicationContext, services.libraryId)
             ok
         }
-        // Optional: look up folder portraits after a scan, only if the user turned that on.
+        // After every scan, look for what is still missing and apply it: performer portraits, scene matches and their
+        // posters, movie posters. A refresh you start yourself (pull down, Refresh library) also tries again what was
+        // already searched without a result.
+        val recheck = inputData.getBoolean(KEY_RECHECK, false)
         val art = services.artwork.settings.value
-        if (art.enabled && art.autoFetchOnScan) {
-            com.deepak.videolibrary.artwork.PortraitFetchWorker.enqueue(applicationContext, services.libraryId)
+        if (art.enabled && art.adultConsent && art.portraitsOnFolders) {
+            com.deepak.videolibrary.artwork.PortraitFetchWorker.enqueue(applicationContext, services.libraryId, force = recheck)
         }
         val finished = completed || services.db.dao().pendingCountNow() == 0
         if (finished) {
             val metadata = services.sceneMetadataPreferences.settings.value
-            if (metadata.enabled && metadata.automatic && metadata.allowedOnlineLookup) {
+            if (recheck) {
+                services.sceneMetadataStore.forgetMisses()
+                services.scenePosters.forgetFailures()
+                services.moviePosters.forgetChecks()
+            }
+            if (metadata.enabled && metadata.allowedOnlineLookup) {
                 com.deepak.videolibrary.metadata.SceneMetadataWorker.enqueue(applicationContext, services.libraryId)
             }
             // Full movie posters for Original folders, when that is the chosen cover there.
@@ -71,10 +79,11 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         const val UNIQUE_NAME = "library_scan"
         fun name(id: String) = "$UNIQUE_NAME:$id"
         private const val KEY_MODE = "mode"
+        private const val KEY_RECHECK = "recheck"
 
-        fun enqueue(context: Context, mode: ScanMode, afterCurrent: Boolean = false, libraryId: String = ServiceLocator.get(context).libraryId) {
+        fun enqueue(context: Context, mode: ScanMode, afterCurrent: Boolean = false, libraryId: String = ServiceLocator.get(context).libraryId, recheckMissing: Boolean = false) {
             val request = OneTimeWorkRequestBuilder<ScanWorker>()
-                .setInputData(androidx.work.workDataOf("libraryId" to libraryId, "mode" to mode.name))
+                .setInputData(androidx.work.workDataOf("libraryId" to libraryId, "mode" to mode.name, KEY_RECHECK to recheckMissing))
                 .setConstraints(
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
                 ).build()

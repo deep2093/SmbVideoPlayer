@@ -2113,7 +2113,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
                 }
             }
             notice = reason
-            if (reason == null) ScanWorker.enqueue(getApplication(), mode, libraryId = services.libraryId)
+            if (reason == null) ScanWorker.enqueue(getApplication(), mode, libraryId = services.libraryId, recheckMissing = true)
         }
     }
 

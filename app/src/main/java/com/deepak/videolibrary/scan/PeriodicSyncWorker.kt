@@ -53,8 +53,12 @@ class PeriodicSyncWorker(context: Context, params: WorkerParameters) : Coroutine
                 com.deepak.videolibrary.thumbs.ThumbnailWorker
                     .enqueue(applicationContext, services.libraryId)
                 val metadata = services.sceneMetadataPreferences.settings.value
-                if (metadata.enabled && metadata.automatic && metadata.allowedOnlineLookup) {
+                if (metadata.enabled && metadata.allowedOnlineLookup) {
                     com.deepak.videolibrary.metadata.SceneMetadataWorker.enqueue(applicationContext, services.libraryId)
+                }
+                val art = services.artwork.settings.value
+                if (art.enabled && art.adultConsent && art.portraitsOnFolders) {
+                    com.deepak.videolibrary.artwork.PortraitFetchWorker.enqueue(applicationContext, services.libraryId)
                 }
                 Result.success()
             } else {
