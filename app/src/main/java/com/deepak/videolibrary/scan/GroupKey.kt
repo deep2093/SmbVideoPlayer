@@ -34,14 +34,14 @@ object GroupKey {
             s = s.substring(m.range.last + 1).trimStart()
         }
         val splitsOnHyphen = rule == GroupingRule.COMMA_OR_HYPHEN || rule == GroupingRule.COMMA_HYPHEN_OR_TWO_WORDS
-        val delimiter = s.indexOfFirst { (splitsOnHyphen && (it == ',' || it == '-')) || (rule == GroupingRule.COMMA_ONLY && it == ',') }
+        val delimiter = s.indexOfFirst { (splitsOnHyphen && (NameMarks.isComma(it) || NameMarks.isDash(it))) || (rule == GroupingRule.COMMA_ONLY && NameMarks.isComma(it)) }
         if (delimiter >= 0) s = s.substring(0, delimiter).trim()
         s = s.trim().trimStart { !it.isLetterOrDigit() }
         // Keep the complete cleaned phrase rather than only the first word.
         s = s
             .replace(spaces, " ")
             .replace(trailingNumber, "")
-            .trim(' ', '-', '_', '.', ',', ';', ':')
+            .trim(*NameMarks.trimChars)
         if (rule == GroupingRule.COMMA_HYPHEN_OR_TWO_WORDS && delimiter < 0) {
             s = s.split(' ').filter(String::isNotBlank).take(2).joinToString(" ")
         }
@@ -92,6 +92,22 @@ object GroupingPrefs {
     }
 }
 
+/**
+ * Every character that works as a hyphen or comma in file names. Downloaded names often use an en dash "–", em dash
+ * "—", minus sign "−" or a full-width comma instead of the plain keys; without these, "Theodora Day– Tune Up" was read
+ * as one long name and made a second "Theodora Day…" folder.
+ */
+internal object NameMarks {
+    private const val DASHES = "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D"
+    private const val COMMAS = ",\uFF0C\u3001"
+
+    fun isDash(c: Char): Boolean = c in DASHES
+    fun isComma(c: Char): Boolean = c in COMMAS
+
+    /** The trim set used after cutting a name, with every dash and comma form included. */
+    val trimChars: CharArray = (" _.;:" + DASHES + COMMAS).toCharArray()
+}
+
 object VirtualNames {
     private val leadingTag = Regex("^\\s*(\\[[^\\]]*\\]|\\([^)]*\\))")
     private val spaces = Regex("\\s+")
@@ -110,11 +126,12 @@ object VirtualNames {
             val tag = leadingTag.find(s) ?: break
             s = s.substring(tag.range.last + 1).trimStart()
         }
-        val hyphen = s.indexOf('-')
+        // Any dash form counts as the hyphen ("Theodora Day– Tune Up" stops at "–"), any comma form as a comma.
+        val hyphen = s.indexOfFirst(NameMarks::isDash)
         val cutAtHyphen = rules.stopAtHyphen && hyphen >= 0
         val head = if (cutAtHyphen) s.substring(0, hyphen) else s
-        val splitAtComma = rules.splitAtCommas && ',' in head
-        var parts = (if (splitAtComma) head.split(',') else listOf(head)).map(::clean).filter(String::isNotBlank)
+        val splitAtComma = rules.splitAtCommas && head.any(NameMarks::isComma)
+        var parts = (if (splitAtComma) head.split(*",\uFF0C\u3001".toCharArray()) else listOf(head)).map(::clean).filter(String::isNotBlank)
         if (rules.firstTwoWords && !cutAtHyphen && !splitAtComma) {
             parts = parts.map { it.split(' ').filter(String::isNotBlank).take(2).joinToString(" ") }
         }
@@ -126,5 +143,5 @@ object VirtualNames {
     private fun clean(part: String): String = part.trim().trimStart { !it.isLetterOrDigit() }
         .replace(spaces, " ")
         .replace(trailingNumber, "")
-        .trim(' ', '-', '_', '.', ',', ';', ':')
+        .trim(*NameMarks.trimChars)
 }
