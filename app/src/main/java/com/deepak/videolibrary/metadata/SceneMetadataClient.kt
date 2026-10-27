@@ -47,6 +47,9 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
         // scene search fields during connection tests.
         query(provider, "query SkyWingConnection { me { name } }").optJSONObject("me") != null
 
+    /** Provider -> index of the search variant that worked last, so known-bad ones are skipped. */
+    private val workingSearch = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
     /** Stash-box schema searchScenes, with only public, read-only metadata fields. */
     suspend fun search(provider: String, filename: String): List<SceneMatch> {
         val term = cleanSearchTerm(filename)
@@ -56,15 +59,20 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
             listOf(TPDB_SCENE_SEARCH to "searchScene",
                 SEARCH to "searchScenes", TPDB_TITLE_SEARCH to "queryScenes")
         else listOf(SEARCH to "searchScenes", TPDB_SCENE_SEARCH to "searchScene")
+        val preferred = workingSearch[provider]
+        val order = variants.indices.sortedBy { if (it == preferred) 0 else 1 }
         var schemaFailure: ProviderException? = null
-        for ((document, field) in variants) {
+        for (index in order) {
+            val (document, field) = variants[index]
             try {
                 val result = query(provider, document, variables)
                 val matches = if (field == "searchScene") result.optJSONArray(field)
                     else result.optJSONObject(field)?.optJSONArray("scenes")
+                workingSearch[provider] = index
                 return sceneResults(provider, "TITLE", matches)
             } catch (e: ProviderException) {
                 if (e.failure != ProviderFailure.GRAPHQL_SCHEMA) throw e
+                if (preferred == index) workingSearch.remove(provider)
                 schemaFailure = e
             }
         }
@@ -72,19 +80,38 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
     }
 
     /** Exact hash matching uses the stash-box supported OSHASH/PHASH enum values. */
-    suspend fun fingerprints(provider: String, hashes: Map<String, String>): List<SceneMatch> {
-        if (hashes.isEmpty()) return emptyList()
-        val fingerprintList = JSONArray()
-        for ((algorithm, hash) in hashes) {
-            if (algorithm !in setOf("OSHASH", "PHASH")) continue
-            if (!hash.matches(Regex("[a-fA-F0-9]{1,16}"))) continue
-            fingerprintList.put(JSONObject().put("algorithm", algorithm).put("hash", hash.lowercase(Locale.ROOT)))
+    suspend fun fingerprints(provider: String, hashes: Map<String, String>): List<SceneMatch> =
+        fingerprintsBatch(provider, listOf(hashes)).firstOrNull().orEmpty()
+
+    /**
+     * Looks up many videos in ONE request, the way Stash's Scene Tagger does a whole page at once:
+     * findScenesBySceneFingerprints takes one fingerprint list per video and answers in the same order.
+     * The result has one entry per input (empty when that video had no usable hash or no match).
+     */
+    suspend fun fingerprintsBatch(provider: String, perVideo: List<Map<String, String>>): List<List<SceneMatch>> {
+        if (perVideo.isEmpty()) return emptyList()
+        val input = JSONArray()
+        val sent = ArrayList<Int>()
+        perVideo.forEachIndexed { index, hashes ->
+            val fingerprintList = JSONArray()
+            for ((algorithm, hash) in hashes) {
+                if (algorithm !in setOf("OSHASH", "PHASH")) continue
+                if (!hash.matches(Regex("[a-fA-F0-9]{1,16}"))) continue
+                fingerprintList.put(JSONObject().put("algorithm", algorithm).put("hash", hash.lowercase(Locale.ROOT)))
+            }
+            if (fingerprintList.length() > 0) {
+                input.put(fingerprintList)
+                sent += index
+            }
         }
-        if (fingerprintList.length() == 0) return emptyList()
-        val input = JSONArray().put(fingerprintList)
+        val out = MutableList(perVideo.size) { emptyList<SceneMatch>() }
+        if (sent.isEmpty()) return out
         val result = query(provider, if (provider == SceneMetadataSettings.TPDB) HASH_SEARCH_TPDB else HASH_SEARCH, JSONObject().put("fps", input))
-        val perVideo = result.optJSONArray("findScenesBySceneFingerprints")?.optJSONArray(0)
-        return sceneResults(provider, "FINGERPRINT", perVideo)
+        val answers = result.optJSONArray("findScenesBySceneFingerprints")
+        sent.forEachIndexed { position, index ->
+            out[index] = sceneResults(provider, "FINGERPRINT", answers?.optJSONArray(position))
+        }
+        return out
     }
 
     private fun sceneResults(provider: String, method: String, input: JSONArray?): List<SceneMatch> {

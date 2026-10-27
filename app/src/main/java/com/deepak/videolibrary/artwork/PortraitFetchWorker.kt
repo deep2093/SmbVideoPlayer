@@ -13,8 +13,16 @@ import androidx.work.workDataOf
 import com.deepak.videolibrary.ServiceLocator
 import com.deepak.videolibrary.artwork.online.ProviderFailure
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Background lookup of performer portraits for folders. It only runs when the user enabled artwork, enabled internet
@@ -23,6 +31,7 @@ import java.util.concurrent.TimeUnit
  */
 class PortraitFetchWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
+        val started = System.currentTimeMillis()
         val services = ServiceLocator.get(applicationContext)
         val expected = inputData.getString("libraryId")
         if (expected != null && expected != services.libraryId) return Result.failure()
@@ -39,36 +48,71 @@ class PortraitFetchWorker(context: Context, params: WorkerParameters) : Coroutin
         val targets = FolderTargets.collect(services, settings, forced, since)
         if (targets.isEmpty()) return Result.success()
         val fetcher = services.portraitFetcher
-        var applied = 0
-        var unclear = 0
+        val applied = AtomicInteger(0)
+        val unclear = AtomicInteger(0)
+        val done = AtomicInteger(0)
+        val consecutiveNetworkErrors = AtomicInteger(0)
+        // Providers whose key was rejected during this run are not asked again; the others carry on.
+        val rejected = ConcurrentHashMap<String, ProviderFailure>()
+        val stop = AtomicReference<ProviderFailure?>(null)
+        var outOfTime = false
+        val lanes = Semaphore(PARALLEL_LOOKUPS)
         // Shown as a bar at the top of the app: how many of the folders have been looked up.
         setProgress(workDataOf(PROGRESS_DONE to 0, PROGRESS_TOTAL to targets.size))
-        for ((index, target) in targets.withIndex()) {
-            val (identity, label) = target
-            val outcome = try {
-                fetcher.autoFetch(identity, label)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                PortraitFetcher.Outcome.ItemError
+        for (batch in targets.chunked(BATCH_SIZE)) {
+            if (stop.get() != null) break
+            if (System.currentTimeMillis() - started >= RUN_BUDGET_MS) {
+                outOfTime = true
+                break
             }
-            when (outcome) {
-                is PortraitFetcher.Outcome.Failed -> {
-                    repo.preferences.lastBackgroundNote = "Stopped: ${outcome.failure.message}"
-                    return when (outcome.failure) {
-                        ProviderFailure.RATE_LIMITED, ProviderFailure.NETWORK, ProviderFailure.BLOCKED_BY_SETTINGS -> Result.retry()
-                        else -> Result.failure()
+            coroutineScope {
+                batch.map { (identity, label) ->
+                    async {
+                        lanes.withPermit {
+                            if (stop.get() != null) return@withPermit
+                            val outcome = try {
+                                fetcher.autoFetch(identity, label, rejected.keys) { provider, failure -> rejected[provider] = failure }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                PortraitFetcher.Outcome.ItemError
+                            }
+                            if (outcome == PortraitFetcher.Outcome.NetworkError) {
+                                // A few in a row means the connection itself is down: stop and retry the run later.
+                                if (consecutiveNetworkErrors.incrementAndGet() >= MAX_CONSECUTIVE_NETWORK_ERRORS) stop.compareAndSet(null, ProviderFailure.NETWORK)
+                            } else {
+                                consecutiveNetworkErrors.set(0)
+                            }
+                            when (outcome) {
+                                is PortraitFetcher.Outcome.Failed -> { stop.compareAndSet(null, outcome.failure) }
+                                PortraitFetcher.Outcome.Applied -> applied.incrementAndGet()
+                                PortraitFetcher.Outcome.Ambiguous, PortraitFetcher.Outcome.Suggested -> unclear.incrementAndGet()
+                                else -> Unit
+                            }
+                            done.incrementAndGet()
+                            // Gentle pace per lane, only after an item that actually asked a provider.
+                            if (outcome != PortraitFetcher.Outcome.Skipped && outcome != PortraitFetcher.Outcome.NoMatch) delay(PACE_MS)
+                        }
                     }
-                }
-                PortraitFetcher.Outcome.Applied -> applied++
-                PortraitFetcher.Outcome.Ambiguous, PortraitFetcher.Outcome.Suggested -> unclear++
-                else -> Unit
+                }.awaitAll()
             }
-            setProgress(workDataOf(PROGRESS_DONE to index + 1, PROGRESS_TOTAL to targets.size))
-            // Gentle pace: well under any provider's rate limit, and cancellable between lookups.
-            delay(PACE_MS)
+            setProgress(workDataOf(PROGRESS_DONE to done.get(), PROGRESS_TOTAL to targets.size))
         }
-        repo.preferences.lastBackgroundNote = "Last lookup: $applied applied" + if (unclear > 0) ", $unclear waiting in Review suggestions." else "."
+        stop.get()?.let { failure ->
+            repo.preferences.lastBackgroundNote = "Stopped: ${failure.message}"
+            return when (failure) {
+                ProviderFailure.RATE_LIMITED, ProviderFailure.NETWORK, ProviderFailure.BLOCKED_BY_SETTINGS, ProviderFailure.SERVER_ERROR -> Result.retry()
+                else -> Result.failure()
+            }
+        }
+        if (outOfTime) {
+            // Keep going in a fresh run straight away instead of being stopped by WorkManager's time limit.
+            continueLater(applicationContext, services.libraryId, forced, since)
+            return Result.success()
+        }
+        val skipped = if (rejected.isEmpty()) "" else " Key rejected by: " + rejected.keys.joinToString() + "."
+        repo.preferences.lastBackgroundNote = "Last lookup: ${applied.get()} applied" +
+            (if (unclear.get() > 0) ", ${unclear.get()} waiting in Review suggestions." else ".") + skipped
         return Result.success()
     }
 
@@ -79,20 +123,38 @@ class PortraitFetchWorker(context: Context, params: WorkerParameters) : Coroutin
 
         /** The WorkManager name of the lookup for one library (to follow its progress). */
         fun workName(libraryId: String) = "$UNIQUE:$libraryId"
-        private const val PACE_MS = 1_200L
+        private const val PACE_MS = 500L
+        private const val PARALLEL_LOOKUPS = 3
+        private const val BATCH_SIZE = 12
+        private const val MAX_CONSECUTIVE_NETWORK_ERRORS = 5
+        private val RUN_BUDGET_MS = TimeUnit.MINUTES.toMillis(8)
 
-        fun enqueue(context: Context, libraryId: String, force: Boolean = false) {
-            val settings = ServiceLocator.get(context).artwork.settings.value
-            val request = OneTimeWorkRequestBuilder<PortraitFetchWorker>()
-                .setInputData(workDataOf("libraryId" to libraryId, "force" to force, "since" to System.currentTimeMillis()))
+        private fun request(context: Context, libraryId: String, force: Boolean, since: Long) =
+            OneTimeWorkRequestBuilder<PortraitFetchWorker>()
+                .setInputData(workDataOf("libraryId" to libraryId, "force" to force, "since" to since))
                 .setConstraints(
                     Constraints.Builder()
-                        .setRequiredNetworkType(if (settings.allowMetered) NetworkType.CONNECTED else NetworkType.UNMETERED)
+                        .setRequiredNetworkType(
+                            if (ServiceLocator.get(context).artwork.settings.value.allowMetered) NetworkType.CONNECTED else NetworkType.UNMETERED,
+                        )
                         .build(),
                 )
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork("$UNIQUE:$libraryId", if (force) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP, request)
+
+        fun enqueue(context: Context, libraryId: String, force: Boolean = false) {
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "$UNIQUE:$libraryId",
+                if (force) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP,
+                request(context, libraryId, force, System.currentTimeMillis()),
+            )
+        }
+
+        /** Queues the next run behind this one, keeping the original start time so finished folders stay skipped. */
+        private fun continueLater(context: Context, libraryId: String, force: Boolean, since: Long) {
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "$UNIQUE:$libraryId", ExistingWorkPolicy.APPEND_OR_REPLACE, request(context, libraryId, force, since),
+            )
         }
 
         fun cancel(context: Context, libraryId: String) {
@@ -103,6 +165,8 @@ class PortraitFetchWorker(context: Context, params: WorkerParameters) : Coroutin
 
 /** The folders a background run may look up: those with no stored result yet (all of them when forced). */
 internal object FolderTargets {
+    private val ERROR_RETRY_MS = TimeUnit.HOURS.toMillis(24)
+
     suspend fun collect(services: ServiceLocator, settings: ArtworkSettings, forced: Boolean, since: Long): List<Pair<String, String>> {
         val repo = services.artwork
         val dao = services.db.dao()
@@ -120,7 +184,11 @@ internal object FolderTargets {
             // Already has a portrait: never downloaded again. Earlier "no match" / "unclear" results are only
             // retried when the user asks for a lookup from Settings.
             if (row?.imageName != null) return
-            if (row != null && (!forced || row.updatedAt >= since)) return
+            // A lookup that failed (unreadable picture, provider error) is retried on normal runs after a cooldown,
+            // instead of leaving that folder without a portrait until a manual lookup.
+            val staleError = row != null && row.lookupStatus == ArtworkOverride.STATUS_ERROR &&
+                System.currentTimeMillis() - row.updatedAt > ERROR_RETRY_MS && row.updatedAt < since
+            if (row != null && !staleError && (!forced || row.updatedAt >= since)) return
             out[identity] = label
         }
         dao.allMatchFolders().forEach { consider(ArtworkKeys.matchFolder(it.id), it.name) }

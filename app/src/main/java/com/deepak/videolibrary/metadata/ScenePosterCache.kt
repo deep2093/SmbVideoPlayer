@@ -8,6 +8,7 @@ import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.thumbs.ArtworkFiles
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
@@ -50,7 +51,7 @@ class ScenePosterCache(context: Context, private val libraryId: String) {
         val removed = items.count { it.delete() }
         preferences.edit().clear().apply()
         known.clear()
-        signals.value++
+        signals.update { it + 1 }
         return removed
     }
 
@@ -70,19 +71,36 @@ class ScenePosterCache(context: Context, private val libraryId: String) {
         val indexKey = cacheKey(video)
         val previous = fileFor(video)
         if (previous == target && target.isFile) return true
-        val bitmap = ArtworkHttp.downloadImage(imageUrl, 720)
+        // An image that failed recently is not downloaded again on every run.
+        val failKey = "failed:" + target.name
+        val failedAt = preferences.getLong(failKey, 0L)
+        if (failedAt > 0L && System.currentTimeMillis() - failedAt < FAILURE_COOLDOWN_MS) return false
+        val bitmap = try {
+            ArtworkHttp.downloadImage(imageUrl, 720)
+        } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) {
+            if (e.failure == com.deepak.videolibrary.artwork.online.ProviderFailure.BAD_RESPONSE ||
+                e.failure == com.deepak.videolibrary.artwork.online.ProviderFailure.FORBIDDEN) {
+                // Missing, refused or unreadable picture: remember it. Network and server errors are retried.
+                preferences.edit().putLong(failKey, System.currentTimeMillis()).apply()
+            }
+            throw e
+        }
         return try {
             ArtworkFiles.publish(target) { output ->
                 check(bitmap.compress(Bitmap.CompressFormat.JPEG, 87, output))
             }
             // Durable index is updated ONLY after a valid image has been saved.
-            preferences.edit().putString(indexKey, target.name).apply()
+            preferences.edit().putString(indexKey, target.name).remove(failKey).apply()
             known[indexKey] = target
             if (previous != null && previous != target) previous.delete()
-            signals.value++
+            signals.update { it + 1 }
             true
         } finally {
             bitmap.recycle()
         }
+    }
+
+    private companion object {
+        val FAILURE_COOLDOWN_MS = java.util.concurrent.TimeUnit.HOURS.toMillis(24)
     }
 }

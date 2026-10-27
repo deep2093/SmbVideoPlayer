@@ -29,7 +29,7 @@ data class SceneMetadataSettings(
     val enabled: Boolean = true,
     val primary: String = STASHDB,
     val automatic: Boolean = true,
-    val phash: Boolean = true,
+    val phash: Boolean = false,
     val reviewUncertain: Boolean = true,
     val allowedOnlineLookup: Boolean = false,
     val posterMode: PosterMode = PosterMode.REVIEW_FIRST,
@@ -77,7 +77,7 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
         primary = prefs.getString("primary", SceneMetadataSettings.STASHDB)
             ?.takeIf { it == SceneMetadataSettings.TPDB } ?: SceneMetadataSettings.STASHDB,
         automatic = prefs.getBoolean("automatic", true),
-        phash = prefs.getBoolean("phash", true),
+        phash = prefs.getBoolean("phash", false),
         reviewUncertain = prefs.getBoolean("review_uncertain", true),
         allowedOnlineLookup = prefs.getBoolean("online_consent", false),
         posterMode = runCatching { PosterMode.valueOf(prefs.getString("poster_mode", PosterMode.REVIEW_FIRST.name)!!) }.getOrDefault(PosterMode.REVIEW_FIRST),

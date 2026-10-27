@@ -31,12 +31,12 @@ class StashDbProvider : PerformerProvider {
             val root = try {
                 JSONObject(body)
             } catch (e: Exception) {
-                throw ProviderException(ProviderFailure.BAD_RESPONSE, e)
+                throw ProviderException(ProviderFailure.NON_JSON, e)
             }
             val errors = root.optJSONArray("errors")
             if (errors != null && errors.length() > 0) {
-                val text = errors.toString().lowercase()
-                throw ProviderException(if ("unauthor" in text || "api key" in text || "forbidden" in text) ProviderFailure.UNAUTHORIZED else ProviderFailure.BAD_RESPONSE)
+                // Same classification as scene lookups: a schema mismatch or rate limit is not a bad key.
+                throw ProviderException(com.deepak.videolibrary.metadata.GraphQlFailureClassifier.classify(errors.toString()))
             }
             val performers = root.optJSONObject("data")?.optJSONObject("queryPerformers")?.optJSONArray("performers") ?: return emptyList()
             val out = ArrayList<PerformerCandidate>()
@@ -64,22 +64,35 @@ class StashDbProvider : PerformerProvider {
         /** The best image: portrait-shaped first (faces suit portrait covers), otherwise the largest usable one. */
         internal fun bestImage(item: JSONObject): String? = rankedImages(item).firstOrNull()
 
-        /** Every usable image, portrait-shaped and larger ones first, without duplicates (at most [MAX_PHOTOS], which is far more than a profile has). */
+        /**
+         * Every usable image, best first, without duplicates (at most [MAX_PHOTOS], which is far more than a profile
+         * has). Portrait-shaped images come first (faces suit portrait covers). Among them, the smallest one that is
+         * still at least [TARGET_WIDTH] wide wins: covers are decoded to about that size anyway, and pulling a
+         * multi-megabyte original from an overseas CDN only to shrink it was a large part of slow portrait lookups.
+         * Images smaller than that follow, largest first. Unknown sizes keep the provider's order after sized ones.
+         */
         internal fun rankedImages(item: JSONObject): List<String> {
             val images = item.optJSONArray("images") ?: return emptyList()
-            val scored = ArrayList<Pair<String, Long>>()
+            data class Scored(val url: String, val portrait: Boolean, val bigEnough: Boolean, val area: Long)
+            val scored = ArrayList<Scored>()
             for (i in 0 until images.length()) {
                 val image = images.optJSONObject(i) ?: continue
                 val url = image.optString("url")
                 if (!ImageUrlPolicy.looksUsable(url)) continue
                 val w = image.optInt("width")
                 val h = image.optInt("height")
-                val score = (if (h >= w && w > 0) 1_000_000_000L else 0L) + minOf(w.toLong() * h, 999_999_999L)
-                scored += url to score
+                scored += Scored(url, h >= w && w > 0, w >= TARGET_WIDTH, minOf(w.toLong() * h, 999_999_999L))
             }
             // Stable sort: equal scores keep the provider's order.
-            return scored.sortedByDescending { it.second }.map { it.first }.distinct().take(MAX_PHOTOS)
+            return scored.sortedWith(
+                compareByDescending<Scored> { it.portrait }
+                    .thenByDescending { it.bigEnough }
+                    .thenBy { if (it.bigEnough) it.area else -it.area },
+            ).map { it.url }.distinct().take(MAX_PHOTOS)
         }
+
+        /** Width a downloaded cover needs; anything larger is downscaled after download. */
+        const val TARGET_WIDTH = 1000
 
         /** Every picture of a profile is offered (the dialog shows them a page at a time); this only guards against absurd responses. */
         const val MAX_PHOTOS = 300

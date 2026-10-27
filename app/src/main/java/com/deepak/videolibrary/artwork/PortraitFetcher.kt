@@ -33,11 +33,24 @@ class PortraitFetcher(
         /** Something went wrong with this one item only (an unreadable picture, a bad response); carry on. */
         object ItemError : Outcome()
 
-        /** A problem that affects every lookup (key rejected, rate limit, offline): stop the run. */
+        /** No provider could be reached for this item. Nothing is recorded, so it is looked up again later. */
+        object NetworkError : Outcome()
+
+        /** A problem that affects every lookup (rate limit, downloads blocked, no usable provider): stop the run. */
         data class Failed(val failure: ProviderFailure) : Outcome()
     }
 
-    suspend fun autoFetch(identity: String, label: String): Outcome {
+    /**
+     * [skipProviders] are providers already found unusable in this run (key rejected); [onProviderRejected] reports a
+     * newly rejected one so the caller can skip it for the rest of the run. One provider failing never stops the
+     * other from being asked.
+     */
+    suspend fun autoFetch(
+        identity: String,
+        label: String,
+        skipProviders: Set<String> = emptySet(),
+        onProviderRejected: (String, ProviderFailure) -> Unit = { _, _ -> },
+    ): Outcome {
         val settings = repository.settings.value
         val scope = ArtworkKeys.scopeOf(identity)
         // Includes Custom mode, where the user searches or picks images themselves and nothing runs in the background.
@@ -55,20 +68,33 @@ class PortraitFetcher(
             repository.recordLookup(identity, ArtworkOverride.STATUS_NO_MATCH)
             return Outcome.NoMatch
         }
-        val providers = search.configured(settings)
-        if (providers.isEmpty()) return Outcome.Failed(ProviderFailure.NO_KEY)
+        val providers = search.configured(settings).filter { it.id !in skipProviders }
+        if (providers.isEmpty()) {
+            return Outcome.Failed(if (skipProviders.isNotEmpty()) ProviderFailure.UNAUTHORIZED else ProviderFailure.NO_KEY)
+        }
 
         val everything = ArrayList<PerformerCandidate>()
+        var answered = 0
+        var unreachable = 0
         for (provider in providers) {
             val candidates: List<PerformerCandidate> = try {
                 search.searchOne(provider, query, settings)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ProviderException) {
-                if (isFatal(e.failure)) return Outcome.Failed(e.failure)
-                // This provider answered with something unreadable for this name: try the next one.
+                when (e.failure) {
+                    // These affect every lookup: stop the run (it is retried later).
+                    ProviderFailure.RATE_LIMITED, ProviderFailure.BLOCKED_BY_SETTINGS -> return Outcome.Failed(e.failure)
+                    // This provider will not work this run; the other one still can.
+                    ProviderFailure.UNAUTHORIZED, ProviderFailure.FORBIDDEN, ProviderFailure.NO_KEY ->
+                        onProviderRejected(provider.id, e.failure)
+                    ProviderFailure.NETWORK, ProviderFailure.SERVER_ERROR -> unreachable++
+                    // An unreadable reply or unsupported query for this name: try the next provider.
+                    else -> Unit
+                }
                 continue
             }
+            answered++
             everything += candidates
             if (selection == PortraitSelection.AUTOMATIC) {
                 when (val result = AutoMatch.evaluate(query, candidates)) {
@@ -81,6 +107,12 @@ class PortraitFetcher(
                     AutoMatch.Result.NoMatch -> Unit
                 }
             }
+        }
+        if (answered == 0) {
+            // Nobody answered: do not store "no match" for a name that was never really looked up.
+            if (unreachable > 0) return Outcome.NetworkError
+            repository.recordLookup(identity, ArtworkOverride.STATUS_ERROR)
+            return Outcome.ItemError
         }
         // Manual mode (or no confident match): keep what was found for the user to pick from, best first.
         val ranked = AutoMatch.ranked(query, everything)
@@ -95,9 +127,15 @@ class PortraitFetcher(
         } catch (e: CancellationException) {
             throw e
         } catch (e: ProviderException) {
-            if (isFatal(e.failure)) return Outcome.Failed(e.failure)
-            repository.recordLookup(identity, ArtworkOverride.STATUS_ERROR)
-            return Outcome.ItemError
+            return when (e.failure) {
+                ProviderFailure.RATE_LIMITED, ProviderFailure.BLOCKED_BY_SETTINGS -> Outcome.Failed(e.failure)
+                // A slow or dropped image download only affects this folder; it is tried again later.
+                ProviderFailure.NETWORK, ProviderFailure.SERVER_ERROR -> Outcome.NetworkError
+                else -> {
+                    repository.recordLookup(identity, ArtworkOverride.STATUS_ERROR)
+                    Outcome.ItemError
+                }
+            }
         }
         try {
             repository.saveImage(
@@ -120,8 +158,6 @@ class PortraitFetcher(
         }
         return Outcome.Applied
     }
-
-    private fun isFatal(failure: ProviderFailure) = failure != ProviderFailure.BAD_RESPONSE
 
     private companion object {
         const val DOWNLOAD_WIDTH = 1280

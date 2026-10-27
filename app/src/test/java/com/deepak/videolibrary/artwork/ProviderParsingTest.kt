@@ -43,4 +43,29 @@ class ProviderParsingTest {
         assertEquals("https://cdn.example.com/p1.jpg", list.single().images.first())
         assertEquals("https://cdn.example.com/p40.jpg", list.single().images.last())
     }
+
+    @Test fun stashDbDownloadsTheSmallestPortraitThatIsStillBigEnough() {
+        val json = """{"data":{"queryPerformers":{"performers":[
+            {"id":"x","name":"Jane Doe","images":[
+              {"url":"https://cdn.example.com/huge.jpg","width":4000,"height":6000},
+              {"url":"https://cdn.example.com/right.jpg","width":1200,"height":1800},
+              {"url":"https://cdn.example.com/small.jpg","width":500,"height":750}]}
+        ]}}}"""
+        val list = StashDbProvider.parse(json)
+        // Covers are decoded to about 1000-1280 px, so a 24-megapixel original is wasted bandwidth.
+        assertEquals("https://cdn.example.com/right.jpg", list.single().imageUrl)
+        assertEquals(
+            listOf("https://cdn.example.com/right.jpg", "https://cdn.example.com/huge.jpg", "https://cdn.example.com/small.jpg"),
+            list.single().images,
+        )
+    }
+
+    @Test fun stashDbSchemaErrorsAreNotReportedAsBadKeys() {
+        try {
+            StashDbProvider.parse("""{"errors":[{"message":"Cannot query field \"queryPerformers\" on type \"Query\""}],"data":null}""")
+            fail("expected a failure")
+        } catch (e: ProviderException) {
+            assertEquals(ProviderFailure.GRAPHQL_SCHEMA, e.failure)
+        }
+    }
 }
