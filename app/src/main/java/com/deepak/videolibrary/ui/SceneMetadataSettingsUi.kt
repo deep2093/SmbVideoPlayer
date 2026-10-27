@@ -175,36 +175,9 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     }
 
     MetadataPanel(
-        vm, "actions", "5 · Find artwork & clear caches",
-        "Look up scenes or portraits · apply posters · safely clear saved results",
+        vm, "actions", "5 · Clear saved results",
+        "Safely clear saved results",
     ) {
-        SettingsLabel("LOOK UP")
-        OutlinedButton(
-            onClick = {
-                SceneMetadataWorker.enqueue(context, service.libraryId, manual = true)
-                status = "Scene lookup queued."
-            },
-            enabled = options.enabled && options.allowedOnlineLookup &&
-                (vm.providerHasKey(SceneMetadataSettings.STASHDB) || vm.providerHasKey(SceneMetadataSettings.TPDB)),
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Look up missing scenes now") }
-        OutlinedButton(
-            onClick = {
-                vm.fetchPortraitsNow()
-                status = "Missing portrait lookup queued."
-            },
-            enabled = artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Look up missing performer portraits") }
-        OutlinedButton(
-            onClick = {
-                ScenePosterWorker.enqueue(context, service.libraryId)
-                status = "Confirmed scene poster downloads queued."
-            },
-            enabled = options.enabled && options.allowedOnlineLookup &&
-                options.posterMode != PosterMode.DISABLED,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("Apply confirmed scene posters") }
         SettingsLabel("CLEAR SAVED RESULTS")
         Text("These remove only Skywing's local caches. Your SMB videos and hand-picked covers remain untouched.",
             style = MaterialTheme.typography.bodySmall)

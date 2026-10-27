@@ -121,6 +121,14 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
         value = if (tab == CoverTab.SCENE) vm.sceneCoverCandidates(target.key, target.video) else emptyList()
     }
 
+    // Scene poster tab: earlier suggestions for this item, and a search of its own, prefilled with the file name.
+    val earlierSuggestions by produceState<List<SceneCoverOption>>(emptyList(), target.key, tab) {
+        value = if (tab == CoverTab.SCENE) vm.sceneCoverSuggestions(target.key, target.video) else emptyList()
+    }
+    var sceneQuery by remember(target.key) {
+        mutableStateOf(target.video?.let { it.name.substringBeforeLast('.', it.name) } ?: target.label)
+    }
+    var sceneResults by remember(target.key) { mutableStateOf<List<SceneCoverOption>?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var query by remember(target.key) { mutableStateOf(vm.artworkSearchTerm(target.key, target.label)) }
@@ -387,14 +395,9 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                             OutlinedButton(onClick = ::makeMoving, enabled = !busy) { Text(if (busy) "Making…" else "Make a moving cover") }
                         }
                         CoverTab.SCENE -> {
-                            Text("Pick an image from your confirmed scene matches. This becomes your manual cover and won't be replaced by automatic matching.",
+                            Text("Search for a scene by file name or title, or pick from earlier suggestions and confirmed matches. A picture you choose here becomes your manual cover and won't be replaced by automatic matching.",
                                 style = MaterialTheme.typography.bodyMedium)
-                            if (sceneOptions.isEmpty()) {
-                                Text("No confirmed scene images yet for this item. Review matches under Artwork & scene metadata, or use another tab to choose a picture.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            sceneOptions.forEach { scene ->
+                            val optionCard: @Composable (SceneCoverOption) -> Unit = { scene ->
                                 androidx.compose.material3.Surface(
                                     shape = RoundedCornerShape(14.dp),
                                     color = MaterialTheme.colorScheme.surfaceContainer,
@@ -430,6 +433,57 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                         ) { Text("Choose this scene image") }
                                     }
                                 }
+                            }
+                            val sceneAllowed = settings.adultConsent || vm.sceneLookupAllowed() || oneOff
+                            if (!sceneAllowed) {
+                                Text(
+                                    "Searching sends only the text below to your scene providers (StashDB, ThePornDB), using the keys saved under Scene metadata. Nothing is sent until you allow it.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = oneOff, onCheckedChange = { oneOff = it })
+                                    Text("Allow this one search")
+                                }
+                            } else {
+                                SearchField(sceneQuery, { sceneQuery = it }, choices, label = "Scene title or file name")
+                                Button(enabled = sceneQuery.isNotBlank() && !busy, onClick = {
+                                    busy = true
+                                    error = null
+                                    sceneResults = null
+                                    scope.launch {
+                                        try {
+                                            val found = vm.searchSceneCovers(sceneQuery.trim())
+                                            sceneResults = found
+                                            if (found.isEmpty()) error = "No scenes found. Try the scene's title, or fewer words."
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: ProviderException) {
+                                            error = e.failure.message
+                                        } finally {
+                                            busy = false
+                                        }
+                                    }
+                                }) { Text("Search scenes") }
+                            }
+                            sceneResults?.takeIf { it.isNotEmpty() }?.let { found ->
+                                Text("Search results", style = MaterialTheme.typography.titleSmall)
+                                found.forEach { optionCard(it) }
+                            }
+                            if (earlierSuggestions.isNotEmpty()) {
+                                Text("Earlier suggestions", style = MaterialTheme.typography.titleSmall)
+                                Text("Found by the automatic lookup but not clear enough to apply.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                earlierSuggestions.forEach { optionCard(it) }
+                            }
+                            if (sceneOptions.isNotEmpty()) {
+                                Text("Confirmed matches", style = MaterialTheme.typography.titleSmall)
+                                sceneOptions.forEach { optionCard(it) }
+                            }
+                            if (sceneOptions.isEmpty() && earlierSuggestions.isEmpty() && sceneResults == null) {
+                                Text("Nothing found for this item yet. Search above, or use another tab to choose a picture.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         CoverTab.MOVIE -> {

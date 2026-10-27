@@ -74,8 +74,9 @@ class PeriodicSyncWorker(context: Context, params: WorkerParameters) : Coroutine
         private const val KEY_ENABLED = "enabled"
 
         /** The automatic rescan is on unless the user switched it off in Settings > Sync. */
-        fun isEnabled(context: Context): Boolean =
-            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, true)
+        /** The 12-hour rescan is always on; there is no switch for it any more. */
+        @Suppress("UNUSED_PARAMETER")
+        fun isEnabled(context: Context): Boolean = true
 
         /** Remembers the choice and starts or stops the schedule right away. */
         fun setEnabled(context: Context, enabled: Boolean) {

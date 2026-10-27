@@ -347,18 +347,9 @@ private fun AutomaticSyncSummary() {
             else -> "Not run yet"
         }
     }
-    var enabled by remember(context) { mutableStateOf(com.deepak.videolibrary.scan.PeriodicSyncWorker.isEnabled(context)) }
     ScanSection("Automatic sync") {
-        SwitchRow("Rescan automatically", null, enabled) {
-            enabled = it
-            com.deepak.videolibrary.scan.PeriodicSyncWorker.setEnabled(context, it)
-        }
         Text(
-            if (enabled) {
-                "Every 12 hours when your server is reachable. Your names and covers are kept."
-            } else {
-                "Off. Use Refresh library to scan."
-            },
+            "Every 12 hours when your server is reachable. Your names and covers are kept. Use Refresh library to scan sooner.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
