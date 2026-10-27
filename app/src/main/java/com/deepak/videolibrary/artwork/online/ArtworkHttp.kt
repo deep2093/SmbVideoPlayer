@@ -112,6 +112,7 @@ internal object ArtworkHttp {
                     code == 401 -> throw ProviderException(ProviderFailure.UNAUTHORIZED)
                     code == 403 -> throw ProviderException(ProviderFailure.FORBIDDEN)
                     code == 429 -> throw ProviderException(ProviderFailure.RATE_LIMITED)
+                    code in 500..599 -> throw ProviderException(ProviderFailure.SERVER_ERROR)
                     else -> throw ProviderException(ProviderFailure.BAD_RESPONSE)
                 }
             } catch (e: ProviderException) {

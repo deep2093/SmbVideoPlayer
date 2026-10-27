@@ -19,7 +19,10 @@ enum class ProviderFailure(val message: String) {
     FORBIDDEN("The provider refused this request (403). Your key may not have access."),
     RATE_LIMITED("The provider's rate limit was reached (429). Try again later."),
     NETWORK("Could not reach the provider. Check the connection."),
-    BAD_RESPONSE("The provider sent a response the app could not read."),
+    BAD_RESPONSE("The provider returned an unexpected API response."),
+    NON_JSON("The provider returned a webpage or non-JSON response instead of GraphQL data."),
+    GRAPHQL_SCHEMA("The provider does not support this GraphQL operation."),
+    SERVER_ERROR("The provider returned a temporary server error. Try again later."),
     BLOCKED_BY_SETTINGS("Downloads are blocked by your network settings (Wi-Fi only or metered)."),
 }
 

@@ -30,21 +30,10 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
             body,
         )
         val root = try { JSONObject(response) } catch (e: Exception) {
-            throw ProviderException(ProviderFailure.BAD_RESPONSE, e)
+            throw ProviderException(ProviderFailure.NON_JSON, e)
         }
-        val errors = root.optJSONArray("errors")
-        if (errors != null && errors.length() > 0) {
-            val message = errors.toString().lowercase(Locale.ROOT)
-            throw ProviderException(
-                when {
-                    "unauthor" in message || "not authorized" in message || "not authenticated" in message ||
-                        "authentication" in message || "api key" in message ||
-                        "invalid token" in message || "invalid credential" in message ||
-                        "forbidden" in message -> ProviderFailure.UNAUTHORIZED
-                    "rate limit" in message -> ProviderFailure.RATE_LIMITED
-                    else -> ProviderFailure.BAD_RESPONSE
-                },
-            )
+        root.optJSONArray("errors")?.takeIf { it.length() > 0 }?.let {
+            throw ProviderException(GraphQlFailureClassifier.classify(it.toString()))
         }
         return root.optJSONObject("data") ?: throw ProviderException(ProviderFailure.BAD_RESPONSE)
     }
@@ -53,28 +42,33 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
      * Test the provider's authenticated READ operation rather than requiring one
      * provider's full-text search extension. No local filenames are transmitted.
      */
-    suspend fun test(provider: String): Boolean = if (provider == SceneMetadataSettings.TPDB) {
-        query(provider, "query TestSceneMetadata { queryScenes(input: { page: 1, per_page: 1 }) { scenes { id } } }")
-            .optJSONObject("queryScenes") != null
-    } else {
-        query(provider, "query TestSceneMetadata { searchScenes(term: \"example\", per_page: 1) { scenes { id } } }")
-            .optJSONObject("searchScenes") != null
-    }
+    suspend fun test(provider: String): Boolean =
+        // Authenticated account query used by Stash-box. Avoids provider-specific
+        // scene search fields during connection tests.
+        query(provider, "query SkyWingConnection { me { name } }").optJSONObject("me") != null
 
     /** Stash-box schema searchScenes, with only public, read-only metadata fields. */
     suspend fun search(provider: String, filename: String): List<SceneMatch> {
         val term = cleanSearchTerm(filename)
         if (term.length < 4) return emptyList()
         val variables = JSONObject().put("term", term)
-        val (result, field) = try {
-            query(provider, SEARCH, variables) to "searchScenes"
-        } catch (e: ProviderException) {
-            // TPDB's proprietary stash-box implementation may omit StashDB's
-            // full-text query. Fall back to the standard scene query input.
-            if (provider != SceneMetadataSettings.TPDB || e.failure != ProviderFailure.BAD_RESPONSE) throw e
-            query(provider, TPDB_TITLE_SEARCH, variables) to "queryScenes"
+        val variants = if (provider == SceneMetadataSettings.TPDB)
+            listOf(TPDB_SCENE_SEARCH to "searchScene",
+                SEARCH to "searchScenes", TPDB_TITLE_SEARCH to "queryScenes")
+        else listOf(SEARCH to "searchScenes", TPDB_SCENE_SEARCH to "searchScene")
+        var schemaFailure: ProviderException? = null
+        for ((document, field) in variants) {
+            try {
+                val result = query(provider, document, variables)
+                val matches = if (field == "searchScene") result.optJSONArray(field)
+                    else result.optJSONObject(field)?.optJSONArray("scenes")
+                return sceneResults(provider, "TITLE", matches)
+            } catch (e: ProviderException) {
+                if (e.failure != ProviderFailure.GRAPHQL_SCHEMA) throw e
+                schemaFailure = e
+            }
         }
-        return sceneResults(provider, "TITLE", result.optJSONObject(field)?.optJSONArray("scenes"))
+        throw schemaFailure ?: ProviderException(ProviderFailure.BAD_RESPONSE)
     }
 
     /** Exact hash matching uses the stash-box supported OSHASH/PHASH enum values. */
@@ -88,7 +82,7 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
         }
         if (fingerprintList.length() == 0) return emptyList()
         val input = JSONArray().put(fingerprintList)
-        val result = query(provider, HASH_SEARCH, JSONObject().put("fps", input))
+        val result = query(provider, if (provider == SceneMetadataSettings.TPDB) HASH_SEARCH_TPDB else HASH_SEARCH, JSONObject().put("fps", input))
         val perVideo = result.optJSONArray("findScenesBySceneFingerprints")?.optJSONArray(0)
         return sceneResults(provider, "FINGERPRINT", perVideo)
     }
@@ -107,9 +101,13 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
         private const val FIELDS = "id title code details date duration director studio { name } images { url } performers { performer { name } } tags { name }"
         private val SEARCH = "query SceneText(\$term: String!) { searchScenes(term: \$term, per_page: 10) { scenes { $FIELDS } } }"
         // Minimal poster-first field set, for TPDB servers with a narrower GraphQL schema.
+        private val TPDB_SCENE_SEARCH =
+            "query SceneTextLegacy(\$term: String!) { searchScene(term: \$term, limit: 10) { id title images { url } } }"
         private val TPDB_TITLE_SEARCH =
             "query SceneTitle(\$term: String!) { queryScenes(input: { title: \$term, page: 1, per_page: 10 }) { scenes { id title images { url } } } }"
         private val HASH_SEARCH = "query SceneHash(\$fps: [[FingerprintQueryInput!]!]!) { findScenesBySceneFingerprints(fingerprints: \$fps) { $FIELDS } }"
+        private val HASH_SEARCH_TPDB =
+            "query SceneHash(\$fps: [[FingerprintQueryInput!]!]!) { findScenesBySceneFingerprints(fingerprints: \$fps) { id title images { url } } }"
 
         internal fun cleanSearchTerm(filename: String): String {
             val noExtension = filename.substringAfterLast('/').substringBeforeLast('.', filename.substringAfterLast('/'))
