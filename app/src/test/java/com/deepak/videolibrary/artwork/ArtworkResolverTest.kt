@@ -53,13 +53,14 @@ class ArtworkResolverTest {
         assertEquals(ArtworkSource.LEGACY, ArtworkResolver.decide(ArtworkScope.VIRTUAL_FOLDER, fetched, null, false, folders.copy(virtualFolderMode = ArtworkMode.EXISTING)).source)
     }
 
-    @Test fun portraitsOnFoldersAndVideosAreIndependent() {
+    @Test fun performerPortraitsStayOnFoldersAndNeverAppearOnVideos() {
         val fetched = row("virtual:Ann", ArtworkMode.PORTRAIT, false, "p.jpg")
         val s = on.copy(adultConsent = true, portraitsOnFolders = true, portraitsOnVideos = false, videoMode = ArtworkMode.PORTRAIT, virtualFolderMode = ArtworkMode.PORTRAIT)
         assertEquals(ArtworkSource.IMAGE, ArtworkResolver.decide(ArtworkScope.VIRTUAL_FOLDER, fetched, null, false, s).source)
         assertEquals(ArtworkSource.LEGACY, ArtworkResolver.decide(ArtworkScope.VIDEO, null, fetched, false, s).source)
-        val both = s.copy(portraitsOnVideos = true)
-        assertEquals(ArtworkSource.IMAGE, ArtworkResolver.decide(ArtworkScope.VIDEO, null, fetched, false, both).source)
+        // Old saved preferences must not leak performer artwork onto video cards.
+        val legacySaved = s.copy(portraitsOnVideos = true)
+        assertEquals(ArtworkSource.LEGACY, ArtworkResolver.decide(ArtworkScope.VIDEO, null, fetched, false, legacySaved).source)
     }
 
     @Test fun explicitNoneAndExistingOverrides() {
