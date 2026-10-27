@@ -80,6 +80,7 @@ internal data class CoverTarget(val key: String, val title: String, val label: S
 
 private enum class CoverTab(val label: String) {
     AUTO("Auto frame"),
+    SCENE("Scene poster"),
     COLLAGE("Folder collage"),
     PHOTOS("Photo collage"),
     INTERNET("StashDB"),
@@ -106,8 +107,17 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settings by vm.artworkSettings.collectAsStateWithLifecycle()
-    val tabs = remember(target.key) { CoverTab.entries.filter { it != CoverTab.COLLAGE || target.isFolder } }
+    val tabs = remember(target.key) {
+        CoverTab.entries.filter { tab ->
+            (tab != CoverTab.COLLAGE || target.isFolder) &&
+                // Videos can use scene posters or custom images, never performer portraits.
+                (tab != CoverTab.INTERNET || target.isFolder)
+        }
+    }
     var tab by remember { mutableStateOf(CoverTab.AUTO) }
+    val sceneOptions by produceState<List<SceneCoverOption>>(emptyList(), target.key, tab) {
+        value = if (tab == CoverTab.SCENE) vm.sceneCoverCandidates(target.key, target.video) else emptyList()
+    }
 
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -371,6 +381,52 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             OutlinedButton(onClick = ::makeMoving, enabled = !busy) { Text(if (busy) "Making…" else "Make a moving cover") }
+                        }
+                        CoverTab.SCENE -> {
+                            Text("Pick an image from your confirmed scene matches. This becomes your manual cover and won't be replaced by automatic matching.",
+                                style = MaterialTheme.typography.bodyMedium)
+                            if (sceneOptions.isEmpty()) {
+                                Text("No confirmed scene images yet for this item. Review matches under Artwork & scene metadata, or use another tab to choose a picture.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            sceneOptions.forEach { scene ->
+                                androidx.compose.material3.Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainer,
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                ) {
+                                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(scene.title, style = MaterialTheme.typography.titleSmall)
+                                        Text("${scene.providerName} · ${scene.videoName}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        val file = scene.localFile
+                                        if (file != null) {
+                                            FileImage(file, Modifier.fillMaxWidth().heightIn(max = 148.dp))
+                                        } else {
+                                            ProviderSceneThumbnail(scene.imageUrl, null)
+                                        }
+                                        OutlinedButton(
+                                            enabled = !busy && (file != null || scene.imageUrl != null),
+                                            onClick = {
+                                                if (file != null && file.isFile) {
+                                                    busy = true
+                                                    scope.launch {
+                                                        try {
+                                                            val chosenImage = withContext(Dispatchers.IO) {
+                                                                android.graphics.BitmapFactory.decodeFile(file.path)
+                                                            }
+                                                            if (chosenImage != null) takePicture(chosenImage, null)
+                                                            else error = "The saved scene picture could not be read."
+                                                        } finally { busy = false }
+                                                    }
+                                                } else if (scene.imageUrl != null) load(null, scene.imageUrl)
+                                            },
+                                        ) { Text("Choose this scene image") }
+                                    }
+                                }
+                            }
                         }
                         CoverTab.COLLAGE -> {
                             Text("A collage of ${settings.collageTiles} frames from this folder (change the number in Settings > Artwork).", style = MaterialTheme.typography.bodyMedium)

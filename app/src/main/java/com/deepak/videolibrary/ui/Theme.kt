@@ -64,6 +64,10 @@ private fun adaptiveTheme(id: String, label: String, style: AdaptiveStyle, card:
 )
 
 val libraryThemes = listOf(
+    // Clarity: opaque, accessible panels with a restrained accent and clean typography.
+    // Explicitly non-glass to retain readable text behind every settings control.
+    LibraryTheme("CLARITY_DARK", "Clarity · Dark", Color(0xFF0B111B), Color(0xFF192434), Color(0xFF233348), Color(0xFF78B6FF), menu = Color(0xFF192434)),
+    LibraryTheme("CLARITY_LIGHT", "Clarity · Light", Color(0xFFF5F7FB), Color(0xFFFFFFFF), Color(0xFFE7EDF5), Color(0xFF2266B5), menu = Color(0xFFFFFFFF), light = true),
     LibraryTheme("CHARCOAL", "Dark grey", Color(0xFF0D0D0D), Color(0xFF171717), Color(0xFF262626), Color(0xFFFF837A)),
     LibraryTheme("AMOLED", "AMOLED black", Color.Black, Color.Black, Color(0xFF101010), Color(0xFFFF837A)),
     LibraryTheme("SLATE", "Midnight blue", Color(0xFF141C29), Color(0xFF1B2738), Color(0xFF26364D), Color(0xFF3569AA)),
@@ -211,7 +215,7 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
     val adaptiveStyle = chosen.adaptive
     val adaptiveColors = if (adaptiveStyle != null) rememberAdaptiveColors(adaptiveStyle) else null
     val theme = if (adaptiveStyle != null) chosen.copy(accent = rememberAdaptiveAccent(adaptiveStyle)) else chosen
-    val ink = Color(0xFF14243A)
+    val ink = if (theme.id == "CLARITY_LIGHT") Color(0xFF17263A) else Color(0xFF14243A)
     val colors = if (theme.light) lightColorScheme(
         primary = ink,
         onPrimary = Color.White,
@@ -230,7 +234,7 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         surface = theme.surface,
         onSurface = ink,
         surfaceVariant = theme.card,
-        onSurfaceVariant = Color(0xFF43556B),
+        onSurfaceVariant = if (theme.id == "CLARITY_LIGHT") Color(0xFF34465C) else Color(0xFF43556B),
         surfaceTint = Color.Transparent,
         outline = Color(0xFF5C7088),
         outlineVariant = Color(0x3354708C),
@@ -265,7 +269,7 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         surface = theme.surface,
         onSurface = Color.White,
         surfaceVariant = theme.card,
-        onSurfaceVariant = if (theme.glass) Color(0xD9FFFFFF) else Color(0xFFB8B8B8),
+        onSurfaceVariant = if (theme.glass) Color(0xD9FFFFFF) else if (theme.id == "CLARITY_DARK") Color(0xFFDAE4EF) else Color(0xFFB8B8B8),
         surfaceTint = Color.Transparent,
         outline = if (theme.glass) Color(0x99FFFFFF) else Color(0xFF777777),
         outlineVariant = if (theme.glass) Color(0x4DFFFFFF) else Color(0xFF333333),

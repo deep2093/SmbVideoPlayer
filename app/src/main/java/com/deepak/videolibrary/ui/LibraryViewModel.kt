@@ -1477,6 +1477,46 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         return true
     }
 
+    /**
+     * Scene-cover choices are independent of automatic-poster mode.
+     * A user can manually pick any scene image from confirmed scene metadata,
+     * including images belonging to a video inside a multi-video folder.
+     */
+    suspend fun sceneCoverCandidates(key: String, video: VideoEntity?): List<SceneCoverOption> {
+        val videos = if (video != null) listOf(video) else videosForCoverKey(key)
+        return withContext(Dispatchers.IO) {
+            videos.take(100).flatMap { item ->
+                val match = services.sceneMetadataStore.get(item.relativePath)
+                if (match?.status != "CONFIRMED") return@flatMap emptyList()
+                val json = runCatching { org.json.JSONObject(match.result ?: "") }.getOrNull()
+                    ?: return@flatMap emptyList()
+                val scene = json.optJSONObject("scene") ?: return@flatMap emptyList()
+                val provider = when (json.optString("provider")) {
+                    com.deepak.videolibrary.metadata.SceneMetadataSettings.TPDB -> "ThePornDB"
+                    else -> "StashDB"
+                }
+                val title = scene.optString("title").ifBlank { item.name }
+                val images = scene.optJSONArray("images")
+                val urls = (0 until (images?.length() ?: 0)).mapNotNull { i ->
+                    images?.optJSONObject(i)?.optString("url")?.takeIf {
+                        com.deepak.videolibrary.artwork.online.ImageUrlPolicy.isAllowed(it)
+                    }
+                }.distinct().take(8)
+                val cached = services.scenePosters.fileFor(item)
+                if (urls.isEmpty() && cached == null) emptyList()
+                else (if (urls.isEmpty()) listOf<String?>(null) else urls.map { it }).mapIndexed { i, url ->
+                    SceneCoverOption(
+                        title = title,
+                        videoName = item.name,
+                        providerName = provider,
+                        imageUrl = url,
+                        localFile = if (i == 0) cached else null,
+                    )
+                }
+            }.take(45)
+        }
+    }
+
     suspend fun applyCoverImage(
         key: String,
         mode: com.deepak.videolibrary.artwork.ArtworkMode,
@@ -1486,6 +1526,11 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         focusX: Float = 0.5f,
         zoom: Float = 1f,
     ) {
+        // Manual choices must remain visible even when legacy artwork was disabled
+        // while the automatic scene-metadata subsystem was active.
+        if (!services.artwork.settings.value.enabled) {
+            updateArtwork { it.copy(enabled = true) }
+        }
         services.artwork.saveImage(
             key = key, mode = mode, image = image, manual = true,
             providerId = candidate?.providerId, performerId = candidate?.performerId, performerName = candidate?.name,

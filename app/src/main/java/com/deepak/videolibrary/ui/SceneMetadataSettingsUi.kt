@@ -80,22 +80,21 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
 
     val artwork by vm.artworkSettings.collectAsStateWithLifecycle()
     var portraitConsent by remember { mutableStateOf(false) }
-    Text("Artwork & metadata", style = MaterialTheme.typography.titleMedium)
-    Text(
-        "Choose what artwork appears on video cards and in each folder section. Scene posters and performer portraits work independently. Manual covers always win.",
-        style = MaterialTheme.typography.bodySmall,
-    )
+    Text("Choose your covers", style = MaterialTheme.typography.titleMedium)
+    Text("Set a different cover style for Videos and every folder category. Custom covers stay protected.",
+        style = MaterialTheme.typography.bodySmall)
 
     MetadataPanel(vm, "placements", "Where pictures appear",
-        "Videos: scene posters only · Four independent folder sections", initialOpen = true) {
+        "Videos and four folder sections · Choose independently", initialOpen = true) {
+        SettingsLabel("VIDEOS")
         SwitchRow(
             "Scene posters on video cards",
             "Uses an approved scene cover when available, otherwise your video frame or custom cover. Never uses performer portraits.",
             options.videoPosters,
         ) { on -> prefs.update { it.copy(videoPosters = on) }; if (on) ScenePosterWorker.enqueue(context, service.libraryId) }
 
-        SettingsLabel("Folder covers")
-        Text("Each section has two independent choices. Turn neither on to keep its normal covers. Turning one on turns off the other for that section.", style = MaterialTheme.typography.bodySmall)
+        SettingsLabel("FOLDER COVERS")
+        Text("Choose one type in each card below, or leave both switches off to keep the original thumbnail.", style = MaterialTheme.typography.bodySmall)
         FolderArtworkTarget("Original SMB folders", "original", options.originalFolderCover, vm)
         FolderArtworkTarget("Custom folders", "custom", options.customFolderCover, vm)
         FolderArtworkTarget("Virtual folders", "virtual", options.virtualFolderCover, vm)
@@ -252,7 +251,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     )
 }
 
-/** Keep rarely needed options hidden; the placement panel stays open by default. */
+/** Each settings area has its own solid, labelled card and visible expansion affordance. */
 @Composable
 private fun MetadataPanel(
     vm: LibraryViewModel,
@@ -263,21 +262,41 @@ private fun MetadataPanel(
     body: @Composable () -> Unit,
 ) {
     var open by vm.ui.flagState("unified.metadata.$id", initialOpen)
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        TextButton(onClick = { open = !open }, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth()) {
-                Text((if (open) "▾ " else "▸ ") + title, style = MaterialTheme.typography.titleSmall)
-                Text(summary, style = MaterialTheme.typography.bodySmall)
+    androidx.compose.material3.Surface(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                Modifier.fillMaxWidth().clickable { open = !open }.padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(
+                    Modifier.widthIn(min = 4.dp).height(40.dp)
+                        .background(MaterialTheme.colorScheme.tertiary, RoundedCornerShape(6.dp)),
+                )
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(if (open) "▾" else "▸",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.tertiary)
+            }
+            if (open) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    body()
+                }
             }
         }
-        if (open) Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            body()
-        }
-        SettingsDivider()
     }
 }
 
-/** A pair of exclusive toggles for this folder section; both off means original cover. */
+/** Visually separate Original / Custom / Virtual / Generated folders. */
 @Composable
 private fun FolderArtworkTarget(
     title: String,
@@ -286,15 +305,37 @@ private fun FolderArtworkTarget(
     vm: LibraryViewModel,
 ) {
     val context = LocalContext.current
-    Text(title, style = MaterialTheme.typography.titleSmall)
-    SwitchRow("Performer portrait", null, choice == FolderCoverChoice.PERFORMER) { enabled ->
-        vm.updateFolderCoverChoice(section, if (enabled) FolderCoverChoice.PERFORMER else FolderCoverChoice.ORIGINAL)
-        if (enabled) vm.fetchPortraitsNow()
+    val summary = when (choice) {
+        FolderCoverChoice.PERFORMER -> "Showing performer portraits"
+        FolderCoverChoice.SCENE -> "Showing matched scene posters"
+        FolderCoverChoice.ORIGINAL -> "Keeping existing folder thumbnails"
     }
-    SwitchRow("Scene poster with metadata", null, choice == FolderCoverChoice.SCENE) { enabled ->
-        vm.updateFolderCoverChoice(section, if (enabled) FolderCoverChoice.SCENE else FolderCoverChoice.ORIGINAL)
-        if (enabled) {
-            ScenePosterWorker.enqueue(context, ServiceLocator.get(context).libraryId)
+    androidx.compose.material3.Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (choice == FolderCoverChoice.ORIGINAL) MaterialTheme.colorScheme.outlineVariant
+            else MaterialTheme.colorScheme.tertiary,
+        ),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(summary, style = MaterialTheme.typography.bodySmall,
+                color = if (choice == FolderCoverChoice.ORIGINAL) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.tertiary)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            SwitchRow("Performer portrait", "Uses a portrait only in this folder section.",
+                choice == FolderCoverChoice.PERFORMER) { enabled ->
+                vm.updateFolderCoverChoice(section, if (enabled) FolderCoverChoice.PERFORMER else FolderCoverChoice.ORIGINAL)
+                if (enabled) vm.fetchPortraitsNow()
+            }
+            SwitchRow("Matched scene poster", "Uses artwork from a confirmed video scene inside the folder.",
+                choice == FolderCoverChoice.SCENE) { enabled ->
+                vm.updateFolderCoverChoice(section, if (enabled) FolderCoverChoice.SCENE else FolderCoverChoice.ORIGINAL)
+                if (enabled) ScenePosterWorker.enqueue(context, ServiceLocator.get(context).libraryId)
+            }
         }
     }
 }
@@ -500,7 +541,7 @@ private fun SceneLengthBadge(milliseconds: Long?, modifier: Modifier = Modifier)
 
 /** Untrusted scene images are fetched with the app's existing HTTPS and image-size safeguards. */
 @Composable
-private fun ProviderSceneThumbnail(url: String?, durationMs: Long?) {
+internal fun ProviderSceneThumbnail(url: String?, durationMs: Long?) {
     val preview by produceState<ImageBitmap?>(null, url) {
         value = if (ImageUrlPolicy.isAllowed(url)) {
             try {

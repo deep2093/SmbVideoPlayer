@@ -113,8 +113,38 @@ fun PlayerScreen(
     LaunchedEffect(video.relativePath) {
         vm.hideContinue(video.relativePath, false)
     }
-    val volumeGestureEnabled = remember { prefs.getBoolean("volume_gesture_enabled", true) }
-    val brightnessGestureEnabled = remember { prefs.getBoolean("brightness_gesture_enabled", true) }
+    // Playback gestures stay enabled without a global Playback settings page.
+    val volumeGestureEnabled = true
+    val brightnessGestureEnabled = true
+    var prefer60Hz by remember {
+        mutableStateOf(prefs.getBoolean("experimental_output_60hz", false))
+    }
+    // This first stage negotiates 60 Hz output safely. A real MEMC/RIFE frame
+    // synthesizer will be a separate backend; requesting 60 Hz is NOT interpolation.
+    DisposableEffect(activity, prefer60Hz) {
+        val window = activity?.window
+        val beforeId = window?.attributes?.preferredDisplayModeId ?: 0
+        if (prefer60Hz && window != null) {
+            val display = window.decorView.display
+            val current = display?.mode
+            val mode = display?.supportedModes
+                ?.filter { current == null || (it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight) }
+                ?.minByOrNull { kotlin.math.abs(it.refreshRate - 60f) }
+                ?.takeIf { kotlin.math.abs(it.refreshRate - 60f) < 2f }
+            if (mode != null) {
+                val params = window.attributes
+                params.preferredDisplayModeId = mode.modeId
+                window.attributes = params
+            }
+        }
+        onDispose {
+            if (window != null) {
+                val params = window.attributes
+                params.preferredDisplayModeId = beforeId
+                window.attributes = params
+            }
+        }
+    }
     val profile =
         remember(settings) {
             SmbProfile(
@@ -830,6 +860,21 @@ fun PlayerScreen(
                     Switch(checked = pipEnabled, onCheckedChange = {
                         pipEnabled = it
                         prefs.edit().putBoolean("pip_enabled", it).apply()
+                        revealControls()
+                    })
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.2f))
+                Text("60 FPS development preview", color = Color.White, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "This stage tests a 60 Hz display path and frame timing. It does not generate new video frames yet.",
+                    color = Color.LightGray,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Prefer 60 Hz output", color = Color.White, modifier = Modifier.weight(1f))
+                    Switch(checked = prefer60Hz, onCheckedChange = { value ->
+                        prefer60Hz = value
+                        prefs.edit().putBoolean("experimental_output_60hz", value).apply()
                         revealControls()
                     })
                 }

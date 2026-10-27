@@ -54,6 +54,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -311,7 +312,16 @@ internal fun VideoCard(
     val progressFlow = remember(video.relativePath, namespace) { vm.progressFlow(video.relativePath) }
     val progress by progressFlow.collectAsStateWithLifecycle(initialValue = null)
     val watchedMs = progress?.positionMs ?: 0L
-    val totalMs = progress?.durationMs ?: 0L
+    // Artwork changes must never remove the original video's time label.
+    // Unplayed videos have no duration in watch history: probe the SMB container
+    // only while their card is visible, off the main thread, and cache the result.
+    val probedDuration by produceState<Long?>(null, video.relativePath, video.size, video.modified, progress?.durationMs) {
+        value = progress?.durationMs?.takeIf { it > 0L }
+            ?: com.deepak.videolibrary.metadata.SceneDurationLookup.durationMs(
+                com.deepak.videolibrary.ServiceLocator.get(context), video
+            )
+    }
+    val totalMs = progress?.durationMs?.takeIf { it > 0L } ?: probedDuration ?: 0L
     val artwork: @Composable () -> Unit = {
         Box(
             if (listMode) {
@@ -414,7 +424,7 @@ internal fun VideoCard(
             onRemoveContinue = onRemoveFromContinue,
             details = "${video.name}\n${Formatter.formatFileSize(context,video.size)}\n${vm.originalVideoLocation(video.relativePath)}",
             onChangeThumbnail = if (video.id > 0) ({ pickThumbnail = true }) else null,
-            onChangeCover = if (video.id > 0 && artworkOn) ({ changeCover = true }) else null,
+            onChangeCover = if (video.id > 0) ({ changeCover = true }) else null,
         )
     }
     if (pickThumbnail) ThumbnailPicker(vm, video, onDismiss = { pickThumbnail = false })

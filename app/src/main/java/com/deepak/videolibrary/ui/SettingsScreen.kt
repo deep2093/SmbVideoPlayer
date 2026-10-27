@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
@@ -88,7 +89,6 @@ private val SETTINGS_SECTIONS = listOf(
     SettingsSection("Artwork", "Artwork & scene metadata", "Video posters, folder portraits and matching"),
     SettingsSection("Layout", "App layout", "Folder tabs, navigation, hidden items"),
     SettingsSection("Appearance", "Appearance", "Theme"),
-    SettingsSection("Playback", "Playback", "Player gestures"),
     SettingsSection("Diagnostics", "Backup & diagnostics", "Export, restore and reports"),
 )
 
@@ -142,13 +142,6 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
     var advancedConnection by vm.ui.flagState("settings.advancedConnection")
     var savePassword by remember { mutableStateOf(saved.savePassword) }
     val context = LocalContext.current
-    val gesturePrefs = remember(context) { context.getSharedPreferences("player_prefs", android.content.Context.MODE_PRIVATE) }
-    var swipeGesturesEnabled by remember {
-        mutableStateOf(
-            gesturePrefs.getBoolean("volume_gesture_enabled", true) &&
-                gesturePrefs.getBoolean("brightness_gesture_enabled", true),
-        )
-    }
     val keyboardScope = rememberCoroutineScope()
     val passwordBringIntoView = remember { BringIntoViewRequester() }
     fun current() = SmbSettings(
@@ -389,16 +382,6 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                             OutlinedButton(onClick = { vm.ui.setFlag("settings.hidden", true) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
                         }
                         "Appearance" -> ThemeSettings()
-                        "Playback" -> {
-                            SwitchRow(stringResource(R.string.ui_brightness_and_volume_swipe_54fb5b9), stringResource(R.string.ui_left_brightness_right_volume_927c237), swipeGesturesEnabled) {
-                                swipeGesturesEnabled = it
-                                gesturePrefs
-                                    .edit()
-                                    .putBoolean("volume_gesture_enabled", it)
-                                    .putBoolean("brightness_gesture_enabled", it)
-                                    .apply()
-                            }
-                        }
                         "Diagnostics" -> {
                             LibraryBackupActions(vm)
                             SettingsDivider()
@@ -459,7 +442,17 @@ private fun ResetChoicesSetting(vm: LibraryViewModel) {
 /** A small heading inside a section. */
 @Composable
 internal fun SettingsLabel(text: String) {
-    Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+    // One strong visual hierarchy shared by *all* Settings pages.
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.padding(end = 10.dp).width(4.dp).height(23.dp)
+                .background(MaterialTheme.colorScheme.tertiary, RoundedCornerShape(8.dp)),
+        )
+        Text(text, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+    }
 }
 
 /** A thin line between the parts of a section (instead of boxes inside boxes). */
