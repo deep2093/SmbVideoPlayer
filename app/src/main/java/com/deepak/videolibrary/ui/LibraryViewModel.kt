@@ -450,6 +450,60 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         services.moviePosters.reject(identity)
     }
 
+    fun sceneLookupAllowed(): Boolean = services.sceneMetadataPreferences.settings.value.allowedOnlineLookup
+
+    private fun sceneImageOptions(provider: String, scene: org.json.JSONObject, videoName: String, maxImages: Int): List<SceneCoverOption> {
+        val images = scene.optJSONArray("images")
+        val urls = (0 until (images?.length() ?: 0)).mapNotNull { i ->
+            images?.optJSONObject(i)?.optString("url")?.takeIf { com.deepak.videolibrary.artwork.online.ImageUrlPolicy.isAllowed(it) }
+        }.distinct().take(maxImages)
+        val name = if (provider == com.deepak.videolibrary.metadata.SceneMetadataSettings.TPDB) "ThePornDB" else "StashDB"
+        val title = scene.optString("title").ifBlank { videoName }
+        return urls.map { SceneCoverOption(title = title, videoName = videoName, providerName = name, imageUrl = it, localFile = null) }
+    }
+
+    /** Scenes found earlier for this item that were not clear enough to apply, as pictures to choose from. */
+    internal suspend fun sceneCoverSuggestions(key: String, video: VideoEntity?): List<SceneCoverOption> {
+        val videos = if (video != null) listOf(video) else videosForCoverKey(key)
+        return withContext(Dispatchers.IO) {
+            videos.take(100).flatMap { item ->
+                val record = services.sceneMetadataStore.get(item.relativePath)
+                if (record?.status != "REVIEW") return@flatMap emptyList()
+                val list = runCatching { org.json.JSONArray(record.suggestions ?: "") }.getOrNull() ?: return@flatMap emptyList()
+                (0 until list.length()).flatMap { i ->
+                    val entry = list.optJSONObject(i) ?: return@flatMap emptyList()
+                    val scene = entry.optJSONObject("scene") ?: return@flatMap emptyList()
+                    sceneImageOptions(entry.optString("provider"), scene, item.name, 2)
+                }
+            }.take(30)
+        }
+    }
+
+    /** Scenes matching [text] from every provider you have a key for, as pictures to choose from. */
+    internal suspend fun searchSceneCovers(text: String): List<SceneCoverOption> {
+        if (!com.deepak.videolibrary.artwork.online.NetworkPolicy.allowed(getApplication(), artworkSettings.value)) {
+            throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.BLOCKED_BY_SETTINGS)
+        }
+        val providers = services.sceneMetadataPreferences.settings.value.providers().filter { services.providerKeys.get(it) != null }
+        if (providers.isEmpty()) {
+            throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.NO_KEY)
+        }
+        return withContext(Dispatchers.IO) {
+            val client = com.deepak.videolibrary.metadata.SceneMetadataClient(services.providerKeys)
+            var failure: com.deepak.videolibrary.artwork.online.ProviderException? = null
+            val found = providers.flatMap { provider ->
+                try {
+                    client.search(provider, text).flatMap { sceneImageOptions(it.provider, it.scene, text, 2) }
+                } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) {
+                    failure = failure ?: e
+                    emptyList()
+                }
+            }
+            if (found.isEmpty() && failure != null) throw failure!!
+            found.take(30)
+        }
+    }
+
     /** ThePornDB movies matching [text], for choosing a full movie poster by hand. */
     suspend fun searchMovies(text: String): List<com.deepak.videolibrary.artwork.online.MovieCandidate> {
         if (!com.deepak.videolibrary.artwork.online.NetworkPolicy.allowed(getApplication(), artworkSettings.value)) {
