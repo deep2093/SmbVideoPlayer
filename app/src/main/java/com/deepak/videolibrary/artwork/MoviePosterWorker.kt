@@ -50,7 +50,7 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         if (inputData.getString("libraryId") != services.libraryId) return Result.failure()
         val options = services.sceneMetadataPreferences.settings.value
         if (!options.enabled || !options.allowedOnlineLookup) return Result.success()
-        val providers = options.providers().filter { services.providerKeys.get(it) != null }
+        val providers = options.sceneProviders().filter { services.providerKeys.get(it) != null }
         if (providers.isEmpty()) return Result.success()
         val scope = inputData.getString("scope").orEmpty().trim('/')
         val force = inputData.getBoolean("force", false)
@@ -201,7 +201,7 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
 
         private fun request(libraryId: String, scope: String, force: Boolean, kind: String) = OneTimeWorkRequestBuilder<MoviePosterWorker>()
             .setInputData(workDataOf("libraryId" to libraryId, "scope" to scope, "force" to force, "kind" to kind))
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.UNMETERED).setRequiresBatteryNotLow(true).build())
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 2, TimeUnit.MINUTES)
             .build()
 

@@ -104,7 +104,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
             }
         }
         SettingsLabel("PROVIDER ACCOUNTS")
-        Text("Select which provider to try first. If it finds nothing, the other one is tried. Keys are shared with performer portraits.", style = MaterialTheme.typography.bodySmall)
+        Text("Scenes and movie posters use ThePornDB only. This choice sets which provider performer portraits try first. Keys are shared with performer portraits.", style = MaterialTheme.typography.bodySmall)
         listOf(SceneMetadataSettings.TPDB, SceneMetadataSettings.STASHDB).forEach { id ->
             val title = if (id == SceneMetadataSettings.TPDB) "ThePornDB" else "StashDB"
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -602,7 +602,7 @@ internal fun SceneMetadataReviewDialog(
                             singleLine = true, modifier = Modifier.fillMaxWidth(),
                         )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(SceneMetadataSettings.TPDB, SceneMetadataSettings.STASHDB).forEach { provider ->
+                            listOf(SceneMetadataSettings.TPDB).forEach { provider ->
                                 val label = if (provider == SceneMetadataSettings.TPDB) "Search TPDB" else "Search StashDB"
                                 OutlinedButton(
                                     modifier = Modifier.weight(1f),

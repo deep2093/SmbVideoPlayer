@@ -97,8 +97,7 @@ class ScenePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         private fun request(libraryId: String?) = OneTimeWorkRequestBuilder<ScenePosterWorker>()
             .setInputData(workDataOf("libraryId" to libraryId))
             .setConstraints(Constraints.Builder()
-                .setRequiredNetworkType(NetworkType.UNMETERED)
-                .setRequiresBatteryNotLow(true).build())
+                .setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 2, TimeUnit.MINUTES)
             .build()
 

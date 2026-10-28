@@ -368,6 +368,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                         vm.ui.whatsNewOpen = false
                     })
                 }
+                LookupConditionPrompt(canShow = playing == null && !whatsNewShowing)
                 MatchReviewPrompt(vm, canShow = playing == null && !whatsNewShowing, onPreviewVideo = { video ->
                     vm.resetPlaybackQueue()
                     playQueue = listOf(video)

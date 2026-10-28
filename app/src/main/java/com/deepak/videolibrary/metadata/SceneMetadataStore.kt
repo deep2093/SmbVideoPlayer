@@ -51,6 +51,10 @@ data class SceneMetadataSettings(
         const val TPDB = "stashbox_tpdb"
     }
 
+    /** Scenes, movie posters and scene matching use ThePornDB only. StashDB is kept for performer portraits. */
+    fun sceneProviders(): List<String> = listOf(TPDB)
+
+    /** Order for performer portraits (the provider you prefer first). */
     fun providers(): List<String> = if (primary == TPDB) listOf(TPDB, STASHDB) else listOf(STASHDB, TPDB)
 
     /**

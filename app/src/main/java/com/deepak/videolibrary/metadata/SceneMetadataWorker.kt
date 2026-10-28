@@ -50,7 +50,7 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
 
         val profile = services.settings.loadProfile() ?: return Result.success()
         if (profile.username.isNotBlank() && profile.password.isBlank()) return Result.success()
-        val providers = settings.providers().filter { services.providerKeys.get(it) != null }
+        val providers = settings.sceneProviders().filter { services.providerKeys.get(it) != null }
         if (providers.isEmpty()) return Result.success()
         val client = SceneMetadataClient(services.providerKeys)
         val dao = services.db.dao()
@@ -147,7 +147,7 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
                 val matches = result.first.distinctBy { it.provider + ":" + it.id }
                 // A file-hash match, or a title that clearly is this file's, is applied automatically.
                 // Anything unclear (several scenes, a partial title, Android pHash) waits in Review.
-                val chosen = SceneAutoMatch.choose(matches, video.name, services.sceneMetadataPreferences.settings.value.providers())
+                val chosen = SceneAutoMatch.choose(matches, video.name, services.sceneMetadataPreferences.settings.value.sceneProviders())
                 if (chosen != null) services.sceneMetadataStore.save(video, "CONFIRMED", chosen.encoded().toString())
                 else {
                     val proposals = JSONArray()
@@ -222,9 +222,7 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
             .setInputData(workDataOf("libraryId" to libraryId, "manual" to manual, "scope" to scope, "force" to force))
             .setConstraints(
                 Constraints.Builder()
-                    .setRequiredNetworkType(NetworkType.UNMETERED)
-                    .setRequiresBatteryNotLow(true)
-                    .setRequiresStorageNotLow(true)
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
                     .build(),
             )
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 2, TimeUnit.MINUTES)

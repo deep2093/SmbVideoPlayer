@@ -466,12 +466,12 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     fun fetchOriginalFolderArtwork(path: String, scenes: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             val options = services.sceneMetadataPreferences.settings.value
-            val hasKey = options.providers().any { services.providerKeys.get(it) != null }
+            val hasKey = options.sceneProviders().any { services.providerKeys.get(it) != null }
             val name = path.substringAfterLast('/')
             notice = when {
                 !options.enabled || !options.allowedOnlineLookup ->
                     "Online lookups are off. Turn them on in Settings > Artwork & scene metadata first."
-                !hasKey -> "Add a StashDB or ThePornDB key in Settings > Artwork & scene metadata first."
+                !hasKey -> "Add your ThePornDB key in Settings > Artwork & scene metadata first."
                 else -> {
                     val context = getApplication<android.app.Application>()
                     com.deepak.videolibrary.artwork.MoviePosterWorker.enqueue(
@@ -519,7 +519,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         if (!com.deepak.videolibrary.artwork.online.NetworkPolicy.allowed(getApplication(), artworkSettings.value)) {
             throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.BLOCKED_BY_SETTINGS)
         }
-        val providers = services.sceneMetadataPreferences.settings.value.providers().filter { services.providerKeys.get(it) != null }
+        val providers = services.sceneMetadataPreferences.settings.value.sceneProviders().filter { services.providerKeys.get(it) != null }
         if (providers.isEmpty()) {
             throw com.deepak.videolibrary.artwork.online.ProviderException(com.deepak.videolibrary.artwork.online.ProviderFailure.NO_KEY)
         }
