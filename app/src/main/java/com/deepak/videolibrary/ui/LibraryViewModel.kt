@@ -1795,8 +1795,79 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     suspend fun artworkLabels(keys: List<String>): Map<String, String> {
         val custom = withContext(Dispatchers.IO) { dao.allMatchFolders() }.associate { com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(it.id) to it.name }
         return keys.associateWith { key ->
-            custom[key] ?: com.deepak.videolibrary.artwork.ArtworkKeys.labelOf(key).let { if (key.startsWith("original:")) originalFolderLabel(it) else it }
+            custom[key] ?: when {
+                // "vset:<set id>:<name>": the name only, never the set's id.
+                key.startsWith("vset:") -> com.deepak.videolibrary.scan.VirtualNames.display(key.substringAfterLast(':'))
+                key.startsWith("original:") -> originalFolderLabel(com.deepak.videolibrary.artwork.ArtworkKeys.labelOf(key))
+                else -> com.deepak.videolibrary.artwork.ArtworkKeys.labelOf(key)
+            }
         }
+    }
+
+    /** Where a folder's suggestions come from: a name for it and some of its files (full name and path). */
+    internal class PortraitSource(val title: String?, val files: List<VideoEntity>, val total: Int)
+
+    internal suspend fun portraitSources(keys: List<String>): Map<String, PortraitSource> = withContext(Dispatchers.IO) {
+        val state = services.db.libraryState()
+        val saved = services.settings.load()
+        val serverKey = saved.host.trim().lowercase(java.util.Locale.ROOT) + "/" + saved.share.trim().lowercase(java.util.Locale.ROOT)
+        val matches = dao.allMatchFolders().associateBy { com.deepak.videolibrary.artwork.ArtworkKeys.matchFolder(it.id) }
+        val sets by lazy { services.virtualSets.load(serverKey).associateBy { it.id } }
+        val rules by lazy { com.deepak.videolibrary.scan.GroupingPrefs.load(services.artworkContext, com.deepak.videolibrary.scan.GroupingPrefs.VIRTUAL) }
+        val groups = HashMap<String, List<com.deepak.videolibrary.data.VirtualGroup>>()
+        val out = HashMap<String, PortraitSource>()
+        for (key in keys) {
+            try {
+                val found: Pair<String?, List<VideoEntity>>? = when {
+                    key.startsWith("original:") -> null to state.videoList(
+                        com.deepak.videolibrary.data.LibraryQueries.videos(
+                            com.deepak.videolibrary.data.LibraryScope(namespace.value, directory = key.removePrefix("original:"), subtree = true),
+                        ),
+                    )
+                    key.startsWith("match:") -> matches[key]?.let { folder ->
+                        folder.name to state.videoList(
+                            com.deepak.videolibrary.data.LibraryQueries.videos(
+                                com.deepak.videolibrary.data.LibraryScope(
+                                    namespace.value, match = folder.takeIf { it.sourcePath == null }?.term,
+                                    sourcePath = folder.sourcePath, includeSubfolders = folder.includeSubfolders,
+                                ),
+                            ),
+                        )
+                    }
+                    key.startsWith("vset:") && key.removePrefix("vset:").contains(':') -> {
+                        val setId = key.removePrefix("vset:").substringBefore(':')
+                        val identity = key.removePrefix("vset:").substringAfter(':')
+                        val set = sets[setId]
+                        val built = set?.let { s ->
+                            groups.getOrPut(setId) {
+                                com.deepak.videolibrary.data.VirtualGroups.build(
+                                    s,
+                                    state.videoList(
+                                        com.deepak.videolibrary.data.LibraryQueries.videos(
+                                            com.deepak.videolibrary.data.LibraryScope(serverKey, members = s.members()),
+                                        ),
+                                    ),
+                                    rules,
+                                )
+                            }
+                        }
+                        built?.firstOrNull { it.identity == identity }?.let { it.title to it.videos }
+                    }
+                    key.startsWith("virtual:") -> null to state.videoList(
+                        com.deepak.videolibrary.data.LibraryQueries.videos(
+                            com.deepak.videolibrary.data.LibraryScope(namespace.value, group = key.removePrefix("virtual:")),
+                        ),
+                    )
+                    else -> null
+                }
+                if (found != null && found.second.isNotEmpty()) out[key] = PortraitSource(found.first, found.second.take(3), found.second.size)
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Shows the name only.
+            }
+        }
+        out
     }
 
     /** Uses a suggestion as the folder's cover. Returns an error message, or null when it worked. */

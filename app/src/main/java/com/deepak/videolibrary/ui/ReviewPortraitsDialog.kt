@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 internal fun ReviewPortraitsDialog(vm: LibraryViewModel, onDismiss: () -> Unit) {
     val queue by vm.portraitReview.collectAsStateWithLifecycle()
     val labels by produceState(emptyMap<String, String>(), queue) { value = vm.artworkLabels(queue.map { it.key }) }
+    val sources by produceState(emptyMap<String, LibraryViewModel.PortraitSource>(), queue) { value = vm.portraitSources(queue.map { it.key }) }
     var custom by remember { mutableStateOf<CoverTarget?>(null) }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -70,8 +71,9 @@ internal fun ReviewPortraitsDialog(vm: LibraryViewModel, onDismiss: () -> Unit) 
                 } else {
                     LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(queue, key = { it.key }) { entry ->
-                            val label = labels[entry.key] ?: entry.key.substringAfter(':')
-                            ReviewEntry(vm, entry, label, onCustom = { custom = CoverTarget(entry.key, label, label.substringAfterLast('/'), null) })
+                            val source = sources[entry.key]
+                            val label = source?.title?.takeIf { it.isNotBlank() } ?: labels[entry.key] ?: entry.key.substringAfterLast(':')
+                            ReviewEntry(vm, entry, label, source, onCustom = { custom = CoverTarget(entry.key, label, label.substringAfterLast('/'), null) })
                             HorizontalDivider()
                         }
                     }
@@ -87,7 +89,7 @@ internal fun ReviewPortraitsDialog(vm: LibraryViewModel, onDismiss: () -> Unit) 
 }
 
 @Composable
-private fun ReviewEntry(vm: LibraryViewModel, entry: ArtworkOverride, label: String, onCustom: () -> Unit) {
+private fun ReviewEntry(vm: LibraryViewModel, entry: ArtworkOverride, label: String, source: LibraryViewModel.PortraitSource?, onCustom: () -> Unit) {
     val scope = rememberCoroutineScope()
     var suggestions by remember(entry.key) { mutableStateOf<List<PerformerCandidate>?>(null) }
     var busy by remember(entry.key) { mutableStateOf(false) }
@@ -96,6 +98,16 @@ private fun ReviewEntry(vm: LibraryViewModel, entry: ArtworkOverride, label: Str
 
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        // The files this suggestion is for: the full file name and its path on the drive.
+        source?.files?.forEach { video ->
+            Column {
+                Text(video.name, style = MaterialTheme.typography.bodySmall)
+                Text(video.relativePath, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        if (source != null && source.total > source.files.size) {
+            Text("and ${source.total - source.files.size} more files", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         val list = suggestions
         when {
             list == null -> Text("Loading…", style = MaterialTheme.typography.bodySmall)
