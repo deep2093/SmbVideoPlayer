@@ -41,6 +41,8 @@ internal fun FileActionsMenu(
     onChangeThumbnail: (() -> Unit)? = null,
     onChangeCover: (() -> Unit)? = null,
     onSelect: (() -> Unit)? = null,
+    onFetchPosters: (() -> Unit)? = null,
+    onFetchScenes: (() -> Unit)? = null,
 ) {
     var rename by remember(path) { mutableStateOf(false) }
     var delete by remember(path) { mutableStateOf(false) }
@@ -66,6 +68,18 @@ internal fun FileActionsMenu(
             DropdownMenuItem(text = { Text("Change cover") }, onClick = {
                 dismiss()
                 onChangeCover()
+            })
+        }
+        if (onFetchPosters != null) {
+            DropdownMenuItem(text = { Text("Fetch posters (this folder and sub folders)") }, onClick = {
+                dismiss()
+                onFetchPosters()
+            })
+        }
+        if (onFetchScenes != null) {
+            DropdownMenuItem(text = { Text("Fetch scenes (this folder and sub folders)") }, onClick = {
+                dismiss()
+                onFetchScenes()
             })
         }
         if (onChangeThumbnail != null) {

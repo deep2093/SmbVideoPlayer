@@ -450,6 +450,33 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         services.moviePosters.reject(identity)
     }
 
+    /**
+     * Looks up pictures for an Original folder and everything below it (its sub folders too): movie posters, or scenes.
+     * The preferred provider is asked first, then the other; folder names first, then file names. Matches that are
+     * not certain wait in the review list, and the review pop-up appears when the lookup has finished.
+     */
+    fun fetchOriginalFolderArtwork(path: String, scenes: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val options = services.sceneMetadataPreferences.settings.value
+            val hasKey = options.providers().any { services.providerKeys.get(it) != null }
+            val name = path.substringAfterLast('/')
+            notice = when {
+                !options.enabled || !options.allowedOnlineLookup ->
+                    "Online lookups are off. Turn them on in Settings > Artwork & scene metadata first."
+                !hasKey -> "Add a StashDB or ThePornDB key in Settings > Artwork & scene metadata first."
+                else -> {
+                    val context = getApplication<android.app.Application>()
+                    com.deepak.videolibrary.artwork.MoviePosterWorker.enqueue(
+                        context, services.libraryId, scope = path, force = true,
+                        kind = if (scenes) com.deepak.videolibrary.artwork.MoviePosterWorker.KIND_SCENE else com.deepak.videolibrary.artwork.MoviePosterWorker.KIND_MOVIE,
+                    )
+                    if (scenes) com.deepak.videolibrary.metadata.SceneMetadataWorker.enqueueFolder(context, services.libraryId, path)
+                    "Looking up ${if (scenes) "scenes" else "posters"} for $name and its sub folders. Anything unclear is listed for review when it finishes."
+                }
+            }
+        }
+    }
+
     fun sceneLookupAllowed(): Boolean = services.sceneMetadataPreferences.settings.value.allowedOnlineLookup
 
     private fun sceneImageOptions(provider: String, scene: org.json.JSONObject, videoName: String, maxImages: Int): List<SceneCoverOption> {

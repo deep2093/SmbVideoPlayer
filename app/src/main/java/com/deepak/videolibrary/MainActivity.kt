@@ -162,7 +162,9 @@ class MainActivity : ComponentActivity() {
                             val services = ServiceLocator.get(applicationContext)
                             services.db.openHelper.writableDatabase
                             services.settings.load()
+                            // No background schedule: cancel the old one, then refresh only if the last scan is over 12 hours old.
                             PeriodicSyncWorker.ensureScheduled(applicationContext)
+                            com.deepak.videolibrary.scan.AutoRefresh.runIfDue(applicationContext, services)
                         }
                         ready = true
                     } catch (e: kotlinx.coroutines.CancellationException) {

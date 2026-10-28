@@ -33,7 +33,7 @@ internal object WhatsNew {
         "Grid sizes" to "Choose columns for portrait and landscape separately in Settings. Pinch to resize is gone.",
         "Virtual folder names" to "Names using an en dash or em dash no longer create a second folder with the same name.",
         "Faster and clearer downloads" to "Posters and photos download in parallel, and ThePornDB errors now say what went wrong.",
-        "Gentler on your drive" to "The drive is only read when you refresh, scan, or the 12-hour sync runs.",
+        "Gentler on your drive" to "The drive is only read when you refresh, scan, change files or play a video. The library refreshes itself only when you open the app and the last scan is over 12 hours old; nothing runs in the background.",
     )
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences("whats_new", Context.MODE_PRIVATE)

@@ -240,6 +240,12 @@ class SceneMetadataStore(context: Context, libraryId: String) :
         )
     }
 
+    /** Forgets "no match" and "retry" results for videos under [folder] (a drive path without a trailing slash). */
+    @Synchronized
+    fun forgetMissesUnder(folder: String): Int =
+        writableDatabase.delete("scene_metadata", "status IN ('NO_MATCH','RETRY') AND substr(path,1,?)=?", arrayOf((folder.length + 1).toString(), "$folder/"))
+            .also { if (it > 0) changes.value += 1 }
+
     /** Forget "no match" and failed lookups so the next lookup tries them again. Confirmed and pending-review results stay. */
     @Synchronized
     fun forgetMisses(): Int = writableDatabase.delete("scene_metadata", "status IN ('NO_MATCH','RETRY')", null)

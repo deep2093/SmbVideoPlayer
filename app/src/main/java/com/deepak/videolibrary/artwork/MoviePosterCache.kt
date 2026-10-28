@@ -117,6 +117,12 @@ class MoviePosterCache(context: Context, libraryId: String) {
         return now - at < wait
     }
 
+    /** Forgets "checked", "rejected" and any waiting suggestions for one folder, so a lookup you start by hand tries it again. */
+    fun reset(identity: String) {
+        prefs.edit().remove("checked:" + digest(identity)).remove("rejected:" + digest(identity)).remove("review:" + digest(identity)).apply()
+        reviewState.value = readReview()
+    }
+
     /** Lets every folder be searched again (keeps the posters already found). */
     fun forgetChecks() {
         val edit = prefs.edit()

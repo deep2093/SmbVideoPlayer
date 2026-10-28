@@ -152,6 +152,10 @@ interface LibraryDao {
     @Query("SELECT * FROM scan_sessions ORDER BY id DESC LIMIT 1")
     suspend fun latestSession(): ScanSessionEntity?
 
+    /** When the library last finished a scan (any kind, started by you or automatically), or null if it never did. */
+    @Query("SELECT MAX(finishedAt) FROM scan_sessions WHERE status IN ('COMPLETED', 'COMPLETED_WITH_ERRORS')")
+    suspend fun lastFinishedScanAt(): Long?
+
     @Query("SELECT * FROM scan_sessions ORDER BY id DESC LIMIT 1")
     fun observeLatestSession(): Flow<ScanSessionEntity?>
 

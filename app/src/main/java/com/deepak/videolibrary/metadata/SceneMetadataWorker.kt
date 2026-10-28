@@ -54,7 +54,11 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
         if (providers.isEmpty()) return Result.success()
         val client = SceneMetadataClient(services.providerKeys)
         val dao = services.db.dao()
+        // Started from a folder's menu: only the videos in that folder and below it, and earlier misses are tried again.
+        val scope = inputData.getString("scope").orEmpty().trim('/')
+        if (scope.isNotEmpty() && inputData.getBoolean("force", false)) services.sceneMetadataStore.forgetMissesUnder(scope)
         val targets = dao.allIdPaths().chunked(40).flatMap { block -> dao.videosByPaths(block.map { it.relativePath }) }
+            .filter { scope.isEmpty() || it.parentDir == scope || it.parentDir.startsWith("$scope/") }
             .filter { services.sceneMetadataStore.needsLookup(it) }
         if (targets.isEmpty()) {
             if (settings.posterMode != PosterMode.DISABLED) ScenePosterWorker.enqueue(applicationContext, libraryId)
@@ -73,7 +77,7 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
                     if (!live.enabled || !live.allowedOnlineLookup) return Result.success()
                     if (System.currentTimeMillis() - started > RUN_BUDGET_MS) {
                         // Out of time for this run: carry on straight away in a fresh one (no backoff).
-                        continueLater(applicationContext, libraryId, manual)
+                        continueLater(applicationContext, libraryId, manual, scope)
                         return Result.success()
                     }
                     processBatch(batch, conn, client, providers, settings, services)
@@ -214,8 +218,8 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
 
         fun workName(id: String) = "$UNIQUE:$id"
 
-        private fun request(libraryId: String, manual: Boolean) = OneTimeWorkRequestBuilder<SceneMetadataWorker>()
-            .setInputData(workDataOf("libraryId" to libraryId, "manual" to manual))
+        private fun request(libraryId: String, manual: Boolean, scope: String = "", force: Boolean = false) = OneTimeWorkRequestBuilder<SceneMetadataWorker>()
+            .setInputData(workDataOf("libraryId" to libraryId, "manual" to manual, "scope" to scope, "force" to force))
             .setConstraints(
                 Constraints.Builder()
                     .setRequiredNetworkType(NetworkType.UNMETERED)
@@ -226,6 +230,13 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 2, TimeUnit.MINUTES)
             .build()
 
+        /** Matches the scenes of the videos in one folder and below it, queued behind any run in progress. */
+        fun enqueueFolder(context: Context, libraryId: String, scope: String) {
+            WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+                workName(libraryId), ExistingWorkPolicy.APPEND_OR_REPLACE, request(libraryId, manual = true, scope = scope, force = true),
+            )
+        }
+
         fun enqueue(context: Context, libraryId: String, manual: Boolean = false) {
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
                 workName(libraryId), if (manual) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP, request(libraryId, manual),
@@ -233,9 +244,9 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
         }
 
         /** Queues the next run right behind the current one, so a long library keeps going without backoff gaps. */
-        internal fun continueLater(context: Context, libraryId: String, manual: Boolean) {
+        internal fun continueLater(context: Context, libraryId: String, manual: Boolean, scope: String = "") {
             WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
-                workName(libraryId), ExistingWorkPolicy.APPEND_OR_REPLACE, request(libraryId, manual),
+                workName(libraryId), ExistingWorkPolicy.APPEND_OR_REPLACE, request(libraryId, manual, scope),
             )
         }
 

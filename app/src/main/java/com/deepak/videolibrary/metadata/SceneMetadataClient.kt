@@ -51,8 +51,13 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
     private val workingSearch = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
     /** Stash-box schema searchScenes, with only public, read-only metadata fields. */
-    suspend fun search(provider: String, filename: String): List<SceneMatch> {
-        val term = cleanSearchTerm(filename)
+    suspend fun search(provider: String, filename: String): List<SceneMatch> = searchTerm(provider, cleanSearchTerm(filename))
+
+    /** Searches with [rawTerm] exactly as given (a folder name keeps its dots), only tidied and length-limited. */
+    suspend fun searchText(provider: String, rawTerm: String): List<SceneMatch> =
+        searchTerm(provider, rawTerm.replace(Regex("[._]+"), " ").replace(Regex("\\s+"), " ").trim().take(160))
+
+    private suspend fun searchTerm(provider: String, term: String): List<SceneMatch> {
         if (term.length < 4) return emptyList()
         val variables = JSONObject().put("term", term)
         val variants = if (provider == SceneMetadataSettings.TPDB)

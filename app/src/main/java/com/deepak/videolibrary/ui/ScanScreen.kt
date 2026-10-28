@@ -316,45 +316,32 @@ private fun ScanStat(label: String, value: String, modifier: Modifier = Modifier
     }
 }
 
-// Compose lint misses the explicit producer value assignments below.
-@android.annotation.SuppressLint("ProduceStateDoesNotAssignValue")
 @Composable
 private fun AutomaticSyncSummary() {
     val context = LocalContext.current
-    val prefs = remember(context) {
-        context.getSharedPreferences(
-            com.deepak.videolibrary.scan.PeriodicSyncWorker.DIAGNOSTICS + "-" + com.deepak.videolibrary.ServiceLocator.get(context).libraryId,
-            android.content.Context.MODE_PRIVATE,
-        )
+    val dao = remember(context) { com.deepak.videolibrary.ServiceLocator.get(context).db.dao() }
+    val latest by dao.observeLatestSession().collectAsStateWithLifecycle(null)
+    val lastFinished by produceState<Long?>(null, latest?.id, latest?.status) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { dao.lastFinishedScanAt() }
     }
-    val snapshot by produceState(initialValue = prefs.getString("last_status", "Not run yet") to prefs.getLong("last_success", 0L), prefs) {
-        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-            value = prefs.getString("last_status", "Not run yet") to prefs.getLong("last_success", 0L)
-        }
-        prefs.registerOnSharedPreferenceChangeListener(listener)
-        value = prefs.getString("last_status", "Not run yet") to prefs.getLong("last_success", 0L)
-        awaitDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
-    }
-    val status = when (val raw = snapshot.first.orEmpty()) {
-        "RUNNING" -> "Syncing…"
+    val status = when (latest?.status) {
+        "RUNNING" -> "Scanning…"
         "COMPLETED" -> "Up to date"
         "COMPLETED_WITH_ERRORS" -> "Finished with scan errors"
         "EMPTY_SOURCE" -> "Drive empty · index retained"
-        "INTERRUPTED" -> "Interrupted · will try again"
-        else -> when {
-            raw.startsWith("SKIPPED:") -> raw.removePrefix("SKIPPED:").trim()
-            raw.startsWith("FAILED:") -> "Couldn't sync · will retry"
-            else -> "Not run yet"
-        }
+        "INTERRUPTED" -> "Interrupted · use Resume"
+        "FAILED" -> "Couldn't finish · use Resume or Refresh"
+        else -> "Not scanned yet"
     }
-    ScanSection("Automatic sync") {
+    ScanSection("Automatic refresh") {
         Text(
-            "Every 12 hours when your server is reachable. Your names and covers are kept. Use Refresh library to scan sooner.",
+            "When you open the app and the last scan is more than 12 hours old, the library refreshes by itself. " +
+                "Otherwise the drive is left alone until you refresh, scan, change files or play a video. Your names and covers are kept.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "$status · last sync " + if (snapshot.second == 0L) "never" else shortAgo(snapshot.second).lowercase(),
+            "$status · last scan " + (lastFinished?.let { shortAgo(it).lowercase() } ?: "never"),
             style = MaterialTheme.typography.bodyMedium,
         )
     }

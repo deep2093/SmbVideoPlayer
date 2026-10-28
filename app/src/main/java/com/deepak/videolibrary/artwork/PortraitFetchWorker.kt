@@ -235,6 +235,12 @@ internal fun OriginalFolderPaths.movieFolders(roots: List<String>, parentDirs: L
 
 /** The Original folders a lookup covers: each added folder and every folder between it and an indexed video. */
 internal object OriginalFolderPaths {
+    /** True when [path] is [scope] itself or lies below it; an empty [scope] means everything. */
+    fun inScope(path: String, scope: String): Boolean {
+        val base = scope.trim('/')
+        return base.isEmpty() || path == base || path.startsWith("$base/")
+    }
+
     fun within(roots: List<String>, parentDirs: List<String>): List<String> {
         val out = LinkedHashSet<String>()
         roots.forEach { out += it }

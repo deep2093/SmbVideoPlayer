@@ -27,3 +27,17 @@ class OriginalFolderPathsTest {
         assertEquals(listOf("Movies/Tom"), OriginalRootStore.normalize(listOf("/Movies/Tom/", "Movies/Tom", "Movies/Tom/Sub", "")))
     }
 }
+
+class OriginalFolderScopeTest {
+    @Test fun aScopeCoversThatFolderAndEverythingBelowItOnly() {
+        assertEquals(true, OriginalFolderPaths.inScope("Movies/Tiger/Heat", "Movies/Tiger"))
+        assertEquals(true, OriginalFolderPaths.inScope("Movies/Tiger", "Movies/Tiger"))
+        assertEquals(true, OriginalFolderPaths.inScope("Movies/Tiger/Set/Part 1", "/Movies/Tiger/"))
+        assertEquals(false, OriginalFolderPaths.inScope("Movies/Tigers/Heat", "Movies/Tiger"))
+        assertEquals(false, OriginalFolderPaths.inScope("Movies/Other", "Movies/Tiger/Heat"))
+    }
+
+    @Test fun anEmptyScopeMeansTheWholeLibrary() {
+        assertEquals(true, OriginalFolderPaths.inScope("Movies/Anything", ""))
+    }
+}

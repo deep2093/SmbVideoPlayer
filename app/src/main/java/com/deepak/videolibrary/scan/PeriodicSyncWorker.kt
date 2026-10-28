@@ -74,9 +74,12 @@ class PeriodicSyncWorker(context: Context, params: WorkerParameters) : Coroutine
         private const val KEY_ENABLED = "enabled"
 
         /** The automatic rescan is on unless the user switched it off in Settings > Sync. */
-        /** The 12-hour rescan is always on; there is no switch for it any more. */
+        /**
+         * The background schedule is gone: it woke the drive every 12 hours even when the app was closed. The library
+         * is refreshed when the app is opened and the last scan is more than 12 hours old (see [AutoRefresh]).
+         */
         @Suppress("UNUSED_PARAMETER")
-        fun isEnabled(context: Context): Boolean = true
+        fun isEnabled(context: Context): Boolean = false
 
         /** Remembers the choice and starts or stops the schedule right away. */
         fun setEnabled(context: Context, enabled: Boolean) {
