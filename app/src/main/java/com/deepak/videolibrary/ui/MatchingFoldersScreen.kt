@@ -262,7 +262,7 @@ private fun OwnFolderCard(vm: LibraryViewModel, folder: OwnFolder, aspect: Float
             if (artworkOn) DropdownMenuItem(text = { Text("Change cover") }, onClick = { menu = false; changeCover = true })
             DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; vm.downloadOwnFolder(folder) })
             DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; rename = true })
-            DropdownMenuItem(text = { Text("Remove from Custom folders…") }, onClick = { menu = false; remove = true })
+            DropdownMenuItem(text = { Text("Take out of Custom folders…") }, onClick = { menu = false; remove = true })
         }
     }
     if (rename) {
@@ -682,7 +682,7 @@ private fun MatchingFolderCard(
                 menu = false
                 vm.hideMatchingFolder(folder)
             })
-            DropdownMenuItem(text = { Text("Remove from Custom folders…") }, onClick = {
+            DropdownMenuItem(text = { Text("Take out of Custom folders…") }, onClick = {
                 menu = false
                 dialog = "Remove"
             })

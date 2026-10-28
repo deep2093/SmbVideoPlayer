@@ -153,9 +153,12 @@ internal fun FileActionsMenu(
             dismiss()
             info = true
         })
-        DropdownMenuItem(text = { Text(stringResource(R.string.ui_remove_hide_3c3e1da)) }, onClick = {
+        // On every folder: take it out of this list without touching the drive. A folder you added is removed (add it
+        // again any time); any other is hidden, and Unhide in Settings > Hidden items brings it back.
+        DropdownMenuItem(text = { Text(if (directory || virtual) "Take out of this list" else stringResource(R.string.ui_remove_hide_3c3e1da)) }, onClick = {
             dismiss()
-            if (virtual) vm.hideGroup(path) else vm.hidePath(path, directory)
+            if (onRemoveFromList != null) onRemoveFromList()
+            else if (virtual) vm.hideGroup(path) else vm.hidePath(path, directory)
         })
         if (onRemoveContinue != null) {
             DropdownMenuItem(text = { Text(stringResource(R.string.ui_remove_from_continue_watching_b589f73)) }, onClick = {

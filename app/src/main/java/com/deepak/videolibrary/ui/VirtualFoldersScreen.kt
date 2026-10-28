@@ -314,7 +314,7 @@ private fun VirtualSetCard(vm: LibraryViewModel, set: VirtualSet, aspect: Float,
             if (artworkOn) DropdownMenuItem(text = { Text("Change cover") }, onClick = { menu = false; changeCover = true })
             DropdownMenuItem(text = { Text("Download") }, onClick = { menu = false; vm.downloadVirtualSet(set) })
             DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; rename = true })
-            DropdownMenuItem(text = { Text("Delete virtual folder…") }, onClick = { menu = false; remove = true })
+            DropdownMenuItem(text = { Text("Take out of Virtual folders…") }, onClick = { menu = false; remove = true })
         }
     }
     if (rename) RenameDialog("Rename virtual folder", set.name, "Only the name in this app changes.", { rename = false }) { vm.renameVirtualSet(set.id, it) }
@@ -325,9 +325,9 @@ private fun VirtualSetCard(vm: LibraryViewModel, set: VirtualSet, aspect: Float,
     if (remove) {
         AlertDialog(
             onDismissRequest = { remove = false },
-            title = { Text("Delete ${set.name}?") },
+            title = { Text("Take out ${set.name}?") },
             text = { Text("The virtual folder and its subfolders are removed from this app. Your videos and folders on the drive are not touched.") },
-            confirmButton = { TextButton(onClick = { remove = false; vm.deleteVirtualSet(set.id) }) { Text("Delete") } },
+            confirmButton = { TextButton(onClick = { remove = false; vm.deleteVirtualSet(set.id) }) { Text("Take out") } },
             dismissButton = { TextButton(onClick = { remove = false }) { Text("Cancel") } },
         )
     }
