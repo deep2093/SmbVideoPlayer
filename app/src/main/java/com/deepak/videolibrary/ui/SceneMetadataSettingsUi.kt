@@ -145,6 +145,9 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     }
 
     MetadataPanel(vm, "maintenance", "4 · Recheck, advanced & clear", "Fingerprint methods, recheck and clearing saved results") {
+        SwitchRow("Match by file name only", "Reads nothing from your drive while matching, so it can stay asleep. Less exact: it relies on file names, and unclear matches go to review.", options.nameOnly) { enabled ->
+            prefs.update { old -> old.copy(nameOnly = enabled) }
+        }
         SwitchRow("Try video pHash", "Experimental and slower over SMB. Suggested results always need review.", options.phash) { enabled ->
             prefs.update { old -> old.copy(phash = enabled) }
         }

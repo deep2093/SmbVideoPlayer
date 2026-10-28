@@ -31,6 +31,8 @@ data class SceneMetadataSettings(
     val primary: String = STASHDB,
     val automatic: Boolean = true,
     val phash: Boolean = false,
+    /** Match by file name only: no part of any video is read from the drive, so it stays asleep. */
+    val nameOnly: Boolean = false,
     val reviewUncertain: Boolean = true,
     val allowedOnlineLookup: Boolean = false,
     val posterMode: PosterMode = PosterMode.AUTOMATIC,
@@ -86,6 +88,7 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
             ?.takeIf { it == SceneMetadataSettings.TPDB } ?: SceneMetadataSettings.STASHDB,
         automatic = true,
         phash = prefs.getBoolean("phash", false),
+        nameOnly = prefs.getBoolean("name_only", false),
         reviewUncertain = prefs.getBoolean("review_uncertain", true),
         allowedOnlineLookup = prefs.getBoolean("online_consent", false),
         // Confirmed scene posters are always applied automatically; there is no approval step or off switch.
@@ -113,6 +116,7 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
             .putString("primary", next.primary)
             .putBoolean("automatic", next.automatic)
             .putBoolean("phash", next.phash)
+            .putBoolean("name_only", next.nameOnly)
             .putBoolean("review_uncertain", next.reviewUncertain)
             .putBoolean("online_consent", next.allowedOnlineLookup)
             .putString("poster_mode", next.posterMode.name)

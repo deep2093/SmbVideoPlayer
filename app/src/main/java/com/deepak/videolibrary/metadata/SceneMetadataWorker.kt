@@ -71,7 +71,8 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
         // A normal WorkManager worker may be stopped at any time. Saved results resume on the next run.
         return try {
             SmbConnection(profile).use { conn ->
-                conn.open()
+                // Matching by file name alone never opens the drive.
+                if (!settings.nameOnly) conn.open()
                 for (batch in targets.chunked(BATCH_SIZE)) {
                     currentCoroutineContext().ensureActive()
                     val live = services.sceneMetadataPreferences.settings.value
@@ -114,7 +115,10 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
     ) = coroutineScope {
         // 1. OSHASH: 64 KiB from each end of the file, a few files at a time over the one SMB session.
         val hashes = batch.map { video ->
-            async { smbReads.withPermit { runCatching { SceneFingerprint.oshash(conn, video) }.getOrNull() } }
+            async {
+                if (settings.nameOnly) null
+                else smbReads.withPermit { runCatching { SceneFingerprint.oshash(conn, video) }.getOrNull() }
+            }
         }.awaitAll()
 
         // 2. One fingerprint request per provider for the whole batch, providers in parallel.
@@ -122,6 +126,7 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
         val byProvider = providers.mapIndexed { p, provider ->
             async {
                 try {
+                    if (settings.nameOnly) return@async null
                     client.fingerprintsBatch(provider, hashes.map { h -> if (h == null) emptyMap<String, String>() else mapOf("OSHASH" to h) })
                 } catch (e: CancellationException) {
                     throw e
@@ -198,7 +203,7 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
         val matches = lookup { client.search(it, video.name) }
         if (matches.isNotEmpty()) return matches to false
 
-        if (options.phash && !transientFailure) {
+        if (options.phash && !options.nameOnly && !transientFailure) {
             // Expensive: decodes 25 frames over SMB. One file at a time, with its own shorter limit, and skipped
             // for files too small to be real videos.
             val phash = if (video.size >= 128 * 1024L) {
