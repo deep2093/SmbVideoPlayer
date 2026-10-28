@@ -71,13 +71,13 @@ internal fun FileActionsMenu(
             })
         }
         if (onFetchPosters != null) {
-            DropdownMenuItem(text = { Text("Fetch posters (this folder and sub folders)") }, onClick = {
+            DropdownMenuItem(text = { Text("Fetch posters") }, onClick = {
                 dismiss()
                 onFetchPosters()
             })
         }
         if (onFetchScenes != null) {
-            DropdownMenuItem(text = { Text("Fetch scenes (this folder and sub folders)") }, onClick = {
+            DropdownMenuItem(text = { Text("Fetch scenes") }, onClick = {
                 dismiss()
                 onFetchScenes()
             })
