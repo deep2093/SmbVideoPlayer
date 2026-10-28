@@ -62,6 +62,7 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
             .filter { services.sceneMetadataStore.needsLookup(it) }
         if (targets.isEmpty()) {
             if (settings.posterMode != PosterMode.DISABLED) ScenePosterWorker.enqueue(applicationContext, libraryId)
+            giveFolderItsScene(scope, libraryId)
             return Result.success()
         }
 
@@ -85,11 +86,21 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
                 }
             }
             if (settings.posterMode != PosterMode.DISABLED) ScenePosterWorker.enqueue(applicationContext, libraryId)
+            giveFolderItsScene(scope, libraryId)
             Result.success()
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             Result.retry()
+        }
+    }
+
+    /** After a folder's scenes were matched, its folder cover takes one of the confirmed scene pictures. */
+    private fun giveFolderItsScene(scope: String, libraryId: String) {
+        if (scope.isNotEmpty()) {
+            com.deepak.videolibrary.artwork.MoviePosterWorker.enqueue(
+                applicationContext, libraryId, scope, force = true, kind = com.deepak.videolibrary.artwork.MoviePosterWorker.KIND_SCENE,
+            )
         }
     }
 

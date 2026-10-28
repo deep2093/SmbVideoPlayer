@@ -134,6 +134,27 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         object None : Found
     }
 
+    /** The first confirmed scene (by file match) among [videos] that has a usable picture, as a poster candidate. */
+    private fun confirmedScenePoster(videos: List<com.deepak.videolibrary.data.VideoEntity>, services: ServiceLocator): MovieCandidate? {
+        for (video in videos.take(200)) {
+            val record = services.sceneMetadataStore.get(video.relativePath)
+            if (record?.status != "CONFIRMED") continue
+            val json = runCatching { org.json.JSONObject(record.result ?: "") }.getOrNull() ?: continue
+            val scene = json.optJSONObject("scene") ?: continue
+            val images = scene.optJSONArray("images") ?: continue
+            for (i in 0 until images.length()) {
+                val url = images.optJSONObject(i)?.optString("url").orEmpty()
+                if (!com.deepak.videolibrary.artwork.online.ImageUrlPolicy.isAllowed(url)) continue
+                return MovieCandidate(
+                    id = "scene:" + scene.optString("id"),
+                    title = scene.optString("title").ifBlank { video.name },
+                    year = null, site = null, posterUrl = url, previewUrl = url,
+                )
+            }
+        }
+        return null
+    }
+
     /** Providers whose key was refused during this run: skipped for the rest of it (the other provider carries on). */
     private val refused = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
@@ -155,6 +176,10 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         val state = services.db.libraryState()
         val direct = state.videoList(LibraryQueries.videos(LibraryScope(serverKey, directory = path, subtree = false)))
         val files = direct.ifEmpty { state.videoList(LibraryQueries.videos(LibraryScope(serverKey, directory = path, subtree = true))) }
+        // Scenes already confirmed for the videos in this folder (an exact match by the file itself) give the folder its
+        // picture, the same one Change cover > Scene poster lists under "confirmed".
+        val confirmed = confirmedScenePoster(state.videoList(LibraryQueries.videos(LibraryScope(serverKey, directory = path, subtree = true))), services)
+        if (kind == KIND_SCENE) confirmed?.let { return Found.Sure(it) }
         var maybe = emptyList<MovieCandidate>()
         var answered = false
         for (provider in providers) {
@@ -182,6 +207,8 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
                 }
             }
         }
+        // No certain movie: a confirmed scene of this folder's own files is better than asking or leaving it empty.
+        confirmed?.let { return Found.Sure(it) }
         if (!answered && providers.all { it in refused }) throw ProviderException(ProviderFailure.UNAUTHORIZED)
         return if (maybe.isNotEmpty()) Found.Maybe(maybe) else Found.None
     }
