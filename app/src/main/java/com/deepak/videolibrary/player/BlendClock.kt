@@ -16,6 +16,9 @@ internal class BlendClock {
     /** Source frame interval (ns) as seen by the display, smoothed; 0 until two frames arrived. */
     val smoothedGapNs: Long get() = gapNs.toLong()
 
+    /** True when the newest frame has a predecessor and the source is slow enough to need new frames. */
+    val needsInterpolation: Boolean get() = valid && gapNs >= PASS_THROUGH_GAP_NS
+
     /** True when the frame just recorded has a real predecessor to blend with. */
     fun onFrame(ptsNs: Long, arrivalNs: Long): Boolean {
         val ptsGap = ptsNs - lastPts

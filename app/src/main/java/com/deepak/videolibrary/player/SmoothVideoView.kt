@@ -60,7 +60,7 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
 
     init {
         frame.addView(texture, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        addView(frame, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        addView(frame, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, android.view.Gravity.CENTER))
         texture.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
                 val refresh = display?.refreshRate ?: 60f
@@ -135,6 +135,16 @@ internal class FrameBlendRenderer(
     private var framebuffer = 0
     private var copyProgram = 0
     private var blendProgram = 0
+    private var lumaProgram = 0
+    private var meProgram = 0
+    private var warpProgram = 0
+    private val lumaTextures = IntArray(2)
+    private var vectorTexture = 0
+    private var lumaWidth = 0
+    private var lumaHeight = 0
+    private var vectorWidth = 0
+    private var vectorHeight = 0
+    private var vectorsValid = false
     private var frameWidth = 1920
     private var frameHeight = 1080
     private var allocatedWidth = 0
@@ -231,6 +241,9 @@ internal class FrameBlendRenderer(
 
         copyProgram = link(VERTEX_COPY, FRAGMENT_COPY)
         blendProgram = link(VERTEX_BLEND, FRAGMENT_BLEND)
+        lumaProgram = link(VERTEX_BLEND, FRAGMENT_LUMA)
+        meProgram = link(VERTEX_BLEND, FRAGMENT_MOTION)
+        warpProgram = link(VERTEX_BLEND, FRAGMENT_WARP)
 
         val ids = IntArray(1)
         GLES20.glGenTextures(1, ids, 0)
@@ -238,6 +251,9 @@ internal class FrameBlendRenderer(
         GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, inputTexture)
         setFilters(GLES11Ext.GL_TEXTURE_EXTERNAL_OES)
         GLES20.glGenTextures(2, textures, 0)
+        GLES20.glGenTextures(2, lumaTextures, 0)
+        GLES20.glGenTextures(1, ids, 0)
+        vectorTexture = ids[0]
         GLES20.glGenFramebuffers(1, ids, 0)
         framebuffer = ids[0]
 
@@ -274,13 +290,54 @@ internal class FrameBlendRenderer(
             // With no usable predecessor (first frame or seek) the clock reports fraction 1,
             // so only the newest picture is shown.
             clock.onFrame(pts, System.nanoTime())
+            estimateMotion(write)
             current = write
             dirty = true
         }
     }
 
+    /** Small luma copy of the new frame, then block matching against the previous frame's luma. */
+    private fun estimateMotion(write: Int) {
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, framebuffer)
+        GLES20.glFramebufferTexture2D(
+            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, lumaTextures[write], 0,
+        )
+        GLES20.glViewport(0, 0, lumaWidth, lumaHeight)
+        GLES20.glUseProgram(lumaProgram)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[write])
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(lumaProgram, "uTex"), 0)
+        GLES20.glUniform2f(GLES20.glGetUniformLocation(lumaProgram, "uStep"), 0.25f / lumaWidth, 0.25f / lumaHeight)
+        drawQuad(lumaProgram)
+        vectorsValid = false
+        if (clock.needsInterpolation) {
+            GLES20.glFramebufferTexture2D(
+                GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, vectorTexture, 0,
+            )
+            GLES20.glViewport(0, 0, vectorWidth, vectorHeight)
+            GLES20.glUseProgram(meProgram)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lumaTextures[write])
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(meProgram, "uCurL"), 0)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lumaTextures[1 - write])
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(meProgram, "uPrevL"), 1)
+            GLES20.glUniform2f(GLES20.glGetUniformLocation(meProgram, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
+            drawQuad(meProgram)
+            vectorsValid = true
+        }
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+    }
+
     private fun ensureTargets() {
         if (allocatedWidth == frameWidth && allocatedHeight == frameHeight) return
+        vectorsValid = false
+        lumaWidth = minOf(480, frameWidth).coerceAtLeast(16)
+        lumaHeight = (lumaWidth.toLong() * frameHeight / frameWidth).toInt().coerceAtLeast(16)
+        vectorWidth = (lumaWidth + 3) / 4
+        vectorHeight = (lumaHeight + 3) / 4
+        for (t in lumaTextures) allocate(t, lumaWidth, lumaHeight)
+        allocate(vectorTexture, vectorWidth, vectorHeight)
         for (t in textures) {
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t)
             GLES20.glTexImage2D(
@@ -303,15 +360,22 @@ internal class FrameBlendRenderer(
         EGL14.eglQuerySurface(display, windowSurface, EGL14.EGL_HEIGHT, size, 0)
         val height = size[0]
         GLES20.glViewport(0, 0, width, height)
-        GLES20.glUseProgram(blendProgram)
+        val program = if (vectorsValid) warpProgram else blendProgram
+        GLES20.glUseProgram(program)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[1 - current])
-        GLES20.glUniform1i(GLES20.glGetUniformLocation(blendProgram, "uPrev"), 0)
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uPrev"), 0)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[current])
-        GLES20.glUniform1i(GLES20.glGetUniformLocation(blendProgram, "uCurr"), 1)
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(blendProgram, "uMix"), fraction)
-        drawQuad(blendProgram)
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uCurr"), 1)
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uMix"), fraction)
+        if (vectorsValid) {
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE2)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorTexture)
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uMv"), 2)
+            GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
+        }
+        drawQuad(program)
         EGL14.eglSwapBuffers(display, windowSurface)
         dirty = false
         lastDrawn = fraction
@@ -329,6 +393,15 @@ internal class FrameBlendRenderer(
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         GLES20.glDisableVertexAttribArray(position)
         GLES20.glDisableVertexAttribArray(coord)
+    }
+
+    private fun allocate(texture: Int, width: Int, height: Int) {
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+        GLES20.glTexImage2D(
+            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
+            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null,
+        )
+        setFilters(GLES20.GL_TEXTURE_2D)
     }
 
     private fun setFilters(target: Int) {
@@ -401,6 +474,79 @@ internal class FrameBlendRenderer(
             varying vec2 vCoord;
             uniform samplerExternalOES uTex;
             void main() { gl_FragColor = texture2D(uTex, vCoord); }
+        """
+        // Small grey copy of a frame, averaged over four taps, used only for motion search.
+        const val FRAGMENT_LUMA = """
+            precision mediump float;
+            varying vec2 vCoord;
+            uniform sampler2D uTex;
+            uniform vec2 uStep;
+            void main() {
+                vec3 c = texture2D(uTex, vCoord + vec2(-uStep.x, -uStep.y)).rgb
+                    + texture2D(uTex, vCoord + vec2(uStep.x, -uStep.y)).rgb
+                    + texture2D(uTex, vCoord + vec2(-uStep.x, uStep.y)).rgb
+                    + texture2D(uTex, vCoord + vec2(uStep.x, uStep.y)).rgb;
+                float l = dot(c * 0.25, vec3(0.299, 0.587, 0.114));
+                gl_FragColor = vec4(l, l, l, 1.0);
+            }
+        """
+        // One fragment per 4x4 block of the small frame: find d with cur(p) ~ prev(p + d), |d| <= 7.
+        // A non-zero vector must beat the zero vector by 15% so flat or noisy areas stay still.
+        const val FRAGMENT_MOTION = """
+            precision highp float;
+            uniform sampler2D uCurL;
+            uniform sampler2D uPrevL;
+            uniform vec2 uSize;
+            void main() {
+                vec2 base = floor(gl_FragCoord.xy) * 4.0;
+                float sad0 = 0.0;
+                for (int by = 0; by < 4; by++) {
+                    for (int bx = 0; bx < 4; bx++) {
+                        vec2 p = (base + vec2(float(bx), float(by)) + 0.5) / uSize;
+                        sad0 += abs(texture2D(uCurL, p).r - texture2D(uPrevL, p).r);
+                    }
+                }
+                float best = sad0 * 0.85;
+                vec2 bestV = vec2(0.0);
+                for (int dy = -7; dy <= 7; dy++) {
+                    for (int dx = -7; dx <= 7; dx++) {
+                        if (dx == 0 && dy == 0) continue;
+                        vec2 d = vec2(float(dx), float(dy));
+                        float sad = 0.002 * length(d);
+                        for (int by = 0; by < 4; by++) {
+                            for (int bx = 0; bx < 4; bx++) {
+                                vec2 p = (base + vec2(float(bx), float(by)) + 0.5) / uSize;
+                                sad += abs(texture2D(uCurL, p).r - texture2D(uPrevL, p + d / uSize).r);
+                            }
+                        }
+                        if (sad < best) {
+                            best = sad;
+                            bestV = d;
+                        }
+                    }
+                }
+                gl_FragColor = vec4(bestV / 7.0 * 0.5 + 0.5, 0.0, 1.0);
+            }
+        """
+        // Moves both neighbouring frames along the motion vector to time uMix. Where the two
+        // moved pictures disagree (hidden/uncovered areas, scene cuts) it holds the nearest real
+        // frame instead of cross-fading, so there is no ghosting.
+        const val FRAGMENT_WARP = """
+            precision highp float;
+            varying vec2 vCoord;
+            uniform sampler2D uPrev;
+            uniform sampler2D uCurr;
+            uniform sampler2D uMv;
+            uniform vec2 uSize;
+            uniform float uMix;
+            void main() {
+                vec2 m = (texture2D(uMv, vCoord).rg - 0.5) * 2.0 * 7.0 / uSize;
+                vec4 p = texture2D(uPrev, vCoord + m * uMix);
+                vec4 c = texture2D(uCurr, vCoord - m * (1.0 - uMix));
+                float diff = abs(dot(p.rgb - c.rgb, vec3(0.299, 0.587, 0.114)));
+                vec4 hold = mix(texture2D(uPrev, vCoord), texture2D(uCurr, vCoord), step(0.5, uMix));
+                gl_FragColor = mix(mix(p, c, uMix), hold, smoothstep(0.08, 0.25, diff));
+            }
         """
         const val FRAGMENT_BLEND = """
             precision mediump float;

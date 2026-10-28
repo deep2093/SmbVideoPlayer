@@ -92,6 +92,15 @@ internal fun LibraryPlayerControls(
         }
     }
     val leading: @Composable () -> Unit = {
+        onSmooth?.let { callback ->
+            TextButton(onClick = { callback(); onInteraction() }) {
+                Text(
+                    if (smoothOn) "60 fps ON" else "60 fps",
+                    color = if (smoothOn) MaterialTheme.colorScheme.primary else ink,
+                    fontWeight = if (smoothOn) androidx.compose.ui.text.font.FontWeight.Bold else null,
+                )
+            }
+        }
         IconButton(onClick = { onTracks(); onInteraction() }) { Icon(Icons.Filled.Subtitles, "Audio and subtitles", tint = ink) }
         if (onRotate != null) {
             IconButton(onClick = { onRotate(); onInteraction() }) { Icon(Icons.Filled.ScreenRotation, "Rotate screen", tint = ink) }
@@ -107,15 +116,6 @@ internal fun LibraryPlayerControls(
         if (aspectLabel != null) {
             IconButton(onClick = { onAspect(); onInteraction() }) {
                 Icon(Icons.Filled.AspectRatio, "Zoom and aspect ratio: $aspectLabel", tint = ink)
-            }
-        }
-        onSmooth?.let { callback ->
-            IconButton(onClick = { callback(); onInteraction() }) {
-                Icon(
-                    Icons.Filled.Speed,
-                    if (smoothOn) "Smooth motion 60 fps: on" else "Smooth motion 60 fps: off",
-                    tint = if (smoothOn) MaterialTheme.colorScheme.primary else ink,
-                )
             }
         }
         IconButton(onClick = { onOptions(); onInteraction() }) { Icon(Icons.Filled.MoreHoriz, "Playback options", tint = ink) }
