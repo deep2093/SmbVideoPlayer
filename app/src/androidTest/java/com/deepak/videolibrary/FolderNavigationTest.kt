@@ -71,10 +71,12 @@ class FolderNavigationTest {
         val visible=mutableStateOf(true)
         val root=vm.settings.rootPath.trim('/')
         try {
-            repeat(80) { i ->
-                val parent=listOf(root,"Folder%03d".format(i)).filter(String::isNotBlank).joinToString("/")
+            // Original folders lists only the folders you add, so each of the 80 folders is added.
+            val added=(0 until 80).map { i -> listOf(root,"Folder%03d".format(i)).filter(String::isNotBlank).joinToString("/") }
+            added.forEach { parent ->
                 services.db.dao().insertVideo(VideoEntity(relativePath="$parent/A.mp4",name="A.mp4",parentDir=parent,size=1,modified=1,groupKey="A",lastSeenSession=1,addedAt=1))
             }
+            vm.setOriginalRoots(added)
             vm.foldersTab=2
             rule.setContent { if(visible.value) MaterialTheme { AppRoot(vm) } }
             rule.waitUntil(15000) { rule.onAllNodesWithTag("original-folder-grid").fetchSemanticsNodes().isNotEmpty() && vm.originalListing.value.rows.size==80 }
@@ -90,7 +92,7 @@ class FolderNavigationTest {
             assertEquals(before,rule.onNodeWithText("Folder040",useUnmergedTree=true).fetchSemanticsNode().boundsInRoot.top,1f)
         } finally {
             rule.runOnIdle { visible.value=false }
-            rule.waitForIdle(); owner.viewModelStore.clear(); services.db.close()
+            rule.waitForIdle(); vm.setOriginalRoots(emptyList()); owner.viewModelStore.clear(); services.db.close()
         }
     }
 
