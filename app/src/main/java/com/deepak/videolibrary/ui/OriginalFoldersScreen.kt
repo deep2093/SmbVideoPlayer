@@ -264,7 +264,12 @@ private fun OriginalFolderCard(vm: LibraryViewModel, folder: DirectorySummary, a
             onChangeCover = if (artworkOn) ({ changeCover = true }) else null,
             onSelect = { vm.ui.toggleFolder(SelectionPages.ORIGINAL, folder.path) },
             onFetchPosters = { vm.fetchOriginalFolderArtwork(folder.path, scenes = false) },
-            onFetchScenes = { vm.fetchOriginalFolderArtwork(folder.path, scenes = true) })
+            onFetchScenes = { vm.fetchOriginalFolderArtwork(folder.path, scenes = true) },
+            // A folder you added at the top is only taken out of this list: nothing is deleted or hidden on the drive.
+            onRemoveFromList = if (folder.path.trim('/') in vm.originalRoots.value) ({
+                vm.removeOriginalRoots(listOf(folder.path))
+                vm.notice = "Removed from Original folders. Your drive is unchanged; add it again any time with Add folders."
+            }) else null)
         if (changeCover) {
             ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.originalFolder(folder.path), title, folder.path.substringAfterLast('/'), null), null) { changeCover = false }
         }

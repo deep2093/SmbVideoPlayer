@@ -43,6 +43,8 @@ internal fun FileActionsMenu(
     onSelect: (() -> Unit)? = null,
     onFetchPosters: (() -> Unit)? = null,
     onFetchScenes: (() -> Unit)? = null,
+    /** For a folder you added to Original folders: Delete only takes it out of that list; the drive is not touched. */
+    onRemoveFromList: (() -> Unit)? = null,
 ) {
     var rename by remember(path) { mutableStateOf(false) }
     var delete by remember(path) { mutableStateOf(false) }
@@ -138,7 +140,12 @@ internal fun FileActionsMenu(
             dismiss()
             rename = true
         })
-        DropdownMenuItem(text = { Text(stringResource(R.string.ui_delete_2695739)) }, onClick = {
+        if (onRemoveFromList != null) {
+            DropdownMenuItem(text = { Text("Delete (remove from this list)") }, onClick = {
+                dismiss()
+                onRemoveFromList()
+            })
+        } else DropdownMenuItem(text = { Text(stringResource(R.string.ui_delete_2695739)) }, onClick = {
             dismiss()
             delete = true
         })
