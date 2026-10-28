@@ -529,6 +529,8 @@ internal fun SceneMetadataReviewDialog(
             }
         }
     }
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val records = remember(refresh) { service.sceneMetadataStore.review(100) }
     val reviewListState = rememberLazyListState(
         initialFirstVisibleItemIndex = vm.ui.metadataReviewIndex,
@@ -595,48 +597,51 @@ internal fun SceneMetadataReviewDialog(
                             manualPath = record.path
                             chooser.launch("image/*")
                         }, modifier = Modifier.fillMaxWidth()) { Text("Choose cover image from my phone") }
-                        Text("Try a different search, including ThePornDB when StashDB already suggested a scene.", style = MaterialTheme.typography.bodySmall)
+                        Text("Search ThePornDB with another title. The name is tidied and shortened for you if the first try finds nothing.", style = MaterialTheme.typography.bodySmall)
+                        val runSearch: () -> Unit = {
+                            focus.clearFocus()
+                            keyboard?.hide()
+                            val requested = searchText
+                            scope.launch {
+                                try {
+                                    val found = withContext(Dispatchers.IO) {
+                                        SceneMetadataClient(service.providerKeys).search(SceneMetadataSettings.TPDB, requested)
+                                    }
+                                    if (found.isEmpty()) {
+                                        message = "ThePornDB: no scenes found. Try fewer words or the scene's title."
+                                    } else {
+                                        val proposed = JSONArray()
+                                        found.forEach { proposed.put(it.encoded()) }
+                                        service.sceneMetadataStore.offerAlternatives(record.path, proposed.toString())
+                                        refresh++
+                                        message = "ThePornDB returned " + found.size + " suggestions."
+                                    }
+                                } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) {
+                                    message = "ThePornDB: " + e.failure.message
+                                } catch (e: CancellationException) { throw e
+                                } catch (_: Exception) {
+                                    message = "ThePornDB search failed. Check the API key under Scene metadata."
+                                }
+                            }
+                        }
                         OutlinedTextField(
                             value = searchText, onValueChange = { searchText = it },
                             label = { Text("Search another title") },
                             singleLine = true, modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { runSearch() }),
                         )
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(SceneMetadataSettings.TPDB).forEach { provider ->
-                                val label = if (provider == SceneMetadataSettings.TPDB) "Search TPDB" else "Search StashDB"
-                                OutlinedButton(
-                                    modifier = Modifier.weight(1f),
-                                    onClick = {
-                                        val requested = searchText
-                                        scope.launch {
-                                            try {
-                                                val found = withContext(Dispatchers.IO) {
-                                                    SceneMetadataClient(service.providerKeys).search(provider, requested)
-                                                }
-                                                if (found.isEmpty()) {
-                                                    message = label + ": no scenes found. Try another search term."
-                                                } else {
-                                                    val proposed = JSONArray()
-                                                    found.forEach { proposed.put(it.encoded()) }
-                                                    service.sceneMetadataStore.offerAlternatives(record.path, proposed.toString())
-                                                    refresh++
-                                                    message = label + " returned " + found.size + " suggestions."
-                                                }
-                                            } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) {
-                                                message = label + ": " + e.failure.message
-                                            } catch (e: CancellationException) { throw e
-                                            } catch (_: Exception) {
-                                                message = label + " failed. Check the API key and GraphQL provider settings."
-                                            }
-                                        }
-                                    },
-                                ) { Text(label) }
-                            }
-                        }
-                        TextButton(onClick = {
-                            service.sceneMetadataStore.dismiss(record.path)
-                            refresh++
-                        }) { Text("Reject all suggestions for this file") }
+                        OutlinedButton(modifier = Modifier.fillMaxWidth(), enabled = searchText.isNotBlank(), onClick = runSearch) { Text("Search ThePornDB") }
+                        // Easy to see: an outlined button in the warning colour, full width.
+                        OutlinedButton(
+                            onClick = {
+                                service.sceneMetadataStore.dismiss(record.path)
+                                refresh++
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.error),
+                        ) { Text("Reject all suggestions for this file") }
                     }
                     HorizontalDivider()
                 }

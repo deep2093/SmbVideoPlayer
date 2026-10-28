@@ -181,8 +181,8 @@ internal fun LibraryPlayerControls(
                                 drawLine(accent, Offset(0f, y), Offset(played, y), strokeWidth = size.height, cap = StrokeCap.Round)
                             }
                         },
-                        // A taller touch zone than the thin line (about 8 dp more above and below) so a tap lands on it without aiming exactly.
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics { contentDescription = "Playback position" },
+                        // A taller touch zone than before: 10 dp more above and 10 dp more below (60 dp in all), still inside the bar's own row so it never covers the buttons.
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp).semantics { contentDescription = "Playback position" },
                     )
                     if (wide) {
                         // Landscape and tablets: one row, play/pause in the middle.

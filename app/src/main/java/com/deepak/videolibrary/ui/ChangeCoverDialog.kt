@@ -671,13 +671,17 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
  * anywhere, with a clear button and one-tap suggestions taken from the file or folder name.
  */
 @Composable
-private fun SearchField(value: String, onChange: (String) -> Unit, choices: List<String>, label: String) {
+private fun SearchField(value: String, onChange: (String) -> Unit, choices: List<String>, label: String, onSearch: (() -> Unit)? = null) {
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     androidx.compose.material3.OutlinedTextField(
         value = value,
         onValueChange = onChange,
         label = { Text(label) },
         minLines = 1,
         maxLines = 3,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { focus.clearFocus(); keyboard?.hide(); onSearch?.invoke() }),
         shape = RoundedCornerShape(20.dp),
         trailingIcon = if (value.isNotEmpty()) {
             { androidx.compose.material3.IconButton(onClick = { onChange("") }) { androidx.compose.material3.Icon(Icons.Filled.Close, contentDescription = "Clear") } }

@@ -59,6 +59,18 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
 
     private suspend fun searchTerm(provider: String, term: String): List<SceneMatch> {
         if (term.length < 4) return emptyList()
+        if (provider == SceneMetadataSettings.TPDB) {
+            // ThePornDB's own REST search works with real file names; its GraphQL search is only the fallback.
+            var answered = false
+            try {
+                val found = tpdbRestSearch(term)
+                answered = true
+                if (found.isNotEmpty()) return found
+            } catch (e: ProviderException) {
+                if (e.failure in HARD_FAILURES) throw e
+            }
+            if (answered) return emptyList()
+        }
         val variables = JSONObject().put("term", term)
         val variants = if (provider == SceneMetadataSettings.TPDB)
             listOf(TPDB_SCENE_SEARCH to "searchScene",
@@ -82,6 +94,32 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
             }
         }
         throw schemaFailure ?: ProviderException(ProviderFailure.BAD_RESPONSE)
+    }
+
+    /**
+     * ThePornDB REST scenes (`/scenes`): first the name as ThePornDB parses a file name, then plain title searches with
+     * the name changed a little (before the first hyphen, then the first four words) until something is found.
+     */
+    private suspend fun tpdbRestSearch(term: String): List<SceneMatch> {
+        val key = keys.get(SceneMetadataSettings.TPDB) ?: throw ProviderException(ProviderFailure.NO_KEY)
+        var failure: ProviderException? = null
+        var answered = false
+        for ((param, text) in tpdbVariants(term)) {
+            try {
+                val body = ArtworkHttp.getJson(
+                    "https://api.theporndb.net/scenes?$param=" + java.net.URLEncoder.encode(text, "UTF-8") + "&per_page=10",
+                    StashBoxHeaders.forProvider(SceneMetadataSettings.TPDB, key),
+                )
+                answered = true
+                val found = parseTpdbScenes(body)
+                if (found.isNotEmpty()) return found
+            } catch (e: ProviderException) {
+                if (e.failure in HARD_FAILURES) throw e
+                failure = e
+            }
+        }
+        if (!answered && failure != null) throw failure
+        return emptyList()
     }
 
     /** Exact hash matching uses the stash-box supported OSHASH/PHASH enum values. */
@@ -130,6 +168,56 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
     }
 
     companion object {
+        private val HARD_FAILURES = setOf(ProviderFailure.UNAUTHORIZED, ProviderFailure.FORBIDDEN, ProviderFailure.NO_KEY, ProviderFailure.RATE_LIMITED, ProviderFailure.NETWORK)
+
+        /** The searches tried for [term], in order: (REST parameter, text). */
+        internal fun tpdbVariants(term: String): List<Pair<String, String>> {
+            val out = LinkedHashSet<Pair<String, String>>()
+            out += "parse" to term
+            out += "q" to term
+            term.substringBefore('-').trim().takeIf { it.length >= 4 && it != term }?.let { out += "q" to it }
+            val words = term.split(' ').filter { it.isNotBlank() }
+            if (words.size > 4) out += "q" to words.take(4).joinToString(" ")
+            return out.toList()
+        }
+
+        /** ThePornDB REST scenes as the same scene shape the stash-box searches give (title, images, studio, performers, duration). */
+        internal fun parseTpdbScenes(body: String): List<SceneMatch> {
+            val root = try { JSONObject(body) } catch (e: Exception) { throw ProviderException(ProviderFailure.NON_JSON, e) }
+            val data = root.optJSONArray("data") ?: return emptyList()
+            fun text(o: JSONObject?, name: String): String = o?.optString(name).orEmpty().takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+            val out = ArrayList<SceneMatch>()
+            for (i in 0 until minOf(data.length(), 20)) {
+                val item = data.optJSONObject(i) ?: continue
+                val id = text(item, "id").ifEmpty { text(item, "_id") }
+                if (id.isEmpty()) continue
+                val urls = LinkedHashSet<String>()
+                val background = item.optJSONObject("background")
+                listOf(text(background, "large"), text(background, "full"), text(background, "medium"), text(item, "poster"), text(item, "image"))
+                    .filter { com.deepak.videolibrary.artwork.online.ImageUrlPolicy.looksUsable(it) }
+                    .forEach { urls += it }
+                val images = JSONArray().also { array -> urls.forEach { array.put(JSONObject().put("url", it)) } }
+                val performers = JSONArray()
+                item.optJSONArray("performers")?.let { list ->
+                    for (p in 0 until list.length()) {
+                        val name = text(list.optJSONObject(p), "name")
+                        if (name.isNotEmpty()) performers.put(JSONObject().put("performer", JSONObject().put("name", name)))
+                    }
+                }
+                val scene = JSONObject()
+                    .put("id", id)
+                    .put("title", text(item, "title"))
+                    .put("details", text(item, "description"))
+                    .put("date", text(item, "date"))
+                    .put("duration", item.optInt("duration", 0))
+                    .put("studio", JSONObject().put("name", text(item.optJSONObject("site"), "name")))
+                    .put("images", images)
+                    .put("performers", performers)
+                out += SceneMatch(SceneMetadataSettings.TPDB, scene, "TITLE")
+            }
+            return out.distinctBy { it.id }
+        }
+
         private const val FIELDS = "id title code details date duration director studio { name } images { url } performers { performer { name } } tags { name }"
         private val SEARCH = "query SceneText(\$term: String!) { searchScenes(term: \$term, per_page: 10) { scenes { $FIELDS } } }"
         // Minimal poster-first field set, for TPDB servers with a narrower GraphQL schema.
