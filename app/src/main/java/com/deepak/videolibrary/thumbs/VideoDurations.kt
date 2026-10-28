@@ -12,18 +12,26 @@ object VideoDurations {
         if (durationMs > 0) prefs(context).edit().putLong(key(video), durationMs).apply()
     }
 
-    /** A video whose length could not be read is noted so later scans do not open it again. */
-    fun markTried(context: Context, video: VideoEntity) {
-        prefs(context).edit().putBoolean("tried:" + key(video), true).apply()
+    /** Failed reads so far for this video (each scan tries once). Saved lengths are never touched by this. */
+    fun failedReads(context: Context, video: VideoEntity): Int = prefs(context).getInt("failed:" + key(video), 0)
+
+    /** Notes one more failed read and returns the total. */
+    fun noteFailedRead(context: Context, video: VideoEntity): Int {
+        val total = failedReads(context, video) + 1
+        prefs(context).edit().putInt("failed:" + key(video), total).apply()
+        return total
     }
 
-    fun wasTried(context: Context, video: VideoEntity): Boolean = prefs(context).getBoolean("tried:" + key(video), false)
+    /** After the first try and two more, a video is left alone. */
+    const val MAX_FAILED_READS = 3
 
-    /** Forget the "could not read" notes (a rebuild of thumbnails gives every video another chance). */
-    fun forgetTried(context: Context) {
+    fun gaveUp(context: Context, video: VideoEntity): Boolean = failedReads(context, video) >= MAX_FAILED_READS
+
+    /** Forget the failed-read counts only (clearing thumbnails gives those videos fresh tries; saved lengths stay). */
+    fun forgetFailedReads(context: Context) {
         val p = prefs(context)
         val edit = p.edit()
-        p.all.keys.filter { it.startsWith("tried:") }.forEach { edit.remove(it) }
+        p.all.keys.filter { it.startsWith("failed:") }.forEach { edit.remove(it) }
         edit.apply()
     }
 

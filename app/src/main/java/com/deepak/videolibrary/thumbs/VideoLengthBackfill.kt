@@ -29,12 +29,13 @@ class VideoLengthBackfill(private val context: Context, db: LibraryDatabase) {
             dao.videosByPaths(block.map { it.relativePath }).forEach { video ->
                 // Videos still waiting for a thumbnail get their length from that; nothing to read twice.
                 if (video.thumbStatus == ThumbnailGenerator.STATUS_DONE && video.size > 0 &&
-                    VideoDurations.get(context, video) == null && !VideoDurations.wasTried(context, video)
+                    VideoDurations.get(context, video) == null && !VideoDurations.gaveUp(context, video)
                 ) missing += video
             }
         }
         if (missing.isEmpty()) return 0
         var saved = 0
+        val gaveUp = ArrayList<com.deepak.videolibrary.data.VideoEntity>()
         val conn = SmbConnection(profile)
         try {
             withContext(Dispatchers.IO) { conn.open() }
@@ -51,8 +52,8 @@ class VideoLengthBackfill(private val context: Context, db: LibraryDatabase) {
                 if (length != null && length > 0) {
                     VideoDurations.remember(context, video, length)
                     saved++
-                } else {
-                    VideoDurations.markTried(context, video)
+                } else if (VideoDurations.noteFailedRead(context, video) >= VideoDurations.MAX_FAILED_READS) {
+                    gaveUp += video
                 }
             }
         } catch (e: CancellationException) {
@@ -61,6 +62,8 @@ class VideoLengthBackfill(private val context: Context, db: LibraryDatabase) {
             // Could not connect: leave everything for the next scan.
         } finally {
             withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) { runCatching { conn.close() } }
+            // Still unreadable after the first try and two more: tell you which files, once.
+            if (gaveUp.isNotEmpty()) runCatching { VideoProblemNotice.lengthsUnreadable(context, gaveUp) }
         }
         return saved
     }

@@ -119,7 +119,7 @@ internal class ArtworkController(private val services: ServiceLocator) {
         services.covers.exclusive {
             withContext(Dispatchers.IO) { ThumbStore.clearAll(services.artworkContext) }
             ThumbnailRetries(services.artworkContext).clearAll()
-            VideoDurations.forgetTried(services.artworkContext)
+            VideoDurations.forgetFailedReads(services.artworkContext)
             services.db.dao().resetAllThumbs()
             invalidate()
         }
