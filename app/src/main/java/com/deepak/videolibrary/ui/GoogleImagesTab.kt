@@ -55,6 +55,8 @@ internal fun GoogleImagesTab(
 ) {
     var loaded by remember { mutableStateOf<String?>(null) }
     var offered by remember { mutableStateOf<String?>(null) }
+    var web by remember { mutableStateOf<WebView?>(null) }
+    var canGoBack by remember { mutableStateOf(false) }
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     // Searching closes the keyboard; it only opens again when the search box is tapped.
@@ -62,6 +64,10 @@ internal fun GoogleImagesTab(
         focus.clearFocus()
         keyboard?.hide()
         if (text.isNotBlank()) loaded = googleImagesUrl(text)
+    }
+    // Opening this tab searches by itself with the name already in the box.
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (loaded == null && query.isNotBlank()) search(query)
     }
     Text(
         "Search Google Images here, then hold a picture to use it. For a sharper cover, tap a result first and hold the larger picture. What you search is sent to Google.",
@@ -95,7 +101,12 @@ internal fun GoogleImagesTab(
     }
     val url = loaded
     if (url != null) {
-        GoogleWebView(url, Modifier.fillMaxWidth().height(380.dp).clip(RoundedCornerShape(14.dp))) { address -> offered = address }
+        // Back goes to the page before (for example from a picture's page to the results).
+        TextButton(enabled = canGoBack, onClick = { web?.goBack() }) { Text("‹ Back to previous page") }
+        GoogleWebView(
+            url, Modifier.fillMaxWidth().height(380.dp).clip(RoundedCornerShape(14.dp)),
+            onView = { web = it }, onHistory = { canGoBack = it },
+        ) { address -> offered = address }
     }
     offered?.let { address ->
         AlertDialog(
@@ -116,7 +127,7 @@ internal fun GoogleImagesTab(
 /** A plain browser view. Holding a picture reports its address (https or an embedded data: picture). */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-private fun GoogleWebView(url: String, modifier: Modifier, onImage: (String) -> Unit) {
+private fun GoogleWebView(url: String, modifier: Modifier, onView: (WebView?) -> Unit, onHistory: (Boolean) -> Unit, onImage: (String) -> Unit) {
     var view by remember { mutableStateOf<WebView?>(null) }
     DisposableEffect(Unit) {
         onDispose {
@@ -125,6 +136,7 @@ private fun GoogleWebView(url: String, modifier: Modifier, onImage: (String) -> 
                 destroy()
             }
             view = null
+            onView(null)
         }
     }
     AndroidView(
@@ -141,6 +153,10 @@ private fun GoogleWebView(url: String, modifier: Modifier, onImage: (String) -> 
                     override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean {
                         val scheme = request.url.scheme?.lowercase()
                         return scheme != "https" && scheme != "http"
+                    }
+
+                    override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+                        onHistory(view.canGoBack())
                     }
                 }
                 setOnLongClickListener {
@@ -163,6 +179,7 @@ private fun GoogleWebView(url: String, modifier: Modifier, onImage: (String) -> 
                     }
                 }
                 view = this
+                onView(this)
                 tag = url
                 loadUrl(url)
             }

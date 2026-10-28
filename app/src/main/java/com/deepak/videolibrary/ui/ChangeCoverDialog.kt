@@ -138,6 +138,8 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
     var photosOf by remember { mutableStateOf<PerformerCandidate?>(null) }
     // StashDB answers a few matches at a time: this page of matches, and whether another page may exist.
     var resultPage by remember { mutableIntStateOf(1) }
+    // Which provider tab the performer results on screen came from, so a tab switch searches that provider by itself.
+    var resultsTab by remember { mutableStateOf<CoverTab?>(null) }
     var moreResults by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<Bitmap?>(null) }
     var pendingCandidate by remember { mutableStateOf<PerformerCandidate?>(null) }
@@ -446,7 +448,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                 }
                             } else {
                                 SearchField(sceneQuery, { sceneQuery = it }, choices, label = "Scene title or file name")
-                                Button(enabled = sceneQuery.isNotBlank() && !busy, onClick = {
+                                fun runSceneSearch() {
                                     busy = true
                                     error = null
                                     sceneResults = null
@@ -463,7 +465,12 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                             busy = false
                                         }
                                     }
-                                }) { Text("Search scenes") }
+                                }
+                                // Opening this tab searches by itself with the name already in the box.
+                                androidx.compose.runtime.LaunchedEffect(target.key) {
+                                    if (sceneResults == null && sceneQuery.isNotBlank() && !busy) runSceneSearch()
+                                }
+                                Button(enabled = sceneQuery.isNotBlank() && !busy, onClick = { runSceneSearch() }) { Text("Search scenes") }
                             }
                             sceneResults?.takeIf { it.isNotEmpty() }?.let { found ->
                                 Text("Search results", style = MaterialTheme.typography.titleSmall)
@@ -499,7 +506,7 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                 }
                             } else {
                                 SearchField(query, { query = it }, choices, label = "Movie title or file name")
-                                Button(enabled = query.isNotBlank() && !busy, onClick = {
+                                fun runMovieSearch() {
                                     busy = true
                                     error = null
                                     movieResults = null
@@ -516,7 +523,11 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                             busy = false
                                         }
                                     }
-                                }) { Text("Search ThePornDB movies") }
+                                }
+                                androidx.compose.runtime.LaunchedEffect(target.key) {
+                                    if (movieResults == null && query.isNotBlank() && !busy) runMovieSearch()
+                                }
+                                Button(enabled = query.isNotBlank() && !busy, onClick = { runMovieSearch() }) { Text("Search ThePornDB movies") }
                                 movieResults?.forEach { movie ->
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         RemoteThumb(vm, movie.previewUrl, Modifier.size(width = 64.dp, height = 96.dp).clip(RoundedCornerShape(10.dp)))
@@ -561,7 +572,10 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                         busy = true
                                         error = null
                                         val page = if (next) resultPage + 1 else 1
-                                        if (!next) results = null
+                                        if (!next) {
+                                            results = null
+                                            resultsTab = tab
+                                        }
                                         scope.launch {
                                             try {
                                                 var outcome = vm.searchPerformersFrom(if (tab == CoverTab.TPDB) com.deepak.videolibrary.artwork.ProviderIds.TPDB else com.deepak.videolibrary.artwork.ProviderIds.STASH_DB, query.trim(), page)
@@ -596,6 +610,12 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
                                                 busy = false
                                             }
                                         }
+                                    }
+                                    // Opening a provider tab searches it by itself. Suggestions already saved for this item stay
+                                    // on screen on the StashDB tab until you search.
+                                    androidx.compose.runtime.LaunchedEffect(tab) {
+                                        val savedShown = resultsTab == null && !results.isNullOrEmpty() && tab == CoverTab.INTERNET
+                                        if (query.isNotBlank() && resultsTab != tab && !savedShown && !busy) runSearch(next = false)
                                     }
                                     Button(enabled = query.isNotBlank() && !busy, onClick = { runSearch(next = false) }) { Text("Search") }
                                     results?.forEach { candidate ->
