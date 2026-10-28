@@ -90,8 +90,9 @@ internal class ArtworkController(private val services: ServiceLocator) {
             // so confirmed matches show without pressing Fetch.
             if (!manual && (placement == com.deepak.videolibrary.metadata.FolderCoverChoice.SCENE || movieFellBack) &&
                 options.enabled && options.posterMode != com.deepak.videolibrary.metadata.PosterMode.DISABLED) {
-                for (id in ids.take(160)) {
-                    val video = withContext(Dispatchers.IO) { services.db.dao().findVideoById(id) } ?: continue
+                // Part 1 of a split scene first; if no part 1 has a picture, any file of the folder will do.
+                val candidates = withContext(Dispatchers.IO) { ids.take(160).mapNotNull { services.db.dao().findVideoById(it) } }
+                for (video in com.deepak.videolibrary.metadata.PartOne.firstPartsFirst(candidates) { it.name }) {
                     val poster = services.scenePosters.fileFor(video) ?: continue
                     files.put(key, poster)
                     return poster

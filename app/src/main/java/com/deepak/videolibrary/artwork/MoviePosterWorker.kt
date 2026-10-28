@@ -136,7 +136,8 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
 
     /** The first confirmed scene (by file match) among [videos] that has a usable picture, as a poster candidate. */
     private fun confirmedScenePoster(videos: List<com.deepak.videolibrary.data.VideoEntity>, services: ServiceLocator): MovieCandidate? {
-        for (video in videos.take(200)) {
+        // Part 1 of a split scene first; if no part 1 is confirmed, any confirmed file in the folder will do.
+        for (video in com.deepak.videolibrary.metadata.PartOne.firstPartsFirst(videos.take(200)) { it.name }) {
             val record = services.sceneMetadataStore.get(video.relativePath)
             if (record?.status != "CONFIRMED") continue
             val json = runCatching { org.json.JSONObject(record.result ?: "") }.getOrNull() ?: continue
