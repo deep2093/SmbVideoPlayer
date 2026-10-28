@@ -29,6 +29,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MoreVert
@@ -169,7 +170,9 @@ fun FoldersScreen(
     onOpenSettings: () -> Unit,
     active: Boolean = true,
 ) {
-    val shownGroups by vm.groups.collectAsStateWithLifecycle()
+    val sortedGroups by vm.groups.collectAsStateWithLifecycle()
+    val shownGroups = rememberFolderOrder("virtual", sortedGroups) { it.groupKey }
+    var reordering by remember { mutableStateOf(false) }
     val recentlyWatched by vm.continuing.collectAsStateWithLifecycle()
     var folderQuery by vm::folderSearch
     var searchExpanded by rememberSaveable { mutableStateOf(folderQuery.isNotBlank()) }
@@ -220,6 +223,7 @@ fun FoldersScreen(
             modifier = if (LocalHubTitle.current == null) Modifier.padding(top = 8.dp) else Modifier,
         ) {
             RefreshLibraryAction(vm)
+            if (shownGroups.size > 1) IconAction(Icons.Filled.SwapVert, "Reorder folders", onClick = { reordering = true })
             CardShapeButton(vm, Pages.VIRTUAL)
             // Sort and list/grid live in this one menu so the top line keeps room for the app name.
             Box {
@@ -343,6 +347,7 @@ fun FoldersScreen(
             } }
         }
     }
+    if (reordering) ReorderFoldersDialog("virtual", shownGroups.map { it.groupKey to it.groupKey.replaceFirstChar { c -> c.titlecase(Locale.ROOT) } }) { reordering = false }
     if (sourceFolder != null) {
         AlertDialog(
             onDismissRequest = { sourceFolder = null },

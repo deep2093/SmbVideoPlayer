@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Search
@@ -46,7 +47,9 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
     val videos = remember(path,query,vm.videoSort,vm.sortDescending,roots) { vm.originalPagesFor(path,query,roots) }.collectAsLazyPagingItems()
     var adding by remember { mutableStateOf(false) }
     val ready = listing.ready && listing.path == path && listing.query == query
-    val children = if(ready) listing.rows else emptyList()
+    val listedChildren = if(ready) listing.rows else emptyList()
+    val children = rememberFolderOrder("original:$path", listedChildren) { it.path }
+    var reordering by remember { mutableStateOf(false) }
     val count = if(ready) listing.totalCount else 0
     var searchExpanded by remember { mutableStateOf(query.isNotBlank()) }
     // One scroll position per folder level: going up restores where you were, entering starts at the top.
@@ -118,6 +121,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
         ) {
             if (!inside) IconAction(Icons.Filled.CreateNewFolder, "Add folders", onClick = { adding = true })
             IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0 || listing.totalCount > 0, onClick = { vm.playLibrary("originals", onPlay = onPlay) })
+            if (children.size > 1) IconAction(Icons.Filled.SwapVert, "Reorder folders", onClick = { reordering = true })
             CardShapeButton(vm, Pages.original(path))
             RefreshLibraryAction(vm)
         }
@@ -212,6 +216,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
         }
         }
     }
+    if (reordering) ReorderFoldersDialog("original:$path", children.map { it.path to vm.originalDisplayName(it.path) }) { reordering = false }
     if (adding) {
         DrivePicker(
             vm = vm,
