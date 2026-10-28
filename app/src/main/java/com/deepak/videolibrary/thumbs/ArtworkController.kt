@@ -29,15 +29,18 @@ internal class ArtworkController(private val services: ServiceLocator) {
     suspend fun cover(identity: String, key: String, scope: LibraryScope): File? {
         val options = services.sceneMetadataPreferences.settings.value
         // A movie folder without a poster yet is an ordinary folder until one is found or chosen.
+        var movieFellBack = false
         val placement = options.folderChoice(identity).let { choice ->
-            if (choice == com.deepak.videolibrary.metadata.FolderCoverChoice.MOVIE && services.moviePosters.fileFor(identity) == null)
-                com.deepak.videolibrary.metadata.FolderCoverChoice.ORIGINAL else choice
+            if (choice == com.deepak.videolibrary.metadata.FolderCoverChoice.MOVIE && services.moviePosters.fileFor(identity) == null) {
+                movieFellBack = true
+                com.deepak.videolibrary.metadata.FolderCoverChoice.ORIGINAL
+            } else choice
         }
         // Only the default cover can change. A hand-picked image or other manual
         // folder override has absolute priority in every section.
         val art = services.artwork
         val manual = art.effectiveRow(identity)?.manual == true
-        if (manual || placement == com.deepak.videolibrary.metadata.FolderCoverChoice.ORIGINAL) {
+        if (manual || (placement == com.deepak.videolibrary.metadata.FolderCoverChoice.ORIGINAL && !movieFellBack)) {
             cached(key)?.let { return it }
         }
         if (!manual && placement == com.deepak.videolibrary.metadata.FolderCoverChoice.PERFORMER) {
@@ -83,7 +86,9 @@ internal class ArtworkController(private val services: ServiceLocator) {
             val ids = withContext(Dispatchers.IO) { services.db.libraryState().ids(LibraryQueries.coverIds(scope)) }
             // Find one confirmed scene poster among this folder's indexed videos.
             // This also supports multi-video folders; if none is available keep the normal cover.
-            if (!manual && placement == com.deepak.videolibrary.metadata.FolderCoverChoice.SCENE &&
+            // A folder with no movie poster uses a confirmed scene picture of its own videos before the plain cover,
+            // so confirmed matches show without pressing Fetch.
+            if (!manual && (placement == com.deepak.videolibrary.metadata.FolderCoverChoice.SCENE || movieFellBack) &&
                 options.enabled && options.posterMode != com.deepak.videolibrary.metadata.PosterMode.DISABLED) {
                 for (id in ids.take(160)) {
                     val video = withContext(Dispatchers.IO) { services.db.dao().findVideoById(id) } ?: continue
@@ -112,6 +117,7 @@ internal class ArtworkController(private val services: ServiceLocator) {
     suspend fun clear() = services.thumbnails.exclusive {
         services.covers.exclusive {
             withContext(Dispatchers.IO) { ThumbStore.clearAll(services.artworkContext) }
+            ThumbnailRetries(services.artworkContext).clearAll()
             services.db.dao().resetAllThumbs()
             invalidate()
         }

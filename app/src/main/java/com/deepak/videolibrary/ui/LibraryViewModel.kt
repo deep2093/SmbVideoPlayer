@@ -2124,6 +2124,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     fun retryFailedThumbnails() {
         updateDismissedFailures { emptySet() }
         viewModelScope.launch {
+            com.deepak.videolibrary.thumbs.ThumbnailRetries(getApplication()).clearAll()
             dao.resetFailedThumbs()
             startThumbnails()
         }

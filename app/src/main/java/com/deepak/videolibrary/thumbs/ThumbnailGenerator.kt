@@ -34,6 +34,9 @@ import kotlin.coroutines.cancellation.CancellationException
 class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
     private val dao = db.dao()
 
+    /** How many times each video's thumbnail failed on a connection problem, so it is not retried again and again. */
+    private val retries = ThumbnailRetries(context)
+
     /** Only one generator runs at a time, so a scan and a manual run never process the same video twice. */
     private val mutex = Mutex()
 
@@ -104,8 +107,14 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
                             break
                         }
                         when (process(c, video)) {
-                            Outcome.DONE, Outcome.FAILED -> transientStreak.set(0)
+                            Outcome.DONE -> { retries.clear(video.id); transientStreak.set(0) }
+                            Outcome.FAILED -> transientStreak.set(0)
                             Outcome.TRANSIENT -> {
+                                // Only two more tries after the first: then the video is marked failed and left alone
+                                // until you press Retry failed.
+                                if (retries.failedAgain(video.id) > MAX_RETRIES) {
+                                    dao.setThumbStatus(video.id, STATUS_FAILED, "Could not read this video after ${MAX_RETRIES + 1} tries (slow or interrupted connection). Press Retry failed to try again.")
+                                }
                                 // Network trouble: the video stays PENDING and is retried on the next run.
                                 if (transientStreak.incrementAndGet() >= MAX_TRANSIENT_STREAK) {
                                     abort.set(true)
@@ -271,5 +280,6 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
         const val MAX_TRANSIENT_STREAK = 3
         const val STATUS_DONE = "DONE"
         const val STATUS_FAILED = "FAILED"
+        const val MAX_RETRIES = 2
     }
 }

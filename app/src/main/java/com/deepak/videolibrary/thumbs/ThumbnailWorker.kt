@@ -31,7 +31,9 @@ class ThumbnailWorker(context: Context, params: WorkerParameters) : CoroutineWor
             // Not allowed to run as a foreground service right now; carry on as a normal worker.
         }
 
-        return if (services.thumbnails.run(profile) { true }) Result.success() else Result.retry()
+        if (services.thumbnails.run(profile) { true }) return Result.success()
+        // The server could not be reached or kept failing: try again later, but only twice, then wait for the next start.
+        return if (runAttemptCount < 2) Result.retry() else Result.failure()
     }
 
     companion object {
