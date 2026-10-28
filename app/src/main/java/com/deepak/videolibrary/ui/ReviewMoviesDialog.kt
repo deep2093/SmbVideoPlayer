@@ -64,7 +64,13 @@ internal fun ReviewMoviesDialog(vm: LibraryViewModel, onDismiss: () -> Unit) {
                     LazyColumn(Modifier.heightIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(queue, key = { it.identity }) { item ->
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(item.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text("Folder: " + item.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                // The full path on the drive, so it is clear which folder is being asked about.
+                                Text(
+                                    item.identity.removePrefix("original:"),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                                 item.candidates.forEach { movie ->
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         RemoteThumb(vm, movie.previewUrl, Modifier.size(width = 56.dp, height = 84.dp).clip(RoundedCornerShape(8.dp)))

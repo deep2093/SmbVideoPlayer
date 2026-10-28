@@ -49,14 +49,36 @@ internal fun MatchReviewPrompt(vm: LibraryViewModel, canShow: Boolean, onPreview
         }
     }
 
-    LaunchedEffect(changes) {
-        // A lookup saves many results in a row; count once it has gone quiet.
-        if (changes > 0) delay(4_000)
+    // The pop-up comes once the lookups have finished, not while they are still running: wait until none of them has
+    // been running for a few seconds.
+    val manager = remember(context) { androidx.work.WorkManager.getInstance(context) }
+    val busy by remember(manager, service.libraryId) {
+        val id = service.libraryId
+        kotlinx.coroutines.flow.combine(
+            listOf(
+                manager.getWorkInfosForUniqueWorkFlow(com.deepak.videolibrary.scan.ScanWorker.name(id)),
+                manager.getWorkInfosForUniqueWorkFlow(com.deepak.videolibrary.metadata.SceneMetadataWorker.workName(id)),
+                manager.getWorkInfosForUniqueWorkFlow(com.deepak.videolibrary.metadata.ScenePosterWorker.workName(id)),
+                manager.getWorkInfosForUniqueWorkFlow(com.deepak.videolibrary.artwork.PortraitFetchWorker.workName(id)),
+                manager.getWorkInfosForUniqueWorkFlow(com.deepak.videolibrary.artwork.MoviePosterWorker.workName(id)),
+            ),
+        ) { lists -> lists.any { infos -> infos.any { it.state == androidx.work.WorkInfo.State.RUNNING } } }
+    }.collectAsStateWithLifecycle(initialValue = false)
+    var settled by remember { mutableStateOf(false) }
+    LaunchedEffect(busy) {
+        settled = false
+        if (!busy) {
+            delay(5_000)
+            settled = true
+        }
+    }
+
+    LaunchedEffect(changes, settled) {
         scenesWaiting = withContext(Dispatchers.IO) { service.sceneMetadataStore.reviewCount() }
     }
     LaunchedEffect(waiting) { askedAt = minOf(askedAt, waiting) }
 
-    if (canShow && !vm.ui.metadataReviewOpen && !portraitReviewOpen && !movieReviewOpen && (waiting > askedAt || forced)) {
+    if (canShow && !vm.ui.metadataReviewOpen && !portraitReviewOpen && !movieReviewOpen && (forced || (settled && waiting > askedAt))) {
         AlertDialog(
             onDismissRequest = { askedAt = waiting; forced = false },
             title = { Text("Matches need your review") },
