@@ -62,6 +62,7 @@ import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.deepak.videolibrary.player.SmoothVideoView
 import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.player.SmbPlaybackDataSource
 import com.deepak.videolibrary.settings.SmbSettings
