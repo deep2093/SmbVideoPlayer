@@ -24,6 +24,12 @@ adb('shell','am','force-stop',APP)
 adb('install','-r','optimized/update.apk')
 adb('logcat','-c')
 adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
+for _ in range(5):
+    nodes=list(tree().iter('node'))
+    got=next((n for n in nodes if n.get('text')=='Got it'),None)
+    if got is not None and any(n.get('text')=="What's new" for n in nodes):
+        x1,y1,x2,y2=map(int,re.findall(r'\d+',got.get('bounds')));adb('shell','input','tap',str((x1+x2)//2),str((y1+y2)//2));time.sleep(1)
+    else:break
 find('Virtual folders')
 click('Settings');click('Appearance');find('Theme: Dark grey')
 click('Files');click('Movies');find('Tom Cruise - Fixture.mp4')

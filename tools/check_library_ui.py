@@ -139,6 +139,12 @@ try:
             x1,y1,x2,y2=map(int,re.findall(r'\d+',allow.attrib['bounds']))
             adb('shell','input','tap',(x1+x2)//2,(y1+y2)//2)
             time.sleep(1)
+        elif any(n.get('text')=="What's new" for n in nodes) and any(n.get('text')=='Got it' for n in nodes):
+            # The release notes show once after an update; close them like a user would.
+            got=next(n for n in nodes if n.get('text')=='Got it')
+            x1,y1,x2,y2=map(int,re.findall(r'\d+',got.attrib['bounds']))
+            adb('shell','input','tap',(x1+x2)//2,(y1+y2)//2)
+            time.sleep(1)
         elif any('Virtual folders' in n.get('text','').splitlines() for n in nodes):
             break
         else:
@@ -173,7 +179,7 @@ try:
     click('Back to Settings')
     # Playback settings were intentionally removed. Gestures stay enabled in the player.
     scroll_to('Artwork & scene metadata');click('Artwork & scene metadata')
-    find('1 · Where covers appear')
+    find('1 · Online matching & accounts')
     click('Back to Settings')
     scroll_to('Appearance',up=True);click('Appearance')
     current='Dark grey'
@@ -187,7 +193,10 @@ try:
     click('Settings');click('Appearance');find('Theme: Dark grey')
     print('PASS: five theme choices apply live and persist across restart')
     click('Folders')
-    click('Original folders');find('Movies');screenshot('originals')
+    click('Original folders')
+    # Original folders lists only the folders you add: add the fixture's Movies folder first.
+    click('Add folders');click('Choose folder Movies');click('Done')
+    find('Movies');screenshot('originals')
     # Holding a video opens its menu (the same as folders); Select starts selecting.
     click('Videos');click(NAME,long=True,last=True);click('Select')
     # Holding a video selects it; the header shows one Select all / Unselect all button and Delete.
