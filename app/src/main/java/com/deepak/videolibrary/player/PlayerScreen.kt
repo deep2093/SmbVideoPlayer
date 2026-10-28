@@ -119,12 +119,15 @@ fun PlayerScreen(
     var prefer60Hz by remember {
         mutableStateOf(prefs.getBoolean("experimental_output_60hz", false))
     }
+    var smooth60 by remember {
+        mutableStateOf(prefs.getBoolean("experimental_smooth_60fps", false))
+    }
     // This first stage negotiates 60 Hz output safely. A real MEMC/RIFE frame
     // synthesizer will be a separate backend; requesting 60 Hz is NOT interpolation.
-    DisposableEffect(activity, prefer60Hz) {
+    DisposableEffect(activity, prefer60Hz, smooth60) {
         val window = activity?.window
         val beforeId = window?.attributes?.preferredDisplayModeId ?: 0
-        if (prefer60Hz && window != null) {
+        if ((prefer60Hz || smooth60) && window != null) {
             val display = window.decorView.display
             val current = display?.mode
             val mode = display?.supportedModes
@@ -536,26 +539,42 @@ fun PlayerScreen(
         }
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        AndroidView(
-            onReset = null,
-            onRelease = {
-                it.player = null
-            },
-            factory = {
-                android.view.LayoutInflater
-                    .from(it)
-                    .inflate(com.deepak.videolibrary.R.layout.playback_view, null) as PlayerView
-            },
-            update = { view ->
-                view.player = player
-                view.useController = false
-                view.resizeMode = aspect
-            },
-            modifier = Modifier.fillMaxSize().clipToBounds().graphicsLayer {
-                scaleX = zoom
-                scaleY = zoom
-            },
-        )
+        if (smooth60) {
+            AndroidView(
+                onReset = null,
+                onRelease = { it.release() },
+                factory = { SmoothVideoView(it).apply { onFailure = { smooth60 = false } } },
+                update = { view ->
+                    view.attach(player)
+                    view.resizeMode = aspect
+                },
+                modifier = Modifier.fillMaxSize().clipToBounds().graphicsLayer {
+                    scaleX = zoom
+                    scaleY = zoom
+                },
+            )
+        } else {
+            AndroidView(
+                onReset = null,
+                onRelease = {
+                    it.player = null
+                },
+                factory = {
+                    android.view.LayoutInflater
+                        .from(it)
+                        .inflate(com.deepak.videolibrary.R.layout.playback_view, null) as PlayerView
+                },
+                update = { view ->
+                    view.player = player
+                    view.useController = false
+                    view.resizeMode = aspect
+                },
+                modifier = Modifier.fillMaxSize().clipToBounds().graphicsLayer {
+                    scaleX = zoom
+                    scaleY = zoom
+                },
+            )
+        }
         // One full-width handler keeps both pinch pointers in the same coordinate space.
         // Separate stacked detectors previously competed and swallowed gestures.
         Box(
@@ -866,7 +885,7 @@ fun PlayerScreen(
                 HorizontalDivider(color = Color.White.copy(alpha = 0.2f))
                 Text("60 FPS development preview", color = Color.White, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "This stage tests a 60 Hz display path and frame timing. It does not generate new video frames yet.",
+                    "Smooth motion blends neighbouring frames on the GPU to show 24/30 fps video at 60 fps. It is a cross-fade, not true motion estimation yet.",
                     color = Color.LightGray,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -875,6 +894,14 @@ fun PlayerScreen(
                     Switch(checked = prefer60Hz, onCheckedChange = { value ->
                         prefer60Hz = value
                         prefs.edit().putBoolean("experimental_output_60hz", value).apply()
+                        revealControls()
+                    })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Smooth motion to 60 fps (experimental)", color = Color.White, modifier = Modifier.weight(1f))
+                    Switch(checked = smooth60, onCheckedChange = { value ->
+                        smooth60 = value
+                        prefs.edit().putBoolean("experimental_smooth_60fps", value).apply()
                         revealControls()
                     })
                 }
