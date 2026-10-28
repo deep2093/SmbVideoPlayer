@@ -776,6 +776,12 @@ fun PlayerScreen(
                 },
                 onTracks = { showTracks = !showTracks; showSettings = false; revealControls() },
                 onOptions = { showSettings = !showSettings; showTracks = false; revealControls() },
+                smoothOn = smooth60,
+                onSmooth = {
+                    smooth60 = !smooth60
+                    prefs.edit().putBoolean("experimental_smooth_60fps", smooth60).apply()
+                    revealControls()
+                },
                 onAspect = { aspectIndex = (aspectIndex + 1) % aspectModes.size; zoom = 1f; revealControls() },
                 onPip = if (activity?.packageManager?.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE) == true) ({
                     val size = player.videoSize

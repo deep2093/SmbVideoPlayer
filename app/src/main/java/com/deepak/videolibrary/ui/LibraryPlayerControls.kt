@@ -52,6 +52,8 @@ internal fun LibraryPlayerControls(
     onRotate: (() -> Unit)? = null,
     onPip: (() -> Unit)? = null,
     onQueue: (() -> Unit)? = null,
+    smoothOn: Boolean = false,
+    onSmooth: (() -> Unit)? = null,
     onInteraction: () -> Unit = {},
 ) {
     var scrubbing by remember(title) { mutableStateOf(false) }
@@ -105,6 +107,15 @@ internal fun LibraryPlayerControls(
         if (aspectLabel != null) {
             IconButton(onClick = { onAspect(); onInteraction() }) {
                 Icon(Icons.Filled.AspectRatio, "Zoom and aspect ratio: $aspectLabel", tint = ink)
+            }
+        }
+        onSmooth?.let { callback ->
+            IconButton(onClick = { callback(); onInteraction() }) {
+                Icon(
+                    Icons.Filled.Speed,
+                    if (smoothOn) "Smooth motion 60 fps: on" else "Smooth motion 60 fps: off",
+                    tint = if (smoothOn) MaterialTheme.colorScheme.primary else ink,
+                )
             }
         }
         IconButton(onClick = { onOptions(); onInteraction() }) { Icon(Icons.Filled.MoreHoriz, "Playback options", tint = ink) }
