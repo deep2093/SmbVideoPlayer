@@ -163,7 +163,7 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
                         val ds = SmbMediaDataSource(conn, video.relativePath, video.size)
                         source.set(ds)
                         try {
-                            extractFrame(ds)?.also { frame.set(it) }
+                            extractFrame(ds) { length -> VideoDurations.remember(context, video, length) }?.also { frame.set(it) }
                         } finally {
                             ds.close()
                         }
@@ -229,7 +229,7 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
         }
     }
 
-    private fun extractFrame(ds: SmbMediaDataSource): Bitmap? {
+    private fun extractFrame(ds: SmbMediaDataSource, onLength: (Long) -> Unit = {}): Bitmap? {
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(ds)
@@ -242,6 +242,8 @@ class ThumbnailGenerator(private val context: Context, db: LibraryDatabase) {
                 h = t
             }
             val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            // The file is already open for the thumbnail, so its length is kept: cards never need to wake the drive for it.
+            if (durationMs > 0) onLength(durationMs)
 
             val targetW = ThumbStore.THUMB_WIDTH
             val targetH = if (w > 0 && h > 0) maxOf(1, (targetW.toLong() * h / w).toInt()) else 270

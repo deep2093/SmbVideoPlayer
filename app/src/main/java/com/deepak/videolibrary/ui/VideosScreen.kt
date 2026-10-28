@@ -315,13 +315,11 @@ internal fun VideoCard(
     val progress by progressFlow.collectAsStateWithLifecycle(initialValue = null)
     val watchedMs = progress?.positionMs ?: 0L
     // Artwork changes must never remove the original video's time label.
-    // Unplayed videos have no duration in watch history: probe the SMB container
-    // only while their card is visible, off the main thread, and cache the result.
+    // Unplayed videos have no duration in watch history. It is read from what thumbnail creation saved on the phone;
+    // a card never opens the drive just to show a length.
     val probedDuration by produceState<Long?>(null, video.relativePath, video.size, video.modified, progress?.durationMs) {
         value = progress?.durationMs?.takeIf { it > 0L }
-            ?: com.deepak.videolibrary.metadata.SceneDurationLookup.durationMs(
-                com.deepak.videolibrary.ServiceLocator.get(context), video
-            )
+            ?: kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { com.deepak.videolibrary.thumbs.VideoDurations.get(context, video) }
     }
     val totalMs = progress?.durationMs?.takeIf { it > 0L } ?: probedDuration ?: 0L
     val artwork: @Composable () -> Unit = {

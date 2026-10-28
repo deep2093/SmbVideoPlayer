@@ -23,6 +23,7 @@ internal object SceneDurationLookup {
         if (video.size <= 0) return null
         val cacheKey = "${service.libraryId}:${video.relativePath}:${video.size}:${video.modified}"
         synchronized(cache) { cache.get(cacheKey) }?.let { return it.takeIf { value -> value > 0L } }
+        com.deepak.videolibrary.thumbs.VideoDurations.get(service.artworkContext, video)?.let { return it }
         reads.acquire()
         return try {
             synchronized(cache) { cache.get(cacheKey) }?.let { return it.takeIf { value -> value > 0L } }
@@ -48,6 +49,7 @@ internal object SceneDurationLookup {
                 }
             }
             synchronized(cache) { cache.put(cacheKey, duration ?: 0L) }
+            if (duration != null) com.deepak.videolibrary.thumbs.VideoDurations.remember(service.artworkContext, video, duration)
             duration
         } finally {
             reads.release()
