@@ -553,6 +553,12 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     }
 
     /** Takes folders out of Original folders. Nothing on the drive changes. */
+    /** Takes one added folder out of Original folders; the drive is not touched. */
+    fun takeOutOriginalFolder(path: String) {
+        removeOriginalRoots(listOf(path))
+        notice = "Removed from Original folders. Your drive is unchanged; add it again any time with Add folders."
+    }
+
     fun removeOriginalRoots(paths: Collection<String>) {
         val drop = paths.map { it.trim('/') }.toSet()
         setOriginalRoots(originalRootStore.load(namespace.value).filterNot { it in drop })
