@@ -2,7 +2,7 @@ name: Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [main, master, "codex/**", "feature/android-stashbox-metadata", "experimental/skywing-unified-artwork-pinch-grid"]
+    branches: [main, master, "codex/**", "feature/android-stashbox-metadata", "experimental/skywing-unified-artwork-pinch-grid", "experimental/skywing-60fps-interpolation"]
   pull_request:
     branches: [main]
 concurrency:
