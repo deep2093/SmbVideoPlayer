@@ -182,7 +182,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                 }
             }
             items(children, key = { "folder:${it.path}" }) { folder ->
-                OriginalFolderCard(vm, folder, aspect, vm.ui.tick(selectPage, folder.path)) {
+                OriginalFolderCard(vm, folder, aspect, vm.ui.tick(selectPage, folder.path), addedByYou = folder.path.trim('/') in roots) {
                     if (vm.ui.selectionOn(selectPage) != null) {
                         vm.ui.toggleFolder(selectPage, folder.path)
                         return@OriginalFolderCard
@@ -235,7 +235,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
 }
 
 @Composable
-private fun OriginalFolderCard(vm: LibraryViewModel, folder: DirectorySummary, aspect: Float, selected: Boolean?, onClick: () -> Unit) {
+private fun OriginalFolderCard(vm: LibraryViewModel, folder: DirectorySummary, aspect: Float, selected: Boolean?, addedByYou: Boolean, onClick: () -> Unit) {
     val key = vm.coverKey("original:${folder.path}", folder.count, folder.thumbsDone)
     // Keeps showing the current cover while a new one is prepared, so cards never blink empty.
     var cover by remember { mutableStateOf(vm.cachedCover(key)) }
@@ -266,7 +266,7 @@ private fun OriginalFolderCard(vm: LibraryViewModel, folder: DirectorySummary, a
             onFetchPosters = { vm.fetchOriginalFolderArtwork(folder.path, scenes = false) },
             onFetchScenes = { vm.fetchOriginalFolderArtwork(folder.path, scenes = true) },
             // A folder you added at the top is only taken out of this list: nothing is deleted or hidden on the drive.
-            onRemoveFromList = if (folder.path.trim('/') in vm.originalRoots.value) ({ vm.takeOutOriginalFolder(folder.path) }) else null)
+            onRemoveFromList = if (addedByYou) ({ vm.takeOutOriginalFolder(folder.path) }) else null)
         if (changeCover) {
             ChangeCoverDialog(vm, CoverTarget(com.deepak.videolibrary.artwork.ArtworkKeys.originalFolder(folder.path), title, folder.path.substringAfterLast('/'), null), null) { changeCover = false }
         }
