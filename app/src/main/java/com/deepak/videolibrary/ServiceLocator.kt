@@ -22,6 +22,7 @@ class ServiceLocator internal constructor(context: Context, val libraryId: Strin
     val virtualSets = VirtualSetStore(context)
     val scanRepository = ScanRepository(db, context.getSharedPreferences("scan-owners-$libraryId", Context.MODE_PRIVATE)) { key -> virtualSets.load(key).flatMap { set -> set.folders + set.files.map { it.substringBeforeLast('/', "") } }.distinct() }
     val thumbnails = ThumbnailGenerator(artworkContext, db)
+    val lengthBackfill = com.deepak.videolibrary.thumbs.VideoLengthBackfill(artworkContext, db)
     val covers = CoverBuilder(artworkContext, db)
 
     /** Cover-art choices (per library). Its own small database keeps the main library schema unchanged. */

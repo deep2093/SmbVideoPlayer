@@ -12,6 +12,21 @@ object VideoDurations {
         if (durationMs > 0) prefs(context).edit().putLong(key(video), durationMs).apply()
     }
 
+    /** A video whose length could not be read is noted so later scans do not open it again. */
+    fun markTried(context: Context, video: VideoEntity) {
+        prefs(context).edit().putBoolean("tried:" + key(video), true).apply()
+    }
+
+    fun wasTried(context: Context, video: VideoEntity): Boolean = prefs(context).getBoolean("tried:" + key(video), false)
+
+    /** Forget the "could not read" notes (a rebuild of thumbnails gives every video another chance). */
+    fun forgetTried(context: Context) {
+        val p = prefs(context)
+        val edit = p.edit()
+        p.all.keys.filter { it.startsWith("tried:") }.forEach { edit.remove(it) }
+        edit.apply()
+    }
+
     fun get(context: Context, video: VideoEntity): Long? =
         prefs(context).getLong(key(video), 0L).takeIf { it > 0L }
 }

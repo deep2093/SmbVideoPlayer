@@ -47,6 +47,8 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             if (!thumbs.await()) com.deepak.videolibrary.thumbs.ThumbnailWorker.enqueue(applicationContext, services.libraryId)
             ok
         }
+        // Lengths for videos that have none saved yet: read once, then never again.
+        if (completed) runCatching { services.lengthBackfill.run(profile) }.onFailure { if (it is CancellationException) throw it }
         // After every finished scan, look up what is new or still missing and apply it.
         val finished = completed || services.db.dao().pendingCountNow() == 0
         if (finished) com.deepak.videolibrary.metadata.MissingArtworkLookup.start(applicationContext, services, recheck = false)
