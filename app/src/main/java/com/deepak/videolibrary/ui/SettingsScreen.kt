@@ -97,11 +97,12 @@ private val SETTINGS_SECTIONS = listOf(
 /** Settings index row. Each group opens its own page. */
 @Composable
 private fun SettingsPageRow(entry: SettingsSection, onOpen: () -> Unit) {
-    val cardShape = RoundedCornerShape(18.dp)
+    val cardShape = MaterialTheme.shapes.medium
     Card(
-        modifier = Modifier.fillMaxWidth().themedOutline(cardShape).clickable(role = Role.Button, onClickLabel = "Open ${entry.title}", onClick = onOpen),
+        modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Open ${entry.title}", onClick = onOpen),
         shape = cardShape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = settingsCardBorder(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
     ) {
         Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -545,3 +546,4 @@ private fun GridSizeSetting(vm: LibraryViewModel, folders: Boolean) {
         }
     }
 }
+

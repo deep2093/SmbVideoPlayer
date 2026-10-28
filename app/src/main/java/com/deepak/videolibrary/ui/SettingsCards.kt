@@ -20,8 +20,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+
+/** Visible settings boxes in every theme, without changing outlines elsewhere in the app. */
+@Composable
+internal fun settingsCardBorder(emphasised: Boolean = false): BorderStroke {
+    val colors = MaterialTheme.colorScheme
+    // Mixing in the theme's text colour keeps even muted accents legible on their panel.
+    val edge = lerp(colors.onSurface, colors.tertiary, 0.65f)
+    return BorderStroke(
+        if (emphasised) 1.5.dp else 1.dp,
+        edge.copy(alpha = if (emphasised) 1f else 0.75f),
+    )
+}
 
 /** Shared readable card on ALL Settings pages. Reuse rather than duplicating styles. */
 @Composable
@@ -32,8 +45,8 @@ internal fun SettingsStaticCard(
     Surface(
         modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = MaterialTheme.shapes.medium,
+        border = settingsCardBorder(),
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -62,8 +75,8 @@ internal fun SettingsAccordion(
     Surface(
         modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, if (expanded) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outlineVariant),
+        shape = MaterialTheme.shapes.medium,
+        border = settingsCardBorder(emphasised = expanded),
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
@@ -89,3 +102,4 @@ internal fun SettingsAccordion(
         }
     }
 }
+

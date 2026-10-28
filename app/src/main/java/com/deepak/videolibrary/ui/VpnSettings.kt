@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -97,8 +96,9 @@ fun VpnSettings() {
     val active = state is VpnState.Connected
 
     Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = MaterialTheme.shapes.medium,
+        border = settingsCardBorder(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("WireGuard", style = MaterialTheme.typography.titleMedium)
@@ -148,8 +148,9 @@ fun VpnSettings() {
     }
 
     Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = MaterialTheme.shapes.medium,
+        border = settingsCardBorder(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -269,3 +270,4 @@ private fun describe(state: VpnState): Pair<String, Boolean> = when (state) {
     VpnState.NeedsPermission -> "Android needs your permission to create a VPN. Tap Connect and accept the request." to true
     is VpnState.Error -> state.message to true
 }
+
