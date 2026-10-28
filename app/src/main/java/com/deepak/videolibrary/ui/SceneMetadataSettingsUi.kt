@@ -554,11 +554,12 @@ internal fun SceneMetadataReviewDialog(
             androidx.compose.foundation.lazy.LazyColumn(
                 state = reviewListState,
                 verticalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 if (message != null) item { Text(message!!, color = MaterialTheme.colorScheme.primary) }
                 if (records.isEmpty()) item { Text("No uncertain matches are waiting.") }
-                items(records.size) { i ->
+                // Stable keys: the list keeps its place when a file is decided, instead of jumping.
+                items(records.size, key = { records[it].path }) { i ->
                     val record = records[i]
                     var searchText by remember(record.path) { mutableStateOf(record.path.substringAfterLast('/').substringBeforeLast('.')) }
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -635,7 +636,7 @@ internal fun SceneMetadataReviewDialog(
                         TextButton(onClick = {
                             service.sceneMetadataStore.dismiss(record.path)
                             refresh++
-                        }) { Text("Keep existing thumbnail / skip this file") }
+                        }) { Text("Reject all suggestions for this file") }
                     }
                     HorizontalDivider()
                 }

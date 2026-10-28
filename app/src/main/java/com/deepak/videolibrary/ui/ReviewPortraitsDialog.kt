@@ -55,19 +55,20 @@ internal fun ReviewPortraitsDialog(vm: LibraryViewModel, onDismiss: () -> Unit) 
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier.padding(16.dp).widthIn(max = 720.dp).fillMaxWidth(),
+            modifier = Modifier.padding(16.dp).widthIn(max = 720.dp).fillMaxWidth()
+                .heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.9f).dp),
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Review suggestions", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    "Tap the right picture to use it. Skip keeps the automatic thumbnail.",
+                    "Tap the right picture to use it. Reject all keeps the automatic thumbnail and stops suggesting this one.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (queue.isEmpty()) {
                     Text("Nothing is waiting.", style = MaterialTheme.typography.bodyMedium)
                 } else {
-                    LazyColumn(Modifier.heightIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(queue, key = { it.key }) { entry ->
                             val label = labels[entry.key] ?: entry.key.substringAfter(':')
                             ReviewEntry(vm, entry, label, onCustom = { custom = CoverTarget(entry.key, label, label.substringAfterLast('/'), null) })
@@ -131,7 +132,7 @@ private fun ReviewEntry(vm: LibraryViewModel, entry: ArtworkOverride, label: Str
         if (busy) Text("Saving…", style = MaterialTheme.typography.bodySmall)
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = { vm.skipPortrait(entry.key) }, enabled = !busy) { Text("Skip") }
+            TextButton(onClick = { vm.skipPortrait(entry.key) }, enabled = !busy) { Text("Reject all") }
             TextButton(onClick = onCustom, enabled = !busy) { Text("Search…") }
         }
     }

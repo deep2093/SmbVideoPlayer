@@ -40,6 +40,8 @@ class UiSession {
     var reviewRequest by mutableStateOf(0)
     var metadataReviewIndex = 0
     var metadataReviewOffset = 0
+    var movieReviewIndex = 0
+    var movieReviewOffset = 0
 
 
     /** Folders being selected on a folder page, or null. */

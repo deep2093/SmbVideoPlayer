@@ -446,6 +446,14 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
 
+    /** A video from an Original folder (or below it), to play from the review list. */
+    suspend fun firstVideoIn(path: String): VideoEntity? = withContext(Dispatchers.IO) {
+        val state = services.db.libraryState()
+        state.videoList(com.deepak.videolibrary.data.LibraryQueries.videos(com.deepak.videolibrary.data.LibraryScope(namespace.value, directory = path, subtree = false)))
+            .firstOrNull()
+            ?: state.videoList(com.deepak.videolibrary.data.LibraryQueries.videos(com.deepak.videolibrary.data.LibraryScope(namespace.value, directory = path, subtree = true))).firstOrNull()
+    }
+
     fun rejectMovie(identity: String) {
         services.moviePosters.reject(identity)
     }

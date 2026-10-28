@@ -38,22 +38,31 @@ import kotlinx.coroutines.launch
  * stop suggesting it (you can still pick a poster yourself in Change cover).
  */
 @Composable
-internal fun ReviewMoviesDialog(vm: LibraryViewModel, onDismiss: () -> Unit) {
+internal fun ReviewMoviesDialog(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrary.data.VideoEntity) -> Unit = {}, onDismiss: () -> Unit) {
     val queue by vm.movieReview.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }
+    // Playing a video closes this window for a moment; it comes back at the same place in the list.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState(vm.ui.movieReviewIndex, vm.ui.movieReviewOffset)
+    androidx.compose.runtime.DisposableEffect(listState) {
+        onDispose {
+            vm.ui.movieReviewIndex = listState.firstVisibleItemIndex
+            vm.ui.movieReviewOffset = listState.firstVisibleItemScrollOffset
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier.padding(16.dp).widthIn(max = 720.dp).fillMaxWidth(),
+            modifier = Modifier.padding(16.dp).widthIn(max = 720.dp).fillMaxWidth()
+                .heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.9f).dp),
         ) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Review movie posters", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    "Tap the right movie to use its poster. None of these stops suggesting that folder.",
+                    "Tap the right movie to use its poster. Reject all stops suggesting that folder for good. Play opens a video from the folder, and you come back here.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -61,7 +70,7 @@ internal fun ReviewMoviesDialog(vm: LibraryViewModel, onDismiss: () -> Unit) {
                 if (queue.isEmpty()) {
                     Text("Nothing is waiting.", style = MaterialTheme.typography.bodyMedium)
                 } else {
-                    LazyColumn(Modifier.heightIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    LazyColumn(Modifier.weight(1f, fill = false), state = listState, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(queue, key = { it.identity }) { item ->
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("Folder: " + item.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -92,7 +101,16 @@ internal fun ReviewMoviesDialog(vm: LibraryViewModel, onDismiss: () -> Unit) {
                                         }) { Text("Use") }
                                     }
                                 }
-                                TextButton(enabled = !busy, onClick = { vm.rejectMovie(item.identity) }) { Text("None of these") }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(enabled = !busy, onClick = {
+                                        scope.launch {
+                                            vm.ui.movieReviewIndex = listState.firstVisibleItemIndex
+                                            vm.ui.movieReviewOffset = listState.firstVisibleItemScrollOffset
+                                            vm.firstVideoIn(item.identity.removePrefix("original:"))?.let(onPreviewVideo)
+                                        }
+                                    }) { Text("Play a video from this folder") }
+                                    TextButton(enabled = !busy, onClick = { vm.rejectMovie(item.identity) }) { Text("Reject all") }
+                                }
                             }
                             HorizontalDivider()
                         }

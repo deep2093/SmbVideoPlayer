@@ -112,7 +112,7 @@ internal fun MatchReviewPrompt(vm: LibraryViewModel, canShow: Boolean, onPreview
         )
     }
     if (canShow && portraitReviewOpen) ReviewPortraitsDialog(vm, onDismiss = { portraitReviewOpen = false })
-    if (canShow && movieReviewOpen) ReviewMoviesDialog(vm, onDismiss = { movieReviewOpen = false })
+    if (canShow && movieReviewOpen) ReviewMoviesDialog(vm, onPreviewVideo = onPreviewVideo, onDismiss = { movieReviewOpen = false })
     // The review window is shown here (not inside Settings) so the pop-up works from any page. It hides while a
     // video plays and returns at the same file afterwards.
     if (canShow && vm.ui.metadataReviewOpen) {
