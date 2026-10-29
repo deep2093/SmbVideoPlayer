@@ -374,6 +374,7 @@ internal class FrameBlendRenderer(
     /** Small luma copy of the new frame, then block matching against the previous frame's luma. */
     private fun estimateMotion(write: Int) {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, framebuffer)
+        if (vectorsValid) updateFrameFallback() else frameFallback = false
         GLES20.glFramebufferTexture2D(
             GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, lumaTextures[write], 0,
         )
@@ -392,9 +393,8 @@ internal class FrameBlendRenderer(
             runMotion(lumaTextures[write], lumaTextures[1 - write], vectorRawTexture, hintFresh)
             // ...and backwards (the old frame against the new one), used to spot hidden / uncovered areas.
             runMotion(lumaTextures[1 - write], lumaTextures[write], vectorBackTexture, false)
-            // 2. Median of each block's vector and its eight neighbours: a lone wrong vector (stripes, checks, faces)
-            // is outvoted. A block whose forward vector is not confirmed by the backward search is marked unreliable
-            // (blue = 0) so the picture holds the real frame there instead of showing a misplaced piece.
+            // 2. Fill undecided blocks from their neighbours, median-filter, and mark blocks the backward search
+            // does not confirm (see FRAGMENT_VECTOR_FILTER).
             GLES20.glFramebufferTexture2D(
                 GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, vectorTexture, 0,
             )
@@ -412,22 +412,31 @@ internal class FrameBlendRenderer(
             GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSpread"), floatArrayOf(6f, 9f, 9f)[strength.coerceIn(0, 2)])
             drawQuad(vectorFilterProgram)
             vectorsValid = true
-            // 3. If a large share of the picture has untrusted motion (fast, complicated action), patching it block by
-            // block shows. Show the nearest real frame for this whole frame instead: a brief drop to the video's own
-            // rate, with no artifacts.
-            val count = vectorWidth * vectorHeight
-            val pixels = vectorPixels?.takeIf { it.capacity() >= count * 4 }
-                ?: ByteBuffer.allocateDirect(count * 4).order(ByteOrder.nativeOrder()).also { vectorPixels = it }
-            pixels.position(0)
-            GLES20.glReadPixels(0, 0, vectorWidth, vectorHeight, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
-            var bad = 0
-            for (i in 0 until count) {
-                if ((pixels.get(i * 4 + 2).toInt() and 0xFF) < 128) bad++
-            }
-            val limit = floatArrayOf(0.03f, 0.08f, 0.2f)[strength.coerceIn(0, 2)]
-            frameFallback = bad > count * limit
         }
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+    }
+
+    /**
+     * If a large share of the picture had untrusted motion (fast, complicated action), patching it block by block
+     * shows, so the next in-between frames show the nearest real frame instead (a brief drop to the video's own rate,
+     * with no artifacts). Read from the previous frame's finished vectors, so the GPU never has to stop and wait.
+     */
+    private fun updateFrameFallback() {
+        val count = vectorWidth * vectorHeight
+        if (count == 0) return
+        val pixels = vectorPixels?.takeIf { it.capacity() >= count * 4 }
+            ?: ByteBuffer.allocateDirect(count * 4).order(ByteOrder.nativeOrder()).also { vectorPixels = it }
+        GLES20.glFramebufferTexture2D(
+            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, vectorTexture, 0,
+        )
+        pixels.position(0)
+        GLES20.glReadPixels(0, 0, vectorWidth, vectorHeight, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
+        var bad = 0
+        for (i in 0 until count) {
+            if ((pixels.get(i * 4 + 2).toInt() and 0xFF) < 128) bad++
+        }
+        val limit = floatArrayOf(0.03f, 0.08f, 0.2f)[strength.coerceIn(0, 2)]
+        frameFallback = bad > count * limit
     }
 
     /** One block-matching pass: for each block of [cur], where is it in [prev]. Writes vectors into [target]. */
@@ -664,7 +673,7 @@ internal class FrameBlendRenderer(
                 float sad0 = cost(vec2(0.0));
                 float best = sad0 * 0.9;
                 float bestRaw = sad0;
-                float second = sad0;
+                float second = 1e9;
                 vec2 bestV = vec2(0.0);
                 // Coarse stage.
                 vec2 coarseV = vec2(0.0);
@@ -711,17 +720,26 @@ internal class FrameBlendRenderer(
                     vec2 h = floor((texture2D(uHint, (floor(gl_FragCoord.xy) + 0.5) / uVecSize).rg - 0.5) * 40.0 + 0.5);
                     if (length(h) > 0.5 && length(h - bestV) > 0.5) {
                         float rawH = cost(h);
-                        if (rawH < bestRaw * 1.08 + 0.01 && rawH < sad0 * 0.9) {
+                        // An undecided block (stripes) only needs the hint to match about as well as anything else.
+                        if (rawH < bestRaw * 1.08 + 0.01 && (rawH < sad0 * 0.9 || !clear)) {
                             bestV = h;
                             clear = true;
                         }
                     }
                 }
+                // Alpha 0 = this block alone cannot tell (stripes, flat skin): the next pass fills it from its
+                // neighbours instead of forcing it to stand still inside a moving body.
                 vec2 v = clear ? bestV : vec2(0.0);
-                gl_FragColor = vec4(v / 20.0 * 0.5 + 0.5, 1.0, 1.0);
+                gl_FragColor = vec4(v / 20.0 * 0.5 + 0.5, 1.0, clear ? 1.0 : 0.0);
             }
         """
-        // Median of the 3x3 neighbouring block vectors (per component), the standard 19-exchange network.
+        // Cleans up the block vectors.
+        // 1. Blocks that could not decide on their own (alpha 0: stripes, checks, plain skin) take the average motion
+        //    of the decided blocks around them (up to 3 blocks away), so a striped shirt moves with the body around
+        //    it instead of standing still in patches.
+        // 2. Median of the 3x3 neighbours (per component, the standard 19-exchange network) outvotes lone wrong ones.
+        // 3. Forward/backward check: the block this one points at must point back. Unconfirmed blocks get blue = 0
+        //    so the picture uses a soft fallback there.
         const val FRAGMENT_VECTOR_FILTER = """
             precision highp float;
             uniform sampler2D uVec;
@@ -731,6 +749,8 @@ internal class FrameBlendRenderer(
             uniform float uConsist;
             uniform float uSpread;
             vec2 temp;
+            vec2 fillSum;
+            float fillCount;
             #define s2(a, b) temp = a; a = min(a, b); b = max(temp, b);
             #define mn3(a, b, c) s2(a, b); s2(a, c);
             #define mx3(a, b, c) s2(b, c); s2(a, c);
@@ -738,20 +758,51 @@ internal class FrameBlendRenderer(
             #define mnmx4(a, b, c, d) s2(a, b); s2(c, d); s2(a, c); s2(b, d);
             #define mnmx5(a, b, c, d, e) s2(a, b); s2(c, d); mn3(a, c, e); mx3(b, d, e);
             #define mnmx6(a, b, c, d, e, f) s2(a, d); s2(b, e); s2(c, f); mn3(a, b, c); mx3(d, e, f);
+            vec4 at(vec2 p) {
+                vec4 s = texture2D(uVec, p);
+                if (s.a > 0.5) {
+                    fillSum += s.rg;
+                    fillCount += 1.0;
+                }
+                return s;
+            }
+            vec2 pick(vec4 s, vec2 fill) { return s.a > 0.5 ? s.rg : fill; }
             void main() {
                 vec2 c = (floor(gl_FragCoord.xy) + 0.5) / uVecSize;
                 vec2 o = 1.0 / uVecSize;
-                vec2 v0 = texture2D(uVec, c + vec2(-o.x, -o.y)).rg;
-                vec2 v1 = texture2D(uVec, c + vec2(0.0, -o.y)).rg;
-                vec2 v2 = texture2D(uVec, c + vec2(o.x, -o.y)).rg;
-                vec2 v3 = texture2D(uVec, c + vec2(-o.x, 0.0)).rg;
-                vec2 v4 = texture2D(uVec, c).rg;
-                vec2 v5 = texture2D(uVec, c + vec2(o.x, 0.0)).rg;
-                vec2 v6 = texture2D(uVec, c + vec2(-o.x, o.y)).rg;
-                vec2 v7 = texture2D(uVec, c + vec2(0.0, o.y)).rg;
-                vec2 v8 = texture2D(uVec, c + vec2(o.x, o.y)).rg;
-                // How many neighbours point somewhere clearly different (a block among disagreeing neighbours is doubtful).
-                vec2 mid = v4;
+                fillSum = vec2(0.0);
+                fillCount = 0.0;
+                vec4 s0 = at(c + vec2(-o.x, -o.y));
+                vec4 s1 = at(c + vec2(0.0, -o.y));
+                vec4 s2v = at(c + vec2(o.x, -o.y));
+                vec4 s3 = at(c + vec2(-o.x, 0.0));
+                vec4 s4 = texture2D(uVec, c);
+                vec4 s5 = at(c + vec2(o.x, 0.0));
+                vec4 s6 = at(c + vec2(-o.x, o.y));
+                vec4 s7 = at(c + vec2(0.0, o.y));
+                vec4 s8 = at(c + vec2(o.x, o.y));
+                // Few decided neighbours: look further out (3, then 7, then 12 blocks away in eight directions),
+                // so the middle of a large striped area still gets the motion of the body around it.
+                for (int ring = 0; ring < 3; ring++) {
+                    if (fillCount < 2.0 && s4.a < 0.5) {
+                        vec2 r = (ring == 0 ? 3.0 : (ring == 1 ? 7.0 : 12.0)) * o;
+                        at(c + vec2(-r.x, -r.y)); at(c + vec2(0.0, -r.y)); at(c + vec2(r.x, -r.y));
+                        at(c + vec2(-r.x, 0.0)); at(c + vec2(r.x, 0.0));
+                        at(c + vec2(-r.x, r.y)); at(c + vec2(0.0, r.y)); at(c + vec2(r.x, r.y));
+                    }
+                }
+                vec2 fill = fillCount > 0.5 ? fillSum / fillCount : vec2(0.5);
+                vec2 mid = pick(s4, fill);
+                vec2 v0 = pick(s0, mid);
+                vec2 v1 = pick(s1, mid);
+                vec2 v2 = pick(s2v, mid);
+                vec2 v3 = pick(s3, mid);
+                vec2 v4 = mid;
+                vec2 v5 = pick(s5, mid);
+                vec2 v6 = pick(s6, mid);
+                vec2 v7 = pick(s7, mid);
+                vec2 v8 = pick(s8, mid);
+                // How many decided neighbours point somewhere clearly different (3+ small-frame pixels).
                 float spread = 0.0;
                 spread += length(v0 - mid) > 0.075 ? 1.0 : 0.0;
                 spread += length(v1 - mid) > 0.075 ? 1.0 : 0.0;
@@ -765,17 +816,22 @@ internal class FrameBlendRenderer(
                 mnmx5(v1, v2, v3, v4, v6);
                 mnmx4(v2, v3, v4, v7);
                 mnmx3(v3, v4, v8);
-                // Forward/backward check: the block this one points at must point back at it.
                 vec2 d = (v4 - 0.5) * 40.0;
-                // Any of the nine blocks around the target confirming it is enough (one noisy block must not condemn it).
+                // Any decided block around the target confirming it is enough; if none there could decide, there is
+                // no evidence against it.
                 float confirmed = 0.0;
+                float evidence = 0.0;
                 vec2 target = c + d / uSize;
                 for (int j = -1; j <= 1; j++) {
                     for (int i = -1; i <= 1; i++) {
-                        vec2 e = (texture2D(uBack, target + vec2(float(i), float(j)) * o).rg - 0.5) * 40.0;
-                        if (length(d + e) <= uConsist) confirmed = 1.0;
+                        vec4 be = texture2D(uBack, target + vec2(float(i), float(j)) * o);
+                        if (be.a > 0.5) {
+                            evidence = 1.0;
+                            if (length(d + (be.rg - 0.5) * 40.0) <= uConsist) confirmed = 1.0;
+                        }
                     }
                 }
+                if (evidence < 0.5) confirmed = 1.0;
                 float bad = (length(d) > 0.5 && (confirmed < 0.5 || spread >= uSpread)) ? 1.0 : 0.0;
                 gl_FragColor = vec4(v4, 1.0 - bad, 1.0);
             }
@@ -839,14 +895,8 @@ internal class FrameBlendRenderer(
                 vec2 b = vCoord - m * (1.0 - uMix);
                 vec4 p = texture2D(uPrev, a);
                 vec4 c = texture2D(uCurr, b);
-                // Disagreement between the two moved pictures, averaged over a small area so it changes smoothly and
-                // does not switch pixel by pixel on stripes or skin texture.
-                vec2 t = 1.5 / uSize;
-                float diff = 0.25 * (
-                    abs(texture2D(uPrevL, a + vec2(t.x, t.y)).r - texture2D(uCurrL, b + vec2(t.x, t.y)).r)
-                    + abs(texture2D(uPrevL, a + vec2(-t.x, t.y)).r - texture2D(uCurrL, b + vec2(-t.x, t.y)).r)
-                    + abs(texture2D(uPrevL, a + vec2(t.x, -t.y)).r - texture2D(uCurrL, b + vec2(t.x, -t.y)).r)
-                    + abs(texture2D(uPrevL, a - t).r - texture2D(uCurrL, b - t).r));
+                // Disagreement between the two moved pictures, on the smooth small copies.
+                float diff = abs(texture2D(uPrevL, a).r - texture2D(uCurrL, b).r);
                 // Where the motion is not trusted, fall back to a plain cross-fade of the two real frames at this spot.
                 // It softens there, but never shows a piece of picture in the wrong place.
                 vec4 fallback = mix(texture2D(uPrev, vCoord), texture2D(uCurr, vCoord), uMix);
