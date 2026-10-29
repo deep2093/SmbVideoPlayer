@@ -28,7 +28,7 @@ class VideoLengthBackfill(private val context: Context, db: LibraryDatabase) {
         for (block in dao.allIdPaths().chunked(200)) {
             dao.videosByPaths(block.map { it.relativePath }).forEach { video ->
                 // Videos still waiting for a thumbnail get their length from that; nothing to read twice.
-                if (video.thumbStatus == ThumbnailGenerator.STATUS_DONE && video.size > 0 &&
+                if (video.thumbStatus == "DONE" && video.size > 0 &&
                     VideoDurations.get(context, video) == null && !VideoDurations.gaveUp(context, video)
                 ) missing += video
             }
