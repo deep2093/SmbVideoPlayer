@@ -433,7 +433,8 @@ internal class FrameBlendRenderer(
         GLES20.glReadPixels(0, 0, vectorWidth, vectorHeight, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
         var bad = 0
         for (i in 0 until count) {
-            if ((pixels.get(i * 4 + 2).toInt() and 0xFF) < 128) bad++
+            val decided = (pixels.get(i * 4 + 3).toInt() and 0xFF) >= 128
+            if (decided && (pixels.get(i * 4 + 2).toInt() and 0xFF) < 128) bad++
         }
         val limit = floatArrayOf(0.03f, 0.08f, 0.2f)[strength.coerceIn(0, 2)]
         frameFallback = bad > count * limit
@@ -833,7 +834,9 @@ internal class FrameBlendRenderer(
                 }
                 if (evidence < 0.5) confirmed = 1.0;
                 float bad = (length(d) > 0.5 && (confirmed < 0.5 || spread >= uSpread)) ? 1.0 : 0.0;
-                gl_FragColor = vec4(v4, 1.0 - bad, 1.0);
+                // Alpha = 1 where this block decided its own motion; filled blocks (flat walls, plain areas) do not
+                // count towards the whole-frame fallback.
+                gl_FragColor = vec4(v4, 1.0 - bad, s4.a > 0.5 ? 1.0 : 0.0);
             }
         """
         // Moves both neighbouring frames along the motion vector to time uMix. Where the two moved pictures
@@ -853,9 +856,6 @@ internal class FrameBlendRenderer(
             uniform float uMix;
             uniform vec2 uHold;
             uniform float uDebug;
-            float mismatch(vec2 mv) {
-                return abs(texture2D(uPrevL, vCoord + mv * uMix).r - texture2D(uCurrL, vCoord - mv * (1.0 - uMix)).r);
-            }
             void main() {
                 vec2 g = vCoord * uVecSize - 0.5;
                 vec2 f = floor(g);
@@ -868,29 +868,11 @@ internal class FrameBlendRenderer(
                     mv[k] = (sv.rg - 0.5) * 40.0 / uSize;
                     okv[k] = step(0.5, sv.b);
                 }
-                // Where the four nearest block vectors agree (the inside of a moving body), blend them smoothly so the
-                // motion has no seams along the block grid. Only where they disagree (an outline) does each pixel
-                // pick the one vector whose two moved pictures match best.
-                vec2 lo = min(min(mv[0], mv[1]), min(mv[2], mv[3]));
-                vec2 hi = max(max(mv[0], mv[1]), max(mv[2], mv[3]));
-                vec2 m;
-                float ok;
-                if (length((hi - lo) * uSize) <= 2.0) {
-                    m = mix(mix(mv[0], mv[1], w.x), mix(mv[2], mv[3], w.x), w.y);
-                    ok = min(min(okv[0], okv[1]), min(okv[2], okv[3]));
-                } else {
-                    m = mv[0];
-                    ok = okv[0];
-                    float bestCost = 1e9;
-                    for (int k = 0; k < 4; k++) {
-                        float cost = mismatch(mv[k]) + (1.0 - okv[k]) * 0.15;
-                        if (cost < bestCost) {
-                            bestCost = cost;
-                            m = mv[k];
-                            ok = okv[k];
-                        }
-                    }
-                }
+                // One smooth motion field everywhere: the four nearest block vectors blended by distance, and their
+                // trust blended the same way. Picking a different block's vector pixel by pixel, or switching hard
+                // between moved picture and fallback, is what left block-shaped patches and torn stripes.
+                vec2 m = mix(mix(mv[0], mv[1], w.x), mix(mv[2], mv[3], w.x), w.y);
+                float ok = mix(mix(okv[0], okv[1], w.x), mix(okv[2], okv[3], w.x), w.y);
                 vec2 a = vCoord + m * uMix;
                 vec2 b = vCoord - m * (1.0 - uMix);
                 vec4 p = texture2D(uPrev, a);
@@ -900,7 +882,7 @@ internal class FrameBlendRenderer(
                 // Where the motion is not trusted, fall back to a plain cross-fade of the two real frames at this spot.
                 // It softens there, but never shows a piece of picture in the wrong place.
                 vec4 fallback = mix(texture2D(uPrev, vCoord), texture2D(uCurr, vCoord), uMix);
-                float fb = max(smoothstep(uHold.x, uHold.y, diff), 1.0 - ok);
+                float fb = max(smoothstep(uHold.x, uHold.y, diff), smoothstep(0.0, 1.0, 1.0 - ok));
                 vec4 colour = mix(mix(p, c, uMix), fallback, fb);
                 if (uDebug > 0.5) {
                     // Debug colours: green = moved along a motion vector, red = fallback cross-fade.
