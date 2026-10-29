@@ -124,6 +124,7 @@ fun PlayerScreen(
         mutableStateOf(prefs.getBoolean("experimental_smooth_60fps", false))
     }
     // 0 = clean, 1 = balanced, 2 = maximum smoothing.
+    var smoothDebug by remember { mutableStateOf(prefs.getBoolean("smooth_60fps_debug", false)) }
     var smoothStrength by remember { mutableStateOf(prefs.getInt("smooth_60fps_strength", 1).coerceIn(0, 2)) }
     // Frame-rate indicator: what the video really plays at, and what the screen shows.
     var showFps by remember { mutableStateOf(prefs.getBoolean("show_fps_indicator", true)) }
@@ -573,6 +574,7 @@ fun PlayerScreen(
                 update = { view ->
                     view.attach(player)
                     view.strength = smoothStrength
+                    view.debug = smoothDebug
                     view.resizeMode = aspect
                 },
                 modifier = Modifier.fillMaxSize().clipToBounds().graphicsLayer {
@@ -833,7 +835,7 @@ fun PlayerScreen(
             val line2 = if (smooth60 && stats != null) {
                 when {
                     !stats.interpolating -> "Video is already fast (about 45 fps or more): shown as it is"
-                    stats.warping -> "Adding in-between frames with motion estimate"
+                    stats.warping -> "Adding in-between frames with motion estimate · real frames ${stats.fallbackPercent}%"
                     else -> "Adding in-between frames by blending only"
                 }
             } else null
@@ -983,6 +985,14 @@ fun PlayerScreen(
                         color = Color.LightGray,
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Debug colours (green = moved, red = fallback)", color = Color.White, modifier = Modifier.weight(1f))
+                        Switch(checked = smoothDebug, onCheckedChange = { value ->
+                            smoothDebug = value
+                            prefs.edit().putBoolean("smooth_60fps_debug", value).apply()
+                            revealControls()
+                        })
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Show frame rate on screen", color = Color.White, modifier = Modifier.weight(1f))

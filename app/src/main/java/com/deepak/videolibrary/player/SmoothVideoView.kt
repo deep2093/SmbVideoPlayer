@@ -51,6 +51,12 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
             renderer?.strength = value
         }
 
+    var debug: Boolean = false
+        set(value) {
+            field = value
+            renderer?.debug = value
+        }
+
     var resizeMode: Int
         get() = frame.resizeMode
         set(value) {
@@ -80,6 +86,7 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
                 )
                 created.onStats = { stats -> post { onStats?.invoke(stats) } }
                 created.strength = strength
+                created.debug = debug
                 renderer = created
                 player?.videoSize?.let { if (it.width > 0) created.setVideoSize(it.width, it.height) }
                 created.start(st)
@@ -136,12 +143,23 @@ internal class FrameBlendRenderer(
     private val clock = BlendClock()
 
     /** What the screen is really getting, once a second: frames decoded, frames drawn, and whether motion is being added. */
-    data class Stats(val sourceFps: Float, val outputFps: Float, val interpolating: Boolean, val warping: Boolean)
+    data class Stats(
+        val sourceFps: Float,
+        val outputFps: Float,
+        val interpolating: Boolean,
+        val warping: Boolean,
+        /** Share of drawn frames shown as plain real frames because too much of the picture had untrusted motion. */
+        val fallbackPercent: Int = 0,
+    )
 
     var onStats: ((Stats) -> Unit)? = null
 
     @Volatile var strength: Int = 1
+    @Volatile var debug: Boolean = false
     private var framesIn = 0
+    private var fallbackDrawn = 0
+    private var frameFallback = false
+    private var vectorPixels: ByteBuffer? = null
     private var framesOut = 0
     private var statsSince = 0L
 
@@ -215,8 +233,10 @@ internal class FrameBlendRenderer(
         val elapsed = now - statsSince
         if (elapsed < 1_000_000_000L) return
         val seconds = elapsed / 1e9f
-        onStats?.invoke(Stats(framesIn / seconds, framesOut / seconds, clock.needsInterpolation, vectorsValid))
+        val fallback = if (framesOut > 0) fallbackDrawn * 100 / framesOut else 0
+        onStats?.invoke(Stats(framesIn / seconds, framesOut / seconds, clock.needsInterpolation, vectorsValid, fallback))
         framesIn = 0
+        fallbackDrawn = 0
         framesOut = 0
         statsSince = now
     }
@@ -392,6 +412,20 @@ internal class FrameBlendRenderer(
             GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSpread"), floatArrayOf(6f, 9f, 9f)[strength.coerceIn(0, 2)])
             drawQuad(vectorFilterProgram)
             vectorsValid = true
+            // 3. If a large share of the picture has untrusted motion (fast, complicated action), patching it block by
+            // block shows. Show the nearest real frame for this whole frame instead: a brief drop to the video's own
+            // rate, with no artifacts.
+            val count = vectorWidth * vectorHeight
+            val pixels = vectorPixels?.takeIf { it.capacity() >= count * 4 }
+                ?: ByteBuffer.allocateDirect(count * 4).order(ByteOrder.nativeOrder()).also { vectorPixels = it }
+            pixels.position(0)
+            GLES20.glReadPixels(0, 0, vectorWidth, vectorHeight, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
+            var bad = 0
+            for (i in 0 until count) {
+                if ((pixels.get(i * 4 + 2).toInt() and 0xFF) < 128) bad++
+            }
+            val limit = floatArrayOf(0.03f, 0.08f, 0.2f)[strength.coerceIn(0, 2)]
+            frameFallback = bad > count * limit
         }
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
     }
@@ -452,7 +486,8 @@ internal class FrameBlendRenderer(
         EGL14.eglQuerySurface(display, windowSurface, EGL14.EGL_HEIGHT, size, 0)
         val height = size[0]
         GLES20.glViewport(0, 0, width, height)
-        val program = if (vectorsValid) warpProgram else blendProgram
+        val useFallback = vectorsValid && frameFallback
+        val program = if (vectorsValid && !useFallback) warpProgram else blendProgram
         GLES20.glUseProgram(program)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[1 - current])
@@ -460,8 +495,10 @@ internal class FrameBlendRenderer(
         GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[current])
         GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uCurr"), 1)
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uMix"), fraction)
-        if (vectorsValid) {
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uMix"), if (useFallback) (if (fraction < 0.5f) 0f else 1f) else fraction)
+        if (useFallback) fallbackDrawn++
+        if (vectorsValid && !useFallback) {
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uDebug"), if (debug) 1f else 0f)
             when (strength.coerceIn(0, 2)) {
                 0 -> GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uHold"), 0.03f, 0.10f)
                 1 -> GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uHold"), 0.06f, 0.20f)
@@ -759,24 +796,42 @@ internal class FrameBlendRenderer(
             uniform vec2 uVecSize;
             uniform float uMix;
             uniform vec2 uHold;
+            uniform float uDebug;
+            float mismatch(vec2 mv) {
+                return abs(texture2D(uPrevL, vCoord + mv * uMix).r - texture2D(uCurrL, vCoord - mv * (1.0 - uMix)).r);
+            }
             void main() {
-                // Each pixel tries the vectors of the four nearest blocks and keeps the one whose two moved pictures
-                // agree best, so edges follow the real outline instead of stepping along the block grid.
-                vec2 f = floor(vCoord * uVecSize - 0.5);
-                vec2 m = vec2(0.0);
-                float ok = 1.0;
-                float bestCost = 1e9;
-                for (int j = 0; j < 2; j++) {
-                    for (int i = 0; i < 2; i++) {
-                        vec2 cc = (f + vec2(float(i), float(j)) + 0.5) / uVecSize;
-                        vec3 sv = texture2D(uMv, clamp(cc, 0.0, 1.0)).rgb;
-                        vec2 mv = (sv.rg - 0.5) * 40.0 / uSize;
-                        float cost = abs(texture2D(uPrevL, vCoord + mv * uMix).r - texture2D(uCurrL, vCoord - mv * (1.0 - uMix)).r)
-                            + 0.02 * length((cc - vCoord) * uVecSize) + (sv.b < 0.5 ? 0.15 : 0.0);
+                vec2 g = vCoord * uVecSize - 0.5;
+                vec2 f = floor(g);
+                vec2 w = g - f;
+                vec2 mv[4];
+                float okv[4];
+                for (int k = 0; k < 4; k++) {
+                    vec2 cc = (f + vec2(float(k - (k / 2) * 2), float(k / 2)) + 0.5) / uVecSize;
+                    vec3 sv = texture2D(uMv, clamp(cc, 0.0, 1.0)).rgb;
+                    mv[k] = (sv.rg - 0.5) * 40.0 / uSize;
+                    okv[k] = step(0.5, sv.b);
+                }
+                // Where the four nearest block vectors agree (the inside of a moving body), blend them smoothly so the
+                // motion has no seams along the block grid. Only where they disagree (an outline) does each pixel
+                // pick the one vector whose two moved pictures match best.
+                vec2 lo = min(min(mv[0], mv[1]), min(mv[2], mv[3]));
+                vec2 hi = max(max(mv[0], mv[1]), max(mv[2], mv[3]));
+                vec2 m;
+                float ok;
+                if (length((hi - lo) * uSize) <= 2.0) {
+                    m = mix(mix(mv[0], mv[1], w.x), mix(mv[2], mv[3], w.x), w.y);
+                    ok = min(min(okv[0], okv[1]), min(okv[2], okv[3]));
+                } else {
+                    m = mv[0];
+                    ok = okv[0];
+                    float bestCost = 1e9;
+                    for (int k = 0; k < 4; k++) {
+                        float cost = mismatch(mv[k]) + (1.0 - okv[k]) * 0.15;
                         if (cost < bestCost) {
                             bestCost = cost;
-                            m = mv;
-                            ok = sv.b;
+                            m = mv[k];
+                            ok = okv[k];
                         }
                     }
                 }
@@ -784,9 +839,26 @@ internal class FrameBlendRenderer(
                 vec2 b = vCoord - m * (1.0 - uMix);
                 vec4 p = texture2D(uPrev, a);
                 vec4 c = texture2D(uCurr, b);
-                float diff = abs(texture2D(uPrevL, a).r - texture2D(uCurrL, b).r);
-                vec4 hold = mix(texture2D(uPrev, vCoord), texture2D(uCurr, vCoord), step(0.5, uMix));
-                gl_FragColor = mix(mix(p, c, uMix), hold, max(smoothstep(uHold.x, uHold.y, diff), 1.0 - ok));
+                // Disagreement between the two moved pictures, averaged over a small area so it changes smoothly and
+                // does not switch pixel by pixel on stripes or skin texture.
+                vec2 t = 1.5 / uSize;
+                float diff = 0.25 * (
+                    abs(texture2D(uPrevL, a + vec2(t.x, t.y)).r - texture2D(uCurrL, b + vec2(t.x, t.y)).r)
+                    + abs(texture2D(uPrevL, a + vec2(-t.x, t.y)).r - texture2D(uCurrL, b + vec2(-t.x, t.y)).r)
+                    + abs(texture2D(uPrevL, a + vec2(t.x, -t.y)).r - texture2D(uCurrL, b + vec2(t.x, -t.y)).r)
+                    + abs(texture2D(uPrevL, a - t).r - texture2D(uCurrL, b - t).r));
+                // Where the motion is not trusted, fall back to a plain cross-fade of the two real frames at this spot.
+                // It softens there, but never shows a piece of picture in the wrong place.
+                vec4 fallback = mix(texture2D(uPrev, vCoord), texture2D(uCurr, vCoord), uMix);
+                float fb = max(smoothstep(uHold.x, uHold.y, diff), 1.0 - ok);
+                vec4 colour = mix(mix(p, c, uMix), fallback, fb);
+                if (uDebug > 0.5) {
+                    // Debug colours: green = moved along a motion vector, red = fallback cross-fade.
+                    float moving = step(0.5, length(m * uSize));
+                    colour.rgb = mix(colour.rgb, vec3(1.0, 0.0, 0.0), 0.45 * fb);
+                    colour.rgb = mix(colour.rgb, vec3(0.0, 1.0, 0.0), 0.35 * (1.0 - fb) * moving);
+                }
+                gl_FragColor = colour;
             }
         """
         const val FRAGMENT_BLEND = """
