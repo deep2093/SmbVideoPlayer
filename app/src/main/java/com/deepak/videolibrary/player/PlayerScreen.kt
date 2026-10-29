@@ -123,6 +123,12 @@ fun PlayerScreen(
     var smooth60 by remember {
         mutableStateOf(prefs.getBoolean("experimental_smooth_60fps", false))
     }
+    // Frame-rate indicator: what the video really plays at, and what the screen shows.
+    var showFps by remember { mutableStateOf(prefs.getBoolean("show_fps_indicator", true)) }
+    var smoothStats by remember { mutableStateOf<com.deepak.videolibrary.player.FrameBlendRenderer.Stats?>(null) }
+    var fileFps by remember { mutableStateOf(0f) }
+    var decodedFps by remember { mutableStateOf(0f) }
+    var displayHz by remember { mutableStateOf(0f) }
     // This first stage negotiates 60 Hz output safely. A real MEMC/RIFE frame
     // synthesizer will be a separate backend; requesting 60 Hz is NOT interpolation.
     DisposableEffect(activity, prefer60Hz, smooth60) {
@@ -217,6 +223,23 @@ fun PlayerScreen(
             )
             seekTo(initialIndex, 0)
             playWhenReady = false
+        }
+    }
+    LaunchedEffect(player, showFps) {
+        if (!showFps) return@LaunchedEffect
+        var lastCount = -1
+        var lastAt = 0L
+        while (true) {
+            delay(1000)
+            val counters = player.videoDecoderCounters
+            counters?.ensureUpdated()
+            val count = counters?.renderedOutputBufferCount ?: 0
+            val now = SystemClock.elapsedRealtime()
+            if (lastCount in 0..count && now > lastAt && player.isPlaying) decodedFps = (count - lastCount) * 1000f / (now - lastAt)
+            lastCount = count
+            lastAt = now
+            fileFps = player.videoFormat?.frameRate?.takeIf { it > 0f } ?: 0f
+            displayHz = activity?.window?.decorView?.display?.refreshRate ?: 0f
         }
     }
     var transitionSerial by remember { mutableIntStateOf(0) }
@@ -544,7 +567,7 @@ fun PlayerScreen(
             AndroidView(
                 onReset = null,
                 onRelease = { it.release() },
-                factory = { SmoothVideoView(it).apply { onFailure = { smooth60 = false } } },
+                factory = { SmoothVideoView(it).apply { onFailure = { smooth60 = false }; onStats = { stats -> smoothStats = stats } } },
                 update = { view ->
                     view.attach(player)
                     view.resizeMode = aspect
@@ -794,6 +817,31 @@ fun PlayerScreen(
                 onInteraction = ::revealControls,
             )
         }
+        if (showFps) {
+            val stats = smoothStats
+            val hz = if (displayHz > 0f) " · display ${"%.0f".format(displayHz)} Hz" else ""
+            val line1 = if (smooth60 && stats != null) {
+                "Smooth 60 ON · video ${"%.1f".format(stats.sourceFps)} fps → screen ${"%.1f".format(stats.outputFps)} fps$hz"
+            } else if (smooth60) {
+                "Smooth 60 ON · measuring…$hz"
+            } else {
+                "Normal playback · ${"%.1f".format(decodedFps)} fps shown (file says ${"%.1f".format(fileFps)})$hz"
+            }
+            val line2 = if (smooth60 && stats != null) {
+                when {
+                    !stats.interpolating -> "Video is already fast (about 45 fps or more): shown as it is"
+                    stats.warping -> "Adding in-between frames with motion estimate"
+                    else -> "Adding in-between frames by blending only"
+                }
+            } else null
+            Column(
+                Modifier.align(Alignment.TopStart).padding(top = 56.dp, start = 12.dp)
+                    .background(Color(0x99000000), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp),
+            ) {
+                Text(line1, color = Color.White, style = MaterialTheme.typography.labelSmall)
+                if (line2 != null) Text(line2, color = Color(0xFFB0BEC5), style = MaterialTheme.typography.labelSmall)
+            }
+        }
         if (showQueue) {
             SkyWingQueueDialog(queue.map { it.name }, currentIndex, vm.playbackHasMore,
                 onDismiss = { showQueue = false; revealControls() },
@@ -909,6 +957,14 @@ fun PlayerScreen(
                     Switch(checked = smooth60, onCheckedChange = { value ->
                         smooth60 = value
                         prefs.edit().putBoolean("experimental_smooth_60fps", value).apply()
+                        revealControls()
+                    })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Show frame rate on screen", color = Color.White, modifier = Modifier.weight(1f))
+                    Switch(checked = showFps, onCheckedChange = { value ->
+                        showFps = value
+                        prefs.edit().putBoolean("show_fps_indicator", value).apply()
                         revealControls()
                     })
                 }

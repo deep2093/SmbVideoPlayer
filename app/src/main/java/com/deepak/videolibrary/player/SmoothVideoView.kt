@@ -42,6 +42,7 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
     private var player: Player? = null
     private var inputSurface: Surface? = null
     var onFailure: (() -> Unit)? = null
+    var onStats: ((FrameBlendRenderer.Stats) -> Unit)? = null
 
     var resizeMode: Int
         get() = frame.resizeMode
@@ -70,6 +71,7 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
                     onInputReady = { surface -> post { attachInput(surface) } },
                     onError = { post { onFailure?.invoke() } },
                 )
+                created.onStats = { stats -> post { onStats?.invoke(stats) } }
                 renderer = created
                 player?.videoSize?.let { if (it.width > 0) created.setVideoSize(it.width, it.height) }
                 created.start(st)
@@ -125,6 +127,14 @@ internal class FrameBlendRenderer(
     private val handler = Handler(thread.looper)
     private val clock = BlendClock()
 
+    /** What the screen is really getting, once a second: frames decoded, frames drawn, and whether motion is being added. */
+    data class Stats(val sourceFps: Float, val outputFps: Float, val interpolating: Boolean, val warping: Boolean)
+
+    var onStats: ((Stats) -> Unit)? = null
+    private var framesIn = 0
+    private var framesOut = 0
+    private var statsSince = 0L
+
     private var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
     private var context: EGLContext = EGL14.EGL_NO_CONTEXT
     private var windowSurface: EGLSurface = EGL14.EGL_NO_SURFACE
@@ -171,7 +181,19 @@ internal class FrameBlendRenderer(
             Choreographer.getInstance().postFrameCallback(this)
             tick++
             if (tick % vsyncDivisor == 0) guarded { drawIfNeeded() }
+            reportStats(System.nanoTime())
         }
+    }
+
+    private fun reportStats(now: Long) {
+        if (statsSince == 0L) { statsSince = now; return }
+        val elapsed = now - statsSince
+        if (elapsed < 1_000_000_000L) return
+        val seconds = elapsed / 1e9f
+        onStats?.invoke(Stats(framesIn / seconds, framesOut / seconds, clock.needsInterpolation, vectorsValid))
+        framesIn = 0
+        framesOut = 0
+        statsSince = now
     }
 
     fun setVideoSize(width: Int, height: Int) {
@@ -294,6 +316,7 @@ internal class FrameBlendRenderer(
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
             // With no usable predecessor (first frame or seek) the clock reports fraction 1,
             // so only the newest picture is shown.
+            framesIn++
             clock.onFrame(pts, System.nanoTime())
             estimateMotion(write)
             current = write
@@ -393,6 +416,7 @@ internal class FrameBlendRenderer(
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorTexture)
             GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uMv"), 2)
             GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
+            GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uVecSize"), vectorWidth.toFloat(), vectorHeight.toFloat())
             GLES20.glActiveTexture(GLES20.GL_TEXTURE3)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lumaTextures[1 - current])
             GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uPrevL"), 3)
@@ -402,6 +426,7 @@ internal class FrameBlendRenderer(
         }
         drawQuad(program)
         EGL14.eglSwapBuffers(display, windowSurface)
+        framesOut++
         dirty = false
         lastDrawn = fraction
     }
@@ -610,9 +635,26 @@ internal class FrameBlendRenderer(
             uniform sampler2D uPrevL;
             uniform sampler2D uCurrL;
             uniform vec2 uSize;
+            uniform vec2 uVecSize;
             uniform float uMix;
             void main() {
-                vec2 m = (texture2D(uMv, vCoord).rg - 0.5) * 2.0 * 7.0 / uSize;
+                // Each pixel tries the vectors of the four nearest blocks and keeps the one whose two moved pictures
+                // agree best, so edges follow the real outline instead of stepping along the block grid.
+                vec2 f = floor(vCoord * uVecSize - 0.5);
+                vec2 m = vec2(0.0);
+                float bestCost = 1e9;
+                for (int j = 0; j < 2; j++) {
+                    for (int i = 0; i < 2; i++) {
+                        vec2 cc = (f + vec2(float(i), float(j)) + 0.5) / uVecSize;
+                        vec2 mv = (texture2D(uMv, clamp(cc, 0.0, 1.0)).rg - 0.5) * 14.0 / uSize;
+                        float cost = abs(texture2D(uPrevL, vCoord + mv * uMix).r - texture2D(uCurrL, vCoord - mv * (1.0 - uMix)).r)
+                            + 0.02 * length((cc - vCoord) * uVecSize);
+                        if (cost < bestCost) {
+                            bestCost = cost;
+                            m = mv;
+                        }
+                    }
+                }
                 vec2 a = vCoord + m * uMix;
                 vec2 b = vCoord - m * (1.0 - uMix);
                 vec4 p = texture2D(uPrev, a);
