@@ -119,7 +119,7 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
 
 /** Owns the GL thread: decoded frames in via SurfaceTexture, blended 60 Hz frames out. */
 internal class FrameBlendRenderer(
-    private val vsyncDivisor: Int,
+    initialDivisor: Int,
     private val onInputReady: (Surface) -> Unit,
     private val onError: () -> Unit,
 ) {
@@ -167,6 +167,12 @@ internal class FrameBlendRenderer(
     private var failed = false
     private var dirty = false
     private var tick = 0
+    // How many screen refreshes to skip between drawn frames: measured from the real refresh interval as it runs. The
+    // screen can change mode after this view starts (for example from 120 Hz down to the 60 Hz that was asked for), so
+    // a number worked out once at the start would leave smoothing drawing every other refresh.
+    private var divisor = initialDivisor.coerceAtLeast(1)
+    private var lastVsync = 0L
+    private var vsyncPeriod = 0.0
     private var lastDrawn = -1f
     private val matrix = FloatArray(16)
 
@@ -179,8 +185,16 @@ internal class FrameBlendRenderer(
         override fun doFrame(frameTimeNanos: Long) {
             if (!running) return
             Choreographer.getInstance().postFrameCallback(this)
+            if (lastVsync != 0L) {
+                val dt = (frameTimeNanos - lastVsync).toDouble()
+                if (dt in 4_000_000.0..60_000_000.0) {
+                    vsyncPeriod = if (vsyncPeriod == 0.0) dt else vsyncPeriod * 0.9 + dt * 0.1
+                    divisor = Math.round(vsyncPeriod / 16_667_000.0).toInt().coerceIn(1, 4)
+                }
+            }
+            lastVsync = frameTimeNanos
             tick++
-            if (tick % vsyncDivisor == 0) guarded { drawIfNeeded() }
+            if (tick % divisor == 0) guarded { drawIfNeeded() }
             reportStats(System.nanoTime())
         }
     }
