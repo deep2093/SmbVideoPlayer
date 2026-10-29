@@ -38,6 +38,16 @@ class ArtworkRepository(
     private val sequence = java.util.concurrent.atomic.AtomicLong()
     private val changes = MutableStateFlow(0)
 
+    /** Folders whose suggestions you rejected: no automatic or re-check lookup suggests them again. */
+    private val rejections = context.applicationContext.getSharedPreferences("artwork_rejections_" + context.filesDir.name, Context.MODE_PRIVATE)
+
+    fun isRejected(key: String): Boolean = rejections.getBoolean(key, false)
+
+    private fun forgetRejection(keys: Collection<String>) {
+        val stored = keys.filter { rejections.contains(it) }
+        if (stored.isNotEmpty()) rejections.edit().apply { stored.forEach { remove(it) } }.apply()
+    }
+
     /** Increases whenever settings or stored artwork change, so screens rebuild what they show. */
     val revision: StateFlow<Int> = changes.asStateFlow()
 
@@ -224,6 +234,7 @@ class ArtworkRepository(
     /** Removes everything stored for [keys]: the item goes back to the inherited default. Returns how many had data. */
     suspend fun clear(keys: Collection<String>): Int {
         if (keys.isEmpty()) return 0
+        forgetRejection(keys)
         var removed = 0
         withContext(Dispatchers.IO) {
             writeLock.withLock {
@@ -353,6 +364,7 @@ class ArtworkRepository(
 
     /** The user skipped a folder in the review list: forget its suggestions and do not suggest again automatically. */
     suspend fun skipSuggestions(key: String) {
+        rejections.edit().putBoolean(key, true).apply()
         withContext(Dispatchers.IO) { dao.deleteCandidates(listOf(key)) }
         recordLookup(key, ArtworkOverride.STATUS_NO_MATCH)
         changes.value++

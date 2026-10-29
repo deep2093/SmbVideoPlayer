@@ -179,6 +179,8 @@ internal object FolderTargets {
                 settings.selectionFor(scope) == PortraitSelection.CUSTOM) return
             // A folder whose cover you chose, or that already has a portrait (also from earlier folders of the same
             // name), is never looked up again.
+            // A folder whose suggestions you rejected is never suggested again, even on a re-check.
+            if (repo.isRejected(identity)) return
             val row = repo.effectiveRow(identity)
             if (row?.manual == true) return
             // Already has a portrait: never downloaded again. Earlier "no match" / "unclear" results are only
