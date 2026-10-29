@@ -150,6 +150,7 @@ internal class FrameBlendRenderer(
     private var warpProgram = 0
     private var vectorFilterProgram = 0
     private var vectorRawTexture = 0
+    private var vectorBackTexture = 0
     private val lumaTextures = IntArray(2)
     private var vectorTexture = 0
     private var lumaWidth = 0
@@ -295,6 +296,8 @@ internal class FrameBlendRenderer(
         vectorTexture = ids[0]
         GLES20.glGenTextures(1, ids, 0)
         vectorRawTexture = ids[0]
+        GLES20.glGenTextures(1, ids, 0)
+        vectorBackTexture = ids[0]
         GLES20.glGenFramebuffers(1, ids, 0)
         framebuffer = ids[0]
 
@@ -351,24 +354,17 @@ internal class FrameBlendRenderer(
         GLES20.glUniform1i(GLES20.glGetUniformLocation(lumaProgram, "uTex"), 0)
         GLES20.glUniform2f(GLES20.glGetUniformLocation(lumaProgram, "uStep"), 0.25f / lumaWidth, 0.25f / lumaHeight)
         drawQuad(lumaProgram)
+        // The previous frame's finished vectors are a hint for this frame's search (only if they are fresh).
+        val hintFresh = vectorsValid
         vectorsValid = false
         if (clock.needsInterpolation) {
-            // 1. Raw motion per block (a block whose best match is not clearly better than another shift stays still).
-            GLES20.glFramebufferTexture2D(
-                GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, vectorRawTexture, 0,
-            )
-            GLES20.glViewport(0, 0, vectorWidth, vectorHeight)
-            GLES20.glUseProgram(meProgram)
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lumaTextures[write])
-            GLES20.glUniform1i(GLES20.glGetUniformLocation(meProgram, "uCurL"), 0)
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lumaTextures[1 - write])
-            GLES20.glUniform1i(GLES20.glGetUniformLocation(meProgram, "uPrevL"), 1)
-            GLES20.glUniform2f(GLES20.glGetUniformLocation(meProgram, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
-            drawQuad(meProgram)
+            // 1. Raw motion per block, forwards (what each block of the new frame looks like in the old one)...
+            runMotion(lumaTextures[write], lumaTextures[1 - write], vectorRawTexture, hintFresh)
+            // ...and backwards (the old frame against the new one), used to spot hidden / uncovered areas.
+            runMotion(lumaTextures[1 - write], lumaTextures[write], vectorBackTexture, false)
             // 2. Median of each block's vector and its eight neighbours: a lone wrong vector (stripes, checks, faces)
-            // is outvoted, so patterns no longer jump from one frame to the next.
+            // is outvoted. A block whose forward vector is not confirmed by the backward search is marked unreliable
+            // (blue = 0) so the picture holds the real frame there instead of showing a misplaced piece.
             GLES20.glFramebufferTexture2D(
                 GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, vectorTexture, 0,
             )
@@ -377,11 +373,37 @@ internal class FrameBlendRenderer(
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorRawTexture)
             GLES20.glUniform1i(GLES20.glGetUniformLocation(vectorFilterProgram, "uVec"), 0)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorBackTexture)
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(vectorFilterProgram, "uBack"), 1)
             GLES20.glUniform2f(GLES20.glGetUniformLocation(vectorFilterProgram, "uVecSize"), vectorWidth.toFloat(), vectorHeight.toFloat())
+            GLES20.glUniform2f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
             drawQuad(vectorFilterProgram)
             vectorsValid = true
         }
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+    }
+
+    /** One block-matching pass: for each block of [cur], where is it in [prev]. Writes vectors into [target]. */
+    private fun runMotion(cur: Int, prev: Int, target: Int, useHint: Boolean) {
+        GLES20.glFramebufferTexture2D(
+            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, target, 0,
+        )
+        GLES20.glViewport(0, 0, vectorWidth, vectorHeight)
+        GLES20.glUseProgram(meProgram)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, cur)
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(meProgram, "uCurL"), 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, prev)
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(meProgram, "uPrevL"), 1)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE2)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorTexture)
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(meProgram, "uHint"), 2)
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(meProgram, "uHintOn"), if (useHint) 1f else 0f)
+        GLES20.glUniform2f(GLES20.glGetUniformLocation(meProgram, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
+        GLES20.glUniform2f(GLES20.glGetUniformLocation(meProgram, "uVecSize"), vectorWidth.toFloat(), vectorHeight.toFloat())
+        drawQuad(meProgram)
     }
 
     private fun ensureTargets() {
@@ -394,6 +416,7 @@ internal class FrameBlendRenderer(
         for (t in lumaTextures) allocate(t, lumaWidth, lumaHeight)
         allocate(vectorTexture, vectorWidth, vectorHeight)
         allocate(vectorRawTexture, vectorWidth, vectorHeight)
+        allocate(vectorBackTexture, vectorWidth, vectorHeight)
         for (t in textures) {
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t)
             GLES20.glTexImage2D(
@@ -565,7 +588,10 @@ internal class FrameBlendRenderer(
             precision highp float;
             uniform sampler2D uCurL;
             uniform sampler2D uPrevL;
+            uniform sampler2D uHint;
             uniform vec2 uSize;
+            uniform vec2 uVecSize;
+            uniform float uHintOn;
             vec2 base;
             float cost(vec2 d) {
                 float raw = 0.0;
@@ -622,6 +648,19 @@ internal class FrameBlendRenderer(
                 // A different coarse shift that matched nearly as well makes the choice ambiguous.
                 if (coarseSecond < second) second = coarseSecond;
                 bool clear = bestRaw < second * 0.88;
+                // Temporal hint: the motion this block had in the previous frame. If it matches nearly as well as
+                // the new winner (and clearly beats standing still) keep it, so fast motion does not flip from
+                // frame to frame.
+                if (uHintOn > 0.5) {
+                    vec2 h = floor((texture2D(uHint, (floor(gl_FragCoord.xy) + 0.5) / uVecSize).rg - 0.5) * 40.0 + 0.5);
+                    if (length(h) > 0.5 && length(h - bestV) > 0.5) {
+                        float rawH = cost(h);
+                        if (rawH < bestRaw * 1.08 + 0.01 && rawH < sad0 * 0.9) {
+                            bestV = h;
+                            clear = true;
+                        }
+                    }
+                }
                 vec2 v = clear ? bestV : vec2(0.0);
                 gl_FragColor = vec4(v / 20.0 * 0.5 + 0.5, 1.0, 1.0);
             }
@@ -630,7 +669,9 @@ internal class FrameBlendRenderer(
         const val FRAGMENT_VECTOR_FILTER = """
             precision highp float;
             uniform sampler2D uVec;
+            uniform sampler2D uBack;
             uniform vec2 uVecSize;
+            uniform vec2 uSize;
             vec2 temp;
             #define s2(a, b) temp = a; a = min(a, b); b = max(temp, b);
             #define mn3(a, b, c) s2(a, b); s2(a, c);
@@ -655,7 +696,19 @@ internal class FrameBlendRenderer(
                 mnmx5(v1, v2, v3, v4, v6);
                 mnmx4(v2, v3, v4, v7);
                 mnmx3(v3, v4, v8);
-                gl_FragColor = vec4(v4, 1.0, 1.0);
+                // Forward/backward check: the block this one points at must point back at it.
+                vec2 d = (v4 - 0.5) * 40.0;
+                // Any of the nine blocks around the target confirming it is enough (one noisy block must not condemn it).
+                float confirmed = 0.0;
+                vec2 target = c + d / uSize;
+                for (int j = -1; j <= 1; j++) {
+                    for (int i = -1; i <= 1; i++) {
+                        vec2 e = (texture2D(uBack, target + vec2(float(i), float(j)) * o).rg - 0.5) * 40.0;
+                        if (length(d + e) <= 2.5) confirmed = 1.0;
+                    }
+                }
+                float bad = (length(d) > 0.5 && confirmed < 0.5) ? 1.0 : 0.0;
+                gl_FragColor = vec4(v4, 1.0 - bad, 1.0);
             }
         """
         // Moves both neighbouring frames along the motion vector to time uMix. Where the two moved pictures
@@ -678,16 +731,19 @@ internal class FrameBlendRenderer(
                 // agree best, so edges follow the real outline instead of stepping along the block grid.
                 vec2 f = floor(vCoord * uVecSize - 0.5);
                 vec2 m = vec2(0.0);
+                float ok = 1.0;
                 float bestCost = 1e9;
                 for (int j = 0; j < 2; j++) {
                     for (int i = 0; i < 2; i++) {
                         vec2 cc = (f + vec2(float(i), float(j)) + 0.5) / uVecSize;
-                        vec2 mv = (texture2D(uMv, clamp(cc, 0.0, 1.0)).rg - 0.5) * 40.0 / uSize;
+                        vec3 sv = texture2D(uMv, clamp(cc, 0.0, 1.0)).rgb;
+                        vec2 mv = (sv.rg - 0.5) * 40.0 / uSize;
                         float cost = abs(texture2D(uPrevL, vCoord + mv * uMix).r - texture2D(uCurrL, vCoord - mv * (1.0 - uMix)).r)
-                            + 0.02 * length((cc - vCoord) * uVecSize);
+                            + 0.02 * length((cc - vCoord) * uVecSize) + (sv.b < 0.5 ? 0.15 : 0.0);
                         if (cost < bestCost) {
                             bestCost = cost;
                             m = mv;
+                            ok = sv.b;
                         }
                     }
                 }
@@ -697,7 +753,7 @@ internal class FrameBlendRenderer(
                 vec4 c = texture2D(uCurr, b);
                 float diff = abs(texture2D(uPrevL, a).r - texture2D(uCurrL, b).r);
                 vec4 hold = mix(texture2D(uPrev, vCoord), texture2D(uCurr, vCoord), step(0.5, uMix));
-                gl_FragColor = mix(mix(p, c, uMix), hold, smoothstep(0.06, 0.2, diff));
+                gl_FragColor = mix(mix(p, c, uMix), hold, max(smoothstep(0.06, 0.2, diff), 1.0 - ok));
             }
         """
         const val FRAGMENT_BLEND = """
