@@ -554,8 +554,10 @@ internal class FrameBlendRenderer(
                 gl_FragColor = vec4(l, l, l, 1.0);
             }
         """
-        // One fragment per 4x4 block of the small frame. Each block is matched over an 8x8 window around it (16 taps,
-        // each averaging 2x2 texels), looking for d with cur(p) ~ prev(p + d), |d| <= 7.
+        // One fragment per 4x4 block of the small frame. Each block is matched over an 8x8 window (16 taps, each
+        // averaging 2x2 texels), looking for d with cur(p) ~ prev(p + d). The search is coarse-to-fine: first every
+        // 4th shift out to +-16 (fast action), then every shift within +-3 of the best coarse one, so the reach is
+        // +-19 small-frame pixels (about 4% of the picture width) for roughly half the cost of the old +-7 full search.
         // A non-zero vector must beat the zero vector by 10%, and must also beat the best match at any clearly
         // different shift by 12%. Repeating patterns (stripes, checks) and flat or noisy skin match about equally at
         // several shifts, so they stay still instead of picking a random one that changes every frame.
@@ -564,30 +566,48 @@ internal class FrameBlendRenderer(
             uniform sampler2D uCurL;
             uniform sampler2D uPrevL;
             uniform vec2 uSize;
-            void main() {
-                vec2 base = floor(gl_FragCoord.xy) * 4.0 - 2.0;
-                float sad0 = 0.0;
+            vec2 base;
+            float cost(vec2 d) {
+                float raw = 0.0;
                 for (int by = 0; by < 4; by++) {
                     for (int bx = 0; bx < 4; bx++) {
                         vec2 p = (base + vec2(float(bx), float(by)) * 2.0 + 1.0) / uSize;
-                        sad0 += abs(texture2D(uCurL, p).r - texture2D(uPrevL, p).r);
+                        raw += abs(texture2D(uCurL, p).r - texture2D(uPrevL, p + d / uSize).r);
                     }
                 }
+                return raw;
+            }
+            void main() {
+                base = floor(gl_FragCoord.xy) * 4.0 - 2.0;
+                float sad0 = cost(vec2(0.0));
                 float best = sad0 * 0.9;
                 float bestRaw = sad0;
                 float second = sad0;
                 vec2 bestV = vec2(0.0);
-                for (int dy = -7; dy <= 7; dy++) {
-                    for (int dx = -7; dx <= 7; dx++) {
-                        if (dx == 0 && dy == 0) continue;
-                        vec2 d = vec2(float(dx), float(dy));
-                        float raw = 0.0;
-                        for (int by = 0; by < 4; by++) {
-                            for (int bx = 0; bx < 4; bx++) {
-                                vec2 p = (base + vec2(float(bx), float(by)) * 2.0 + 1.0) / uSize;
-                                raw += abs(texture2D(uCurL, p).r - texture2D(uPrevL, p + d / uSize).r);
-                            }
+                // Coarse stage.
+                vec2 coarseV = vec2(0.0);
+                float coarseBest = 1e9;
+                float coarseSecond = 1e9;
+                for (int cy = -4; cy <= 4; cy++) {
+                    for (int cx = -4; cx <= 4; cx++) {
+                        vec2 d = vec2(float(cx), float(cy)) * 4.0;
+                        float raw = cost(d);
+                        float sad = raw + 0.002 * length(d);
+                        if (sad < coarseBest) {
+                            if (length(d - coarseV) > 6.0) coarseSecond = min(coarseSecond, coarseBest);
+                            coarseBest = sad;
+                            coarseV = d;
+                        } else if (sad < coarseSecond && length(d - coarseV) > 6.0) {
+                            coarseSecond = sad;
                         }
+                    }
+                }
+                // Fine stage around the best coarse shift.
+                for (int dy = -3; dy <= 3; dy++) {
+                    for (int dx = -3; dx <= 3; dx++) {
+                        vec2 d = coarseV + vec2(float(dx), float(dy));
+                        if (d.x == 0.0 && d.y == 0.0) continue;
+                        float raw = cost(d);
                         float sad = raw + 0.002 * length(d);
                         if (sad < best) {
                             if (length(d - bestV) > 1.5) second = min(second, bestRaw);
@@ -599,9 +619,11 @@ internal class FrameBlendRenderer(
                         }
                     }
                 }
+                // A different coarse shift that matched nearly as well makes the choice ambiguous.
+                if (coarseSecond < second) second = coarseSecond;
                 bool clear = bestRaw < second * 0.88;
                 vec2 v = clear ? bestV : vec2(0.0);
-                gl_FragColor = vec4(v / 7.0 * 0.5 + 0.5, 1.0, 1.0);
+                gl_FragColor = vec4(v / 20.0 * 0.5 + 0.5, 1.0, 1.0);
             }
         """
         // Median of the 3x3 neighbouring block vectors (per component), the standard 19-exchange network.
@@ -660,7 +682,7 @@ internal class FrameBlendRenderer(
                 for (int j = 0; j < 2; j++) {
                     for (int i = 0; i < 2; i++) {
                         vec2 cc = (f + vec2(float(i), float(j)) + 0.5) / uVecSize;
-                        vec2 mv = (texture2D(uMv, clamp(cc, 0.0, 1.0)).rg - 0.5) * 14.0 / uSize;
+                        vec2 mv = (texture2D(uMv, clamp(cc, 0.0, 1.0)).rg - 0.5) * 40.0 / uSize;
                         float cost = abs(texture2D(uPrevL, vCoord + mv * uMix).r - texture2D(uCurrL, vCoord - mv * (1.0 - uMix)).r)
                             + 0.02 * length((cc - vCoord) * uVecSize);
                         if (cost < bestCost) {
