@@ -25,7 +25,9 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val services = ServiceLocator.get(applicationContext)
         val saved = services.settings.load()
         if (saved.host.isBlank() || saved.share.isBlank()) return Result.failure()
-        if (com.deepak.videolibrary.settings.LibraryIdentity.of(saved) != services.libraryId) return Result.retry()
+        if (com.deepak.videolibrary.settings.LibraryIdentity.of(saved) != services.libraryId) {
+            return if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
+        }
         val profile = services.settings.toProfile(saved)
         val expected = inputData.getString("libraryId")
         if (expected != null && expected != services.libraryId) return Result.failure()
@@ -52,13 +54,16 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         // After every finished scan, look up what is new or still missing and apply it.
         val finished = completed || services.db.dao().pendingCountNow() == 0
         if (finished) com.deepak.videolibrary.metadata.MissingArtworkLookup.start(applicationContext, services, recheck = false)
-        return if (finished) Result.success() else Result.retry()
+        // An unfinished scan is tried again at most twice. After that it waits until you press Refresh, so a drive that
+        // is asleep or unreachable is not woken again and again in the background.
+        return if (finished) Result.success() else if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure()
     }
 
     companion object {
         const val UNIQUE_NAME = "library_scan"
         fun name(id: String) = "$UNIQUE_NAME:$id"
         private const val KEY_MODE = "mode"
+        private const val MAX_RETRIES = 2
 
         fun enqueue(context: Context, mode: ScanMode, afterCurrent: Boolean = false, libraryId: String = ServiceLocator.get(context).libraryId) {
             val request = OneTimeWorkRequestBuilder<ScanWorker>()

@@ -175,7 +175,7 @@ class TransferWorker(context: Context, params: WorkerParameters) : CoroutineWork
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (SmbErrors.isTransient(e) && runAttemptCount < 5) return Result.retry()
+            if (SmbErrors.isTransient(e) && runAttemptCount < 2) return Result.retry()
             val message = when (e) {
                 is IllegalArgumentException -> when (e.message) {
                     "Destination already exists" -> "Destination already exists; choose another folder or name."
