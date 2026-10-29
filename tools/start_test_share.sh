@@ -16,7 +16,11 @@ ffmpeg -v error -f lavfi -i testsrc2=size=320x180:rate=15 -f lavfi -i sine=frequ
 chmod a+rw /tmp/videolibrary-sample.wmv
 # Real WMV9/WMV3 bitstream: FFmpeg cannot encode WMV3 from the generated fixture.
 # Keep it outside the share until its UI playback check.
-curl --fail --retry 3 --connect-timeout 20 --max-time 120 'https://samples.ffmpeg.org/V-codecs/WMV9/wmv-samples/sample-wmv9-main-MP%40LL.wmv' -o /tmp/videolibrary-wmv9.wmv
+# samples.ffmpeg.org sometimes refuses the TLS handshake (curl exit 35). Retry on any error, then fall back to plain
+# http: the MD5 check below proves the file is the right one either way.
+wmv9_path='V-codecs/WMV9/wmv-samples/sample-wmv9-main-MP%40LL.wmv'
+curl --fail --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 --max-time 120 "https://samples.ffmpeg.org/$wmv9_path" -o /tmp/videolibrary-wmv9.wmv \
+  || curl --fail --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 --max-time 120 "http://samples.ffmpeg.org/$wmv9_path" -o /tmp/videolibrary-wmv9.wmv
 echo 'eedc185719bff2094df32642ec48d909  /tmp/videolibrary-wmv9.wmv' | md5sum --check
 ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 /tmp/videolibrary-wmv9.wmv | grep -x wmv3
 chmod a+rw /tmp/videolibrary-wmv9.wmv
