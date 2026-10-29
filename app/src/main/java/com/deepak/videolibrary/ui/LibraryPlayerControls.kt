@@ -170,19 +170,19 @@ internal fun LibraryPlayerControls(
                         },
                         enabled = duration > 0,
                         thumb = {
-                            Box(Modifier.size(if (scrubbing) 20.dp else 16.dp).background(accent, CircleShape))
+                            Box(Modifier.size(if (scrubbing) 28.dp else 22.dp).background(accent, CircleShape))
                         },
                         track = { state ->
-                            // A thin line: played part in the accent colour, the rest translucent white.
-                            Canvas(Modifier.fillMaxWidth().height(4.dp)) {
+                            // A thicker line (8 dp): played part in the accent colour, the rest translucent white.
+                            Canvas(Modifier.fillMaxWidth().height(8.dp)) {
                                 val y = size.height / 2
                                 val played = size.width * state.value.coerceIn(0f, 1f)
                                 drawLine(Color.White.copy(alpha = 0.3f), Offset(0f, y), Offset(size.width, y), strokeWidth = size.height, cap = StrokeCap.Round)
                                 drawLine(accent, Offset(0f, y), Offset(played, y), strokeWidth = size.height, cap = StrokeCap.Round)
                             }
                         },
-                        // A taller touch zone than before: 10 dp more above and 10 dp more below (60 dp in all), still inside the bar's own row so it never covers the buttons.
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp).semantics { contentDescription = "Playback position" },
+                        // A taller touch zone than before: 10 dp more above and 10 dp more below (72 dp in all), still inside the bar's own row so it never covers the buttons.
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).semantics { contentDescription = "Playback position" },
                     )
                     if (wide) {
                         // Landscape and tablets: one row, play/pause in the middle.

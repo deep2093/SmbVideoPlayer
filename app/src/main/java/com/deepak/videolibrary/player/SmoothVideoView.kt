@@ -218,7 +218,8 @@ internal class FrameBlendRenderer(
                 val dt = (frameTimeNanos - lastVsync).toDouble()
                 if (dt in 4_000_000.0..60_000_000.0) {
                     vsyncPeriod = if (vsyncPeriod == 0.0) dt else vsyncPeriod * 0.9 + dt * 0.1
-                    divisor = Math.round(vsyncPeriod / 16_667_000.0).toInt().coerceIn(1, 4)
+                    // A 120 Hz screen calls back every 8.3 ms and needs every second callback for 60 fps (divisor 2); 60 Hz needs every one.
+                    divisor = Math.round(16_667_000.0 / vsyncPeriod).toInt().coerceIn(1, 4)
                 }
             }
             lastVsync = frameTimeNanos
@@ -386,11 +387,12 @@ internal class FrameBlendRenderer(
         GLES20.glUniform2f(GLES20.glGetUniformLocation(lumaProgram, "uStep"), 0.25f / lumaWidth, 0.25f / lumaHeight)
         drawQuad(lumaProgram)
         // The previous frame's finished vectors are a hint for this frame's search (only if they are fresh).
-        val hintFresh = vectorsValid
         vectorsValid = false
         if (clock.needsInterpolation) {
             // 1. Raw motion per block, forwards (what each block of the new frame looks like in the old one)...
-            runMotion(lumaTextures[write], lumaTextures[1 - write], vectorRawTexture, hintFresh)
+            // The previous frame's vectors are not used as a hint for now: a hint that merely matches about as well as
+            // the new winner could turn a doubtful repeating pattern into a 'clear' match and lock a wrong motion in.
+            runMotion(lumaTextures[write], lumaTextures[1 - write], vectorRawTexture, false)
             // ...and backwards (the old frame against the new one), used to spot hidden / uncovered areas.
             runMotion(lumaTextures[1 - write], lumaTextures[write], vectorBackTexture, false)
             // 2. Fill undecided blocks from their neighbours, median-filter, and mark blocks the backward search
@@ -409,7 +411,8 @@ internal class FrameBlendRenderer(
             GLES20.glUniform2f(GLES20.glGetUniformLocation(vectorFilterProgram, "uVecSize"), vectorWidth.toFloat(), vectorHeight.toFloat())
             GLES20.glUniform2f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
             GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uConsist"), floatArrayOf(1.6f, 2.5f, 4.0f)[strength.coerceIn(0, 2)])
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSpread"), floatArrayOf(6f, 9f, 9f)[strength.coerceIn(0, 2)])
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSpread"), floatArrayOf(4f, 6f, 8f)[strength.coerceIn(0, 2)])
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uNeedReverse"), if (strength.coerceIn(0, 2) < 2) 1f else 0f)
             drawQuad(vectorFilterProgram)
             vectorsValid = true
         }
@@ -749,6 +752,7 @@ internal class FrameBlendRenderer(
             uniform vec2 uSize;
             uniform float uConsist;
             uniform float uSpread;
+            uniform float uNeedReverse;
             vec2 temp;
             vec2 fillSum;
             float fillCount;
@@ -782,11 +786,11 @@ internal class FrameBlendRenderer(
                 vec4 s6 = at(c + vec2(-o.x, o.y));
                 vec4 s7 = at(c + vec2(0.0, o.y));
                 vec4 s8 = at(c + vec2(o.x, o.y));
-                // Few decided neighbours: look further out (3, then 7, then 12 blocks away in eight directions),
-                // so the middle of a large striped area still gets the motion of the body around it.
-                for (int ring = 0; ring < 3; ring++) {
+                // Few decided neighbours: look a little further out (3 blocks, about 50 source pixels at 1080p). Going
+                // further would borrow motion from a different object.
+                for (int ring = 0; ring < 1; ring++) {
                     if (fillCount < 2.0 && s4.a < 0.5) {
-                        vec2 r = (ring == 0 ? 3.0 : (ring == 1 ? 7.0 : 12.0)) * o;
+                        vec2 r = 3.0 * o;
                         at(c + vec2(-r.x, -r.y)); at(c + vec2(0.0, -r.y)); at(c + vec2(r.x, -r.y));
                         at(c + vec2(-r.x, 0.0)); at(c + vec2(r.x, 0.0));
                         at(c + vec2(-r.x, r.y)); at(c + vec2(0.0, r.y)); at(c + vec2(r.x, r.y));
@@ -832,7 +836,9 @@ internal class FrameBlendRenderer(
                         }
                     }
                 }
-                if (evidence < 0.5) confirmed = 1.0;
+                // No decided block at the target means no evidence. Clean and Balanced treat that as unconfirmed; Max
+                // smooth gives the benefit of the doubt.
+                if (evidence < 0.5 && uNeedReverse < 0.5) confirmed = 1.0;
                 float bad = (length(d) > 0.5 && (confirmed < 0.5 || spread >= uSpread)) ? 1.0 : 0.0;
                 // Alpha = 1 where this block decided its own motion; filled blocks (flat walls, plain areas) do not
                 // count towards the whole-frame fallback.
@@ -871,8 +877,14 @@ internal class FrameBlendRenderer(
                 // One smooth motion field everywhere: the four nearest block vectors blended by distance, and their
                 // trust blended the same way. Picking a different block's vector pixel by pixel, or switching hard
                 // between moved picture and fallback, is what left block-shaped patches and torn stripes.
-                vec2 m = mix(mix(mv[0], mv[1], w.x), mix(mv[2], mv[3], w.x), w.y);
-                float ok = mix(mix(okv[0], okv[1], w.x), mix(okv[2], okv[3], w.x), w.y);
+                // Untrusted vectors get no say in the motion: weight each by distance and trust, then divide by the
+                // total trusted weight. The trusted share (0..1) later decides how much of the real-frame fallback shows.
+                float wt0 = (1.0 - w.x) * (1.0 - w.y) * okv[0];
+                float wt1 = w.x * (1.0 - w.y) * okv[1];
+                float wt2 = (1.0 - w.x) * w.y * okv[2];
+                float wt3 = w.x * w.y * okv[3];
+                float ok = wt0 + wt1 + wt2 + wt3;
+                vec2 m = (mv[0] * wt0 + mv[1] * wt1 + mv[2] * wt2 + mv[3] * wt3) / max(ok, 1e-4);
                 vec2 a = vCoord + m * uMix;
                 vec2 b = vCoord - m * (1.0 - uMix);
                 vec4 p = texture2D(uPrev, a);
