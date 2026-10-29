@@ -1,6 +1,9 @@
 package com.deepak.videolibrary.player
 
+import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.opengl.EGL14
 import android.opengl.EGLConfig
@@ -9,12 +12,15 @@ import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
+import android.os.Environment
 import android.os.Handler
 import android.os.HandlerThread
 import android.view.Choreographer
 import android.view.Surface
+import android.provider.MediaStore
 import android.view.TextureView
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
@@ -105,6 +111,48 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
         }
     }
 
+    /**
+     * Debug aid: saves exactly what the renderer draws for the next frame, plus the two real frames it was made from,
+     * as PNGs in Pictures/SkyWing (no camera or screen recorder in between).
+     */
+    fun saveFrame() {
+        val current = renderer
+        if (current == null) {
+            Toast.makeText(context, "Smooth 60 fps is not running", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val appContext = context.applicationContext
+        current.requestCapture { label, shots ->
+            Thread {
+                val result = runCatching {
+                    val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+                    for ((part, bitmap) in shots) {
+                        val values = ContentValues().apply {
+                            put(MediaStore.Images.Media.DISPLAY_NAME, "smooth_${stamp}_${label}_$part.png")
+                            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/SkyWing")
+                            put(MediaStore.Images.Media.IS_PENDING, 1)
+                        }
+                        val resolver = appContext.contentResolver
+                        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: error("no uri")
+                        resolver.openOutputStream(uri)?.use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                        values.clear()
+                        values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                        resolver.update(uri, values, null, null)
+                        bitmap.recycle()
+                    }
+                }
+                post {
+                    Toast.makeText(
+                        appContext,
+                        if (result.isSuccess) "Saved 3 images to Pictures/SkyWing ($label)" else "Could not save: ${result.exceptionOrNull()?.message}",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            }.start()
+        }
+    }
+
     fun attach(newPlayer: Player) {
         player?.removeListener(listener)
         player = newPlayer
@@ -156,6 +204,7 @@ internal class FrameBlendRenderer(
 
     @Volatile var strength: Int = 1
     @Volatile var debug: Boolean = false
+    @Volatile private var captureCallback: ((String, List<Pair<String, Bitmap>>) -> Unit)? = null
     private var framesIn = 0
     private var fallbackDrawn = 0
     private var frameFallback = false
@@ -240,6 +289,35 @@ internal class FrameBlendRenderer(
         fallbackDrawn = 0
         framesOut = 0
         statsSince = now
+    }
+
+    /** The next drawn frame is read back (output, previous real frame, next real frame) and handed to [onDone]. */
+    fun requestCapture(onDone: (String, List<Pair<String, Bitmap>>) -> Unit) {
+        captureCallback = onDone
+    }
+
+    private fun readScreen(width: Int, height: Int): Bitmap {
+        val buffer = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
+        GLES20.glReadPixels(0, 0, width, height, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buffer)
+        val raw = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        buffer.position(0)
+        raw.copyPixelsFromBuffer(buffer)
+        val flip = Matrix().apply { preScale(1f, -1f) }
+        val flipped = Bitmap.createBitmap(raw, 0, 0, width, height, flip, false)
+        raw.recycle()
+        return flipped
+    }
+
+    private fun drawBlend(mix: Float) {
+        GLES20.glUseProgram(blendProgram)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[1 - current])
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(blendProgram, "uPrev"), 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[current])
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(blendProgram, "uCurr"), 1)
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(blendProgram, "uMix"), mix)
+        drawQuad(blendProgram)
     }
 
     fun setVideoSize(width: Int, height: Int) {
@@ -410,8 +488,8 @@ internal class FrameBlendRenderer(
             GLES20.glUniform1i(GLES20.glGetUniformLocation(vectorFilterProgram, "uBack"), 1)
             GLES20.glUniform2f(GLES20.glGetUniformLocation(vectorFilterProgram, "uVecSize"), vectorWidth.toFloat(), vectorHeight.toFloat())
             GLES20.glUniform2f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uConsist"), floatArrayOf(1.6f, 2.5f, 4.0f)[strength.coerceIn(0, 2)])
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSpread"), floatArrayOf(4f, 6f, 8f)[strength.coerceIn(0, 2)])
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uConsist"), floatArrayOf(1.2f, 2.2f, 4.0f)[strength.coerceIn(0, 2)])
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSpread"), floatArrayOf(3f, 5f, 8f)[strength.coerceIn(0, 2)])
             GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uNeedReverse"), if (strength.coerceIn(0, 2) < 2) 1f else 0f)
             drawQuad(vectorFilterProgram)
             vectorsValid = true
@@ -439,7 +517,7 @@ internal class FrameBlendRenderer(
             val decided = (pixels.get(i * 4 + 3).toInt() and 0xFF) >= 128
             if (decided && (pixels.get(i * 4 + 2).toInt() and 0xFF) < 128) bad++
         }
-        val limit = floatArrayOf(0.03f, 0.08f, 0.2f)[strength.coerceIn(0, 2)]
+        val limit = floatArrayOf(0.02f, 0.07f, 0.2f)[strength.coerceIn(0, 2)]
         frameFallback = bad > count * limit
     }
 
@@ -460,7 +538,7 @@ internal class FrameBlendRenderer(
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorTexture)
         GLES20.glUniform1i(GLES20.glGetUniformLocation(meProgram, "uHint"), 2)
         GLES20.glUniform1f(GLES20.glGetUniformLocation(meProgram, "uHintOn"), if (useHint) 1f else 0f)
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(meProgram, "uClear"), floatArrayOf(0.75f, 0.88f, 0.95f)[strength.coerceIn(0, 2)])
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(meProgram, "uClear"), floatArrayOf(0.65f, 0.82f, 0.93f)[strength.coerceIn(0, 2)])
         GLES20.glUniform2f(GLES20.glGetUniformLocation(meProgram, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
         GLES20.glUniform2f(GLES20.glGetUniformLocation(meProgram, "uVecSize"), vectorWidth.toFloat(), vectorHeight.toFloat())
         drawQuad(meProgram)
@@ -492,13 +570,22 @@ internal class FrameBlendRenderer(
     private fun drawIfNeeded() {
         if (!ready || allocatedWidth == 0) return
         val fraction = clock.fraction(System.nanoTime())
-        if (!dirty && fraction == lastDrawn) return
+        val capture = captureCallback
+        if (!dirty && fraction == lastDrawn && capture == null) return
         val size = IntArray(1)
         EGL14.eglQuerySurface(display, windowSurface, EGL14.EGL_WIDTH, size, 0)
         val width = size[0]
         EGL14.eglQuerySurface(display, windowSurface, EGL14.EGL_HEIGHT, size, 0)
         val height = size[0]
         GLES20.glViewport(0, 0, width, height)
+        val shots = ArrayList<Pair<String, Bitmap>>()
+        if (capture != null) {
+            // The two real frames first (never shown: nothing is swapped until the real picture is drawn over them).
+            drawBlend(0f)
+            shots += "1_prev" to readScreen(width, height)
+            drawBlend(1f)
+            shots += "3_next" to readScreen(width, height)
+        }
         val useFallback = vectorsValid && frameFallback
         val program = if (vectorsValid && !useFallback) warpProgram else blendProgram
         GLES20.glUseProgram(program)
@@ -517,6 +604,9 @@ internal class FrameBlendRenderer(
                 1 -> GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uHold"), 0.06f, 0.20f)
                 else -> GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uHold"), 0.10f, 0.30f)
             }
+            val level = strength.coerceIn(0, 2)
+            GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uDisc"), floatArrayOf(2f, 4f, 6f)[level], floatArrayOf(5f, 9f, 14f)[level])
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uTrust"), floatArrayOf(0.4f, 0.7f, 1.0f)[level])
             GLES20.glActiveTexture(GLES20.GL_TEXTURE2)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorTexture)
             GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uMv"), 2)
@@ -530,6 +620,12 @@ internal class FrameBlendRenderer(
             GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uCurrL"), 4)
         }
         drawQuad(program)
+        if (capture != null) {
+            captureCallback = null
+            shots.add(1, "2_out" to readScreen(width, height))
+            val kind = if (vectorsValid && !useFallback) "warp" else if (useFallback) "realframe" else "blend"
+            capture("s${strength.coerceIn(0, 2)}_mix${(fraction * 100).toInt()}_$kind", shots)
+        }
         EGL14.eglSwapBuffers(display, windowSurface)
         framesOut++
         dirty = false
@@ -664,8 +760,8 @@ internal class FrameBlendRenderer(
             vec2 base;
             float cost(vec2 d) {
                 float raw = 0.0;
-                for (int by = 0; by < 4; by++) {
-                    for (int bx = 0; bx < 4; bx++) {
+                for (int by = 0; by < 5; by++) {
+                    for (int bx = 0; bx < 5; bx++) {
                         vec2 p = (base + vec2(float(bx), float(by)) * 2.0 + 1.0) / uSize;
                         raw += abs(texture2D(uCurL, p).r - texture2D(uPrevL, p + d / uSize).r);
                     }
@@ -673,7 +769,7 @@ internal class FrameBlendRenderer(
                 return raw;
             }
             void main() {
-                base = floor(gl_FragCoord.xy) * 4.0 - 2.0;
+                base = floor(gl_FragCoord.xy) * 4.0 - 3.0;
                 float sad0 = cost(vec2(0.0));
                 float best = sad0 * 0.9;
                 float bestRaw = sad0;
@@ -683,17 +779,22 @@ internal class FrameBlendRenderer(
                 vec2 coarseV = vec2(0.0);
                 float coarseBest = 1e9;
                 float coarseSecond = 1e9;
+                vec2 coarseSecondV = vec2(1e4);
                 for (int cy = -4; cy <= 4; cy++) {
                     for (int cx = -4; cx <= 4; cx++) {
                         vec2 d = vec2(float(cx), float(cy)) * 4.0;
                         float raw = cost(d);
                         float sad = raw + 0.002 * length(d);
                         if (sad < coarseBest) {
-                            if (length(d - coarseV) > 6.0) coarseSecond = min(coarseSecond, coarseBest);
+                            if (length(d - coarseV) > 6.0 && coarseBest < coarseSecond) {
+                                coarseSecond = coarseBest;
+                                coarseSecondV = coarseV;
+                            }
                             coarseBest = sad;
                             coarseV = d;
                         } else if (sad < coarseSecond && length(d - coarseV) > 6.0) {
                             coarseSecond = sad;
+                            coarseSecondV = d;
                         }
                     }
                 }
@@ -714,8 +815,18 @@ internal class FrameBlendRenderer(
                         }
                     }
                 }
-                // A different coarse shift that matched nearly as well makes the choice ambiguous.
+                // A different coarse shift that matched nearly as well makes the choice ambiguous. The coarse grid only
+                // touches every 4th shift, so on stripes it can step over the true second valley and make the winner look
+                // clearer than it is: search around the runner-up shift too, and use what that finds.
                 if (coarseSecond < second) second = coarseSecond;
+                if (coarseSecondV.x < 1000.0) {
+                    for (int ey = -2; ey <= 2; ey++) {
+                        for (int ex = -2; ex <= 2; ex++) {
+                            vec2 e = coarseSecondV + vec2(float(ex), float(ey));
+                            if (length(e - bestV) > 1.5) second = min(second, cost(e));
+                        }
+                    }
+                }
                 bool clear = bestRaw < second * uClear;
                 // Temporal hint: the motion this block had in the previous frame. If it matches nearly as well as
                 // the new winner (and clearly beats standing still) keep it, so fast motion does not flip from
@@ -861,6 +972,8 @@ internal class FrameBlendRenderer(
             uniform vec2 uVecSize;
             uniform float uMix;
             uniform vec2 uHold;
+            uniform vec2 uDisc;
+            uniform float uTrust;
             uniform float uDebug;
             void main() {
                 vec2 g = vCoord * uVecSize - 0.5;
@@ -894,7 +1007,16 @@ internal class FrameBlendRenderer(
                 // Where the motion is not trusted, fall back to a plain cross-fade of the two real frames at this spot.
                 // It softens there, but never shows a piece of picture in the wrong place.
                 vec4 fallback = mix(texture2D(uPrev, vCoord), texture2D(uCurr, vCoord), uMix);
-                float fb = max(smoothstep(uHold.x, uHold.y, diff), smoothstep(0.0, 1.0, 1.0 - ok));
+                // Neighbouring trusted vectors that disagree (edge of a moving body, a pattern that matched two ways)
+                // average into a motion that belongs to neither: show the real frames there as well.
+                float disc = 0.0;
+                disc = max(disc, length((mv[0] - mv[1]) * uSize) * okv[0] * okv[1]);
+                disc = max(disc, length((mv[0] - mv[2]) * uSize) * okv[0] * okv[2]);
+                disc = max(disc, length((mv[0] - mv[3]) * uSize) * okv[0] * okv[3]);
+                disc = max(disc, length((mv[1] - mv[2]) * uSize) * okv[1] * okv[2]);
+                disc = max(disc, length((mv[1] - mv[3]) * uSize) * okv[1] * okv[3]);
+                disc = max(disc, length((mv[2] - mv[3]) * uSize) * okv[2] * okv[3]);
+                float fb = max(max(smoothstep(uHold.x, uHold.y, diff), smoothstep(0.0, uTrust, 1.0 - ok)), smoothstep(uDisc.x, uDisc.y, disc));
                 vec4 colour = mix(mix(p, c, uMix), fallback, fb);
                 if (uDebug > 0.5) {
                     // Debug colours: green = moved along a motion vector, red = fallback cross-fade.

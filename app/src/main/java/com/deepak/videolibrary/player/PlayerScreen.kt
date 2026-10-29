@@ -128,6 +128,7 @@ fun PlayerScreen(
     var smoothStrength by remember { mutableStateOf(prefs.getInt("smooth_60fps_strength", 1).coerceIn(0, 2)) }
     // Frame-rate indicator: what the video really plays at, and what the screen shows.
     var showFps by remember { mutableStateOf(prefs.getBoolean("show_fps_indicator", true)) }
+    var smoothViewRef by remember { mutableStateOf<SmoothVideoView?>(null) }
     var smoothStats by remember { mutableStateOf<com.deepak.videolibrary.player.FrameBlendRenderer.Stats?>(null) }
     var fileFps by remember { mutableStateOf(0f) }
     var decodedFps by remember { mutableStateOf(0f) }
@@ -570,7 +571,7 @@ fun PlayerScreen(
             AndroidView(
                 onReset = null,
                 onRelease = { it.release() },
-                factory = { SmoothVideoView(it).apply { onFailure = { smooth60 = false }; onStats = { stats -> smoothStats = stats } } },
+                factory = { SmoothVideoView(it).apply { onFailure = { smooth60 = false }; onStats = { stats -> smoothStats = stats }; smoothViewRef = this } },
                 update = { view ->
                     view.attach(player)
                     view.strength = smoothStrength
@@ -993,6 +994,10 @@ fun PlayerScreen(
                             revealControls()
                         })
                     }
+                    TextButton(onClick = {
+                        smoothViewRef?.saveFrame()
+                        revealControls()
+                    }) { Text("Save this smooth frame (3 images, for debugging)", color = Color.White) }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Show frame rate on screen", color = Color.White, modifier = Modifier.weight(1f))
