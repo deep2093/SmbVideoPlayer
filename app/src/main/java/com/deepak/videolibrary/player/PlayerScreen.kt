@@ -123,6 +123,8 @@ fun PlayerScreen(
     var smooth60 by remember {
         mutableStateOf(prefs.getBoolean("experimental_smooth_60fps", false))
     }
+    // 0 = clean, 1 = balanced, 2 = maximum smoothing.
+    var smoothStrength by remember { mutableStateOf(prefs.getInt("smooth_60fps_strength", 1).coerceIn(0, 2)) }
     // Frame-rate indicator: what the video really plays at, and what the screen shows.
     var showFps by remember { mutableStateOf(prefs.getBoolean("show_fps_indicator", true)) }
     var smoothStats by remember { mutableStateOf<com.deepak.videolibrary.player.FrameBlendRenderer.Stats?>(null) }
@@ -570,6 +572,7 @@ fun PlayerScreen(
                 factory = { SmoothVideoView(it).apply { onFailure = { smooth60 = false }; onStats = { stats -> smoothStats = stats } } },
                 update = { view ->
                     view.attach(player)
+                    view.strength = smoothStrength
                     view.resizeMode = aspect
                 },
                 modifier = Modifier.fillMaxSize().clipToBounds().graphicsLayer {
@@ -959,6 +962,27 @@ fun PlayerScreen(
                         prefs.edit().putBoolean("experimental_smooth_60fps", value).apply()
                         revealControls()
                     })
+                }
+                if (smooth60) {
+                    Text("Smoothing strength", color = Color.White)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("Clean", "Balanced", "Max smooth").forEachIndexed { index, label ->
+                            FilterChip(
+                                selected = smoothStrength == index,
+                                onClick = {
+                                    smoothStrength = index
+                                    prefs.edit().putInt("smooth_60fps_strength", index).apply()
+                                    revealControls()
+                                },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                    Text(
+                        "Clean shows the real frame wherever motion is doubtful: fewest artifacts, less smooth on fast action.",
+                        color = Color.LightGray,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Show frame rate on screen", color = Color.White, modifier = Modifier.weight(1f))

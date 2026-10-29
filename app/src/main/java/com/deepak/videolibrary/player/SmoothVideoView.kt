@@ -44,6 +44,13 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
     var onFailure: (() -> Unit)? = null
     var onStats: ((FrameBlendRenderer.Stats) -> Unit)? = null
 
+    /** 0 = clean (only trusted motion, otherwise the real frame), 1 = balanced, 2 = maximum smoothing. */
+    var strength: Int = 1
+        set(value) {
+            field = value
+            renderer?.strength = value
+        }
+
     var resizeMode: Int
         get() = frame.resizeMode
         set(value) {
@@ -72,6 +79,7 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
                     onError = { post { onFailure?.invoke() } },
                 )
                 created.onStats = { stats -> post { onStats?.invoke(stats) } }
+                created.strength = strength
                 renderer = created
                 player?.videoSize?.let { if (it.width > 0) created.setVideoSize(it.width, it.height) }
                 created.start(st)
@@ -131,6 +139,8 @@ internal class FrameBlendRenderer(
     data class Stats(val sourceFps: Float, val outputFps: Float, val interpolating: Boolean, val warping: Boolean)
 
     var onStats: ((Stats) -> Unit)? = null
+
+    @Volatile var strength: Int = 1
     private var framesIn = 0
     private var framesOut = 0
     private var statsSince = 0L
@@ -378,6 +388,8 @@ internal class FrameBlendRenderer(
             GLES20.glUniform1i(GLES20.glGetUniformLocation(vectorFilterProgram, "uBack"), 1)
             GLES20.glUniform2f(GLES20.glGetUniformLocation(vectorFilterProgram, "uVecSize"), vectorWidth.toFloat(), vectorHeight.toFloat())
             GLES20.glUniform2f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uConsist"), floatArrayOf(1.6f, 2.5f, 4.0f)[strength.coerceIn(0, 2)])
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSpread"), floatArrayOf(6f, 9f, 9f)[strength.coerceIn(0, 2)])
             drawQuad(vectorFilterProgram)
             vectorsValid = true
         }
@@ -401,6 +413,7 @@ internal class FrameBlendRenderer(
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorTexture)
         GLES20.glUniform1i(GLES20.glGetUniformLocation(meProgram, "uHint"), 2)
         GLES20.glUniform1f(GLES20.glGetUniformLocation(meProgram, "uHintOn"), if (useHint) 1f else 0f)
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(meProgram, "uClear"), floatArrayOf(0.75f, 0.88f, 0.95f)[strength.coerceIn(0, 2)])
         GLES20.glUniform2f(GLES20.glGetUniformLocation(meProgram, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
         GLES20.glUniform2f(GLES20.glGetUniformLocation(meProgram, "uVecSize"), vectorWidth.toFloat(), vectorHeight.toFloat())
         drawQuad(meProgram)
@@ -449,6 +462,11 @@ internal class FrameBlendRenderer(
         GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uCurr"), 1)
         GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uMix"), fraction)
         if (vectorsValid) {
+            when (strength.coerceIn(0, 2)) {
+                0 -> GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uHold"), 0.03f, 0.10f)
+                1 -> GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uHold"), 0.06f, 0.20f)
+                else -> GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uHold"), 0.10f, 0.30f)
+            }
             GLES20.glActiveTexture(GLES20.GL_TEXTURE2)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorTexture)
             GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uMv"), 2)
@@ -592,6 +610,7 @@ internal class FrameBlendRenderer(
             uniform vec2 uSize;
             uniform vec2 uVecSize;
             uniform float uHintOn;
+            uniform float uClear;
             vec2 base;
             float cost(vec2 d) {
                 float raw = 0.0;
@@ -647,7 +666,7 @@ internal class FrameBlendRenderer(
                 }
                 // A different coarse shift that matched nearly as well makes the choice ambiguous.
                 if (coarseSecond < second) second = coarseSecond;
-                bool clear = bestRaw < second * 0.88;
+                bool clear = bestRaw < second * uClear;
                 // Temporal hint: the motion this block had in the previous frame. If it matches nearly as well as
                 // the new winner (and clearly beats standing still) keep it, so fast motion does not flip from
                 // frame to frame.
@@ -672,6 +691,8 @@ internal class FrameBlendRenderer(
             uniform sampler2D uBack;
             uniform vec2 uVecSize;
             uniform vec2 uSize;
+            uniform float uConsist;
+            uniform float uSpread;
             vec2 temp;
             #define s2(a, b) temp = a; a = min(a, b); b = max(temp, b);
             #define mn3(a, b, c) s2(a, b); s2(a, c);
@@ -692,6 +713,17 @@ internal class FrameBlendRenderer(
                 vec2 v6 = texture2D(uVec, c + vec2(-o.x, o.y)).rg;
                 vec2 v7 = texture2D(uVec, c + vec2(0.0, o.y)).rg;
                 vec2 v8 = texture2D(uVec, c + vec2(o.x, o.y)).rg;
+                // How many neighbours point somewhere clearly different (a block among disagreeing neighbours is doubtful).
+                vec2 mid = v4;
+                float spread = 0.0;
+                spread += length(v0 - mid) > 0.075 ? 1.0 : 0.0;
+                spread += length(v1 - mid) > 0.075 ? 1.0 : 0.0;
+                spread += length(v2 - mid) > 0.075 ? 1.0 : 0.0;
+                spread += length(v3 - mid) > 0.075 ? 1.0 : 0.0;
+                spread += length(v5 - mid) > 0.075 ? 1.0 : 0.0;
+                spread += length(v6 - mid) > 0.075 ? 1.0 : 0.0;
+                spread += length(v7 - mid) > 0.075 ? 1.0 : 0.0;
+                spread += length(v8 - mid) > 0.075 ? 1.0 : 0.0;
                 mnmx6(v0, v1, v2, v3, v4, v5);
                 mnmx5(v1, v2, v3, v4, v6);
                 mnmx4(v2, v3, v4, v7);
@@ -704,10 +736,10 @@ internal class FrameBlendRenderer(
                 for (int j = -1; j <= 1; j++) {
                     for (int i = -1; i <= 1; i++) {
                         vec2 e = (texture2D(uBack, target + vec2(float(i), float(j)) * o).rg - 0.5) * 40.0;
-                        if (length(d + e) <= 2.5) confirmed = 1.0;
+                        if (length(d + e) <= uConsist) confirmed = 1.0;
                     }
                 }
-                float bad = (length(d) > 0.5 && confirmed < 0.5) ? 1.0 : 0.0;
+                float bad = (length(d) > 0.5 && (confirmed < 0.5 || spread >= uSpread)) ? 1.0 : 0.0;
                 gl_FragColor = vec4(v4, 1.0 - bad, 1.0);
             }
         """
@@ -726,6 +758,7 @@ internal class FrameBlendRenderer(
             uniform vec2 uSize;
             uniform vec2 uVecSize;
             uniform float uMix;
+            uniform vec2 uHold;
             void main() {
                 // Each pixel tries the vectors of the four nearest blocks and keeps the one whose two moved pictures
                 // agree best, so edges follow the real outline instead of stepping along the block grid.
@@ -753,7 +786,7 @@ internal class FrameBlendRenderer(
                 vec4 c = texture2D(uCurr, b);
                 float diff = abs(texture2D(uPrevL, a).r - texture2D(uCurrL, b).r);
                 vec4 hold = mix(texture2D(uPrev, vCoord), texture2D(uCurr, vCoord), step(0.5, uMix));
-                gl_FragColor = mix(mix(p, c, uMix), hold, max(smoothstep(0.06, 0.2, diff), 1.0 - ok));
+                gl_FragColor = mix(mix(p, c, uMix), hold, max(smoothstep(uHold.x, uHold.y, diff), 1.0 - ok));
             }
         """
         const val FRAGMENT_BLEND = """
