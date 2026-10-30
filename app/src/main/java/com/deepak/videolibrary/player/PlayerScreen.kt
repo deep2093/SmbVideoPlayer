@@ -997,7 +997,7 @@ fun PlayerScreen(
                     TextButton(onClick = {
                         smoothViewRef?.saveFrame()
                         revealControls()
-                    }) { Text("Save this smooth frame (3 images, for debugging)", color = Color.White) }
+                    }) { Text("Save smooth frames (5 images, press during action)", color = Color.White) }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Show frame rate on screen", color = Color.White, modifier = Modifier.weight(1f))

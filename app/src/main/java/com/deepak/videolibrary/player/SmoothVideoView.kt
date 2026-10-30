@@ -3,6 +3,7 @@ package com.deepak.videolibrary.player
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.opengl.EGL14
@@ -112,8 +113,10 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
     }
 
     /**
-     * Debug aid: saves exactly what the renderer draws for the next frame, plus the two real frames it was made from,
-     * as PNGs in Pictures/SkyWing (no camera or screen recorder in between).
+     * Debug aid: saves what the renderer really draws for the next few frames (every second drawn frame, so about a
+     * sixth of a second). Each image is one wide strip: previous real frame | what was drawn | next real frame, as PNGs
+     * in Pictures/SkyWing, with no camera or screen recorder in between. A paused video shows only a real frame by
+     * design, so press it while the action is playing.
      */
     fun saveFrame() {
         val current = renderer
@@ -122,34 +125,37 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
             return
         }
         val appContext = context.applicationContext
-        current.requestCapture { label, shots ->
-            Thread {
-                val result = runCatching {
-                    val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
-                    for ((part, bitmap) in shots) {
-                        val values = ContentValues().apply {
-                            put(MediaStore.Images.Media.DISPLAY_NAME, "smooth_${stamp}_${label}_$part.png")
-                            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                            put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/SkyWing")
-                            put(MediaStore.Images.Media.IS_PENDING, 1)
-                        }
-                        val resolver = appContext.contentResolver
-                        val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: error("no uri")
-                        resolver.openOutputStream(uri)?.use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                        values.clear()
-                        values.put(MediaStore.Images.Media.IS_PENDING, 0)
-                        resolver.update(uri, values, null, null)
-                        bitmap.recycle()
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+        val saver = java.util.concurrent.Executors.newSingleThreadExecutor()
+        var failure: String? = null
+        current.requestCapture(5) { index, total, label, strip ->
+            saver.execute {
+                runCatching {
+                    val values = ContentValues().apply {
+                        put(MediaStore.Images.Media.DISPLAY_NAME, "smooth_${stamp}_${index + 1}of${total}_$label.png")
+                        put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                        put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/SkyWing")
+                        put(MediaStore.Images.Media.IS_PENDING, 1)
                     }
+                    val resolver = appContext.contentResolver
+                    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: error("no uri")
+                    resolver.openOutputStream(uri)?.use { strip.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    values.clear()
+                    values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                    resolver.update(uri, values, null, null)
+                }.onFailure { failure = it.message }
+                strip.recycle()
+                if (index + 1 == total) {
+                    post {
+                        Toast.makeText(
+                            appContext,
+                            failure?.let { "Could not save: $it" } ?: "Saved $total images to Pictures/SkyWing",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    saver.shutdown()
                 }
-                post {
-                    Toast.makeText(
-                        appContext,
-                        if (result.isSuccess) "Saved 3 images to Pictures/SkyWing ($label)" else "Could not save: ${result.exceptionOrNull()?.message}",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
-            }.start()
+            }
         }
     }
 
@@ -204,7 +210,10 @@ internal class FrameBlendRenderer(
 
     @Volatile var strength: Int = 1
     @Volatile var debug: Boolean = false
-    @Volatile private var captureCallback: ((String, List<Pair<String, Bitmap>>) -> Unit)? = null
+    @Volatile private var captureCallback: ((Int, Int, String, Bitmap) -> Unit)? = null
+    private var captureTotal = 0
+    private var captureLeft = 0
+    private var captureTick = 0
     private var framesIn = 0
     private var fallbackDrawn = 0
     private var frameFallback = false
@@ -291,9 +300,14 @@ internal class FrameBlendRenderer(
         statsSince = now
     }
 
-    /** The next drawn frame is read back (output, previous real frame, next real frame) and handed to [onDone]. */
-    fun requestCapture(onDone: (String, List<Pair<String, Bitmap>>) -> Unit) {
-        captureCallback = onDone
+    /** The next [frames] captured frames (every second drawn one) are read back and handed over, one strip each. */
+    fun requestCapture(frames: Int, onShot: (Int, Int, String, Bitmap) -> Unit) {
+        handler.post {
+            captureTotal = frames
+            captureLeft = frames
+            captureTick = 0
+            captureCallback = onShot
+        }
     }
 
     private fun readScreen(width: Int, height: Int): Bitmap {
@@ -578,13 +592,15 @@ internal class FrameBlendRenderer(
         EGL14.eglQuerySurface(display, windowSurface, EGL14.EGL_HEIGHT, size, 0)
         val height = size[0]
         GLES20.glViewport(0, 0, width, height)
-        val shots = ArrayList<Pair<String, Bitmap>>()
-        if (capture != null) {
+        val take = capture != null && (captureTick++ % 2 == 0)
+        var before: Bitmap? = null
+        var after: Bitmap? = null
+        if (take) {
             // The two real frames first (never shown: nothing is swapped until the real picture is drawn over them).
             drawBlend(0f)
-            shots += "1_prev" to readScreen(width, height)
+            before = readScreen(width, height)
             drawBlend(1f)
-            shots += "3_next" to readScreen(width, height)
+            after = readScreen(width, height)
         }
         val useFallback = vectorsValid && frameFallback
         val program = if (vectorsValid && !useFallback) warpProgram else blendProgram
@@ -620,11 +636,19 @@ internal class FrameBlendRenderer(
             GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uCurrL"), 4)
         }
         drawQuad(program)
-        if (capture != null) {
-            captureCallback = null
-            shots.add(1, "2_out" to readScreen(width, height))
+        if (take && capture != null && before != null && after != null) {
+            val drawn = readScreen(width, height)
+            val strip = Bitmap.createBitmap(width * 3, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(strip)
+            canvas.drawBitmap(before, 0f, 0f, null)
+            canvas.drawBitmap(drawn, width.toFloat(), 0f, null)
+            canvas.drawBitmap(after, width * 2f, 0f, null)
+            before.recycle(); drawn.recycle(); after.recycle()
+            val index = captureTotal - captureLeft
+            captureLeft--
+            if (captureLeft <= 0) captureCallback = null
             val kind = if (vectorsValid && !useFallback) "warp" else if (useFallback) "realframe" else "blend"
-            capture("s${strength.coerceIn(0, 2)}_mix${(fraction * 100).toInt()}_$kind", shots)
+            capture(index, captureTotal, "s${strength.coerceIn(0, 2)}_mix${(fraction * 100).toInt()}_$kind", strip)
         }
         EGL14.eglSwapBuffers(display, windowSurface)
         framesOut++
