@@ -125,7 +125,7 @@ fun PlayerScreen(
     }
     // 0 = clean, 1 = balanced, 2 = maximum smoothing.
     var smoothDebug by remember { mutableStateOf(prefs.getBoolean("smooth_60fps_debug", false)) }
-    var smoothTargetFps by remember { mutableStateOf(prefs.getInt("smooth_target_fps", 60).let { if (it == 90) 90 else 60 }) }
+    val smoothTargetFps = 60
     var smoothStrength by remember { mutableStateOf(prefs.getInt("smooth_60fps_strength", 1).coerceIn(0, 2)) }
     // Frame-rate indicator: what the video really plays at, and what the screen shows.
     var showFps by remember { mutableStateOf(prefs.getBoolean("show_fps_indicator", true)) }
@@ -576,7 +576,6 @@ fun PlayerScreen(
                 factory = { SmoothVideoView(it).apply { onFailure = { smooth60 = false }; onStats = { stats -> smoothStats = stats }; smoothViewRef = this } },
                 update = { view ->
                     view.attach(player)
-                    view.targetFps = smoothTargetFps
                     view.strength = smoothStrength
                     view.debug = smoothDebug
                     view.resizeMode = aspect
@@ -949,7 +948,7 @@ fun PlayerScreen(
                 HorizontalDivider(color = Color.White.copy(alpha = 0.2f))
                 Text("Smooth motion development preview", color = Color.White, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "Smooth motion estimates movement between decoded frames and creates in-between frames on the GPU, targeting the selected frame rate. Difficult scenes use source frames or masking; artifacts can still occur.",
+                    "Smooth motion estimates movement between decoded frames and creates in-between frames on the GPU, targeting 60 fps. Difficult scenes use source frames or masking; artifacts can still occur.",
                     color = Color.LightGray,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -970,21 +969,6 @@ fun PlayerScreen(
                     })
                 }
                 if (smooth60) {
-                    Text("Target frame rate", color = Color.White)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(60, 90).forEach { fps ->
-                            FilterChip(
-                                selected = smoothTargetFps == fps,
-                                onClick = {
-                                    smoothTargetFps = fps
-                                    prefs.edit().putInt("smooth_target_fps", fps).apply()
-                                    revealControls()
-                                },
-                                label = { Text("$fps fps") },
-                            )
-                        }
-                    }
-                    Text("90 fps needs a display running at 90 Hz or faster and more GPU time. Check the frame-rate indicator.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                     Text("Smoothing strength", color = Color.White)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("Clean", "Balanced", "Max smooth").forEachIndexed { index, label ->

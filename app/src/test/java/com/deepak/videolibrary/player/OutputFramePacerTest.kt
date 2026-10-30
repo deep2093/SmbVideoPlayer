@@ -4,13 +4,6 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class OutputFramePacerTest {
-    @Test fun targetsNinetyOnHighRefreshDisplays() {
-        for (hz in listOf(90, 120, 144)) {
-            val pacer = OutputFramePacer(90.0)
-            assertEquals("Display $hz Hz", 90, (0 until hz).count { pacer.shouldDraw(it * 1_000_000_000L / hz) })
-        }
-    }
-
     @Test fun targetsSixtyAcrossCommonDisplays() {
         for (hz in listOf(60, 90, 120, 144)) {
             val pacer = OutputFramePacer()

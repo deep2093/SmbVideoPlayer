@@ -34,7 +34,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Experimental video output that estimates motion between neighbouring decoded frames
- * and warps them on the GPU towards a selected 60/90 fps output timeline. It replaces the
+ * and warps them on the GPU towards a 60 fps output timeline. It replaces the
  * PlayerView surface: the player decodes into [FrameBlendRenderer]'s SurfaceTexture and the
  * renderer draws at display vsync into a TextureView sized by an AspectRatioFrameLayout.
  *
@@ -56,12 +56,6 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
         set(value) {
             field = value
             renderer?.strength = value
-        }
-
-    var targetFps: Int = 60
-        set(value) {
-            field = value.coerceIn(60, 90)
-            renderer?.setTargetFps(field)
         }
 
     var debug: Boolean = false
@@ -95,7 +89,6 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
                     onError = { post { onFailure?.invoke() } },
                 )
                 created.onStats = { stats -> post { onStats?.invoke(stats) } }
-                created.setTargetFps(targetFps)
                 created.strength = strength
                 created.debug = debug
                 renderer = created
@@ -215,6 +208,7 @@ internal class FrameBlendRenderer(
         val fallbackPercent: Int = 0,
         val untrustedPercent: Int = 0,
         val cutDetected: Boolean = false,
+        val highPrecisionVectors: Boolean = false,
     )
 
     var onStats: ((Stats) -> Unit)? = null
@@ -251,6 +245,9 @@ internal class FrameBlendRenderer(
     private var vectorFilterProgram = 0
     private var vectorRawTexture = 0
     private var vectorBackTexture = 0
+    private var vectorReadbackTexture = 0
+    private var vectorType = GLES20.GL_UNSIGNED_BYTE
+    private var vectorInternalFormat = GLES20.GL_RGBA
     private val lumaTextures = IntArray(2)
     private val coarseLumaTextures = IntArray(2)
     private val coarseVectors = IntArray(2)
@@ -269,18 +266,8 @@ internal class FrameBlendRenderer(
     private var running = false
     private var failed = false
     private var dirty = false
-    private var pacer = OutputFramePacer()
+    private val pacer = OutputFramePacer()
 
-    fun setTargetFps(fps: Int) {
-        val target = fps.coerceIn(60, 90)
-        handler.post {
-            if (clock.targetFps != target) {
-                clock.targetFps = target
-                pacer = OutputFramePacer(target.toDouble())
-                allocatedWidth = 0
-            }
-        }
-    }
     private var lastDrawn = -1f
     private val matrix = FloatArray(16)
 
@@ -304,7 +291,7 @@ internal class FrameBlendRenderer(
         if (elapsed < 1_000_000_000L) return
         val seconds = elapsed / 1e9f
         val fallback = if (framesOut > 0) fallbackDrawn * 100 / framesOut else 0
-        onStats?.invoke(Stats(framesIn / seconds, framesOut / seconds, clock.needsInterpolation, vectorsValid, fallback, untrustedPercent, sceneCut))
+        onStats?.invoke(Stats(framesIn / seconds, framesOut / seconds, clock.needsInterpolation, vectorsValid, fallback, untrustedPercent, sceneCut, vectorType != GLES20.GL_UNSIGNED_BYTE))
         framesIn = 0
         fallbackDrawn = 0
         framesOut = 0
@@ -439,8 +426,24 @@ internal class FrameBlendRenderer(
         vectorRawTexture = ids[0]
         GLES20.glGenTextures(1, ids, 0)
         vectorBackTexture = ids[0]
+        GLES20.glGenTextures(1, ids, 0)
+        vectorReadbackTexture = ids[0]
         GLES20.glGenFramebuffers(1, ids, 0)
         framebuffer = ids[0]
+        val extensions = GLES20.glGetString(GLES20.GL_EXTENSIONS).orEmpty().split(' ').toSet()
+        val coreHalf = GLES20.glGetString(GLES20.GL_VERSION).orEmpty().contains("OpenGL ES 3")
+        if (coreHalf || ("GL_OES_texture_half_float" in extensions && "GL_OES_texture_half_float_linear" in extensions)) {
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, framebuffer)
+            val halfType = if (coreHalf) 0x140B else 0x8D61
+            vectorInternalFormat = if (coreHalf) 0x881A else GLES20.GL_RGBA
+            allocate(vectorTexture, 2, 2, halfType)
+            GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, vectorTexture, 0)
+            val complete = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) == GLES20.GL_FRAMEBUFFER_COMPLETE
+            val error = GLES20.glGetError()
+            if (complete && error == GLES20.GL_NO_ERROR) vectorType = halfType
+            else vectorInternalFormat = GLES20.GL_RGBA
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        }
 
         val st = SurfaceTexture(inputTexture)
         st.setDefaultBufferSize(frameWidth, frameHeight)
@@ -524,8 +527,9 @@ internal class FrameBlendRenderer(
             GLES20.glUniform1i(GLES20.glGetUniformLocation(vectorFilterProgram, "uBack"), 1)
             GLES20.glUniform2f(GLES20.glGetUniformLocation(vectorFilterProgram, "uVecSize"), vectorWidth.toFloat(), vectorHeight.toFloat())
             GLES20.glUniform2f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uConsist"), floatArrayOf(1.0f, 1.5f, 2.0f)[strength.coerceIn(0, 2)])
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uConsist"), floatArrayOf(1.2f, 2.2f, 4.0f)[strength.coerceIn(0, 2)])
             GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSpread"), floatArrayOf(3f, 5f, 8f)[strength.coerceIn(0, 2)])
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uNeedReverse"), if (strength.coerceIn(0, 2) < 2) 1f else 0f)
             drawQuad(vectorFilterProgram)
             vectorsValid = true
             updateFrameFallback()
@@ -542,8 +546,19 @@ internal class FrameBlendRenderer(
         val pixels = vectorPixels?.takeIf { it.capacity() >= count * 4 }
             ?: ByteBuffer.allocateDirect(count * 4).order(ByteOrder.nativeOrder()).also { vectorPixels = it }
         GLES20.glFramebufferTexture2D(
-            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, vectorTexture, 0,
+            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, vectorReadbackTexture, 0,
         )
+        // Convert only the small reliability map to bytes; motion vectors retain half precision.
+        GLES20.glViewport(0, 0, vectorWidth, vectorHeight)
+        GLES20.glUseProgram(blendProgram)
+        for (unit in 0..1) {
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + unit)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorTexture)
+        }
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(blendProgram, "uPrev"), 0)
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(blendProgram, "uCurr"), 1)
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(blendProgram, "uMix"), 1f)
+        drawQuad(blendProgram)
         pixels.position(0)
         GLES20.glReadPixels(0, 0, vectorWidth, vectorHeight, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
         var bad = 0
@@ -586,16 +601,17 @@ internal class FrameBlendRenderer(
         if (allocatedWidth == frameWidth && allocatedHeight == frameHeight) return
         vectorsValid = false
         // Bound the expensive bidirectional search independently of video rendering size.
-        lumaWidth = minOf(if (clock.targetFps >= 90) 192 else 256, frameWidth).coerceAtLeast(16)
+        lumaWidth = minOf(256, frameWidth).coerceAtLeast(16)
         lumaHeight = (lumaWidth.toLong() * frameHeight / frameWidth).toInt().coerceAtLeast(16)
         vectorWidth = (lumaWidth + 3) / 4
         vectorHeight = (lumaHeight + 3) / 4
         for (t in lumaTextures) allocate(t, lumaWidth, lumaHeight)
         for (t in coarseLumaTextures) allocate(t, lumaWidth / 4, lumaHeight / 4)
-        for (t in coarseVectors) allocate(t, (lumaWidth / 4 + 3) / 4, (lumaHeight / 4 + 3) / 4)
-        allocate(vectorTexture, vectorWidth, vectorHeight)
-        allocate(vectorRawTexture, vectorWidth, vectorHeight)
-        allocate(vectorBackTexture, vectorWidth, vectorHeight)
+        for (t in coarseVectors) allocate(t, (lumaWidth / 4 + 3) / 4, (lumaHeight / 4 + 3) / 4, vectorType)
+        allocate(vectorTexture, vectorWidth, vectorHeight, vectorType)
+        allocate(vectorRawTexture, vectorWidth, vectorHeight, vectorType)
+        allocate(vectorBackTexture, vectorWidth, vectorHeight, vectorType)
+        allocate(vectorReadbackTexture, vectorWidth, vectorHeight)
         for (t in textures) {
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t)
             GLES20.glTexImage2D(
@@ -655,6 +671,7 @@ internal class FrameBlendRenderer(
             }
             val level = strength.coerceIn(0, 2)
             GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uDisc"), floatArrayOf(2f, 4f, 6f)[level], floatArrayOf(5f, 9f, 14f)[level])
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uTrust"), floatArrayOf(0.4f, 0.7f, 1.0f)[level])
             GLES20.glActiveTexture(GLES20.GL_TEXTURE2)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorTexture)
             GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uMv"), 2)
@@ -702,11 +719,11 @@ internal class FrameBlendRenderer(
         GLES20.glDisableVertexAttribArray(coord)
     }
 
-    private fun allocate(texture: Int, width: Int, height: Int) {
+    private fun allocate(texture: Int, width: Int, height: Int, type: Int = GLES20.GL_UNSIGNED_BYTE) {
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
         GLES20.glTexImage2D(
-            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
-            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null,
+            GLES20.GL_TEXTURE_2D, 0, if (type == GLES20.GL_UNSIGNED_BYTE) GLES20.GL_RGBA else vectorInternalFormat, width, height, 0,
+            GLES20.GL_RGBA, type, null,
         )
         setFilters(GLES20.GL_TEXTURE_2D)
     }
@@ -880,6 +897,20 @@ internal class FrameBlendRenderer(
                         }
                     }
                 }
+                // Fit the local cost minimum continuously instead of snapping slow motion to half pixels.
+                if (clear && uHintOn > 0.5) {
+                    vec2 centre = bestV;
+                    float left = cost(centre - vec2(0.5, 0.0));
+                    float right = cost(centre + vec2(0.5, 0.0));
+                    float up = cost(centre - vec2(0.0, 0.5));
+                    float down = cost(centre + vec2(0.0, 0.5));
+                    vec2 curve = vec2(left + right, up + down) - 2.0 * bestRaw;
+                    vec2 offset = vec2(curve.x > 0.0001 ? 0.25 * (left - right) / curve.x : 0.0,
+                                       curve.y > 0.0001 ? 0.25 * (up - down) / curve.y : 0.0);
+                    vec2 candidate = centre + clamp(offset, -0.5, 0.5);
+                    float refined = cost(candidate);
+                    if (refined < bestRaw) { bestV = candidate; bestRaw = refined; }
+                }
                 // Alpha 0 = this block alone cannot tell (stripes, flat skin): the next pass fills it from its
                 // neighbours instead of forcing it to stand still inside a moving body.
                 vec2 v = (clear || uHintOn < 0.5) ? bestV : vec2(0.0);
@@ -902,6 +933,7 @@ internal class FrameBlendRenderer(
             uniform vec2 uSize;
             uniform float uConsist;
             uniform float uSpread;
+            uniform float uNeedReverse;
             vec2 temp;
             vec2 fillSum;
             float fillCount;
@@ -971,21 +1003,26 @@ internal class FrameBlendRenderer(
                 mnmx4(v2, v3, v4, v7);
                 mnmx3(v3, v4, v8);
                 vec2 d = (v4 - 0.5) * 40.0;
-                // A neighbouring object's reverse vector is not evidence for this block.
-                // Sample the actual destination block; ambiguous reverse matches stay untrusted in every mode.
+                // Any decided block around the target confirming it is enough; if none there could decide, there is
+                // no evidence against it.
+                float confirmed = 0.0;
+                float evidence = 0.0;
                 vec2 target = c + d / uSize;
-                vec2 backCell = (floor(target * uVecSize) + 0.5) / uVecSize;
-                vec4 reverse = texture2D(uBack, clamp(backCell, 0.0, 1.0));
-                bool inBounds = target.x >= 0.0 && target.y >= 0.0 && target.x <= 1.0 && target.y <= 1.0;
-                bool confirmed = inBounds && reverse.a > 0.5 && length(d + (reverse.rg - 0.5) * 40.0) <= uConsist;
-                bool staticSafe = length(d) < 0.5 && s4.b < 0.015;
-                // Filling an undecided striped block may supply a predictor, but cannot manufacture confidence.
-                bool ambiguous = s4.a < 0.5;
-                bool changedObject = length(d - (s4.rg - 0.5) * 40.0) > uConsist;
-                bool searchLimit = max(abs(d.x), abs(d.y)) >= 17.5;
-                bool bad = !staticSafe && (ambiguous || !confirmed || changedObject || searchLimit || spread >= uSpread || s4.b > 0.12);
+                for (int j = -1; j <= 1; j++) {
+                    for (int i = -1; i <= 1; i++) {
+                        vec4 be = texture2D(uBack, target + vec2(float(i), float(j)) * o);
+                        if (be.a > 0.5) {
+                            evidence = 1.0;
+                            if (length(d + (be.rg - 0.5) * 40.0) <= uConsist) confirmed = 1.0;
+                        }
+                    }
+                }
+                // No decided block at the target means no evidence. Clean and Balanced treat that as unconfirmed; Max
+                // smooth gives the benefit of the doubt.
+                if (evidence < 0.5 && uNeedReverse < 0.5) confirmed = 1.0;
+                float bad = (length(d) > 0.5 && (confirmed < 0.5 || spread >= uSpread)) ? 1.0 : 0.0;
                 // Preserve matching residual even for ambiguous blocks: cuts cannot hide behind alpha=0.
-                gl_FragColor = vec4(v4, (bad ? 0.0 : 1.0), s4.b);
+                gl_FragColor = vec4(v4, 1.0 - bad, s4.b);
             }
         """
         // Moves both neighbouring frames along the motion vector to time uMix. Where the two moved pictures
@@ -1004,6 +1041,7 @@ internal class FrameBlendRenderer(
             uniform float uMix;
             uniform vec2 uHold;
             uniform vec2 uDisc;
+            uniform float uTrust;
             uniform float uDebug;
             void main() {
                 vec2 g = vCoord * uVecSize - 0.5;
@@ -1034,9 +1072,9 @@ internal class FrameBlendRenderer(
                 vec4 c = texture2D(uCurr, b);
                 // Disagreement between the two moved pictures, on the smooth small copies.
                 float diff = abs(texture2D(uPrevL, a).r - texture2D(uCurrL, b).r);
-                // Hold one actual frame in unreliable areas. Cross-fading repeating stripes creates doubled edges.
-                vec4 fallback = uMix < 0.5 ? texture2D(uPrev, vCoord) : texture2D(uCurr, vCoord);
-                diff = max(diff, 0.5 * max(max(abs(p.r - c.r), abs(p.g - c.g)), abs(p.b - c.b)));
+                // Where the motion is not trusted, fall back to a plain cross-fade of the two real frames at this spot.
+                // It softens there, but never shows a piece of picture in the wrong place.
+                vec4 fallback = mix(texture2D(uPrev, vCoord), texture2D(uCurr, vCoord), uMix);
                 // Neighbouring trusted vectors that disagree (edge of a moving body, a pattern that matched two ways)
                 // average into a motion that belongs to neither: show the real frames there as well.
                 float disc = 0.0;
@@ -1046,12 +1084,10 @@ internal class FrameBlendRenderer(
                 disc = max(disc, length((mv[1] - mv[2]) * uSize) * okv[1] * okv[2]);
                 disc = max(disc, length((mv[1] - mv[3]) * uSize) * okv[1] * okv[3]);
                 disc = max(disc, length((mv[2] - mv[3]) * uSize) * okv[2] * okv[3]);
-                float fb = max(max(smoothstep(uHold.x, uHold.y, diff), smoothstep(0.02, 0.25, 1.0 - ok)), smoothstep(uDisc.x, uDisc.y, disc));
-                // Texture clamping would stretch pixels at frame edges during fast motion.
-                if (min(min(a.x, a.y), min(b.x, b.y)) < 0.0 || max(max(a.x, a.y), max(b.x, b.y)) > 1.0) fb = 1.0;
+                float fb = max(max(smoothstep(uHold.x, uHold.y, diff), smoothstep(0.0, uTrust, 1.0 - ok)), smoothstep(uDisc.x, uDisc.y, disc));
                 vec4 colour = mix(mix(p, c, uMix), fallback, fb);
                 if (uDebug > 0.5) {
-                    // Debug colours: green = moved along a motion vector, red = source-frame fallback.
+                    // Debug colours: green = moved along a motion vector, red = fallback cross-fade.
                     float moving = step(0.5, length(m * uSize));
                     colour.rgb = mix(colour.rgb, vec3(1.0, 0.0, 0.0), 0.45 * fb);
                     colour.rgb = mix(colour.rgb, vec3(0.0, 1.0, 0.0), 0.35 * (1.0 - fb) * moving);

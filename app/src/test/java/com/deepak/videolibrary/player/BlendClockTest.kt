@@ -17,17 +17,6 @@ class BlendClockTest {
         assertEquals(1f, clock.fraction(90_000_000), 0f)
     }
 
-    @Test fun sixtyFpsSourceCanInterpolateForNinetyFpsTarget() {
-        val clock = BlendClock(90)
-        clock.onFrame(0, 0)
-        clock.onFrame(16_666_667, 16_666_667)
-        assertTrue(clock.needsInterpolation)
-        assertEquals(0.5f, clock.fraction(25_000_000), 0.0001f)
-        clock.targetFps = 60
-        assertFalse(clock.needsInterpolation)
-        assertEquals(1f, clock.fraction(25_000_000), 0.0001f)
-    }
-
     private val ms = 1_000_000L
 
     @Test fun callbackJitterDoesNotChangePresentationCadence() {

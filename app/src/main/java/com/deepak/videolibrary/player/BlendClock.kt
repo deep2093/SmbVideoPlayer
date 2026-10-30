@@ -7,7 +7,7 @@ package com.deepak.videolibrary.player
  *
  * Pure logic with no Android types so it can be unit tested.
  */
-internal class BlendClock(var targetFps: Int = 60) {
+internal class BlendClock {
     private var lastPts = Long.MIN_VALUE
     private var lastArrival = 0L
     private var gapNs = 0.0
@@ -52,7 +52,7 @@ internal class BlendClock(var targetFps: Int = 60) {
         return ((nowNs - lastArrival) / gapNs).toFloat().coerceIn(0f, 1f)
     }
 
-    private val passThroughGapNs: Double get() = 1e9 / (targetFps.coerceIn(60, 90) * 0.75)
+    private val passThroughGapNs: Double get() = 1e9 / 45.0
 
     private companion object {
         const val RESET_GAP_NS = 1_000_000_000L

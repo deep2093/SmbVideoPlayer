@@ -1,5 +1,7 @@
 # Motion interpolation review
 
+Current revision: preview 1528 targets **60 fps only**. The 90 fps selector and saved preference are no longer used. The preview-1527 source-frame-hold changes were rolled back after user testing found worse motion artifacts.
+
 Base: feature/scene-posters-on-60fps. Comparison target: SVPlayer Android 1.8.2 (86).
 
 ## What SkyWing already implements
@@ -30,9 +32,9 @@ Sources:
 
 ## Remaining differences and validation limits
 
-This is an improvement to the existing GLES engine, not parity with SVP. It now uses a two-scale pyramid but retains a limited search radius, one source interval of added video latency, RGBA8 vector precision, a single filtered field for warping, and local blending fallbacks. The GLES2 reliability readback is synchronous and can stall; the previous comment claiming otherwise was incorrect. A future GPU reduction/asynchronous GLES3 readback can reduce this cost. A queued presentation timeline and explicit audio-delay compensation need separate integration work; timestamp cadence alone does not solve all arrival jitter.
+This is an improvement to the existing GLES engine, not parity with SVP. It now uses a two-scale pyramid but retains a limited search radius, one source interval of added video latency, half-float vector textures on supported GPUs (RGBA8 fallback elsewhere), a single filtered field for warping, and local blending fallbacks. The GLES2 reliability readback is synchronous and can stall; the previous comment claiming otherwise was incorrect. A future GPU reduction/asynchronous GLES3 readback can reduce this cost. A queued presentation timeline and explicit audio-delay compensation need separate integration work; timestamp cadence alone does not solve all arrival jitter.
 
-The target selector offers 60 and 90 fps (default 60). The display request follows that selection when a matching resolution/refresh mode exists. A slower display limits actual presentation; 90 fps on 120 Hz has uneven display holds. Source pass-through thresholds follow the target. Varying source rates such as 24/28/30 fps use fractional positions between frame pairs rather than assuming frame doubling.
+The current output target is fixed at 60 fps. Previous 90 fps experiments are recorded below as history and are no longer exposed by the app. Varying source rates such as 24/28/30 fps use fractional positions between frame pairs rather than assuming frame doubling.
 
 ## Physical-device checks
 
@@ -84,3 +86,17 @@ A targeted GPU regression checks trusted vectors, ambiguous filled vectors, abse
 A private user-selected 1080p reference was streamed through the existing SMB data source at the requested timestamp and a nearby striped-shirt section. Source/generated/source captures were inspected for Balanced and Max; the video and captures are not included in this repository. After excluding capture stalls, decoded rate was 23.88/23.91 fps and drawn rate 57.71/58.45 fps respectively at target 60. Whole-frame fallback was 0% in these samples; local holds/masking remain active. This is a short targeted observation, not a proof of zero artifacts or motion accuracy in every scene. The stricter local holds trade some smoothness for fewer warped/doubled edges.
 
 The opt-in reference test accepts `referenceName` (exact indexed filename) and `referenceMs`. It opens only that item, mutes its own test player, and does not write playback history. Captures are temporary files named `motion-reference-<strength>-<index>.png` under the app cache; keep private and remove after inspection. Do not commit reference filenames or media. Synthetic tests require `motionPlayback=true` as before.
+
+
+## 60 fps correction after user regression feedback (preview 1528)
+
+The user found preview 1527 worse in Balanced at 60 fps. Its strict ambiguity rejection and local source-frame holds were reverted to the 3b69d15 masking/filter policy. The 90 fps selector and target-specific analysis budget were removed; a saved 90 fps preference is ignored. GPU policy tests that required the rejected source-hold behavior were replaced with a quantitative image-quality regression.
+
+The motion maps were previously RGBA8. Encoding zero as 0.5 stores approximately 128/255, which decodes to +0.0784 analysis pixels rather than zero. At an 8x source/analysis ratio this becomes about +0.63 source pixels. It can disturb fine stripes and make masking react to a displacement that was never present. Supported devices now retain motion maps in half-float textures with an exactly representable zero. Capability checks include actual framebuffer completeness; unsupported hosts retain the byte path. Only a small reliability-map copy is converted to bytes for CPU statistics. A local cost-curve fit also refines trusted matches continuously rather than always snapping slow motion to half-analysis-pixel increments.
+
+The GPU regression renders known stationary two-pixel stripes at an 8x source/analysis ratio using both byte and half-float motion maps. Masking is disabled for this measurement to isolate vector encoding. Mean absolute pixel error was 40/255 for the byte baseline and 0/255 for half-float on the SM-X930. This proves correction of that controlled precision defect, not perfect motion estimation on moving clothes.
+
+The updated 24/28/30 fps synthetic playback checks delivered 59.73/60.24/59.98 drawn swaps per second respectively, with half-float active and 0% whole-frame fallback during these samples. The previous source-frame-hold regression remains documented above as a failed perceptual approach. Natural-scene quality still needs user assessment; do not equate passing cadence/shader tests with visual equivalence to SVP.
+
+
+The moving-stripe regression supplies a known four-pixel translation and compares the generated midpoint with a two-pixel-translation ground truth. With masking disabled to isolate encoding, mean error was 12/255 for byte vectors and 0.5/255 for half-float. This tests compensation precision with known motion; it does not prove that the estimator infers every repeating-pattern displacement correctly. The private shirt reference, replayed at the same nearby timestamp, decoded at 23.94 fps and drew 59.51 fps (Balanced) / 59.17 fps (Max), with half-float active. Both GPU quality checks, 60 fps synthetic playback, unit tests and lint passed. User perceptual review remains necessary after the prior regression; the former source-hold strategy is not being reapplied.

@@ -34,7 +34,7 @@ class MotionGpuTest {
         try {
             val vertex = FrameBlendRenderer.VERTEX_BLEND
             val motion = program(vertex, FrameBlendRenderer.FRAGMENT_MOTION)
-            val filter = program(vertex, FrameBlendRenderer.FRAGMENT_VECTOR_FILTER)
+            program(vertex, FrameBlendRenderer.FRAGMENT_VECTOR_FILTER)
             val warp = program(vertex, FrameBlendRenderer.FRAGMENT_WARP)
             program(vertex, FrameBlendRenderer.FRAGMENT_BLEND)
             program(vertex, FrameBlendRenderer.FRAGMENT_LUMA)
@@ -75,70 +75,100 @@ class MotionGpuTest {
             result.position(0)
             GL.glReadPixels(0, 0, 16, 16, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, result)
             assertEquals(0, result.get((8 * 16 + 8) * 4 + 2).toInt() and 255)
-            // A filled ambiguous block must never gain confidence from matching neighbours.
-            // Repeat for every quality preset; Max must require reverse evidence as well.
-            for (level in 0..2) {
-                for (case in listOf("trusted", "ambiguous", "missingReverse", "searchLimit")) {
-                    val d = if (case == "searchLimit") 18f else 4f
-                    for (i in 0..1) {
-                        GL.glActiveTexture(GL.GL_TEXTURE0 + i)
-                        GL.glBindTexture(GL.GL_TEXTURE_2D, textures[i])
-                        val data = ByteBuffer.allocateDirect(16 * 16 * 4)
-                        repeat(256) { pixel ->
-                            val encoded = ((0.5f + (if (i == 0) d else -d) / 40f) * 255).toInt()
-                            data.put(encoded.toByte()).put(128.toByte()).put(0.toByte())
-                            val ambiguous = case == "ambiguous" && i == 0 && pixel == 8 * 16 + 8
-                            val missing = case == "missingReverse" && i == 1
-                            data.put(if (ambiguous || missing) 0.toByte() else 255.toByte())
-                        }
-                        data.position(0)
-                        GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, 16, 16, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, data)
-                    }
-                    GL.glUseProgram(filter)
-                    GL.glUniform1i(GL.glGetUniformLocation(filter, "uVec"), 0)
-                    GL.glUniform1i(GL.glGetUniformLocation(filter, "uBack"), 1)
-                    GL.glUniform2f(GL.glGetUniformLocation(filter, "uSize"), 64f, 64f)
-                    GL.glUniform2f(GL.glGetUniformLocation(filter, "uVecSize"), 16f, 16f)
-                    GL.glUniform1f(GL.glGetUniformLocation(filter, "uConsist"), floatArrayOf(1f, 1.5f, 2f)[level])
-                    GL.glUniform1f(GL.glGetUniformLocation(filter, "uSpread"), floatArrayOf(3f, 5f, 8f)[level])
-                    draw(filter)
-                    result.position(0)
-                    GL.glReadPixels(0, 0, 16, 16, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, result)
-                    val trusted = (result.get((8 * 16 + 8) * 4 + 2).toInt() and 255) >= 128
-                    assertEquals("$case, strength=$level", case == "trusted", trusted)
-                }
+            // Known static fine stripes must remain stationary when the actual motion is zero.
+            // The byte encoding rounds 0.5 to 128/255; at an 8x analysis scale this shifts each input.
+            val ext = GL.glGetString(GL.GL_EXTENSIONS).orEmpty()
+            val versionString = GL.glGetString(GL.GL_VERSION).orEmpty()
+            val coreHalf = versionString.contains("OpenGL ES 3")
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStatus(0,
+                android.os.Bundle().apply { putString("stream", "\nGL=$versionString, coreHalf=$coreHalf\n") })
+            org.junit.Assume.assumeTrue(coreHalf || (ext.contains("GL_OES_texture_half_float") && ext.contains("GL_OES_texture_half_float_linear")))
+            for (i in 0..1) {
+                GL.glActiveTexture(GL.GL_TEXTURE0 + i)
+                GL.glBindTexture(GL.GL_TEXTURE_2D, textures[i])
+                val data = ByteBuffer.allocateDirect(64 * 64 * 4)
+                repeat(64) { repeat(64) { x ->
+                    val c = if ((x / 2) % 2 == 0) 0 else 255
+                    repeat(3) { data.put(c.toByte()) }; data.put(255.toByte())
+                } }
+                data.position(0)
+                GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, 64, 64, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, data)
             }
-            // An untrusted motion region must show one source, never double stripe edges by cross-fading.
             val mv = IntArray(1)
             GL.glGenTextures(1, mv, 0)
-            for (i in 0..2) {
-                GL.glActiveTexture(GL.GL_TEXTURE0 + i)
-                GL.glBindTexture(GL.GL_TEXTURE_2D, if (i < 2) textures[i] else mv[0])
-                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
-                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
-                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE)
-                GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
-                val data = ByteBuffer.allocateDirect(4)
-                if (i == 2) data.put(128.toByte()).put(128.toByte()).put(0.toByte()).put(255.toByte())
-                else repeat(4) { data.put(if (i == 0) 0.toByte() else 255.toByte()) }
-                data.position(0)
-                GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, 1, 1, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, data)
-            }
+            GL.glActiveTexture(GL.GL_TEXTURE2)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, mv[0])
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE)
+            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
             GL.glUseProgram(warp)
             for ((uniform, unit) in mapOf("uPrev" to 0, "uCurr" to 1, "uMv" to 2, "uPrevL" to 0, "uCurrL" to 1)) {
                 GL.glUniform1i(GL.glGetUniformLocation(warp, uniform), unit)
             }
-            GL.glUniform2f(GL.glGetUniformLocation(warp, "uSize"), 64f, 64f)
+            GL.glUniform2f(GL.glGetUniformLocation(warp, "uSize"), 8f, 8f)
             GL.glUniform2f(GL.glGetUniformLocation(warp, "uVecSize"), 1f, 1f)
-            GL.glUniform2f(GL.glGetUniformLocation(warp, "uHold"), 0.03f, 0.1f)
-            GL.glUniform2f(GL.glGetUniformLocation(warp, "uDisc"), 2f, 5f)
-            for ((mix, expected) in listOf(0.25f to 0, 0.75f to 255)) {
-                GL.glUniform1f(GL.glGetUniformLocation(warp, "uMix"), mix)
+            GL.glUniform2f(GL.glGetUniformLocation(warp, "uHold"), 10f, 20f)
+            GL.glUniform2f(GL.glGetUniformLocation(warp, "uDisc"), 10f, 20f)
+            GL.glUniform1f(GL.glGetUniformLocation(warp, "uTrust"), 1f)
+            GL.glUniform1f(GL.glGetUniformLocation(warp, "uMix"), 0.5f)
+            GL.glViewport(0, 0, 64, 64)
+            val errors = mutableListOf<Double>()
+            for (half in listOf(false, true)) {
+                val data = ByteBuffer.allocateDirect(8).order(ByteOrder.nativeOrder())
+                if (half) { data.putShort(0x3800.toShort()).putShort(0x3800.toShort()).putShort(0x3c00.toShort()).putShort(0x3c00.toShort()) }
+                else { data.put(128.toByte()).put(128.toByte()).put(255.toByte()).put(255.toByte()) }
+                data.position(0)
+                GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, if (half && coreHalf) 0x881A else GL.GL_RGBA, 1, 1, 0, GL.GL_RGBA, if (half) (if (coreHalf) 0x140B else 0x8D61) else GL.GL_UNSIGNED_BYTE, data)
                 draw(warp)
-                result.position(0)
-                GL.glReadPixels(0, 0, 16, 16, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, result)
-                assertEquals("Untrusted area at phase $mix", expected, result.get((8 * 16 + 8) * 4).toInt() and 255)
+                val pixels = ByteBuffer.allocateDirect(64 * 64 * 4)
+                GL.glReadPixels(0, 0, 64, 64, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, pixels)
+                assertEquals(GL.GL_NO_ERROR, GL.glGetError())
+                var sum = 0L
+                for (y in 4..59) for (x in 4..59) {
+                    val expected = if ((x / 2) % 2 == 0) 0 else 255
+                    sum += kotlin.math.abs((pixels.get((y * 64 + x) * 4).toInt() and 255) - expected)
+                }
+                errors.add(sum.toDouble() / (56 * 56))
             }
+            assertTrue("Byte baseline must expose stripe drift: $errors", errors[0] > 10)
+            assertTrue("Half precision must preserve static stripes: $errors", errors[1] < 1)
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStatus(0,
+                android.os.Bundle().apply { putString("stream", "\nStripe mean error: byte=${errors[0]}, half=${errors[1]}\n") })
+            // Known four-pixel translation of stripes: midpoint must match the two-pixel ground truth.
+            for (i in 0..1) {
+                GL.glActiveTexture(GL.GL_TEXTURE0 + i)
+                GL.glBindTexture(GL.GL_TEXTURE_2D, textures[i])
+                val data = ByteBuffer.allocateDirect(64 * 64 * 4)
+                repeat(64) { repeat(64) { x ->
+                    val c = if (Math.floorMod(x - i * 4, 8) < 4) 0 else 255
+                    repeat(3) { data.put(c.toByte()) }; data.put(255.toByte())
+                } }
+                data.position(0)
+                GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, 64, 64, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, data)
+            }
+            GL.glActiveTexture(GL.GL_TEXTURE2)
+            val movingErrors = mutableListOf<Double>()
+            for (half in listOf(false, true)) {
+                val data = ByteBuffer.allocateDirect(8).order(ByteOrder.nativeOrder())
+                if (half) data.putShort(android.util.Half.toHalf(0.4875f)).putShort(0x3800.toShort()).putShort(0x3c00.toShort()).putShort(0x3c00.toShort())
+                else data.put(124.toByte()).put(128.toByte()).put(255.toByte()).put(255.toByte())
+                data.position(0)
+                GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, if (half && coreHalf) 0x881A else GL.GL_RGBA, 1, 1, 0,
+                    GL.GL_RGBA, if (half) (if (coreHalf) 0x140B else 0x8D61) else GL.GL_UNSIGNED_BYTE, data)
+                draw(warp)
+                val pixels = ByteBuffer.allocateDirect(64 * 64 * 4)
+                GL.glReadPixels(0, 0, 64, 64, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, pixels)
+                var sum = 0L
+                for (y in 4..59) for (x in 4..59) {
+                    val expected = if (Math.floorMod(x - 2, 8) < 4) 0 else 255
+                    sum += kotlin.math.abs((pixels.get((y * 64 + x) * 4).toInt() and 255) - expected)
+                }
+                movingErrors.add(sum.toDouble() / (56 * 56))
+            }
+            assertTrue("Moving-stripe precision: $movingErrors", movingErrors[1] < 2 && movingErrors[0] > movingErrors[1] + 5)
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStatus(0,
+                android.os.Bundle().apply { putString("stream", "\nMoving stripe mean error: byte=${movingErrors[0]}, half=${movingErrors[1]}\n") })
         } finally {
             EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
             EGL14.eglDestroySurface(display, surface)

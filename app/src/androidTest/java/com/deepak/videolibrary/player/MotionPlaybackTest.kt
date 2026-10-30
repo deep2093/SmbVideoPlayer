@@ -61,7 +61,6 @@ class MotionPlaybackTest {
                 }
                 SmoothVideoView(context).also {
                     view = it
-                    it.targetFps = 60
                     it.onFailure = { failed = true }
                     it.onStats = { sample -> stats.add(sample) }
                     it.attach(player)
@@ -101,7 +100,7 @@ class MotionPlaybackTest {
                 assertFalse("GL setup failed", failed)
                 assertTrue("No reference statistics", samples.isNotEmpty())
                 instrumentation.sendStatus(0, Bundle().apply {
-                    putString("stream", "\nReference strength=$level: decoded=${samples.map { it.sourceFps }.average()} drawn=${samples.map { it.outputFps }.average()} wholeFrameFallback=${samples.map { it.fallbackPercent }.average()}%\n")
+                    putString("stream", "\nReference strength=$level: decoded=${samples.map { it.sourceFps }.average()} drawn=${samples.map { it.outputFps }.average()} wholeFrameFallback=${samples.map { it.fallbackPercent }.average()}% precise=${samples.last().highPrecisionVectors}\n")
                 })
             }
         } finally {
@@ -130,7 +129,7 @@ class MotionPlaybackTest {
         }
         val failures = mutableListOf<String>()
         try {
-            for (target in listOf(60, 90)) {
+            for (target in listOf(60)) {
                 for (source in listOf(24, 28, 30)) {
                     val fixture = File(app.cacheDir, "motion-test-$source.mp4")
                     instrumentation.context.assets.open("motion-test/$source.mp4").use { input ->
@@ -145,7 +144,6 @@ class MotionPlaybackTest {
                         }.minByOrNull { it.refreshRate }
                         activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                         mode?.let { activity.window.attributes = activity.window.attributes.apply { preferredDisplayModeId = it.modeId } }
-                        view.targetFps = target
                         player.setMediaItem(MediaItem.fromUri(Uri.fromFile(fixture)))
                         player.prepare()
                         player.playWhenReady = true
@@ -158,7 +156,7 @@ class MotionPlaybackTest {
                     assertTrue("No output statistics", samples.size >= 2)
                     val input = samples.map { it.sourceFps }.average()
                     val output = samples.map { it.outputFps }.average()
-                    val report = "$source->$target: decoded=$input drawn=$output fallback=${samples.map { it.fallbackPercent }.average()}% interpolation=${samples.last().interpolating} warping=${samples.last().warping} bad=${samples.last().untrustedPercent}% cut=${samples.last().cutDetected}"
+                    val report = "$source->$target: decoded=$input drawn=$output fallback=${samples.map { it.fallbackPercent }.average()}% interpolation=${samples.last().interpolating} warping=${samples.last().warping} precise=${samples.last().highPrecisionVectors} bad=${samples.last().untrustedPercent}% cut=${samples.last().cutDetected}"
                     instrumentation.sendStatus(0, Bundle().apply { putString("stream", "\n$report\n") })
                     if (input < source * 0.85 || output < target * 0.85 || samples.map { it.fallbackPercent }.average() >= 95) failures.add(report)
                 }
