@@ -8,3 +8,5 @@ local.properties
 __pycache__/
 *.pyc
 *.apk
+.kotlin/
+app/src/androidTest/assets/motion-test/

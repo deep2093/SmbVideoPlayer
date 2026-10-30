@@ -9,7 +9,9 @@ internal object MotionReliability {
         // Mean luma error > 0.18 over most blocks is a conservative cut/flash guard.
         // This is a heuristic, not a claim that every editorial cut is detected.
         val cut = highResidual.toDouble() / blocks > 0.6
-        val limit = doubleArrayOf(0.02, 0.07, 0.2)[strength.coerceIn(0, 2)]
+        // Balanced/Max mask local failures; reserve a whole-frame hold for widespread failure.
+        val limits = doubleArrayOf(0.02, 0.35, 0.6)
+        val limit = limits[strength.coerceIn(0, 2)]
         return Decision(cut || untrusted.toDouble() / blocks > limit, cut)
     }
 }

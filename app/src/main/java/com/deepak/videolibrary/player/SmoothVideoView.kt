@@ -103,7 +103,7 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
                 created.start(st)
             }
 
-            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) = Unit
+            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) { renderer?.resizeOutput() }
 
             override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
                 detachInput()
@@ -207,6 +207,8 @@ internal class FrameBlendRenderer(
         val warping: Boolean,
         /** Share of drawn frames shown as plain real frames because too much of the picture had untrusted motion. */
         val fallbackPercent: Int = 0,
+        val untrustedPercent: Int = 0,
+        val cutDetected: Boolean = false,
     )
 
     var onStats: ((Stats) -> Unit)? = null
@@ -221,6 +223,7 @@ internal class FrameBlendRenderer(
     private var fallbackDrawn = 0
     private var frameFallback = false
     private var sceneCut = false
+    private var untrustedPercent = 0
     private var vectorPixels: ByteBuffer? = null
     private var framesOut = 0
     private var statsSince = 0L
@@ -231,6 +234,7 @@ internal class FrameBlendRenderer(
     private var inputTexture = 0
     private var inputTexture2D: SurfaceTexture? = null
     private var inputSurface: Surface? = null
+    private var outputTexture: SurfaceTexture? = null
     private val textures = IntArray(2)
     private var framebuffer = 0
     private var copyProgram = 0
@@ -242,6 +246,8 @@ internal class FrameBlendRenderer(
     private var vectorRawTexture = 0
     private var vectorBackTexture = 0
     private val lumaTextures = IntArray(2)
+    private val coarseLumaTextures = IntArray(2)
+    private val coarseVectors = IntArray(2)
     private var vectorTexture = 0
     private var lumaWidth = 0
     private var lumaHeight = 0
@@ -265,6 +271,7 @@ internal class FrameBlendRenderer(
             if (clock.targetFps != target) {
                 clock.targetFps = target
                 pacer = OutputFramePacer(target.toDouble())
+                allocatedWidth = 0
             }
         }
     }
@@ -291,7 +298,7 @@ internal class FrameBlendRenderer(
         if (elapsed < 1_000_000_000L) return
         val seconds = elapsed / 1e9f
         val fallback = if (framesOut > 0) fallbackDrawn * 100 / framesOut else 0
-        onStats?.invoke(Stats(framesIn / seconds, framesOut / seconds, clock.needsInterpolation, vectorsValid, fallback))
+        onStats?.invoke(Stats(framesIn / seconds, framesOut / seconds, clock.needsInterpolation, vectorsValid, fallback, untrustedPercent, sceneCut))
         framesIn = 0
         fallbackDrawn = 0
         framesOut = 0
@@ -376,7 +383,12 @@ internal class FrameBlendRenderer(
         }
     }
 
+    fun resizeOutput() {
+        handler.post { outputTexture?.setDefaultBufferSize(frameWidth, frameHeight) }
+    }
+
     private fun initGl(output: SurfaceTexture) {
+        outputTexture = output
         display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
         check(display != EGL14.EGL_NO_DISPLAY) { "no EGL display" }
         val version = IntArray(2)
@@ -413,6 +425,8 @@ internal class FrameBlendRenderer(
         setFilters(GLES11Ext.GL_TEXTURE_EXTERNAL_OES)
         GLES20.glGenTextures(2, textures, 0)
         GLES20.glGenTextures(2, lumaTextures, 0)
+        GLES20.glGenTextures(2, coarseLumaTextures, 0)
+        GLES20.glGenTextures(2, coarseVectors, 0)
         GLES20.glGenTextures(1, ids, 0)
         vectorTexture = ids[0]
         GLES20.glGenTextures(1, ids, 0)
@@ -477,15 +491,18 @@ internal class FrameBlendRenderer(
         GLES20.glUniform1i(GLES20.glGetUniformLocation(lumaProgram, "uTex"), 0)
         GLES20.glUniform2f(GLES20.glGetUniformLocation(lumaProgram, "uStep"), 0.25f / lumaWidth, 0.25f / lumaHeight)
         drawQuad(lumaProgram)
-        // The previous frame's finished vectors are a hint for this frame's search (only if they are fresh).
+        // A second image scale provides large-motion predictors cheaply.
+        GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, coarseLumaTextures[write], 0)
+        GLES20.glViewport(0, 0, lumaWidth / 4, lumaHeight / 4)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lumaTextures[write])
+        GLES20.glUniform2f(GLES20.glGetUniformLocation(lumaProgram, "uStep"), 1f / lumaWidth, 1f / lumaHeight)
+        drawQuad(lumaProgram)
         vectorsValid = false
         if (clock.needsInterpolation) {
-            // 1. Raw motion per block, forwards (what each block of the new frame looks like in the old one)...
-            // The previous frame's vectors are not used as a hint for now: a hint that merely matches about as well as
-            // the new winner could turn a doubtful repeating pattern into a 'clear' match and lock a wrong motion in.
-            runMotion(lumaTextures[write], lumaTextures[1 - write], vectorRawTexture, false)
-            // ...and backwards (the old frame against the new one), used to spot hidden / uncovered areas.
-            runMotion(lumaTextures[1 - write], lumaTextures[write], vectorBackTexture, false)
+            runMotion(coarseLumaTextures[write], coarseLumaTextures[1 - write], coarseVectors[0], false)
+            runMotion(coarseLumaTextures[1 - write], coarseLumaTextures[write], coarseVectors[1], false)
+            runMotion(lumaTextures[write], lumaTextures[1 - write], vectorRawTexture, true, coarseVectors[0])
+            runMotion(lumaTextures[1 - write], lumaTextures[write], vectorBackTexture, true, coarseVectors[1])
             // 2. Fill undecided blocks from their neighbours, median-filter, and mark blocks the backward search
             // does not confirm (see FRAGMENT_VECTOR_FILTER).
             GLES20.glFramebufferTexture2D(
@@ -530,17 +547,19 @@ internal class FrameBlendRenderer(
             if ((pixels.get(i * 4 + 2).toInt() and 0xFF) < 128) bad++
             if ((pixels.get(i * 4 + 3).toInt() and 0xFF) > 46) highResidual++
         }
+        untrustedPercent = bad * 100 / count
         val decision = MotionReliability.decide(count, bad, highResidual, strength)
         frameFallback = decision.holdFrame
         sceneCut = decision.sceneCut
     }
 
     /** One block-matching pass: for each block of [cur], where is it in [prev]. Writes vectors into [target]. */
-    private fun runMotion(cur: Int, prev: Int, target: Int, useHint: Boolean) {
+    private fun runMotion(cur: Int, prev: Int, target: Int, useHint: Boolean, hint: Int = vectorTexture) {
         GLES20.glFramebufferTexture2D(
             GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, target, 0,
         )
-        GLES20.glViewport(0, 0, vectorWidth, vectorHeight)
+        val scale = if (useHint) 1 else 4
+        GLES20.glViewport(0, 0, (lumaWidth / scale + 3) / 4, (lumaHeight / scale + 3) / 4)
         GLES20.glUseProgram(meProgram)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, cur)
@@ -549,23 +568,26 @@ internal class FrameBlendRenderer(
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, prev)
         GLES20.glUniform1i(GLES20.glGetUniformLocation(meProgram, "uPrevL"), 1)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE2)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorTexture)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, hint)
         GLES20.glUniform1i(GLES20.glGetUniformLocation(meProgram, "uHint"), 2)
         GLES20.glUniform1f(GLES20.glGetUniformLocation(meProgram, "uHintOn"), if (useHint) 1f else 0f)
         GLES20.glUniform1f(GLES20.glGetUniformLocation(meProgram, "uClear"), floatArrayOf(0.65f, 0.82f, 0.93f)[strength.coerceIn(0, 2)])
-        GLES20.glUniform2f(GLES20.glGetUniformLocation(meProgram, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
-        GLES20.glUniform2f(GLES20.glGetUniformLocation(meProgram, "uVecSize"), vectorWidth.toFloat(), vectorHeight.toFloat())
+        GLES20.glUniform2f(GLES20.glGetUniformLocation(meProgram, "uSize"), (lumaWidth / scale).toFloat(), (lumaHeight / scale).toFloat())
+        GLES20.glUniform2f(GLES20.glGetUniformLocation(meProgram, "uVecSize"), ((lumaWidth / scale + 3) / 4).toFloat(), ((lumaHeight / scale + 3) / 4).toFloat())
         drawQuad(meProgram)
     }
 
     private fun ensureTargets() {
         if (allocatedWidth == frameWidth && allocatedHeight == frameHeight) return
         vectorsValid = false
-        lumaWidth = minOf(480, frameWidth).coerceAtLeast(16)
+        // Bound the expensive bidirectional search independently of video rendering size.
+        lumaWidth = minOf(if (clock.targetFps >= 90) 192 else 256, frameWidth).coerceAtLeast(16)
         lumaHeight = (lumaWidth.toLong() * frameHeight / frameWidth).toInt().coerceAtLeast(16)
         vectorWidth = (lumaWidth + 3) / 4
         vectorHeight = (lumaHeight + 3) / 4
         for (t in lumaTextures) allocate(t, lumaWidth, lumaHeight)
+        for (t in coarseLumaTextures) allocate(t, lumaWidth / 4, lumaHeight / 4)
+        for (t in coarseVectors) allocate(t, (lumaWidth / 4 + 3) / 4, (lumaHeight / 4 + 3) / 4)
         allocate(vectorTexture, vectorWidth, vectorHeight)
         allocate(vectorRawTexture, vectorWidth, vectorHeight)
         allocate(vectorBackTexture, vectorWidth, vectorHeight)
@@ -579,6 +601,9 @@ internal class FrameBlendRenderer(
         }
         allocatedWidth = frameWidth
         allocatedHeight = frameHeight
+        // Warp at video resolution; let the compositor upscale to the TextureView.
+        // A 360p source must not run the expensive warp across a 5-megapixel tablet window.
+        outputTexture?.setDefaultBufferSize(frameWidth, frameHeight)
     }
 
     private fun drawIfNeeded() {
@@ -715,6 +740,7 @@ internal class FrameBlendRenderer(
         inputTexture2D?.release()
         inputSurface = null
         inputTexture2D = null
+        outputTexture = null
         if (display != EGL14.EGL_NO_DISPLAY) {
             EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
             if (windowSurface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, windowSurface)
@@ -726,7 +752,7 @@ internal class FrameBlendRenderer(
         windowSurface = EGL14.EGL_NO_SURFACE
     }
 
-    private companion object {
+    companion object {
         const val VERTEX_BLEND = """
             attribute vec4 aPosition;
             attribute vec2 aCoord;
@@ -768,13 +794,9 @@ internal class FrameBlendRenderer(
                 gl_FragColor = vec4(l, l, l, 1.0);
             }
         """
-        // One fragment per 4x4 block of the small frame. Each block is matched over an 8x8 window (16 taps, each
-        // averaging 2x2 texels), looking for d with cur(p) ~ prev(p + d). The search is coarse-to-fine: first every
-        // 4th shift out to +-16 (fast action), then every shift within +-3 of the best coarse one, so the reach is
-        // +-19 small-frame pixels (about 4% of the picture width) for roughly half the cost of the old +-7 full search.
-        // A non-zero vector must beat the zero vector by 10%, and must also beat the best match at any clearly
-        // different shift by 12%. Repeating patterns (stripes, checks) and flat or noisy skin match about equally at
-        // several shifts, so they stay still instead of picking a random one that changes every frame.
+        // Two image scales: exhaustive matching on a quarter-size luma image supplies
+        // predictors for a local full-scale search. Matching residual and ambiguity
+        // survive into the masking pass; coarse vectors are predictors, not proof of motion.
         const val FRAGMENT_MOTION = """
             precision highp float;
             uniform sampler2D uCurL;
@@ -802,55 +824,42 @@ internal class FrameBlendRenderer(
                 float bestRaw = sad0;
                 float second = 1e9;
                 vec2 bestV = vec2(0.0);
-                // Coarse stage.
-                vec2 coarseV = vec2(0.0);
-                float coarseBest = 1e9;
-                float coarseSecond = 1e9;
-                vec2 coarseSecondV = vec2(1e4);
-                for (int cy = -4; cy <= 4; cy++) {
-                    for (int cx = -4; cx <= 4; cx++) {
-                        vec2 d = vec2(float(cx), float(cy)) * 4.0;
-                        float raw = cost(d);
-                        float sad = raw + 0.002 * length(d);
-                        if (sad < coarseBest) {
-                            if (length(d - coarseV) > 6.0 && coarseBest < coarseSecond) {
-                                coarseSecond = coarseBest;
-                                coarseSecondV = coarseV;
-                            }
-                            coarseBest = sad;
-                            coarseV = d;
-                        } else if (sad < coarseSecond && length(d - coarseV) > 6.0) {
-                            coarseSecond = sad;
-                            coarseSecondV = d;
+                if (uHintOn < 0.5) {
+                    // Exhaustive search on the quarter-size image, covering +/-16 full-scale pixels.
+                    for (int cy = -4; cy <= 4; cy++) {
+                        for (int cx = -4; cx <= 4; cx++) {
+                            vec2 d = vec2(float(cx), float(cy));
+                            float raw = cost(d);
+                            float sad = raw + 0.002 * length(d);
+                            if (sad < best) {
+                                if (length(d - bestV) > 1.5) second = min(second, bestRaw);
+                                best = sad; bestRaw = raw; bestV = d;
+                            } else if (length(d - bestV) > 1.5) second = min(second, raw);
                         }
                     }
-                }
-                // Fine stage around the best coarse shift.
-                for (int dy = -3; dy <= 3; dy++) {
-                    for (int dx = -3; dx <= 3; dx++) {
-                        vec2 d = coarseV + vec2(float(dx), float(dy));
-                        if (d.x == 0.0 && d.y == 0.0) continue;
-                        float raw = cost(d);
-                        float sad = raw + 0.002 * length(d);
-                        if (sad < best) {
-                            if (length(d - bestV) > 1.5) second = min(second, bestRaw);
-                            best = sad;
-                            bestRaw = raw;
-                            bestV = d;
-                        } else if (raw < second && length(d - bestV) > 1.5) {
-                            second = raw;
+                } else {
+                    vec2 prediction = floor((texture2D(uHint, (floor(gl_FragCoord.xy) + 0.5) / uVecSize).rg - 0.5) * 40.0 + 0.5);
+                    for (int dy = -2; dy <= 2; dy++) {
+                        for (int dx = -2; dx <= 2; dx++) {
+                            vec2 d = clamp(prediction + vec2(float(dx), float(dy)) * 2.0, -19.0, 19.0);
+                            float raw = cost(d);
+                            float sad = raw + 0.002 * length(d);
+                            if (sad < best) {
+                                if (length(d - bestV) > 1.5) second = min(second, bestRaw);
+                                best = sad; bestRaw = raw; bestV = d;
+                            } else if (length(d - bestV) > 1.5) second = min(second, raw);
                         }
                     }
-                }
-                // A different coarse shift that matched nearly as well makes the choice ambiguous. The coarse grid only
-                // touches every 4th shift, so on stripes it can step over the true second valley and make the winner look
-                // clearer than it is: search around the runner-up shift too, and use what that finds.
-                if (coarseSecond < second) second = coarseSecond;
-                if (coarseSecondV.x < 1000.0) {
-                    for (int ey = -2; ey <= 2; ey++) {
-                        for (int ex = -2; ex <= 2; ex++) {
-                            vec2 e = coarseSecondV + vec2(float(ex), float(ey));
-                            if (length(e - bestV) > 1.5) second = min(second, cost(e));
+                    vec2 centre = bestV;
+                    for (int dy = -1; dy <= 1; dy++) {
+                        for (int dx = -1; dx <= 1; dx++) {
+                            vec2 d = clamp(centre + vec2(float(dx), float(dy)), -19.0, 19.0);
+                            float raw = cost(d);
+                            float sad = raw + 0.002 * length(d);
+                            if (sad < best) {
+                                if (length(d - bestV) > 1.5) second = min(second, bestRaw);
+                                best = sad; bestRaw = raw; bestV = d;
+                            } else if (length(d - bestV) > 1.5) second = min(second, raw);
                         }
                     }
                 }
@@ -867,23 +876,10 @@ internal class FrameBlendRenderer(
                         }
                     }
                 }
-                // Temporal hint: the motion this block had in the previous frame. If it matches nearly as well as
-                // the new winner (and clearly beats standing still) keep it, so fast motion does not flip from
-                // frame to frame.
-                if (uHintOn > 0.5) {
-                    vec2 h = floor((texture2D(uHint, (floor(gl_FragCoord.xy) + 0.5) / uVecSize).rg - 0.5) * 40.0 + 0.5);
-                    if (length(h) > 0.5 && length(h - bestV) > 0.5) {
-                        float rawH = cost(h);
-                        // An undecided block (stripes) only needs the hint to match about as well as anything else.
-                        if (rawH < bestRaw * 1.08 + 0.01 && (rawH < sad0 * 0.9 || !clear)) {
-                            bestV = h;
-                            clear = true;
-                        }
-                    }
-                }
                 // Alpha 0 = this block alone cannot tell (stripes, flat skin): the next pass fills it from its
                 // neighbours instead of forcing it to stand still inside a moving body.
-                vec2 v = clear ? bestV : vec2(0.0);
+                vec2 v = (clear || uHintOn < 0.5) ? bestV : vec2(0.0);
+                if (uHintOn < 0.5) v *= 4.0;
                 gl_FragColor = vec4(v / 20.0 * 0.5 + 0.5, clamp(bestRaw / 25.0, 0.0, 1.0), clear ? 1.0 : 0.0);
             }
         """

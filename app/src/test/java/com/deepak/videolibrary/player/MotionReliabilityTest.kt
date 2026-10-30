@@ -20,7 +20,7 @@ class MotionReliabilityTest {
     @Test fun qualityModesHaveDifferentFallbackThresholds() {
         assertTrue(MotionReliability.decide(100, 5, 0, 0).holdFrame)
         assertFalse(MotionReliability.decide(100, 5, 0, 1).holdFrame)
-        assertTrue(MotionReliability.decide(100, 15, 0, 1).holdFrame)
-        assertFalse(MotionReliability.decide(100, 15, 0, 2).holdFrame)
+        assertTrue(MotionReliability.decide(100, 40, 0, 1).holdFrame)
+        assertFalse(MotionReliability.decide(100, 40, 0, 2).holdFrame)
     }
 }

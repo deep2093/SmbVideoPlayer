@@ -6,6 +6,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BlendClockTest {
+    @Test fun resizedTargetsMustLearnANewPairBeforeWarping() {
+        val clock = BlendClock()
+        clock.onFrame(0, 0)
+        clock.onFrame(40_000_000, 40_000_000)
+        assertTrue(clock.needsInterpolation)
+        clock.reset()
+        assertFalse(clock.needsInterpolation)
+        assertFalse(clock.onFrame(80_000_000, 80_000_000))
+        assertEquals(1f, clock.fraction(90_000_000), 0f)
+    }
+
     @Test fun sixtyFpsSourceCanInterpolateForNinetyFpsTarget() {
         val clock = BlendClock(90)
         clock.onFrame(0, 0)

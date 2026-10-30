@@ -16,6 +16,13 @@ internal class BlendClock(var targetFps: Int = 60) {
     /** Source frame interval (ns) from presentation timestamps; 0 until two frames arrived. */
     val smoothedGapNs: Long get() = gapNs.toLong()
 
+    fun reset() {
+        lastPts = Long.MIN_VALUE
+        lastArrival = 0L
+        gapNs = 0.0
+        valid = false
+    }
+
     /** True when the newest frame has a predecessor and the source is slow enough to need new frames. */
     val needsInterpolation: Boolean get() = valid && gapNs >= passThroughGapNs
 
