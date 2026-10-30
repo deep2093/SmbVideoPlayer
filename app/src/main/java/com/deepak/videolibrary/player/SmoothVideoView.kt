@@ -33,12 +33,12 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
- * Experimental video output that shows 24/25/30 fps video at 60 Hz by blending the two
- * neighbouring decoded frames on the GPU (stage 1 of the 60 fps work). It replaces the
+ * Experimental video output that estimates motion between neighbouring decoded frames
+ * and warps them on the GPU towards a selected 60/90 fps output timeline. It replaces the
  * PlayerView surface: the player decodes into [FrameBlendRenderer]'s SurfaceTexture and the
  * renderer draws at display vsync into a TextureView sized by an AspectRatioFrameLayout.
  *
- * Blending is a cross-fade, not motion-compensated yet. If GL setup fails, [onFailure] is
+ * Unreliable motion falls back to source frames or masked blending. If GL setup fails, [onFailure] is
  * invoked so the screen can fall back to the normal PlayerView.
  */
 @OptIn(UnstableApi::class)
@@ -56,6 +56,12 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
         set(value) {
             field = value
             renderer?.strength = value
+        }
+
+    var targetFps: Int = 60
+        set(value) {
+            field = value.coerceIn(60, 90)
+            renderer?.setTargetFps(field)
         }
 
     var debug: Boolean = false
@@ -84,14 +90,12 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
         addView(frame, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, android.view.Gravity.CENTER))
         texture.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
             override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
-                val refresh = display?.refreshRate ?: 60f
-                val divisor = Math.round(refresh / 60f).coerceAtLeast(1)
                 val created = FrameBlendRenderer(
-                    divisor,
                     onInputReady = { surface -> post { attachInput(surface) } },
                     onError = { post { onFailure?.invoke() } },
                 )
                 created.onStats = { stats -> post { onStats?.invoke(stats) } }
+                created.setTargetFps(targetFps)
                 created.strength = strength
                 created.debug = debug
                 renderer = created
@@ -121,7 +125,7 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
     fun saveFrame() {
         val current = renderer
         if (current == null) {
-            Toast.makeText(context, "Smooth 60 fps is not running", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Smooth motion is not running", Toast.LENGTH_SHORT).show()
             return
         }
         val appContext = context.applicationContext
@@ -186,9 +190,8 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
     }
 }
 
-/** Owns the GL thread: decoded frames in via SurfaceTexture, blended 60 Hz frames out. */
+/** Owns the GL thread: decoded frames in, motion-compensated output at the selected frame rate. */
 internal class FrameBlendRenderer(
-    initialDivisor: Int,
     private val onInputReady: (Surface) -> Unit,
     private val onError: () -> Unit,
 ) {
@@ -217,6 +220,7 @@ internal class FrameBlendRenderer(
     private var framesIn = 0
     private var fallbackDrawn = 0
     private var frameFallback = false
+    private var sceneCut = false
     private var vectorPixels: ByteBuffer? = null
     private var framesOut = 0
     private var statsSince = 0L
@@ -253,13 +257,17 @@ internal class FrameBlendRenderer(
     private var running = false
     private var failed = false
     private var dirty = false
-    private var tick = 0
-    // How many screen refreshes to skip between drawn frames: measured from the real refresh interval as it runs. The
-    // screen can change mode after this view starts (for example from 120 Hz down to the 60 Hz that was asked for), so
-    // a number worked out once at the start would leave smoothing drawing every other refresh.
-    private var divisor = initialDivisor.coerceAtLeast(1)
-    private var lastVsync = 0L
-    private var vsyncPeriod = 0.0
+    private var pacer = OutputFramePacer()
+
+    fun setTargetFps(fps: Int) {
+        val target = fps.coerceIn(60, 90)
+        handler.post {
+            if (clock.targetFps != target) {
+                clock.targetFps = target
+                pacer = OutputFramePacer(target.toDouble())
+            }
+        }
+    }
     private var lastDrawn = -1f
     private val matrix = FloatArray(16)
 
@@ -272,17 +280,7 @@ internal class FrameBlendRenderer(
         override fun doFrame(frameTimeNanos: Long) {
             if (!running) return
             Choreographer.getInstance().postFrameCallback(this)
-            if (lastVsync != 0L) {
-                val dt = (frameTimeNanos - lastVsync).toDouble()
-                if (dt in 4_000_000.0..60_000_000.0) {
-                    vsyncPeriod = if (vsyncPeriod == 0.0) dt else vsyncPeriod * 0.9 + dt * 0.1
-                    // A 120 Hz screen calls back every 8.3 ms and needs every second callback for 60 fps (divisor 2); 60 Hz needs every one.
-                    divisor = Math.round(16_667_000.0 / vsyncPeriod).toInt().coerceIn(1, 4)
-                }
-            }
-            lastVsync = frameTimeNanos
-            tick++
-            if (tick % divisor == 0) guarded { drawIfNeeded() }
+            if (pacer.shouldDraw(frameTimeNanos)) guarded { drawIfNeeded() }
             reportStats(System.nanoTime())
         }
     }
@@ -467,7 +465,8 @@ internal class FrameBlendRenderer(
     /** Small luma copy of the new frame, then block matching against the previous frame's luma. */
     private fun estimateMotion(write: Int) {
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, framebuffer)
-        if (vectorsValid) updateFrameFallback() else frameFallback = false
+        frameFallback = false
+        sceneCut = false
         GLES20.glFramebufferTexture2D(
             GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, lumaTextures[write], 0,
         )
@@ -507,14 +506,13 @@ internal class FrameBlendRenderer(
             GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uNeedReverse"), if (strength.coerceIn(0, 2) < 2) 1f else 0f)
             drawQuad(vectorFilterProgram)
             vectorsValid = true
+            updateFrameFallback()
         }
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
     }
 
-    /**
-     * If a large share of the picture had untrusted motion (fast, complicated action), patching it block by block
-     * shows, so the next in-between frames show the nearest real frame instead (a brief drop to the video's own rate,
-     * with no artifacts). Read from the previous frame's finished vectors, so the GPU never has to stop and wait.
+    /** Measure this pair after filtering. glReadPixels is synchronous on GLES 2;
+     * this small readback can stall and must be profiled on the target device.
      */
     private fun updateFrameFallback() {
         val count = vectorWidth * vectorHeight
@@ -527,12 +525,14 @@ internal class FrameBlendRenderer(
         pixels.position(0)
         GLES20.glReadPixels(0, 0, vectorWidth, vectorHeight, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, pixels)
         var bad = 0
+        var highResidual = 0
         for (i in 0 until count) {
-            val decided = (pixels.get(i * 4 + 3).toInt() and 0xFF) >= 128
-            if (decided && (pixels.get(i * 4 + 2).toInt() and 0xFF) < 128) bad++
+            if ((pixels.get(i * 4 + 2).toInt() and 0xFF) < 128) bad++
+            if ((pixels.get(i * 4 + 3).toInt() and 0xFF) > 46) highResidual++
         }
-        val limit = floatArrayOf(0.02f, 0.07f, 0.2f)[strength.coerceIn(0, 2)]
-        frameFallback = bad > count * limit
+        val decision = MotionReliability.decide(count, bad, highResidual, strength)
+        frameFallback = decision.holdFrame
+        sceneCut = decision.sceneCut
     }
 
     /** One block-matching pass: for each block of [cur], where is it in [prev]. Writes vectors into [target]. */
@@ -611,7 +611,10 @@ internal class FrameBlendRenderer(
         GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textures[current])
         GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uCurr"), 1)
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uMix"), if (useFallback) (if (fraction < 0.5f) 0f else 1f) else fraction)
+        val outputFraction = if (useFallback) {
+            if (fraction < (if (sceneCut) 1f else 0.5f)) 0f else 1f
+        } else fraction
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uMix"), outputFraction)
         if (useFallback) fallbackDrawn++
         if (vectorsValid && !useFallback) {
             GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uDebug"), if (debug) 1f else 0f)
@@ -852,6 +855,18 @@ internal class FrameBlendRenderer(
                     }
                 }
                 bool clear = bestRaw < second * uClear;
+                // Refine a trusted match at half-pixel precision for slow pans.
+                // Keep the ambiguity decision from the independent integer search.
+                vec2 integerV = bestV;
+                if (clear) {
+                    for (int sy = -1; sy <= 1; sy++) {
+                        for (int sx = -1; sx <= 1; sx++) {
+                            vec2 d = integerV + vec2(float(sx), float(sy)) * 0.5;
+                            float raw = cost(d);
+                            if (raw < bestRaw) { bestRaw = raw; bestV = d; }
+                        }
+                    }
+                }
                 // Temporal hint: the motion this block had in the previous frame. If it matches nearly as well as
                 // the new winner (and clearly beats standing still) keep it, so fast motion does not flip from
                 // frame to frame.
@@ -869,7 +884,7 @@ internal class FrameBlendRenderer(
                 // Alpha 0 = this block alone cannot tell (stripes, flat skin): the next pass fills it from its
                 // neighbours instead of forcing it to stand still inside a moving body.
                 vec2 v = clear ? bestV : vec2(0.0);
-                gl_FragColor = vec4(v / 20.0 * 0.5 + 0.5, 1.0, clear ? 1.0 : 0.0);
+                gl_FragColor = vec4(v / 20.0 * 0.5 + 0.5, clamp(bestRaw / 25.0, 0.0, 1.0), clear ? 1.0 : 0.0);
             }
         """
         // Cleans up the block vectors.
@@ -975,14 +990,12 @@ internal class FrameBlendRenderer(
                 // smooth gives the benefit of the doubt.
                 if (evidence < 0.5 && uNeedReverse < 0.5) confirmed = 1.0;
                 float bad = (length(d) > 0.5 && (confirmed < 0.5 || spread >= uSpread)) ? 1.0 : 0.0;
-                // Alpha = 1 where this block decided its own motion; filled blocks (flat walls, plain areas) do not
-                // count towards the whole-frame fallback.
-                gl_FragColor = vec4(v4, 1.0 - bad, s4.a > 0.5 ? 1.0 : 0.0);
+                // Preserve matching residual even for ambiguous blocks: cuts cannot hide behind alpha=0.
+                gl_FragColor = vec4(v4, 1.0 - bad, s4.b);
             }
         """
         // Moves both neighbouring frames along the motion vector to time uMix. Where the two moved pictures
-        // disagree (hidden/uncovered areas, scene cuts) it holds the nearest real frame instead of cross-fading, so
-        // there is no ghosting. The disagreement is measured on the smooth small copy of the picture, so the choice
+        // disagree (hidden/uncovered areas, scene cuts) it masks with source frames; whole-pair failures hold a real frame. The disagreement is measured on the smooth small copy of the picture, so the choice
         // changes smoothly across the screen and does not flicker pixel by pixel on fine patterns.
         const val FRAGMENT_WARP = """
             precision highp float;

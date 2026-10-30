@@ -6,7 +6,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BlendClockTest {
+    @Test fun sixtyFpsSourceCanInterpolateForNinetyFpsTarget() {
+        val clock = BlendClock(90)
+        clock.onFrame(0, 0)
+        clock.onFrame(16_666_667, 16_666_667)
+        assertTrue(clock.needsInterpolation)
+        assertEquals(0.5f, clock.fraction(25_000_000), 0.0001f)
+        clock.targetFps = 60
+        assertFalse(clock.needsInterpolation)
+        assertEquals(1f, clock.fraction(25_000_000), 0.0001f)
+    }
+
     private val ms = 1_000_000L
+
+    @Test fun callbackJitterDoesNotChangePresentationCadence() {
+        val clock = BlendClock()
+        clock.onFrame(0, 0)
+        clock.onFrame(40 * ms, 80 * ms)
+        assertEquals(40 * ms, clock.smoothedGapNs)
+        assertEquals(0.5f, clock.fraction(100 * ms), 0.0001f)
+    }
+
+    @Test fun variableFrameIntervalsUseTheCurrentPair() {
+        val clock = BlendClock()
+        clock.onFrame(0, 0)
+        clock.onFrame(40 * ms, 40 * ms)
+        clock.onFrame(100 * ms, 100 * ms)
+        assertEquals(0.5f, clock.fraction(130 * ms), 0.0001f)
+    }
 
     @Test fun firstFrameIsShownImmediately() {
         val clock = BlendClock()

@@ -125,6 +125,7 @@ fun PlayerScreen(
     }
     // 0 = clean, 1 = balanced, 2 = maximum smoothing.
     var smoothDebug by remember { mutableStateOf(prefs.getBoolean("smooth_60fps_debug", false)) }
+    var smoothTargetFps by remember { mutableStateOf(prefs.getInt("smooth_target_fps", 60).let { if (it == 90) 90 else 60 }) }
     var smoothStrength by remember { mutableStateOf(prefs.getInt("smooth_60fps_strength", 1).coerceIn(0, 2)) }
     // Frame-rate indicator: what the video really plays at, and what the screen shows.
     var showFps by remember { mutableStateOf(prefs.getBoolean("show_fps_indicator", true)) }
@@ -133,18 +134,19 @@ fun PlayerScreen(
     var fileFps by remember { mutableStateOf(0f) }
     var decodedFps by remember { mutableStateOf(0f) }
     var displayHz by remember { mutableStateOf(0f) }
-    // This first stage negotiates 60 Hz output safely. A real MEMC/RIFE frame
-    // synthesizer will be a separate backend; requesting 60 Hz is NOT interpolation.
-    DisposableEffect(activity, prefer60Hz, smooth60) {
+    // Prefer a 60 Hz display mode for even output cadence. SmoothVideoView performs
+    // motion estimation separately; the display-mode request alone adds no frames.
+    DisposableEffect(activity, prefer60Hz, smooth60, smoothTargetFps) {
         val window = activity?.window
         val beforeId = window?.attributes?.preferredDisplayModeId ?: 0
         if ((prefer60Hz || smooth60) && window != null) {
+            val requestedHz = if (smooth60) smoothTargetFps.toFloat() else 60f
             val display = window.decorView.display
             val current = display?.mode
             val mode = display?.supportedModes
                 ?.filter { current == null || (it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight) }
-                ?.minByOrNull { kotlin.math.abs(it.refreshRate - 60f) }
-                ?.takeIf { kotlin.math.abs(it.refreshRate - 60f) < 2f }
+                ?.minByOrNull { kotlin.math.abs(it.refreshRate - requestedHz) }
+                ?.takeIf { kotlin.math.abs(it.refreshRate - requestedHz) < 2f }
             if (mode != null) {
                 val params = window.attributes
                 params.preferredDisplayModeId = mode.modeId
@@ -574,6 +576,7 @@ fun PlayerScreen(
                 factory = { SmoothVideoView(it).apply { onFailure = { smooth60 = false }; onStats = { stats -> smoothStats = stats }; smoothViewRef = this } },
                 update = { view ->
                     view.attach(player)
+                    view.targetFps = smoothTargetFps
                     view.strength = smoothStrength
                     view.debug = smoothDebug
                     view.resizeMode = aspect
@@ -835,7 +838,7 @@ fun PlayerScreen(
             }
             val line2 = if (smooth60 && stats != null) {
                 when {
-                    !stats.interpolating -> "Video is already fast (about 45 fps or more): shown as it is"
+                    !stats.interpolating -> "Source is close to the selected target: shown as it is"
                     stats.warping -> "Adding in-between frames with motion estimate · real frames ${stats.fallbackPercent}%"
                     else -> "Adding in-between frames by blending only"
                 }
@@ -944,9 +947,9 @@ fun PlayerScreen(
                     })
                 }
                 HorizontalDivider(color = Color.White.copy(alpha = 0.2f))
-                Text("60 FPS development preview", color = Color.White, style = MaterialTheme.typography.titleSmall)
+                Text("Smooth motion development preview", color = Color.White, style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "Smooth motion blends neighbouring frames on the GPU to show 24/30 fps video at 60 fps. It is a cross-fade, not true motion estimation yet.",
+                    "Smooth motion estimates movement between decoded frames and creates in-between frames on the GPU, targeting the selected frame rate. Difficult scenes use source frames or masking; artifacts can still occur.",
                     color = Color.LightGray,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -959,7 +962,7 @@ fun PlayerScreen(
                     })
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Smooth motion to 60 fps (experimental)", color = Color.White, modifier = Modifier.weight(1f))
+                    Text("Smooth motion (experimental)", color = Color.White, modifier = Modifier.weight(1f))
                     Switch(checked = smooth60, onCheckedChange = { value ->
                         smooth60 = value
                         prefs.edit().putBoolean("experimental_smooth_60fps", value).apply()
@@ -967,6 +970,21 @@ fun PlayerScreen(
                     })
                 }
                 if (smooth60) {
+                    Text("Target frame rate", color = Color.White)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(60, 90).forEach { fps ->
+                            FilterChip(
+                                selected = smoothTargetFps == fps,
+                                onClick = {
+                                    smoothTargetFps = fps
+                                    prefs.edit().putInt("smooth_target_fps", fps).apply()
+                                    revealControls()
+                                },
+                                label = { Text("$fps fps") },
+                            )
+                        }
+                    }
+                    Text("90 fps needs a display running at 90 Hz or faster and more GPU time. Check the frame-rate indicator.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                     Text("Smoothing strength", color = Color.White)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("Clean", "Balanced", "Max smooth").forEachIndexed { index, label ->
