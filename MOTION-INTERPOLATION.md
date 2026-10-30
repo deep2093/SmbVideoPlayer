@@ -65,3 +65,22 @@ Final measured averages (drawn swaps per second, not a measurement of distinct s
 Zero whole-frame fallback does not mean zero local masking or zero artifacts. The playback test requires at least 85% of the requested output rate, near-source decoding, and some interpolation instead of permanent source-frame holds; it passed both test classes. Sustained exact 90 fps has not been established. This panel has 60/96/120 Hz modes, not an exact 90 Hz mode. These short 360p synthetic tests do not establish 1080p/4K performance, real SMB throughput, thermal stability, audio sync or natural-scene visual quality.
 
 Reproduce with `python tools/generate_motion_fixtures.py` (FFmpeg required), then build/install preview and androidTest APKs with a version code no lower than the installed preview. Run only `com.deepak.videolibrary.player.MotionGpuTest` and `com.deepak.videolibrary.player.MotionPlaybackTest` using AndroidJUnitRunner with `-e motionPlayback true`. Generated test assets are ignored by Git. The tests use a temporary test Activity and app cache without opening library videos or SMB connections.
+
+
+## Stripe and fast-motion follow-up (preview 1527)
+
+User feedback identified artifacts on repeating stripes and fast motion. Inspection found that the vector filter could promote an undecided block by borrowing neighbours, accept a neighbouring object's reverse vector as confirmation, and allow Max to trust motion with no reverse evidence. Local fallback cross-faded the two source pictures, which can itself double stripe edges.
+
+Changes:
+- Keep ambiguous borrowed vectors untrusted in every preset, except genuinely static low-residual blocks.
+- Require the destination block to confirm reverse motion in every preset, with stricter tolerances.
+- Reject vectors near the search range limit, high-residual matches and median changes that can switch objects.
+- Hold one actual source picture in unreliable areas instead of cross-fading source pictures; strengthen masking near low confidence and prevent stretched sampling beyond frame edges.
+- Include full-colour disagreement in the mask so luma downsampling cannot hide all fine-pattern mismatches.
+- Correct the on-screen target label to show the selected 60/90 fps value.
+
+A targeted GPU regression checks trusted vectors, ambiguous filled vectors, absent reverse evidence and search-limit vectors across all three presets. Another checks that unsafe regions produce an actual source value at quarter/three-quarter phases rather than a blended value. These checks passed on the SM-X930.
+
+A private user-selected 1080p reference was streamed through the existing SMB data source at the requested timestamp and a nearby striped-shirt section. Source/generated/source captures were inspected for Balanced and Max; the video and captures are not included in this repository. After excluding capture stalls, decoded rate was 23.88/23.91 fps and drawn rate 57.71/58.45 fps respectively at target 60. Whole-frame fallback was 0% in these samples; local holds/masking remain active. This is a short targeted observation, not a proof of zero artifacts or motion accuracy in every scene. The stricter local holds trade some smoothness for fewer warped/doubled edges.
+
+The opt-in reference test accepts `referenceName` (exact indexed filename) and `referenceMs`. It opens only that item, mutes its own test player, and does not write playback history. Captures are temporary files named `motion-reference-<strength>-<index>.png` under the app cache; keep private and remove after inspection. Do not commit reference filenames or media. Synthetic tests require `motionPlayback=true` as before.

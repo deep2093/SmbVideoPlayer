@@ -830,9 +830,9 @@ fun PlayerScreen(
             val stats = smoothStats
             val hz = if (displayHz > 0f) " · display ${"%.0f".format(displayHz)} Hz" else ""
             val line1 = if (smooth60 && stats != null) {
-                "Smooth 60 ON · video ${"%.1f".format(stats.sourceFps)} fps → screen ${"%.1f".format(stats.outputFps)} fps$hz"
+                "Smooth $smoothTargetFps ON · video ${"%.1f".format(stats.sourceFps)} fps → screen ${"%.1f".format(stats.outputFps)} fps$hz"
             } else if (smooth60) {
-                "Smooth 60 ON · measuring…$hz"
+                "Smooth $smoothTargetFps ON · measuring…$hz"
             } else {
                 "Normal playback · ${"%.1f".format(decodedFps)} fps shown (file says ${"%.1f".format(fileFps)})$hz"
             }

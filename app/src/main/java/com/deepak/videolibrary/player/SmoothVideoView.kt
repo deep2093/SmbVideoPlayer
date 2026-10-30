@@ -122,6 +122,12 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
      * in Pictures/SkyWing, with no camera or screen recorder in between. A paused video shows only a real frame by
      * design, so press it while the action is playing.
      */
+    internal fun captureFrames(frames: Int, onShot: (Int, Int, String, Bitmap) -> Unit): Boolean {
+        val current = renderer ?: return false
+        current.requestCapture(frames, onShot)
+        return true
+    }
+
     fun saveFrame() {
         val current = renderer
         if (current == null) {
@@ -518,9 +524,8 @@ internal class FrameBlendRenderer(
             GLES20.glUniform1i(GLES20.glGetUniformLocation(vectorFilterProgram, "uBack"), 1)
             GLES20.glUniform2f(GLES20.glGetUniformLocation(vectorFilterProgram, "uVecSize"), vectorWidth.toFloat(), vectorHeight.toFloat())
             GLES20.glUniform2f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSize"), lumaWidth.toFloat(), lumaHeight.toFloat())
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uConsist"), floatArrayOf(1.2f, 2.2f, 4.0f)[strength.coerceIn(0, 2)])
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uConsist"), floatArrayOf(1.0f, 1.5f, 2.0f)[strength.coerceIn(0, 2)])
             GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uSpread"), floatArrayOf(3f, 5f, 8f)[strength.coerceIn(0, 2)])
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(vectorFilterProgram, "uNeedReverse"), if (strength.coerceIn(0, 2) < 2) 1f else 0f)
             drawQuad(vectorFilterProgram)
             vectorsValid = true
             updateFrameFallback()
@@ -650,7 +655,6 @@ internal class FrameBlendRenderer(
             }
             val level = strength.coerceIn(0, 2)
             GLES20.glUniform2f(GLES20.glGetUniformLocation(program, "uDisc"), floatArrayOf(2f, 4f, 6f)[level], floatArrayOf(5f, 9f, 14f)[level])
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(program, "uTrust"), floatArrayOf(0.4f, 0.7f, 1.0f)[level])
             GLES20.glActiveTexture(GLES20.GL_TEXTURE2)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, vectorTexture)
             GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "uMv"), 2)
@@ -898,7 +902,6 @@ internal class FrameBlendRenderer(
             uniform vec2 uSize;
             uniform float uConsist;
             uniform float uSpread;
-            uniform float uNeedReverse;
             vec2 temp;
             vec2 fillSum;
             float fillCount;
@@ -968,26 +971,21 @@ internal class FrameBlendRenderer(
                 mnmx4(v2, v3, v4, v7);
                 mnmx3(v3, v4, v8);
                 vec2 d = (v4 - 0.5) * 40.0;
-                // Any decided block around the target confirming it is enough; if none there could decide, there is
-                // no evidence against it.
-                float confirmed = 0.0;
-                float evidence = 0.0;
+                // A neighbouring object's reverse vector is not evidence for this block.
+                // Sample the actual destination block; ambiguous reverse matches stay untrusted in every mode.
                 vec2 target = c + d / uSize;
-                for (int j = -1; j <= 1; j++) {
-                    for (int i = -1; i <= 1; i++) {
-                        vec4 be = texture2D(uBack, target + vec2(float(i), float(j)) * o);
-                        if (be.a > 0.5) {
-                            evidence = 1.0;
-                            if (length(d + (be.rg - 0.5) * 40.0) <= uConsist) confirmed = 1.0;
-                        }
-                    }
-                }
-                // No decided block at the target means no evidence. Clean and Balanced treat that as unconfirmed; Max
-                // smooth gives the benefit of the doubt.
-                if (evidence < 0.5 && uNeedReverse < 0.5) confirmed = 1.0;
-                float bad = (length(d) > 0.5 && (confirmed < 0.5 || spread >= uSpread)) ? 1.0 : 0.0;
+                vec2 backCell = (floor(target * uVecSize) + 0.5) / uVecSize;
+                vec4 reverse = texture2D(uBack, clamp(backCell, 0.0, 1.0));
+                bool inBounds = target.x >= 0.0 && target.y >= 0.0 && target.x <= 1.0 && target.y <= 1.0;
+                bool confirmed = inBounds && reverse.a > 0.5 && length(d + (reverse.rg - 0.5) * 40.0) <= uConsist;
+                bool staticSafe = length(d) < 0.5 && s4.b < 0.015;
+                // Filling an undecided striped block may supply a predictor, but cannot manufacture confidence.
+                bool ambiguous = s4.a < 0.5;
+                bool changedObject = length(d - (s4.rg - 0.5) * 40.0) > uConsist;
+                bool searchLimit = max(abs(d.x), abs(d.y)) >= 17.5;
+                bool bad = !staticSafe && (ambiguous || !confirmed || changedObject || searchLimit || spread >= uSpread || s4.b > 0.12);
                 // Preserve matching residual even for ambiguous blocks: cuts cannot hide behind alpha=0.
-                gl_FragColor = vec4(v4, 1.0 - bad, s4.b);
+                gl_FragColor = vec4(v4, (bad ? 0.0 : 1.0), s4.b);
             }
         """
         // Moves both neighbouring frames along the motion vector to time uMix. Where the two moved pictures
@@ -1006,7 +1004,6 @@ internal class FrameBlendRenderer(
             uniform float uMix;
             uniform vec2 uHold;
             uniform vec2 uDisc;
-            uniform float uTrust;
             uniform float uDebug;
             void main() {
                 vec2 g = vCoord * uVecSize - 0.5;
@@ -1037,9 +1034,9 @@ internal class FrameBlendRenderer(
                 vec4 c = texture2D(uCurr, b);
                 // Disagreement between the two moved pictures, on the smooth small copies.
                 float diff = abs(texture2D(uPrevL, a).r - texture2D(uCurrL, b).r);
-                // Where the motion is not trusted, fall back to a plain cross-fade of the two real frames at this spot.
-                // It softens there, but never shows a piece of picture in the wrong place.
-                vec4 fallback = mix(texture2D(uPrev, vCoord), texture2D(uCurr, vCoord), uMix);
+                // Hold one actual frame in unreliable areas. Cross-fading repeating stripes creates doubled edges.
+                vec4 fallback = uMix < 0.5 ? texture2D(uPrev, vCoord) : texture2D(uCurr, vCoord);
+                diff = max(diff, 0.5 * max(max(abs(p.r - c.r), abs(p.g - c.g)), abs(p.b - c.b)));
                 // Neighbouring trusted vectors that disagree (edge of a moving body, a pattern that matched two ways)
                 // average into a motion that belongs to neither: show the real frames there as well.
                 float disc = 0.0;
@@ -1049,10 +1046,12 @@ internal class FrameBlendRenderer(
                 disc = max(disc, length((mv[1] - mv[2]) * uSize) * okv[1] * okv[2]);
                 disc = max(disc, length((mv[1] - mv[3]) * uSize) * okv[1] * okv[3]);
                 disc = max(disc, length((mv[2] - mv[3]) * uSize) * okv[2] * okv[3]);
-                float fb = max(max(smoothstep(uHold.x, uHold.y, diff), smoothstep(0.0, uTrust, 1.0 - ok)), smoothstep(uDisc.x, uDisc.y, disc));
+                float fb = max(max(smoothstep(uHold.x, uHold.y, diff), smoothstep(0.02, 0.25, 1.0 - ok)), smoothstep(uDisc.x, uDisc.y, disc));
+                // Texture clamping would stretch pixels at frame edges during fast motion.
+                if (min(min(a.x, a.y), min(b.x, b.y)) < 0.0 || max(max(a.x, a.y), max(b.x, b.y)) > 1.0) fb = 1.0;
                 vec4 colour = mix(mix(p, c, uMix), fallback, fb);
                 if (uDebug > 0.5) {
-                    // Debug colours: green = moved along a motion vector, red = fallback cross-fade.
+                    // Debug colours: green = moved along a motion vector, red = source-frame fallback.
                     float moving = step(0.5, length(m * uSize));
                     colour.rgb = mix(colour.rgb, vec3(1.0, 0.0, 0.0), 0.45 * fb);
                     colour.rgb = mix(colour.rgb, vec3(0.0, 1.0, 0.0), 0.35 * (1.0 - fb) * moving);
