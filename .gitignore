@@ -10,3 +10,4 @@ __pycache__/
 *.apk
 .kotlin/
 app/src/androidTest/assets/motion-test/
+app/src/androidTest/jniLibs/

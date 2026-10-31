@@ -1,0 +1,5 @@
+Native feasibility test uses open-svpflow by z1xus, licensed under Apache-2.0.
+Source: https://github.com/Z1xus/open-svpflow
+Revision: deadbad2201d77056173c05c2380758d88612019
+Android modifications: preserve tagged pointers in vector metadata; load libOpenCL.so.
+These are test libraries, not SVPlayer proprietary binaries.

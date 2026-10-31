@@ -1,0 +1,29 @@
+diff --git a/crates/svpflow-host/src/opencl.rs b/crates/svpflow-host/src/opencl.rs
+index ebd6ba4..f77dd21 100644
+--- a/crates/svpflow-host/src/opencl.rs
++++ b/crates/svpflow-host/src/opencl.rs
+@@ -194,6 +194,8 @@ impl OpenCl {
+             "OpenCL.dll"
+         } else if cfg!(target_os = "macos") {
+             "/System/Library/Frameworks/OpenCL.framework/OpenCL"
++        } else if cfg!(target_os = "android") {
++            "libOpenCL.so"
+         } else {
+             "libOpenCL.so.1"
+         };
+diff --git a/crates/svpflow2/src/metadata.rs b/crates/svpflow2/src/metadata.rs
+index 52e2e92..9714b3c 100644
+--- a/crates/svpflow2/src/metadata.rs
++++ b/crates/svpflow2/src/metadata.rs
+@@ -4,6 +4,11 @@ pub(crate) unsafe fn vector_data(handle: i64) -> VectorRecord {
+     if handle == 0 {
+         return VectorRecord::Missing;
+     }
++    // Android's tagged heap pointers may have the sign bit set when carried
++    // through the integer property API. Preserve their bits on the round trip.
++    #[cfg(all(target_os = "android", target_pointer_width = "64"))]
++    let address = handle as usize;
++    #[cfg(not(all(target_os = "android", target_pointer_width = "64")))]
+     let Ok(address) = usize::try_from(handle) else {
+         return VectorRecord::Invalid;
+     };
