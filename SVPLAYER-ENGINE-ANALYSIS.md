@@ -49,7 +49,7 @@ The main library depends on mpv and Vulkan; the synthesis plugin also depends on
 
 SVPlayer was opened on the same installed tablet and the user-specified video was opened. The inspected profile showed target 60 fps, automatic options enabled, the performance/quality slider around its middle, animation optimization off, and Average artifact masking.
 
-During this inspection SVPlayer displayed an Unlock HFR playback prompt. No purchase or license modification was performed. The user said they would restore HFR access. A valid matched-timestamp 60 fps output comparison has not been completed; still screenshots alone cannot establish smoothness or actual output cadence. Parameter values above must not be described as a captured running script.
+Normal restart restored the available HFR trial session. Live diagnostics reported 59.9401 fps (23.976 multiplied by 5/2), automatic film profile #1, and a resulting frame of 1920x1012 resized from 2048x1080. OpenCL GPU detection succeeded; this alone does not establish the active synthesis API or analysis pyramid dimensions. A temporary Lua diagnostic through mpv.conf failed with a script-read error; its setting and transferred scripts were removed. No active generated configuration was captured. No purchase or license modification was performed. A valid matched-timestamp 60 fps output comparison has not been completed; still screenshots alone cannot establish smoothness or actual output cadence. Parameter values above must not be described as a captured running script.
 
 ## Concrete differences from SkyWing preview 1528
 
@@ -64,4 +64,4 @@ The current GLES implementation is an approximation and has not reproduced the n
 
 ## Remaining work
 
-After HFR access is restored, capture the active generated configuration and comparable output at the same timestamp, resolution and 60 fps target. Continue focused analysis of the analysis/synthesis plugin entry points and the generator's configuration branches. Use controlled occlusion and moving-pattern ground truth to validate a replacement compensation path, rather than treating frame counters or compilation as visual-quality proof. No new renderer revision was installed as part of this analysis pass.
+Capture the active generated configuration and comparable output at the same timestamp, resolution and 60 fps target. Continue focused analysis of the analysis/synthesis plugin entry points and the generator's configuration branches. Use controlled occlusion and moving-pattern ground truth to validate a replacement compensation path, rather than treating frame counters or compilation as visual-quality proof. No new renderer revision was installed as part of this analysis pass.
