@@ -52,7 +52,7 @@ Stream *stream(jlong value) { return reinterpret_cast<Stream *>(value); }
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_deepak_videolibrary_player_NativeSvpStream_create(JNIEnv *env, jobject, jstring directory,
-    jint width, jint height, jlong fps_num, jlong fps_den) {
+    jint width, jint height, jlong fps_num, jlong fps_den, jboolean use_gpu) {
     if (width <= 0 || height <= 0 || width > 4096 || height > 2160 || (width | height) & 1 || fps_num <= 0 || fps_den <= 0) {
         error(env, "Unsupported native frame geometry/rate"); return 0;
     }
@@ -68,7 +68,7 @@ Java_com_deepak_videolibrary_player_NativeSvpStream_create(JNIEnv *env, jobject,
     auto *owner = new std::shared_ptr<Source>(result->source);
     result->input = osvp_source(result->context, &info, read_source, release_source, owner);
     if (!result->input) { delete owner; error(env, osvp_error()); return 0; }
-    result->output = osvp_smooth_fps(result->context, result->input, "{gpu:1,pel:2}",
+    result->output = osvp_smooth_fps(result->context, result->input, use_gpu ? "{gpu:1,pel:2}" : "{gpu:0,pel:2}",
         "{block:{w:16,overlap:2}}", "{rate:{abs:true,num:60,den:1},algo:13,mask:{cover:80,area:30}}", 1);
     if (!result->output) { error(env, osvp_error()); return 0; }
     return reinterpret_cast<jlong>(result.release());

@@ -19,7 +19,7 @@ import kotlin.math.abs
 
 internal object NativeSvpStream {
     val available: Boolean by lazy { runCatching { System.loadLibrary("skywing_svp_stream") }.isSuccess }
-    external fun create(directory: String, width: Int, height: Int, fpsNum: Long, fpsDen: Long): Long
+    external fun create(directory: String, width: Int, height: Int, fpsNum: Long, fpsDen: Long, useGpu: Boolean): Long
     external fun push(handle: Long, yuv: ByteBuffer)
     external fun render(handle: Long, index: Int, yuv: ByteBuffer): Boolean
     external fun end(handle: Long)
@@ -192,9 +192,12 @@ private class NativeSvpShader(private val directory: String, private val control
         } catch (e: Throwable) { fail(e) }
     }
     private fun open() {
-        handle = NativeSvpStream.create(directory, width, height, fpsNum, fpsDen)
+        // Adreno OpenCL stalled during live playback on the S26 Ultra. Keep rendering
+        // on GLES, but run interpolation on the CPU for this GPU family.
+        val useGpu = !GL.glGetString(GL.GL_RENDERER).orEmpty().contains("Adreno", ignoreCase = true)
+        handle = NativeSvpStream.create(directory, width, height, fpsNum, fpsDen, useGpu)
         check(handle != 0L)
-        android.util.Log.i("NativeSvp", "Stream ${width}x$height source=$fpsNum/$fpsDen output=60 analysis=half")
+        android.util.Log.i("NativeSvp", "Stream ${width}x$height source=$fpsNum/$fpsDen output=60 analysis=half backend=${if (useGpu) "OpenCL" else "CPU"}")
         repeat(3) {
             val texture = checkNotNull(provider).createBuffersForTexture(GlUtil.createTexture(width, height, false), width, height)
             textures.add(texture); free.add(texture)
@@ -338,14 +341,17 @@ private class NativeSvpShader(private val directory: String, private val control
     override fun release() { controller.unbind(decoderEnd); stop() }
 }
 
-/** Match the tested 1920-wide analysis limit, preserving aspect and even YUV dimensions. */
+/** Bound CPU work on Adreno and align the half-analysis planes to four pixels. */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class NativeSvpScale : androidx.media3.effect.GlMatrixTransformation {
     private val identity = GlUtil.create4x4IdentityMatrix()
     override fun configure(inputWidth: Int, inputHeight: Int): androidx.media3.common.util.Size {
-        val scale = minOf(1.0, 1920.0 / inputWidth, 1080.0 / inputHeight)
-        return androidx.media3.common.util.Size(maxOf(2, (inputWidth * scale).toInt() and -2),
-            maxOf(2, (inputHeight * scale).toInt() and -2))
+        val cpu = GL.glGetString(GL.GL_RENDERER).orEmpty().contains("Adreno", ignoreCase = true)
+        val maxWidth = if (cpu) 1280.0 else 1920.0
+        val maxHeight = if (cpu) 720.0 else 1080.0
+        val scale = minOf(1.0, maxWidth / inputWidth, maxHeight / inputHeight)
+        return androidx.media3.common.util.Size(maxOf(4, (inputWidth * scale).toInt() and -4),
+            maxOf(4, (inputHeight * scale).toInt() and -4))
     }
     override fun getGlMatrixArray(presentationTimeUs: Long): FloatArray = identity
 }
