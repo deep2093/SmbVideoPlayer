@@ -206,6 +206,49 @@ class MotionGpuTest {
             androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStatus(0,
                 android.os.Bundle().apply { putString("stream", "\nActual striped-plane search: correct=$correct/100 confident=$confident/100\n") })
             assertTrue("Actual motion search recovered only $correct/100 textured-stripe vectors", correct >= 90)
+            // Vectors belong to the CURRENT image. A changing displacement must be
+            // evaluated at the current-image position corresponding to the output pixel.
+            fun signal(x: Double) = (127.5 + 110.0 * kotlin.math.sin(x * 0.7)).toInt().coerceIn(0, 255)
+            for (i in 0..1) {
+                GL.glActiveTexture(GL.GL_TEXTURE0 + i)
+                GL.glBindTexture(GL.GL_TEXTURE_2D, textures[i])
+                val data = ByteBuffer.allocateDirect(64 * 64 * 4)
+                repeat(64) { repeat(64) { x ->
+                    val position = x + 0.5
+                    val value = signal(if (i == 0) position else position + 4.0 + 0.2 * (position - 32.0))
+                    repeat(3) { data.put(value.toByte()) }; data.put(255.toByte())
+                } }
+                data.position(0)
+                GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, 64, 64, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, data)
+            }
+            GL.glActiveTexture(GL.GL_TEXTURE2)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, mv[0])
+            val field = ByteBuffer.allocateDirect(64 * 8).order(ByteOrder.nativeOrder())
+            repeat(64) { x ->
+                val d = 4f + 0.2f * (x + 0.5f - 32f)
+                field.putShort(android.util.Half.toHalf(0.5f + d / 40f))
+                    .putShort(0x3800.toShort()).putShort(0x3c00.toShort()).putShort(0x3c00.toShort())
+            }
+            field.position(0)
+            GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, if (coreHalf) 0x881A else GL.GL_RGBA, 64, 1, 0,
+                GL.GL_RGBA, if (coreHalf) 0x140B else 0x8D61, field)
+            GL.glUseProgram(warp)
+            GL.glUniform2f(GL.glGetUniformLocation(warp, "uSize"), 64f, 64f)
+            GL.glUniform2f(GL.glGetUniformLocation(warp, "uVecSize"), 64f, 1f)
+            GL.glViewport(0, 0, 64, 64)
+            draw(warp)
+            val scaled = ByteBuffer.allocateDirect(64 * 64 * 4)
+            GL.glReadPixels(0, 0, 64, 64, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, scaled)
+            var scaleError = 0L
+            for (y in 8..55) for (x in 8..55) {
+                val currentX = (x + 0.5 + 1.2) / 1.1
+                val previousX = currentX + 4.0 + 0.2 * (currentX - 32.0)
+                scaleError += kotlin.math.abs((scaled.get((y * 64 + x) * 4).toInt() and 255) - signal(previousX))
+            }
+            val scaleMean = scaleError.toDouble() / (48 * 48)
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStatus(0,
+                android.os.Bundle().apply { putString("stream", "\nChanging-motion midpoint error=$scaleMean/255\n") })
+            assertTrue("Changing-motion vectors sampled in the wrong coordinate domain: $scaleMean", scaleMean < 3.8)
             androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStatus(0,
                 android.os.Bundle().apply { putString("stream", "\nMoving stripe mean error: byte=${movingErrors[0]}, half=${movingErrors[1]}\n") })
         } finally {

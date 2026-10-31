@@ -1044,7 +1044,14 @@ internal class FrameBlendRenderer(
             uniform float uTrust;
             uniform float uDebug;
             void main() {
-                vec2 g = vCoord * uVecSize - 0.5;
+                // The field is defined at current-frame coordinates. Invert the
+                // current -> intermediate mapping before gathering its vectors.
+                // Without this, expanding objects and boundaries use motion from
+                // a different part of the picture even with a perfect motion field.
+                vec4 seed = texture2D(uMv, vCoord);
+                vec2 seedMotion = (seed.rg - 0.5) * 40.0 / uSize * step(0.5, seed.b);
+                vec2 currentCoord = vCoord - seedMotion * (1.0 - uMix);
+                vec2 g = currentCoord * uVecSize - 0.5;
                 vec2 f = floor(g);
                 vec2 w = g - f;
                 vec2 mv[4];
