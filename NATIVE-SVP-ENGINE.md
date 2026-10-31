@@ -55,3 +55,13 @@ Build the native app libraries with `tools/build-native-svp-probe.ps1` on the do
 ## Media3 integration investigation
 
 SkyWing currently uses Media3 1.6.1. Its shipped `GlShaderProgram` interface explicitly permits asynchronous output, retaining multiple inputs before producing output, and output callbacks with independent presentation timestamps. The integration is a bounded native interpolation effect in Media3's video-frame processor, with output frame timestamps driven by the media timeline. This integration now keeps scheduling under the existing playback clock. The tests cover output multiplicity, backpressure, flush/end-of-stream handling and the live conversion path. The 1.6.1 processor also distinguishes default SDR working color from linear working color; the bridge must not assume raw decoder YUV is equivalent to its GL texture values.
+
+## Safety nets for devices that were not tested
+
+The engine was validated on the SM-X930 (Mali) only. On a Snapdragon phone it failed with `ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED` and stalled the picture while audio kept playing.
+
+* **Start-up probe** (`NativeSvpProbe`): on a background thread with a 25 s limit, a synthetic 1080p 24 to 60 fps clip runs through the engine. Until it passes, video plays normally. A hard failure or no answer marks the device for this app version (`native_probe_<versionCode>`); "Check again" in the smoothing settings clears it.
+* **Normal playback on failure:** an effect-pipeline error (both 5001 and 5002) or a stall (three seconds under 30 fps after a 6 s grace, from the rendered-frame counter) switches the video to normal playback, not to the GL smoother. Two non-video-specific failures in separate sessions persist the block.
+* **Real reason shown:** `NativeSvpDiagnostics` keeps the root cause of the last failure (also logged under the `NativeSvp` tag) and it appears in the toast and settings.
+* **No blocking teardown:** the effect waits at most 1.5 s for its worker thread; a worker stuck in a driver call and its native stream are abandoned so Media3's video thread cannot deadlock.
+* Not done: output catch-up after a slow start, a lighter native profile.

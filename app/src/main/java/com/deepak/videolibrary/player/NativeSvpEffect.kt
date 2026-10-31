@@ -17,8 +17,30 @@ import java.nio.ByteBuffer
 import java.util.concurrent.Executor
 import kotlin.math.abs
 
+/** Why the native engine last failed, in plain text, so the app can show it instead of only an error code. */
+internal object NativeSvpDiagnostics {
+    @Volatile var lastFailure: String? = null
+
+    fun describe(error: Throwable): String {
+        val parts = generateSequence(error) { it.cause }.mapNotNull { it.message?.takeIf { m -> m.isNotBlank() } }.distinct().toList()
+        return (parts.lastOrNull() ?: error.javaClass.simpleName).take(200)
+    }
+
+    fun record(error: Throwable) {
+        lastFailure = describe(error)
+        android.util.Log.e("NativeSvp", "native smoothing failed: ${lastFailure}", error)
+    }
+}
+
 internal object NativeSvpStream {
     val available: Boolean by lazy { runCatching { System.loadLibrary("skywing_svp_stream") }.isSuccess }
+
+    /** Where the engine finds its sibling libraries (extracted libs, or straight from the APK). */
+    fun libraryDirectory(context: Context): String {
+        val info = context.applicationInfo
+        return if (File(info.nativeLibraryDir, "libsvpflow1_vs.so").isFile) info.nativeLibraryDir
+        else info.sourceDir + "!/lib/arm64-v8a"
+    }
     external fun create(directory: String, width: Int, height: Int, fpsNum: Long, fpsDen: Long): Long
     external fun push(handle: Long, yuv: ByteBuffer)
     external fun render(handle: Long, index: Int, yuv: ByteBuffer): Boolean
@@ -33,10 +55,7 @@ internal class NativeSvpEffect(private val controller: NativeSvpController) : Gl
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram {
         check(!useHdr) { "Native interpolation currently supports SDR only" }
         check(NativeSvpStream.available) { "Native interpolation libraries are unavailable" }
-        val info = context.applicationInfo
-        val directory = if (File(info.nativeLibraryDir, "libsvpflow1_vs.so").isFile)
-            info.nativeLibraryDir else info.sourceDir + "!/lib/arm64-v8a"
-        return NativeSvpShader(directory, controller)
+        return NativeSvpShader(NativeSvpStream.libraryDirectory(context), controller)
     }
 }
 
@@ -93,6 +112,7 @@ private class NativeSvpShader(private val directory: String, private val control
         errorExecutor = executor; errors = listener
     }
     private fun fail(e: Throwable) {
+        NativeSvpDiagnostics.record(e)
         active = false
         if (handle != 0L) NativeSvpStream.cancel(handle)
         synchronized(lock) { lock.notifyAll() }
@@ -322,8 +342,17 @@ private class NativeSvpShader(private val directory: String, private val control
         active = false
         if (handle != 0L) NativeSvpStream.cancel(handle)
         synchronized(lock) { lock.notifyAll() }
-        worker?.join(); worker = null
-        if (handle != 0L) { NativeSvpStream.close(handle); handle = 0 }
+        // Never wait forever for the worker: if it is stuck inside the graphics driver, waiting here would freeze
+        // Media3's video thread too and the fallback to normal playback could never happen. A stuck worker and its
+        // native stream are abandoned (a small leak) instead of freed from under it.
+        val running = worker
+        running?.join(1500)
+        val stuck = running?.isAlive == true
+        worker = null
+        if (handle != 0L) {
+            if (!stuck) NativeSvpStream.close(handle)
+            handle = 0
+        }
         textures.forEach { it.release() }; textures.clear(); free.clear()
         if (readFbo != 0) GL.glDeleteFramebuffers(1, intArrayOf(readFbo), 0)
         if (packedTexture != 0) GL.glDeleteTextures(1, intArrayOf(packedTexture), 0)

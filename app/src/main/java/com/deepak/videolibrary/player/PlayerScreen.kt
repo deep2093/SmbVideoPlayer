@@ -129,9 +129,24 @@ fun PlayerScreen(
         mutableStateOf(prefs.getBoolean("experimental_smooth_60fps", false))
     }
     val nativeAvailable = remember { NativeSvpStream.available }
+    // The native engine is only used after a background start-up check passed (see NativeSvpProbe), and only until it
+    // fails or falls behind: then this video, and later ones on a device that keeps failing, play normally.
+    val probeKey = remember { "native_probe_" + runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }.getOrDefault(0L) }
+    var nativeProbe by remember { mutableStateOf(prefs.getString(probeKey, null)) } // null = not checked yet
+    var nativeBlock by remember { mutableStateOf<String?>(null) } // set when it fails during this session
+    var lastGiveUpAt by remember { mutableStateOf(0L) }
+    val nativeReady = nativeAvailable && nativeProbe == "ok" && nativeBlock == null
+    val nativeBlockedReason: String? = when {
+        !nativeAvailable -> null
+        nativeBlock != null -> nativeBlock
+        nativeProbe?.startsWith("failed") == true -> nativeProbe
+        else -> null
+    }
+    val useNative = smooth60 && nativeReady
+    val useLegacy = smooth60 && !nativeAvailable
     val nativeController = remember { NativeSvpController() }
     val nativeEffects = remember { listOf(NativeSvpScale(), NativeSvpEffect(nativeController)) }
-    val nativeInUse by rememberUpdatedState(smooth60 && nativeAvailable)
+    val nativeInUse by rememberUpdatedState(useNative)
     val nativeFrames = remember { java.util.concurrent.atomic.AtomicInteger() }
     var nativeShownFps by remember { mutableStateOf(0f) }
     // 0 = clean, 1 = balanced, 2 = maximum smoothing (legacy backend only).
@@ -212,7 +227,7 @@ fun PlayerScreen(
             .setPrioritizeTimeOverSizeThresholds(false)
             .build()
         ExoPlayer.Builder(context, renderers).setLoadControl(loadControl).build().apply {
-            if (smooth60 && nativeAvailable) setVideoEffects(nativeEffects)
+            if (smooth60 && nativeReady) setVideoEffects(nativeEffects)
             setVideoFrameMetadataListener { _, _, _, _ -> nativeFrames.incrementAndGet() }
             setAudioAttributes(
                 AudioAttributes
@@ -244,8 +259,73 @@ fun PlayerScreen(
             playWhenReady = false
         }
     }
-    LaunchedEffect(player, smooth60, nativeAvailable) {
-        player.setVideoEffects(if (smooth60 && nativeAvailable) nativeEffects else emptyList())
+    fun giveUpOnNative(slow: Boolean, reason: String) {
+        if (nativeBlock != null) return
+        nativeBlock = reason
+        lastGiveUpAt = SystemClock.elapsedRealtime()
+        player.setVideoEffects(emptyList())
+        // Failures caused by this particular video (HDR, variable frame rate) say nothing about the device.
+        val videoSpecific = listOf("SDR only", "Variable-rate", "frame rate", "two decoded frames").any { reason.contains(it, ignoreCase = true) }
+        if (!videoSpecific) {
+            val strikes = prefs.getInt("native_strikes", 0) + 1
+            prefs.edit().putInt("native_strikes", strikes).apply()
+            if (strikes >= 2) {
+                val text = "failed: " + (if (slow) "too slow twice" else reason)
+                prefs.edit().putString(probeKey, text).apply()
+                nativeProbe = text
+            }
+        }
+        AppDiagnostics.record(context, "native-smooth", (if (slow) "too slow: " else "error: ") + reason)
+        android.widget.Toast.makeText(
+            context,
+            (if (slow) "Advanced smoothing could not keep up" else "Advanced smoothing failed") + " ($reason); playing normally",
+            android.widget.Toast.LENGTH_LONG,
+        ).show()
+    }
+    // Start-up check, off the playback path: until it passes the video simply plays normally.
+    LaunchedEffect(smooth60, nativeAvailable, nativeProbe) {
+        if (!smooth60 || !nativeAvailable || nativeProbe != null) return@LaunchedEffect
+        val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { NativeSvpProbe.run(context) }
+        val text = if (result.ok) "ok" else "failed: ${result.detail}"
+        prefs.edit().putString(probeKey, text).apply()
+        AppDiagnostics.record(context, "native-probe", text)
+        nativeProbe = text
+    }
+    LaunchedEffect(player, useNative) {
+        player.setVideoEffects(if (useNative) nativeEffects else emptyList())
+    }
+    // Stall watchdog: while playing with the native engine the screen should get close to 60 frames a second. After a
+    // grace period for start-up and seeks, three slow seconds in a row (a frozen picture counts as 0) means it cannot
+    // keep up.
+    LaunchedEffect(player, useNative) {
+        if (!useNative) return@LaunchedEffect
+        var lastCount = nativeFrames.get()
+        var lastAt = SystemClock.elapsedRealtime()
+        var playingSince = 0L
+        var slowSeconds = 0
+        while (true) {
+            delay(1000)
+            val now = SystemClock.elapsedRealtime()
+            val count = nativeFrames.get()
+            val fps = (count - lastCount) * 1000f / (now - lastAt).coerceAtLeast(1L)
+            lastCount = count
+            lastAt = now
+            if (!player.isPlaying) {
+                playingSince = 0L
+                slowSeconds = 0
+                continue
+            }
+            if (playingSince == 0L) playingSince = now
+            if (now - playingSince < 6000L) {
+                slowSeconds = 0
+                continue
+            }
+            slowSeconds = if (fps < 30f) slowSeconds + 1 else 0
+            if (slowSeconds >= 3) {
+                giveUpOnNative(slow = true, reason = "only ${"%.0f".format(fps)} fps")
+                break
+            }
+        }
     }
     LaunchedEffect(player, showFps) {
         if (!showFps) return@LaunchedEffect
@@ -476,11 +556,14 @@ fun PlayerScreen(
             }
             override fun onPlayerError(error: PlaybackException) {
                 AppDiagnostics.record(context, "error", error.errorCodeName)
-                if (nativeInUse && error.errorCodeName.contains("VIDEO_FRAME_PROCESSOR")) {
-                    smooth60 = false
+                // Both failure kinds of the effect pipeline: set-up (5001) and while running (5002). An error that arrives
+                // just after we already gave up on the engine is the old pipeline falling over: recover quietly.
+                val pipelineError = error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED ||
+                    error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
+                if (pipelineError && (nativeInUse || SystemClock.elapsedRealtime() - lastGiveUpAt < 15_000L)) {
+                    if (nativeInUse) giveUpOnNative(slow = false, reason = NativeSvpDiagnostics.lastFailure ?: NativeSvpDiagnostics.describe(error))
                     player.setVideoEffects(emptyList())
                     player.prepare()
-                    android.widget.Toast.makeText(context, "Smoothing unavailable for this video; using normal playback", android.widget.Toast.LENGTH_LONG).show()
                     return
                 }
                 message = "Playback interruption: ${error.errorCodeName}"
@@ -596,7 +679,7 @@ fun PlayerScreen(
         }
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (smooth60 && !nativeAvailable) {
+        if (useLegacy) {
             AndroidView(
                 onReset = null,
                 onRelease = { it.release() },
@@ -857,14 +940,14 @@ fun PlayerScreen(
             val hz = if (displayHz > 0f) " · display ${"%.0f".format(displayHz)} Hz" else ""
             val line1 = if (nativeInUse) {
                 "Smooth 60 ON · video ${"%.1f".format(fileFps)} fps → screen ${"%.1f".format(nativeShownFps)} fps$hz"
-            } else if (smooth60 && stats != null) {
+            } else if (useLegacy && stats != null) {
                 "Smooth $smoothTargetFps ON · video ${"%.1f".format(stats.sourceFps)} fps → screen ${"%.1f".format(stats.outputFps)} fps$hz"
-            } else if (smooth60) {
+            } else if (useLegacy) {
                 "Smooth $smoothTargetFps ON · measuring…$hz"
             } else {
                 "Normal playback · ${"%.1f".format(decodedFps)} fps shown (file says ${"%.1f".format(fileFps)})$hz"
             }
-            val line2 = if (smooth60 && !nativeAvailable && stats != null) {
+            val line2 = if (useLegacy && stats != null) {
                 when {
                     !stats.interpolating -> "Source is close to the selected target: shown as it is"
                     stats.warping -> "Adding in-between frames with motion estimate · real frames ${stats.fallbackPercent}%"
@@ -997,10 +1080,30 @@ fun PlayerScreen(
                         revealControls()
                     })
                 }
-                if (smooth60 && nativeAvailable) {
+                if (useNative) {
                     Text("Motion smoothing at 60 fps", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                 }
-                if (smooth60 && !nativeAvailable) {
+                if (smooth60 && nativeAvailable && nativeProbe == null) {
+                    Text(
+                        "Checking whether this device can run the advanced smoothing engine; playing normally until then.",
+                        color = Color.LightGray,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (smooth60 && nativeBlockedReason != null) {
+                    Text(
+                        "Advanced smoothing is off on this device: ${nativeBlockedReason.removePrefix("failed: ").take(120)}",
+                        color = Color.LightGray,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(onClick = {
+                        prefs.edit().remove(probeKey).putInt("native_strikes", 0).apply()
+                        nativeProbe = null
+                        nativeBlock = null
+                        revealControls()
+                    }) { Text("Check again", color = Color.White) }
+                }
+                if (useLegacy) {
                     Text("Smoothing strength", color = Color.White)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("Clean", "Balanced", "Max smooth").forEachIndexed { index, label ->
