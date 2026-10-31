@@ -67,6 +67,8 @@ import com.deepak.videolibrary.player.NativeSvpEffect
 import com.deepak.videolibrary.player.NativeSvpScale
 import com.deepak.videolibrary.player.NativeSvpStream
 import com.deepak.videolibrary.player.NativeSvpController
+import com.deepak.videolibrary.player.NativeSvpDiagnostics
+import com.deepak.videolibrary.player.NativeSvpProbe
 import com.deepak.videolibrary.player.NativeSvpRenderersFactory
 import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.player.SmbPlaybackDataSource
