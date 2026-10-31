@@ -55,12 +55,3 @@ Build the native app libraries with `tools/build-native-svp-probe.ps1` on the do
 ## Media3 integration investigation
 
 SkyWing currently uses Media3 1.6.1. Its shipped `GlShaderProgram` interface explicitly permits asynchronous output, retaining multiple inputs before producing output, and output callbacks with independent presentation timestamps. The integration is a bounded native interpolation effect in Media3's video-frame processor, with output frame timestamps driven by the media timeline. This integration now keeps scheduling under the existing playback clock. The tests cover output multiplicity, backpressure, flush/end-of-stream handling and the live conversion path. The 1.6.1 processor also distinguishes default SDR working color from linear working color; the bridge must not assume raw decoder YUV is equivalent to its GL texture values.
-
-## Safety nets for devices that were not tested
-
-The engine was only validated on the SM-X930 (Mali). On another phone it can fail with an error, or fall behind real time without any error: the effect renders output frames strictly in order, so once it is late Media3 drops every frame as too late and the picture freezes while the audio plays.
-
-* Both Media3 effect-pipeline failures (`VIDEO_FRAME_PROCESSOR_INIT_FAILED` and `VIDEO_FRAME_PROCESSING_FAILED`) now switch the current video to the built-in GL smoother. Only the first was handled before.
-* A watchdog in `PlayerScreen` watches the frames actually shown. After a 6 s grace period (start-up, seeks), three consecutive seconds under 30 fps while playing switch the video to the GL smoother.
-* A device that trips the watchdog in two separate sessions is remembered (`native_smooth_disabled`), so later videos skip the native engine. The smoothing settings offer "Try the advanced engine again" to clear it.
-* Not done yet: output catch-up (skipping stale output indexes after a slow start) and a lighter native profile. Device logs from a failing phone are needed first.
