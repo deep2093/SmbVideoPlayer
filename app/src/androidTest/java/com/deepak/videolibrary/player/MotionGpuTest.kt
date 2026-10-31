@@ -167,6 +167,45 @@ class MotionGpuTest {
                 movingErrors.add(sum.toDouble() / (56 * 56))
             }
             assertTrue("Moving-stripe precision: $movingErrors", movingErrors[1] < 2 && movingErrors[0] > movingErrors[1] + 5)
+            // Exercise the estimator itself, rather than supplying a perfect vector to the warp.
+            // A textured striped plane moves (3,1) pixels between the two input images.
+            for (i in 0..1) {
+                GL.glActiveTexture(GL.GL_TEXTURE0 + i)
+                GL.glBindTexture(GL.GL_TEXTURE_2D, textures[i])
+                val data = ByteBuffer.allocateDirect(64 * 64 * 4)
+                repeat(64) { y -> repeat(64) { x ->
+                    val sx = x - if (i == 1) 3 else 0
+                    val sy = y - if (i == 1) 1 else 0
+                    val stripe = if (Math.floorMod(sy, 6) < 3) 40 else 180
+                    val detail = Math.floorMod(sx * 17 + sy * 31 + sx * sy * 7, 61)
+                    repeat(3) { data.put((stripe + detail).toByte()) }; data.put(255.toByte())
+                } }
+                data.position(0)
+                GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, 64, 64, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, data)
+            }
+            GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, 0)
+            GL.glUseProgram(motion)
+            GL.glUniform1i(GL.glGetUniformLocation(motion, "uCurL"), 0)
+            GL.glUniform1i(GL.glGetUniformLocation(motion, "uPrevL"), 1)
+            GL.glUniform1f(GL.glGetUniformLocation(motion, "uHintOn"), 0f)
+            GL.glViewport(0, 0, 16, 16)
+            draw(motion)
+            val measured = ByteBuffer.allocateDirect(16 * 16 * 4)
+            GL.glReadPixels(0, 0, 16, 16, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, measured)
+            assertEquals(GL.GL_NO_ERROR, GL.glGetError())
+            var correct = 0
+            var confident = 0
+            for (y in 3..12) for (x in 3..12) {
+                val index = (y * 16 + x) * 4
+                // Predictor pass stores four times its displacement in the shared encoding.
+                val dx = ((measured.get(index).toInt() and 255) / 255f - 0.5f) * 10f
+                val dy = ((measured.get(index + 1).toInt() and 255) / 255f - 0.5f) * 10f
+                if (kotlin.math.abs(dx - 3f) < 0.2f && kotlin.math.abs(dy - 1f) < 0.2f) correct++
+                if ((measured.get(index + 3).toInt() and 255) > 127) confident++
+            }
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStatus(0,
+                android.os.Bundle().apply { putString("stream", "\nActual striped-plane search: correct=$correct/100 confident=$confident/100\n") })
+            assertTrue("Actual motion search recovered only $correct/100 textured-stripe vectors", correct >= 90)
             androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStatus(0,
                 android.os.Bundle().apply { putString("stream", "\nMoving stripe mean error: byte=${movingErrors[0]}, half=${movingErrors[1]}\n") })
         } finally {
