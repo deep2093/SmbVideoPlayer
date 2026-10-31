@@ -832,7 +832,10 @@ internal class FrameBlendRenderer(
                 float raw = 0.0;
                 for (int by = 0; by < 5; by++) {
                     for (int bx = 0; bx < 5; bx++) {
-                        vec2 p = (base + vec2(float(bx), float(by)) * 2.0 + 1.0) / uSize;
+                        // Integer base coordinates identify texels, whose centres
+                        // are at +0.5. Sampling at +1 averages adjacent texels and
+                        // erases alternating lines before comparing candidates.
+                        vec2 p = (base + vec2(float(bx), float(by)) * 2.0 + 0.5) / uSize;
                         raw += abs(texture2D(uCurL, p).r - texture2D(uPrevL, p + d / uSize).r);
                     }
                 }

@@ -249,6 +249,37 @@ class MotionGpuTest {
             androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStatus(0,
                 android.os.Bundle().apply { putString("stream", "\nChanging-motion midpoint error=$scaleMean/255\n") })
             assertTrue("Changing-motion vectors sampled in the wrong coordinate domain: $scaleMean", scaleMean < 3.8)
+            // Opposite phases of fine horizontal lines must disagree before search.
+            // The old half-texel sampling averaged both inputs to the same grey.
+            for (i in 0..1) {
+                GL.glActiveTexture(GL.GL_TEXTURE0 + i)
+                GL.glBindTexture(GL.GL_TEXTURE_2D, textures[i])
+                val data = ByteBuffer.allocateDirect(64 * 64 * 4)
+                repeat(64) { y -> repeat(64) {
+                    val value = if ((y + i) % 2 == 0) 40 else 220
+                    repeat(3) { data.put(value.toByte()) }; data.put(255.toByte())
+                } }
+                data.position(0)
+                GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, 64, 64, 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, data)
+            }
+            val costProbe = program(vertex, FrameBlendRenderer.FRAGMENT_MOTION.substringBefore("void main()") + """
+                void main() {
+                    base = vec2(16.0);
+                    gl_FragColor = vec4(cost(vec2(0.0)) / 25.0, 0.0, 0.0, 1.0);
+                }
+            """)
+            GL.glUseProgram(costProbe)
+            GL.glUniform1i(GL.glGetUniformLocation(costProbe, "uCurL"), 0)
+            GL.glUniform1i(GL.glGetUniformLocation(costProbe, "uPrevL"), 1)
+            GL.glUniform2f(GL.glGetUniformLocation(costProbe, "uSize"), 64f, 64f)
+            draw(costProbe)
+            val contrast = ByteBuffer.allocateDirect(4)
+            GL.glReadPixels(32, 32, 1, 1, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, contrast)
+            val mismatch = contrast.get(0).toInt() and 255
+            assertEquals(GL.GL_NO_ERROR, GL.glGetError())
+            assertTrue("Motion matching erased stripe contrast: $mismatch/255", mismatch >= 175)
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStatus(0,
+                android.os.Bundle().apply { putString("stream", "\nOpposite stripe-phase mismatch=$mismatch/255 (expected 180)\n") })
             androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().sendStatus(0,
                 android.os.Bundle().apply { putString("stream", "\nMoving stripe mean error: byte=${movingErrors[0]}, half=${movingErrors[1]}\n") })
         } finally {
