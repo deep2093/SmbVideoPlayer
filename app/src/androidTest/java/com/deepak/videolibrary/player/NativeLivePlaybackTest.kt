@@ -4,8 +4,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.WindowManager
-import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -16,11 +14,9 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
-import org.junit.Rule
 import org.junit.Test
 
 class NativeLivePlaybackTest {
-    @get:Rule val rule = createComposeRule()
     @Test fun decodeInterpolateSeekAndResume() {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue(args.getString("nativeLive") == "true")
@@ -50,8 +46,9 @@ class NativeLivePlaybackTest {
         val frames = AtomicInteger()
         val lastFrame = java.util.concurrent.atomic.AtomicReference(0L to 0L)
         val failure = java.util.concurrent.atomic.AtomicReference<PlaybackException?>()
-        rule.setContent {
-            AndroidView(factory = { context ->
+        val scenario = androidx.test.core.app.ActivityScenario.launch(NativePlaybackTestActivity::class.java)
+        fun onMain(action: () -> Unit) { scenario.onActivity { action() } }
+        scenario.onActivity { context ->
                 val activity = context as android.app.Activity
                 activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 PlayerView(context).apply {
@@ -61,7 +58,7 @@ class NativeLivePlaybackTest {
                     }
                     player = ExoPlayer.Builder(context, NativeSvpRenderersFactory(context, controller)).build().apply {
                         volume = 0f
-                        setVideoEffects(if (reference != null) listOf(NativeSvpScale(), NativeSvpEffect(controller)) else listOf(NativeSvpEffect(controller)))
+                        setVideoEffects(if (reference != null) listOf(NativeSvpScale(), NativeSvpEffect(controller, args.getString("nativeGpu")?.toBooleanStrictOrNull())) else listOf(NativeSvpEffect(controller, args.getString("nativeGpu")?.toBooleanStrictOrNull())))
                         setVideoFrameMetadataListener { pts, release, _, _ -> frames.incrementAndGet(); lastFrame.set(pts to release) }
                         addListener(object : Player.Listener { override fun onPlayerError(error: PlaybackException) { failure.set(error) } })
                         if (mediaSource != null) { setMediaSource(checkNotNull(mediaSource)); seekTo(265_000) }
@@ -70,21 +67,20 @@ class NativeLivePlaybackTest {
                         else setMediaItem(MediaItem.fromUri(Uri.fromFile(fixture)))
                         prepare(); playWhenReady = true
                     }.also { this.player = it }
-                }
-            })
+                }.also { context.setContentView(it) }
         }
         try {
             if (args.getString("nativeEos") == "true") {
                 val deadline = SystemClock.elapsedRealtime() + 20_000
                 var ready = false
                 while (!ready && SystemClock.elapsedRealtime() < deadline) {
-                    rule.runOnIdle { ready = player.isPlaying && player.duration > 0 }
+                    onMain { ready = player.isPlaying && player.duration > 0 }
                     if (!ready) SystemClock.sleep(100)
                 }
                 assertTrue("EOS fixture did not start", ready)
-                rule.runOnIdle { player.seekTo(player.duration - 1500) }
+                onMain { player.seekTo(player.duration - 1500) }
                 SystemClock.sleep(4000)
-                rule.runOnIdle { assertEquals("Next item did not start", 1, player.currentMediaItemIndex) }
+                onMain { assertEquals("Next item did not start", 1, player.currentMediaItemIndex) }
                 frames.set(0)
                 SystemClock.sleep(2000)
                 assertNull(failure.get()?.stackTraceToString(), failure.get())
@@ -92,20 +88,25 @@ class NativeLivePlaybackTest {
                 return
             }
             for (seek in listOf(false, true)) {
-                if (seek) rule.runOnIdle { player.seekTo(if (reference == null) 1000 else 265_000); player.play() }
+                if (seek) onMain { player.seekTo(if (reference == null) 1000 else 265_000); player.play() }
                 val deadline = SystemClock.elapsedRealtime() + 30_000
                 var ready = false
                 while (!ready && failure.get() == null && SystemClock.elapsedRealtime() < deadline) {
-                    rule.runOnIdle { ready = player.isPlaying && player.currentPosition >= (if (reference == null) 1500 else 265_500) }
+                    onMain { ready = player.isPlaying && player.currentPosition >= (if (reference == null) 1500 else 265_500) }
                     if (!ready) SystemClock.sleep(100)
                 }
                 SystemClock.sleep(2000)
+                val measureMs = args.getString("nativeMeasureMs")?.toLong()?.coerceIn(2500, 30000) ?: 2500
+                onMain {
+                    assertTrue("Measurement would outlast the video; use a longer fixture",
+                        player.duration - player.currentPosition > measureMs + 500)
+                }
                 frames.set(0)
                 val start = SystemClock.elapsedRealtime()
-                SystemClock.sleep(args.getString("nativeMeasureMs")?.toLong()?.coerceIn(2500, 30000) ?: 2500)
+                SystemClock.sleep(measureMs)
                 val fps = frames.get() * 1000.0 / (SystemClock.elapsedRealtime() - start)
                 var position = 0L
-                rule.runOnIdle { position = player.currentPosition }
+                onMain { position = player.currentPosition }
                 val stamp = lastFrame.get()
                 // Media3 1.6.1 adds this renderer offset for the first period (MediaPeriodQueue).
                 val clockErrorMs = (stamp.first - 1_000_000_000_000L + (System.nanoTime() - stamp.second) / 1000) / 1000.0 - position
@@ -115,23 +116,23 @@ class NativeLivePlaybackTest {
                 assertTrue("Live native output too slow: $fps", fps >= 54)
                 if (!seek) {
                     var pausedAt = 0L
-                    rule.runOnIdle { player.pause(); pausedAt = player.currentPosition }
+                    onMain { player.pause(); pausedAt = player.currentPosition }
                     SystemClock.sleep(400)
-                    rule.runOnIdle {
+                    onMain {
                         assertTrue("Pause advanced the playback clock", kotlin.math.abs(player.currentPosition - pausedAt) < 50)
                         player.play()
                     }
                 }
             }
             // Exercise effect replacement through the same API as the normal playback switch.
-            rule.runOnIdle { player.setVideoEffects(emptyList()) }
+            onMain { player.setVideoEffects(emptyList()) }
             SystemClock.sleep(300)
-            rule.runOnIdle {
-                player.setVideoEffects(listOf(NativeSvpScale(), NativeSvpEffect(controller)))
+            onMain {
+                player.setVideoEffects(listOf(NativeSvpScale(), NativeSvpEffect(controller, args.getString("nativeGpu")?.toBooleanStrictOrNull())))
                 player.seekTo(if (reference == null) 1000 else 265_000)
             }
             SystemClock.sleep(2500)
             assertNull(failure.get()?.stackTraceToString(), failure.get())
-        } finally { rule.runOnIdle { player.release() }; fixture.delete() }
+        } finally { onMain { player.release() }; fixture.delete(); scenario.close() }
     }
 }

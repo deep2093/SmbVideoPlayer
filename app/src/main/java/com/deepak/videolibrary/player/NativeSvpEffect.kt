@@ -29,19 +29,19 @@ internal object NativeSvpStream {
 
 /** SDR preview engine. Media3 owns output scheduling and the audio clock. */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal class NativeSvpEffect(private val controller: NativeSvpController) : GlEffect {
+internal class NativeSvpEffect(private val controller: NativeSvpController, private val gpuOverride: Boolean? = null) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram {
         check(!useHdr) { "Native interpolation currently supports SDR only" }
         check(NativeSvpStream.available) { "Native interpolation libraries are unavailable" }
         val info = context.applicationInfo
         val directory = if (File(info.nativeLibraryDir, "libsvpflow1_vs.so").isFile)
             info.nativeLibraryDir else info.sourceDir + "!/lib/arm64-v8a"
-        return NativeSvpShader(directory, controller)
+        return NativeSvpShader(directory, controller, gpuOverride)
     }
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
-private class NativeSvpShader(private val directory: String, private val controller: NativeSvpController) : GlShaderProgram {
+private class NativeSvpShader(private val directory: String, private val controller: NativeSvpController, private val gpuOverride: Boolean?) : GlShaderProgram {
     private var input: GlShaderProgram.InputListener = object : GlShaderProgram.InputListener {}
     private var output: GlShaderProgram.OutputListener = object : GlShaderProgram.OutputListener {}
     private var errors = GlShaderProgram.ErrorListener {}
@@ -194,7 +194,7 @@ private class NativeSvpShader(private val directory: String, private val control
     private fun open() {
         // Adreno OpenCL stalled during live playback on the S26 Ultra. Keep rendering
         // on GLES, but run interpolation on the CPU for this GPU family.
-        val useGpu = !GL.glGetString(GL.GL_RENDERER).orEmpty().contains("Adreno", ignoreCase = true)
+        val useGpu = gpuOverride ?: !GL.glGetString(GL.GL_RENDERER).orEmpty().contains("Adreno", ignoreCase = true)
         handle = NativeSvpStream.create(directory, width, height, fpsNum, fpsDen, useGpu)
         check(handle != 0L)
         android.util.Log.i("NativeSvp", "Stream ${width}x$height source=$fpsNum/$fpsDen output=60 analysis=half backend=${if (useGpu) "OpenCL" else "CPU"}")

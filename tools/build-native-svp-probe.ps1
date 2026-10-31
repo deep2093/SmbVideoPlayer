@@ -36,7 +36,7 @@ New-Item -ItemType Directory -Force $output | Out-Null
 foreach ($name in 'libopen_svpflow.so', 'libsvpflow1_vs.so', 'libsvpflow2_vs.so') {
     Copy-Item (Join-Path $libraries $name) $output
 }
-& $clang --target=aarch64-linux-android29 -shared -fPIC -O2 -DSKYWING_JNI -I "$SourceDir/crates/svpflow-capi/include" "$PSScriptRoot/native_svp_probe.c" -L $libraries -lopen_svpflow '-Wl,-z,max-page-size=16384' -o "$output/libskywing_svp_probe.so"
+& $clang --target=aarch64-linux-android29 -shared -fPIC -O2 -DSKYWING_JNI -I "$SourceDir/crates/svpflow-capi/include" "$PSScriptRoot/native_svp_probe.c" -L $libraries -lopen_svpflow -llog '-Wl,-z,max-page-size=16384' -o "$output/libskywing_svp_probe.so"
 if ($LASTEXITCODE -ne 0) { throw 'JNI probe build failed' }
 $appOutput = Join-Path $PSScriptRoot '../app/src/main/jniLibs/arm64-v8a'
 New-Item -ItemType Directory -Force $appOutput | Out-Null

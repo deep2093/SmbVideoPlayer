@@ -10,9 +10,13 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#ifdef SKYWING_JNI
+#include <android/log.h>
+#endif
 
 static int width = 640, height = 360;
 static int raw_source = -1;
+static int probe_frames = 12, probe_fps = 24, probe_half = 0, probe_threads = 4;
 static char result_summary[256];
 static int32_t read_source(void *user, int32_t n, uint8_t *const planes[3],
                            const ptrdiff_t strides[3]) {
@@ -31,7 +35,7 @@ static int32_t read_source(void *user, int32_t n, uint8_t *const planes[3],
     }
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
-            int sx = x - n * 6;
+            int sx = x - (n * 6) % (width + 400);
             int object = sx >= 100 && sx < 400 && y >= 60 && y < 300;
             planes[0][y * strides[0] + x] = object ? ((y / 3) % 2 ? 200 : 50) : 110;
         }
@@ -63,10 +67,10 @@ int main(int argc, char **argv) {
         if (raw_source < 0) { perror("source"); return 1; }
     }
     if (width <= 0 || height <= 0 || width > 4096 || height > 4096 || width % 2 || height % 2) goto cleanup;
-    int frames = argc >= 6 ? atoi(argv[5]) : 12;
-    int fps_num = argc >= 7 ? atoi(argv[6]) : 24;
+    int frames = argc >= 6 ? atoi(argv[5]) : probe_frames;
+    int fps_num = argc >= 7 ? atoi(argv[6]) : probe_fps;
     int fps_den = argc >= 8 ? atoi(argv[7]) : 1;
-    if (frames < 2 || frames > 120 || fps_num <= 0 || fps_den <= 0) goto cleanup;
+    if (frames < 2 || frames > (raw_source >= 0 ? 120 : 7200) || fps_num <= 0 || fps_den <= 0) goto cleanup;
     if (raw_source >= 0) {
         struct stat st;
         if (fstat(raw_source, &st) || st.st_size != (off_t)width * height * 3 / 2 * frames) {
@@ -77,7 +81,7 @@ int main(int argc, char **argv) {
         output = fopen(argv[8], "wb");
         if (!output) { perror("output"); goto cleanup; }
     }
-    osvp_set_threads(4);
+    osvp_set_threads(probe_threads);
     context = osvp_create(argv[1]);
     if (!context) { fprintf(stderr, "create: %s\n", osvp_error()); goto cleanup; }
     osvp_video_info info = {OSVP_YUV420P8, width, height, fps_num, fps_den, frames};
@@ -86,7 +90,7 @@ int main(int argc, char **argv) {
     const char *super_options = getenv("OSVP_GPU") ? "{gpu:1,pel:2}" : "{gpu:0,pel:2}";
     smooth = osvp_smooth_fps(context, source,
         super_options, "{block:{w:16,overlap:2}}",
-        "{rate:{abs:true,num:60,den:1},algo:13,mask:{cover:80,area:30}}", 0);
+        "{rate:{abs:true,num:60,den:1},algo:13,mask:{cover:80,area:30}}", probe_half);
     if (!smooth) { fprintf(stderr, "smooth: %s\n", osvp_error()); goto cleanup; }
     osvp_clip_info(smooth, &info);
     printf("output=%dx%d fps=%lld/%lld frames=%d\n", info.width, info.height,
@@ -94,6 +98,9 @@ int main(int argc, char **argv) {
     double start = seconds();
     unsigned long checksum = 0;
     for (int n = 0; n < info.num_frames; ++n) {
+#ifdef SKYWING_JNI
+        if (n < 16 || n % 60 == 0) __android_log_print(4, "SvpProbe", "request frame=%d/%d half=%d workers=%d", n, info.num_frames, probe_half, probe_threads);
+#endif
         frame = osvp_get_frame(smooth, n);
         if (!frame) { fprintf(stderr, "frame %d: %s\n", n, osvp_error()); goto cleanup; }
         const uint8_t *data = osvp_frame_data(frame, 0);
@@ -140,8 +147,10 @@ cleanup:
 #include <jni.h>
 JNIEXPORT jstring JNICALL
 Java_com_deepak_videolibrary_player_NativeSvpProbe_run(JNIEnv *env, jobject self,
-    jstring directory, jint w, jint h, jboolean gpu) {
+    jstring directory, jint w, jint h, jboolean gpu, jint frames, jint fps, jboolean half, jint threads) {
     (void)self;
+    probe_frames = frames; probe_fps = fps; probe_half = half;
+    probe_threads = threads;
     const char *dir = (*env)->GetStringUTFChars(env, directory, NULL);
     if (!dir) return NULL;
     char ws[16], hs[16];

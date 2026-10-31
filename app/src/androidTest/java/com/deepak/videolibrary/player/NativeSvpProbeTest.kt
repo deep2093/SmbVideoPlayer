@@ -16,19 +16,24 @@ class NativeSvpProbeTest {
     @Test fun nativeEngineGenerates60FpsInsideApp() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("nativeSvp") == "true")
         val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val args = InstrumentationRegistry.getArguments()
+        val frames = args.getString("probeFrames")?.toInt() ?: 12
+        val fps = args.getString("probeFps")?.toInt() ?: 24
+        val half = args.getString("probeHalf") == "true"
         assumeTrue(Build.SUPPORTED_ABIS.first() == "arm64-v8a")
         val info = instrumentation.context.applicationInfo
         val directory = if (File(info.nativeLibraryDir, "libsvpflow1_vs.so").exists())
             info.nativeLibraryDir else info.sourceDir + "!/lib/arm64-v8a"
-        for (gpu in listOf(false, true)) {
-            val result = NativeSvpProbe.run(directory, 1920, 1080, gpu)
+        for (gpu in args.getString("probeGpu")?.toBooleanStrictOrNull()?.let { listOf(it) } ?: listOf(false, true)) {
+            val result = NativeSvpProbe.run(directory, 1920, 1080, gpu, frames, fps, half, args.getString("probeThreads")?.toInt() ?: 4)
             instrumentation.sendStatus(0, Bundle().apply { putString("stream", "\nNative SVP gpu=$gpu: $result\n") })
-            assertTrue(result, result.contains("fps=60/1") && result.contains("frames=28"))
+            val expected = (frames - 1) * 60 / fps + 1
+            assertTrue(result, result.contains("fps=60/1") && result.contains("frames=$expected "))
         }
     }
 }
 
 internal object NativeSvpProbe {
     init { System.loadLibrary("skywing_svp_probe") }
-    external fun run(directory: String, width: Int, height: Int, gpu: Boolean): String
+    external fun run(directory: String, width: Int, height: Int, gpu: Boolean, frames: Int, fps: Int, half: Boolean, threads: Int): String
 }
