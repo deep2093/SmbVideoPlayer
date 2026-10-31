@@ -63,6 +63,11 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.deepak.videolibrary.player.SmoothVideoView
+import com.deepak.videolibrary.player.NativeSvpEffect
+import com.deepak.videolibrary.player.NativeSvpScale
+import com.deepak.videolibrary.player.NativeSvpStream
+import com.deepak.videolibrary.player.NativeSvpController
+import com.deepak.videolibrary.player.NativeSvpRenderersFactory
 import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.player.SmbPlaybackDataSource
 import com.deepak.videolibrary.settings.SmbSettings
@@ -123,7 +128,13 @@ fun PlayerScreen(
     var smooth60 by remember {
         mutableStateOf(prefs.getBoolean("experimental_smooth_60fps", false))
     }
-    // 0 = clean, 1 = balanced, 2 = maximum smoothing.
+    val nativeAvailable = remember { NativeSvpStream.available }
+    val nativeController = remember { NativeSvpController() }
+    val nativeEffects = remember { listOf(NativeSvpScale(), NativeSvpEffect(nativeController)) }
+    val nativeInUse by rememberUpdatedState(smooth60 && nativeAvailable)
+    val nativeFrames = remember { java.util.concurrent.atomic.AtomicInteger() }
+    var nativeShownFps by remember { mutableStateOf(0f) }
+    // 0 = clean, 1 = balanced, 2 = maximum smoothing (legacy backend only).
     var smoothDebug by remember { mutableStateOf(prefs.getBoolean("smooth_60fps_debug", false)) }
     val smoothTargetFps = 60
     var smoothStrength by remember { mutableStateOf(prefs.getInt("smooth_60fps_strength", 1).coerceIn(0, 2)) }
@@ -183,7 +194,7 @@ fun PlayerScreen(
     val initialIndex = remember(video.relativePath, queue) { queue.indexOfFirst { it.relativePath == video.relativePath }.coerceAtLeast(0) }
     val player = remember(queue, profile) {
         AppDiagnostics.record(context, "player", "open")
-        val renderers = DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+        val renderers = NativeSvpRenderersFactory(context, nativeController).setEnableDecoderFallback(true)
         // Size the sample buffer to the device: tablets with plenty of heap keep the full 96 MB
         // for 4K Wi-Fi jitter, smaller devices get less so playback never competes with the UI.
         val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
@@ -201,6 +212,8 @@ fun PlayerScreen(
             .setPrioritizeTimeOverSizeThresholds(false)
             .build()
         ExoPlayer.Builder(context, renderers).setLoadControl(loadControl).build().apply {
+            if (smooth60 && nativeAvailable) setVideoEffects(nativeEffects)
+            setVideoFrameMetadataListener { _, _, _, _ -> nativeFrames.incrementAndGet() }
             setAudioAttributes(
                 AudioAttributes
                     .Builder()
@@ -231,10 +244,14 @@ fun PlayerScreen(
             playWhenReady = false
         }
     }
+    LaunchedEffect(player, smooth60, nativeAvailable) {
+        player.setVideoEffects(if (smooth60 && nativeAvailable) nativeEffects else emptyList())
+    }
     LaunchedEffect(player, showFps) {
         if (!showFps) return@LaunchedEffect
         var lastCount = -1
         var lastAt = 0L
+        var lastNativeCount = nativeFrames.get()
         while (true) {
             delay(1000)
             val counters = player.videoDecoderCounters
@@ -242,6 +259,9 @@ fun PlayerScreen(
             val count = counters?.renderedOutputBufferCount ?: 0
             val now = SystemClock.elapsedRealtime()
             if (lastCount in 0..count && now > lastAt && player.isPlaying) decodedFps = (count - lastCount) * 1000f / (now - lastAt)
+            val nativeCount = nativeFrames.get()
+            if (lastAt > 0 && now > lastAt && player.isPlaying) nativeShownFps = (nativeCount - lastNativeCount) * 1000f / (now - lastAt)
+            lastNativeCount = nativeCount
             lastCount = count
             lastAt = now
             fileFps = player.videoFormat?.frameRate?.takeIf { it > 0f } ?: 0f
@@ -456,6 +476,13 @@ fun PlayerScreen(
             }
             override fun onPlayerError(error: PlaybackException) {
                 AppDiagnostics.record(context, "error", error.errorCodeName)
+                if (nativeInUse && error.errorCodeName.contains("VIDEO_FRAME_PROCESSOR")) {
+                    smooth60 = false
+                    player.setVideoEffects(emptyList())
+                    player.prepare()
+                    android.widget.Toast.makeText(context, "Smoothing unavailable for this video; using normal playback", android.widget.Toast.LENGTH_LONG).show()
+                    return
+                }
                 message = "Playback interruption: ${error.errorCodeName}"
                 retryPending =
                     error.errorCode in
@@ -569,7 +596,7 @@ fun PlayerScreen(
         }
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if (smooth60) {
+        if (smooth60 && !nativeAvailable) {
             AndroidView(
                 onReset = null,
                 onRelease = { it.release() },
@@ -828,14 +855,16 @@ fun PlayerScreen(
         if (showFps) {
             val stats = smoothStats
             val hz = if (displayHz > 0f) " · display ${"%.0f".format(displayHz)} Hz" else ""
-            val line1 = if (smooth60 && stats != null) {
+            val line1 = if (nativeInUse) {
+                "Smooth 60 ON · video ${"%.1f".format(fileFps)} fps → screen ${"%.1f".format(nativeShownFps)} fps$hz"
+            } else if (smooth60 && stats != null) {
                 "Smooth $smoothTargetFps ON · video ${"%.1f".format(stats.sourceFps)} fps → screen ${"%.1f".format(stats.outputFps)} fps$hz"
             } else if (smooth60) {
                 "Smooth $smoothTargetFps ON · measuring…$hz"
             } else {
                 "Normal playback · ${"%.1f".format(decodedFps)} fps shown (file says ${"%.1f".format(fileFps)})$hz"
             }
-            val line2 = if (smooth60 && stats != null) {
+            val line2 = if (smooth60 && !nativeAvailable && stats != null) {
                 when {
                     !stats.interpolating -> "Source is close to the selected target: shown as it is"
                     stats.warping -> "Adding in-between frames with motion estimate · real frames ${stats.fallbackPercent}%"
@@ -968,7 +997,10 @@ fun PlayerScreen(
                         revealControls()
                     })
                 }
-                if (smooth60) {
+                if (smooth60 && nativeAvailable) {
+                    Text("Motion smoothing at 60 fps", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                }
+                if (smooth60 && !nativeAvailable) {
                     Text("Smoothing strength", color = Color.White)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("Clean", "Balanced", "Max smooth").forEachIndexed { index, label ->

@@ -38,4 +38,12 @@ foreach ($name in 'libopen_svpflow.so', 'libsvpflow1_vs.so', 'libsvpflow2_vs.so'
 }
 & $clang --target=aarch64-linux-android29 -shared -fPIC -O2 -DSKYWING_JNI -I "$SourceDir/crates/svpflow-capi/include" "$PSScriptRoot/native_svp_probe.c" -L $libraries -lopen_svpflow '-Wl,-z,max-page-size=16384' -o "$output/libskywing_svp_probe.so"
 if ($LASTEXITCODE -ne 0) { throw 'JNI probe build failed' }
-Write-Output 'Native test libraries built. Normal player rendering is unchanged.'
+$appOutput = Join-Path $PSScriptRoot '../app/src/main/jniLibs/arm64-v8a'
+New-Item -ItemType Directory -Force $appOutput | Out-Null
+foreach ($name in 'libopen_svpflow.so', 'libsvpflow1_vs.so', 'libsvpflow2_vs.so') {
+    Copy-Item (Join-Path $libraries $name) $appOutput
+}
+$clangCpp = Join-Path $ToolchainRoot 'android-ndk-r28c/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe'
+& $clangCpp --target=aarch64-linux-android29 -shared -fPIC -O3 -std=c++17 -static-libstdc++ -Wall -Wextra -Werror -I "$SourceDir/crates/svpflow-capi/include" "$PSScriptRoot/../app/src/main/cpp/native_svp_stream.cpp" -L $libraries -lopen_svpflow -llog '-Wl,-z,max-page-size=16384' -o "$appOutput/libskywing_svp_stream.so"
+if ($LASTEXITCODE -ne 0) { throw 'Live JNI bridge build failed' }
+Write-Output 'Native app and opt-in test libraries built.'

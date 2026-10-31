@@ -33,3 +33,6 @@
 -dontwarn org.ietf.jgss.GSSManager
 -dontwarn org.ietf.jgss.GSSName
 -dontwarn org.ietf.jgss.Oid
+
+# JNI bridge entry points are looked up by their class and method names.
+-keep class com.deepak.videolibrary.player.NativeSvpStream { *; }

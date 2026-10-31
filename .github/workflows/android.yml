@@ -34,7 +34,7 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ]; then
             while read -r candidate_run candidate_sha; do
               git cat-file -e "$candidate_sha^{commit}" 2>/dev/null || git fetch --no-tags origin "$candidate_sha"
-              if ! git diff --quiet "$candidate_sha" "$GITHUB_SHA" -- app benchmarks schema-history gradle .ci gradlew gradlew.bat build.gradle.kts settings.gradle.kts gradle.properties; then continue; fi
+              if ! git diff --quiet "$candidate_sha" "$GITHUB_SHA" -- app benchmarks schema-history gradle tools .ci gradlew gradlew.bat build.gradle.kts settings.gradle.kts gradle.properties; then continue; fi
               if [ "$(build_recipe "$candidate_sha")" != "$current_recipe" ]; then continue; fi
               candidate_built=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$candidate_run/jobs" --jq 'any(.jobs[]; .name=="build" and .conclusion=="success")')
               if [ "$candidate_built" != true ]; then continue; fi
@@ -63,13 +63,17 @@ jobs:
           cache-read-only: false
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-35 platforms;android-36 build-tools;35.0.0'
+          packages: 'platform-tools platforms;android-35 platforms;android-36 build-tools;35.0.0 ndk;28.2.13676358'
+      - name: Build pinned ARM64 interpolation engine
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          bash tools/build-native-svp-android.sh "$RUNNER_TEMP/open-svpflow"
       - name: Export complete source as plain text
         run: |
           python3 - <<'PY'
           from pathlib import Path
           roots = ['app', 'benchmarks', 'schema-history', 'gradle', 'tools', '.github']
-          include = {'.kt', '.kts', '.java', '.xml', '.gradle', '.properties', '.toml', '.yml', '.yaml', '.py', '.md', '.json', '.pro', '.txt'}
+          include = {'.kt', '.kts', '.java', '.cpp', '.h', '.sh', '.ps1', '.patch', '.xml', '.gradle', '.properties', '.toml', '.yml', '.yaml', '.py', '.md', '.json', '.pro', '.txt'}
           files = [p for root in roots for p in Path(root).rglob('*') if p.is_file() and p.suffix in include and not any(x in {'build', '.gradle', '.git'} for x in p.parts)]
           files += [p for p in (Path('settings.gradle.kts'), Path('build.gradle.kts'), Path('gradle.properties'), Path('README.md')) if p.is_file()]
           files = sorted(set(files))
