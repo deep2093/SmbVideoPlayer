@@ -39,3 +39,7 @@ Run `tools/build-native-svp-probe.ps1 -SourceDir <checkout> -ToolchainRoot <tool
 5. Compare generated frames against controlled motion with occlusion and repeating patterns, then inspect the requested natural segment in motion. Keep the current shader implementation available during validation.
 
 Preview 1531 installs only the optional native-library declaration; normal video playback still uses the existing renderer. Native engine libraries and JNI entry points currently belong to the opt-in test APK. Live playback integration and perceptual verification remain unfinished.
+
+## Media3 integration investigation
+
+SkyWing currently uses Media3 1.6.1. Its shipped `GlShaderProgram` interface explicitly permits asynchronous output, retaining multiple inputs before producing output, and output callbacks with independent presentation timestamps. A candidate integration is a bounded native interpolation effect in Media3's video-frame processor, with output frame timestamps driven by the media timeline. This could keep scheduling under the existing playback clock instead of adding an unrelated TextureView clock. It has not yet been implemented or validated end to end; output multiplicity, backpressure, flush/end-of-stream handling and color conversion must be tested in the actual player. The 1.6.1 processor also distinguishes default SDR working color from linear working color; the bridge must not assume raw decoder YUV is equivalent to its GL texture values.
