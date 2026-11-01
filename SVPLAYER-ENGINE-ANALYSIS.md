@@ -64,7 +64,7 @@ The current GLES implementation is an approximation and has not reproduced the n
 
 ## Remaining work
 
-Capture the active generated configuration and comparable output at the same timestamp, resolution and 60 fps target. Continue focused analysis of the analysis/synthesis plugin entry points and the generator's configuration branches. Use controlled occlusion and moving-pattern ground truth to validate a replacement compensation path, rather than treating frame counters or compilation as visual-quality proof. No new renderer revision was installed as part of this analysis pass.
+The active generated configuration for one phone session has now been captured below. Comparable output at the same timestamp and resolution, additional source rates, and the tablet's resolved configuration remain unverified. Continue focused analysis of the analysis/synthesis plugin entry points and the generator's configuration branches. Use controlled occlusion and moving-pattern ground truth to validate a replacement compensation path, rather than treating frame counters or compilation as visual-quality proof.
 
 ## S26 Ultra runtime comparison — 2026-11-01
 
@@ -75,3 +75,55 @@ The same generated 1920x1080 / 30 fps clip used for SkyWing's live GPU reproduct
 Two SurfaceFlinger latency snapshots of the SVPlayer video SurfaceView each contained 127 valid presentation timestamps. Each averaged approximately 60 presentations per second with a maximum interval of about 16.667 ms and zero intervals above 25 ms. These short windows establish presentation cadence, not five-minute stability, unique interpolated frames, or artifact-free quality. The natural-video session was still advancing during observation. Private screenshots, package copies, logs and media are retained outside the repository.
 
 The open-source reconstruction's synthesis currently uses OpenCL. A separate independently written Vulkan synthesis backend is therefore a concrete compatibility direction to evaluate; no claim is made that merely changing APIs will reproduce SVP's algorithm or fix every device. Validate a sustained moving-pattern compute test with CPU ground truth before integrating another experimental backend into normal playback. No SVPlayer library or recovered shader is licensed or bundled by this project.
+
+## Captured active phone configuration — 2026-11-01
+
+SVPlayer 1.8.2.323 on the SM-S948B was playing the generated 1920x1080, 30 fps motion clip. The frame-rate UI showed conversion enabled, target 60 fps, automatic options enabled, the quality slider at its maximum, animation optimization off, and Average artifact masking. Runtime logs selected automatic film profile #1.
+
+REA could discover the USB device and its process, but its Frida attach failed because no accessible remote Frida server was available. The installed package is not debuggable. A supported mpv Lua diagnostic provided a narrower successful capture route: read the running `vf` property and copy only the script named by its active VapourSynth filter. The diagnostic loaded from SVPlayer's own external app directory. Its 30-second timer stopped automatically. No root access, APK replacement, or license changes were used.
+
+The mpv editor's **Restart** link was required to save and apply the option. Force-stopping immediately after editing lost the change; the initial script/socket attempts therefore do not establish that mpv lacks those capabilities. The final capture read an enabled `svp` VapourSynth filter with `concurrent-frames=9`, `buffered-frames=3`, and `share-data=3`. It reported `hwdec-current=mediacodec-copy`, 1920x1080 and estimated filter output 60.000600 fps. This estimate is not a measured presentation cadence.
+
+The generated script's SHA-256 is `7abade5ff229e9650b24bc4b85296fd6d7c9684229d1e028f901cb1603878386`; two host copies matched. Raw script, settings screenshots and runtime property captures remain outside this repository. The following values are transcribed configuration facts, not copied engine implementation:
+
+| Stage | Explicit values in the active generated script |
+|---|---|
+| Scheduling | VapourSynth `core.num_threads=9` |
+| Super | `full=false`, `gpu=1`, `pel=1`, `scale.up=0` |
+| Main search | `type=2` |
+| Coarse search | `distance=-8`, bad-match `range=24`, `sad=2000` |
+| Refinement | One entry with `thsad=250` |
+| Synthesis | `algo=21`, `api=1`, `gpu_qn=1`, `gpuid=11` |
+| Mask | `area=100`, `cover=80` |
+| Output rate | Multiplier `num=2`, `den=1` |
+| Scene / HDR options | `scene.mode=3`, `hdr.dovi=true` |
+| Input preparation | Point conversion to format `0x30080101`, random dithering; no width/height resize in this script |
+
+Unspecified fields, including block width and overlap, use plugin defaults; their effective values have not been recovered. `hdr.dovi=true` is an option, not evidence that the SDR test clip contains Dolby Vision. The script is complete for the captured graph, but it does not expose internal kernels, all plugin defaults, or the actual execution of every branch. The `api=1` selector and registered OpenCL device are more specific evidence than a Vulkan dependency; a direct backend-call trace was not obtained. Do not describe this session as proven Vulkan synthesis.
+
+Separately observed **saved preferences** included:
+
+| Preference | Value |
+|---|---|
+| `frc.frame.resize` / `.algo` | `-19201080` / `bilinear` |
+| `frc.frame.align` / `.valign` | `4` / `2` |
+| `frc.frame.autocrop` / `.crop` | `1` / `0` |
+| `frc.color.allow_10bit` | `false` |
+| `frc.threads` | `0` (automatic; resolved to 9 in the captured script) |
+| `frc.prefetch.mpv_add` | `0` |
+| `frc.gpu.multiple_queues` | `1` |
+| `frc.target.max` / `.tolerance` | `47` / `0.02` |
+| `frc.disable_vs` | `true` |
+| `main.dev.api` / `.sustained_perf` | `0` / `true` |
+| `main.performance.cpu` / `.gpu` / `.corr` | `7730` / `3164` / `1.8` |
+| `main.player.hw` / `.hw_decoder` | `true` / `mediacodec-copy` |
+
+The [vendor's advanced-settings reference](https://www.svp-team.com/wiki/SVPlayer_for_Nerds) documents the negative resize value as a bounding rectangle, zero threads as automatic, and automatic quality selection using CPU/GPU scores. `frc.disable_vs=true` only skips VapourSynth when both interpolation and bar lighting are off; it did not disable the active filter above. The [SVPflow parameter reference](https://svp-team.com/wiki/Manual%3ASVPflow) describes `full=false` as reduced Super storage; it must not be equated with half-resolution source frames. Neither documentation page establishes unobserved internal defaults in version 1.8.2.
+
+### Consequences for SkyWing
+
+At commit `f374429`, SkyWing's native stream uses four threads, `pel=2`, algorithm 13, explicit 16-pixel blocks with overlap 2, mask area 30 / cover 80, and half analysis. Its Adreno path remains CPU processing bounded to 1280x720. SVPlayer's captured graph instead combines GPU rendering, `pel=1`, reduced Super storage, algorithm 21, different search/refinement settings, and a nine-frame concurrent mpv/VapourSynth pipeline. Its script does not spatially downscale this 1080p source before the analysis call. Internal analysis pyramid dimensions remain unknown.
+
+These are concrete inputs for an isolated compatibility/performance comparison. Increasing threads alone or pasting proprietary-plugin options into the open reconstruction is not a demonstrated fix: supported options, memory growth, source lookahead and asynchronous queue behavior differ. The independent Vulkan probe remains a separate backend experiment, not evidence that SVPlayer needs Vulkan on this phone. Preserve the working CPU profile until a moving-input test and sustained live playback validate any change. No SkyWing playback code or installed SkyWing build was changed during this capture.
+
+Cleanup: the temporary mpv option was cleared and applied through SVPlayer's Restart link. The diagnostic Lua file and its two phone output files were removed and their absence verified. The earlier IPC port forward was removed. No Frida session was created.
