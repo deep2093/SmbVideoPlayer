@@ -681,7 +681,10 @@ fun PlayerScreen(
                 else orientation.onVideoShape(shownWidth, videoSize.height)
             }
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
-                val format = player.videoFormat
+                // The track list carries the file's colour info; player.videoFormat is still empty at this point.
+                val format = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO && it.isSelected }
+                    .firstNotNullOfOrNull { g -> (0 until g.length).firstOrNull { g.isTrackSelected(it) }?.let { g.getTrackFormat(it) } }
+                    ?: player.videoFormat
                 if (format != null) {
                     val transfer = format.colorInfo?.colorTransfer
                     val codecs = format.codecs.orEmpty()
