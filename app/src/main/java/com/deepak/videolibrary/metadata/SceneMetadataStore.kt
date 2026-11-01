@@ -209,6 +209,34 @@ class SceneMetadataStore(context: Context, libraryId: String) :
         return result
     }
 
+    /**
+     * Applies the automatic decision to scenes already waiting for review (found by an older build or before a rule
+     * was added): an exact file-hash match, or a title that clearly is the file's, is confirmed. Anything unclear stays.
+     * Returns how many were confirmed.
+     */
+    fun autoApplyPending(providerOrder: List<String>): Int {
+        val paths = ArrayList<String>()
+        synchronized(this) {
+            readableDatabase.query("scene_metadata", arrayOf("path"), "status=?", arrayOf("REVIEW"), null, null, null).use { c ->
+                while (c.moveToNext()) paths += c.getString(0)
+            }
+        }
+        var applied = 0
+        for (path in paths) {
+            val record = get(path)?.takeIf { it.status == "REVIEW" } ?: continue
+            val list = runCatching { org.json.JSONArray(record.suggestions ?: "[]") }.getOrDefault(org.json.JSONArray())
+            val matches = (0 until list.length()).mapNotNull { index ->
+                val item = list.optJSONObject(index) ?: return@mapNotNull null
+                val scene = item.optJSONObject("scene") ?: return@mapNotNull null
+                SceneMatch(item.optString("provider"), scene, item.optString("method"))
+            }
+            val chosen = SceneAutoMatch.choose(matches, path.substringAfterLast('/'), providerOrder) ?: continue
+            approve(path, chosen.encoded().toString())
+            applied++
+        }
+        return applied
+    }
+
     /** Already approved matches can gain a poster when artwork is enabled later. */
     @Synchronized
     fun confirmed(limit: Int = 4000): List<SceneMetadataRecord> {

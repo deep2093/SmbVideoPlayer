@@ -17,13 +17,17 @@ internal object SceneAutoMatch {
 
         // Exact file hash: each provider that knows the file must name exactly one scene. Both providers naming
         // "their" copy of the same scene is the normal case; the preferred provider's copy is used.
+        val fileWords = words(fileName.substringBeforeLast('.', fileName)).toSet()
         val exact = ordered.filter { it.method == "OSHASH" }
         if (exact.isNotEmpty()) {
-            return exact.takeIf { list -> list.groupBy { it.provider }.values.all { it.size == 1 } }?.first()
+            if (exact.groupBy { it.provider }.values.all { it.size == 1 }) return exact.first()
+            // A provider lists several scenes under this hash (duplicate entries): the one whose whole title is in
+            // the file name wins, but only when it is the only such title.
+            val named = exact.filter { titleFits(it.title, fileWords) }
+            return named.takeIf { list -> list.isNotEmpty() && list.map { words(it.title).joinToString(" ") }.distinct().size == 1 }?.first()
         }
 
         // File-name search: whole title present in the file name, and only one such title.
-        val fileWords = words(fileName.substringBeforeLast('.', fileName)).toSet()
         val fitting = ordered.filter { it.method == "TITLE" && titleFits(it.title, fileWords) }
         if (fitting.isEmpty()) return null
         return fitting.takeIf { list -> list.map { words(it.title).joinToString(" ") }.distinct().size == 1 }?.first()

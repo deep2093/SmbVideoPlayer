@@ -74,7 +74,11 @@ internal fun MatchReviewPrompt(vm: LibraryViewModel, canShow: Boolean, onPreview
     }
 
     LaunchedEffect(changes, settled) {
-        scenesWaiting = withContext(Dispatchers.IO) { service.sceneMetadataStore.reviewCount() }
+        scenesWaiting = withContext(Dispatchers.IO) {
+            // Scenes left waiting by an older build are checked again with today's rules; only unclear ones stay.
+            service.sceneMetadataStore.autoApplyPending(service.sceneMetadataPreferences.settings.value.sceneProviders())
+            service.sceneMetadataStore.reviewCount()
+        }
     }
     LaunchedEffect(waiting) { askedAt = minOf(askedAt, waiting) }
 

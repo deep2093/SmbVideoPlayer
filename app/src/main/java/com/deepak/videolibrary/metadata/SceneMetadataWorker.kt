@@ -53,6 +53,7 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
         val providers = settings.sceneProviders().filter { services.providerKeys.get(it) != null }
         if (providers.isEmpty()) return Result.success()
         val client = SceneMetadataClient(services.providerKeys)
+        services.sceneMetadataStore.autoApplyPending(settings.sceneProviders())
         val dao = services.db.dao()
         // Started from a folder's menu: only the videos in that folder and below it, and earlier misses are tried again.
         val scope = inputData.getString("scope").orEmpty().trim('/')

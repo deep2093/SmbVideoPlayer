@@ -52,4 +52,12 @@ class SceneAutoMatchTest {
         assertNull(SceneAutoMatch.choose(listOf(match("tpdb", "t1", "Summer Nights", "PHASH")), "Summer Nights.mp4", order))
         assertNull(SceneAutoMatch.choose(listOf(match("tpdb", "t1", "Part 1", "TITLE")), "Part 1.mp4", order))
     }
+
+    @Test fun severalExactScenesPickTheOneWhoseTitleIsInTheFileName() {
+        val picked = SceneAutoMatch.choose(
+            listOf(match("tpdb", "t1", "Summer Nights", "OSHASH"), match("tpdb", "t2", "Another Story", "OSHASH")),
+            "Studio.Summer.Nights.2021.mp4", order,
+        )
+        assertEquals("t1", picked?.id)
+    }
 }
