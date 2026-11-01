@@ -24,7 +24,16 @@ internal object SceneAutoMatch {
             // A provider lists several scenes under this hash (duplicate entries): the one whose whole title is in
             // the file name wins, but only when it is the only such title.
             val named = exact.filter { titleFits(it.title, fileWords) }
-            return named.takeIf { list -> list.isNotEmpty() && list.map { words(it.title).joinToString(" ") }.distinct().size == 1 }?.first()
+            if (named.isNotEmpty()) {
+                return named.takeIf { list -> list.map { words(it.title).joinToString(" ") }.distinct().size == 1 }?.first()
+            }
+            // Every listed scene has the same title: they are duplicate entries of one scene, and the exact hash says
+            // the file is that scene. Use the preferred provider's entry that has a picture.
+            val sameTitle = exact.map { words(it.title).joinToString("") }.distinct()
+            if (sameTitle.size == 1 && sameTitle[0].isNotEmpty()) {
+                return exact.firstOrNull { it.scene.optJSONArray("images")?.length().let { n -> n != null && n > 0 } } ?: exact.first()
+            }
+            return null
         }
 
         // File-name search: whole title present in the file name, and only one such title.

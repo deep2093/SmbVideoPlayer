@@ -60,4 +60,12 @@ class SceneAutoMatchTest {
         )
         assertEquals("t1", picked?.id)
     }
+
+    @Test fun duplicateEntriesWithTheSameTitleUnderOneHashAreApplied() {
+        val picked = SceneAutoMatch.choose(
+            listOf(match("tpdb", "t1", "Trans Campers", "OSHASH"), match("tpdb", "t2", "Trans Campers", "OSHASH")),
+            "Angellica Good-TransCampers_s01_1080p.mp4", order,
+        )
+        assertEquals("t1", picked?.id)
+    }
 }
