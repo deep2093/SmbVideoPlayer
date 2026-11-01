@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
@@ -64,16 +65,20 @@ import kotlinx.coroutines.launch
 private val SIDEBAR_WIDTH = 204.dp
 
 // Downloads open from the download button at the top right of every page; scan and thumbnails live in Settings.
-private val TAB_LABELS = listOf("Folders", "Videos", "Files", "Settings")
-private val TAB_ICONS = listOf(Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Settings)
-private const val SETTINGS_TAB = 3
+private val TAB_LABELS = listOf("Phone", "Folders", "Videos", "Files", "Settings")
+private val TAB_ICONS = listOf(Icons.Filled.PhoneAndroid, Icons.Filled.Folder, Icons.Filled.PlayArrow, Icons.Filled.Storage, Icons.Filled.Settings)
+private const val PHONE_TAB = 0
+private const val FOLDERS_TAB = 1 // The home section: the app opens here and Back returns here.
+private const val VIDEOS_TAB = 2
+private const val FILES_TAB = 3
+private const val SETTINGS_TAB = 4
 private const val NOTICE_MS = 8_000L
 private const val SECTION_SLIDE_MS = 360L
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun AppRoot(vm: LibraryViewModel = viewModel()) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    var tab by rememberSaveable { mutableIntStateOf(FOLDERS_TAB) }
     var folderDetails by rememberSaveable { mutableStateOf(false) }
     var playing by remember { mutableStateOf<VideoEntity?>(null) }
     var playQueue by remember { mutableStateOf<List<VideoEntity>>(emptyList()) }
@@ -86,7 +91,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     val openFolder: () -> Unit = {
         appScope.launch { folderVideosScrollState.scrollToItem(0) }
         folderDetails = true
-        tab = 1
+        tab = VIDEOS_TAB
     }
     // Status notices are informational: they clear themselves after a while (a newer notice restarts the timer).
     LaunchedEffect(vm.notice) {
@@ -100,7 +105,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         vm.explorerNavigationRequest?.let { path ->
             vm.explorerQuery = ""
             vm.browse(path.substringBeforeLast('/', ""), focus = path)
-            tab = 2
+            tab = FILES_TAB
             returnToThumbnails = true
             vm.consumeExplorerNavigation()
         }
@@ -112,7 +117,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
         tab = target
         appScope.launch {
             kotlinx.coroutines.delay(SECTION_SLIDE_MS)
-            if (tab != 1) {
+            if (tab != VIDEOS_TAB) {
                 folderDetails = false
                 vm.groupFilter.value = null
                 vm.matchFolderFilter.value = null
@@ -122,16 +127,16 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     var closing by remember { mutableStateOf(false) }
     // Closing fades the player out first; the real teardown happens when that animation ends.
     val closePlayer: () -> Unit = { if (!closing) closing = true }
-    BackHandler(enabled = playing != null || folderDetails || tab != 0) {
+    BackHandler(enabled = playing != null || folderDetails || tab != FOLDERS_TAB) {
         when {
             playing != null -> closePlayer()
-            tab == 2 && returnToThumbnails -> {
+            tab == FILES_TAB && returnToThumbnails -> {
                 tab = SETTINGS_TAB
                 returnToThumbnails = false
             }
-            folderDetails -> leaveFolderTo(0)
+            folderDetails -> leaveFolderTo(FOLDERS_TAB)
             else -> {
-                tab = 0
+                tab = FOLDERS_TAB
                 vm.groupFilter.value = null
                 vm.matchFolderFilter.value = null
             }
@@ -181,7 +186,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     // a tap when already at the top goes back to all videos (as tapping Videos always did).
     val onTabTapped: (Int) -> Unit = { index ->
         val reselect = index == tab && !vm.downloadsOpen
-        if (!reselect && folderDetails && tab == 1) {
+        if (!reselect && folderDetails && tab == VIDEOS_TAB) {
             leaveFolderTo(index)
         } else if (!reselect) {
             vm.downloadsOpen = false
@@ -189,7 +194,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
             folderDetails = false
             vm.groupFilter.value = null
             vm.matchFolderFilter.value = null
-        } else if (index == 1) {
+        } else if (index == VIDEOS_TAB) {
             val state = if (folderDetails) folderVideosScrollState else videosScrollState
             val atTop = state.firstVisibleItemIndex == 0 && state.firstVisibleItemScrollOffset == 0
             if (folderDetails && atTop) {
@@ -206,7 +211,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     val floating = vm.navigationPosition == "FLOATING"
     // Swiping between sections follows the order Custom, Virtual, Original folders, Videos, Files, Settings. Inside Folders the tab pager moves between its three pages itself.
     val selectSection: (Int) -> Unit = { index ->
-        if (folderDetails && tab == 1) {
+        if (folderDetails && tab == VIDEOS_TAB) {
             leaveFolderTo(index)
         } else {
             vm.downloadsOpen = false
@@ -218,18 +223,19 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     }
     val nextSection: () -> Unit = {
         when {
-            tab == 0 && vm.foldersTab < vm.folderSections.lastIndex -> Unit
+            tab == FOLDERS_TAB && vm.foldersTab < vm.folderSections.lastIndex -> Unit
             tab < TAB_LABELS.lastIndex -> selectSection(tab + 1)
             else -> Unit
         }
     }
     val previousSection: () -> Unit = {
         when {
-            tab == 0 -> Unit
-            tab == 1 && folderDetails -> selectSection(0) // Back to the folder list it was opened from.
-            tab == 1 -> {
+            tab == PHONE_TAB -> Unit
+            tab == FOLDERS_TAB -> if (vm.foldersTab == 0) selectSection(PHONE_TAB) else Unit
+            tab == VIDEOS_TAB && folderDetails -> selectSection(FOLDERS_TAB) // Back to the folder list it was opened from.
+            tab == VIDEOS_TAB -> {
                 vm.foldersTab = vm.folderSections.lastIndex
-                selectSection(0)
+                selectSection(FOLDERS_TAB)
             }
             else -> selectSection(tab - 1)
         }
@@ -275,7 +281,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                     }
                     Column(Modifier.weight(1f).fillMaxHeight()) {
                         Column(Modifier.animateContentSize(tween(260, easing = FastOutSlowInEasing))) {
-                        if (tab == 2 && returnToThumbnails) {
+                        if (tab == FILES_TAB && returnToThumbnails) {
                             TextButton(onClick = {
                                 tab = SETTINGS_TAB
                                 returnToThumbnails = false
@@ -313,7 +319,12 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                             label = "section_transition",
                         ) { currentTab ->
                             when (currentTab) {
-                                0 -> FoldersHub(vm, gridState = foldersScrollState, customGridState = customFoldersScrollState, onOpenGroup = openFolder, onPlay = {
+                                PHONE_TAB -> PhoneVideosScreen(vm, onPlay = { video, queue ->
+                                    vm.resetPlaybackQueue()
+                                    playing = video
+                                    playQueue = queue
+                                })
+                                FOLDERS_TAB -> FoldersHub(vm, gridState = foldersScrollState, customGridState = customFoldersScrollState, onOpenGroup = openFolder, onPlay = {
                                     video,
                                     queue,
                                     ->
@@ -321,7 +332,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                         video
                                     playQueue = queue
                                 }, onOpenSettings = { tab = SETTINGS_TAB }, showBrand = !tabletLayout || useDock)
-                                1 -> VideosScreen(
+                                VIDEOS_TAB -> VideosScreen(
                                     vm,
                                     gridState = if (folderDetails) folderVideosScrollState else videosScrollState,
                                     onPlay = {
@@ -333,12 +344,12 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                                         playQueue = queue
                                     },
                                     onBackToFolders = if (folderDetails) {
-                                        ({ leaveFolderTo(0) })
+                                        ({ leaveFolderTo(FOLDERS_TAB) })
                                     } else {
                                         null
                                     },
                                 )
-                                2 -> ExplorerScreen(vm, onPlay = { video, queue ->
+                                FILES_TAB -> ExplorerScreen(vm, onPlay = { video, queue ->
                                     vm.resetPlaybackQueue()
                                     playing = video
                                     playQueue = queue

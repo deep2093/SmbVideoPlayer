@@ -257,8 +257,13 @@ fun PlayerScreen(
             val factory = ProgressiveMediaSource.Factory(
                 SmbPlaybackDataSource.Factory(profile) { detail -> AppDiagnostics.record(context, "smb_read", detail) },
             )
+            val phoneFactory = ProgressiveMediaSource.Factory(androidx.media3.datasource.DefaultDataSource.Factory(context))
             setMediaSources(
                 queue.map { item ->
+                    if (item.relativePath.startsWith(PHONE_URI_PREFIX)) {
+                        // A video stored on this phone: plain content:// playback, no SMB involved.
+                        return@map phoneFactory.createMediaSource(MediaItem.fromUri(Uri.parse(item.relativePath)))
+                    }
                     val uri = Uri
                         .Builder()
                         .scheme("smbvideo")

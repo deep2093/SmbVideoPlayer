@@ -574,6 +574,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         return stateDao.progress(namespace.value, path)
     }
     fun saveProgress(path: String, position: Long, duration: Long) {
+        if (path.startsWith(PHONE_URI_PREFIX)) return // Files on this phone are not part of the SMB library state.
         val key = namespace.value
         viewModelScope.launch(Dispatchers.IO) {
             storageReady.first { it }
@@ -587,6 +588,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         }
     }
     fun hideContinue(path: String, hidden: Boolean = true) {
+        if (path.startsWith(PHONE_URI_PREFIX)) return
         val key = namespace.value
         viewModelScope.launch(Dispatchers.IO) {
             storageReady.first { it }
