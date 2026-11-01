@@ -567,6 +567,7 @@ internal fun SceneMetadataReviewDialog(
                 items(records.size, key = { records[it].path }) { i ->
                     val record = records[i]
                     var searchText by remember(record.path) { mutableStateOf(record.path.substringAfterLast('/').substringBeforeLast('.')) }
+                    var searchNote by remember(record.path) { mutableStateOf<String?>(null) }
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(record.path.substringAfterLast('/'), style = MaterialTheme.typography.titleMedium)
                         val suggestions = remember(record.suggestions) {
@@ -605,25 +606,30 @@ internal fun SceneMetadataReviewDialog(
                             focus.clearFocus()
                             keyboard?.hide()
                             val requested = searchText
+                            searchNote = "Searching ThePornDB for \"" + requested.trim() + "\"…"
                             scope.launch {
                                 try {
                                     val found = withContext(Dispatchers.IO) {
-                                        SceneMetadataClient(service.providerKeys).search(SceneMetadataSettings.TPDB, requested)
+                                        SceneMetadataClient(service.providerKeys).searchTyped(SceneMetadataSettings.TPDB, requested)
                                     }
                                     if (found.isEmpty()) {
                                         message = "ThePornDB: no scenes found. Try fewer words or the scene's title."
+                                        searchNote = message
                                     } else {
                                         val proposed = JSONArray()
                                         found.forEach { proposed.put(it.encoded()) }
                                         service.sceneMetadataStore.offerAlternatives(record.path, proposed.toString())
                                         refresh++
                                         message = "ThePornDB returned " + found.size + " suggestions."
+                                        searchNote = message
                                     }
                                 } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) {
                                     message = "ThePornDB: " + e.failure.message
+                                    searchNote = message
                                 } catch (e: CancellationException) { throw e
                                 } catch (_: Exception) {
                                     message = "ThePornDB search failed. Check the API key under Scene metadata."
+                                    searchNote = message
                                 }
                             }
                         }
@@ -635,6 +641,7 @@ internal fun SceneMetadataReviewDialog(
                             keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { runSearch() }),
                         )
                         OutlinedButton(modifier = Modifier.fillMaxWidth(), enabled = searchText.isNotBlank(), onClick = runSearch) { Text("Search ThePornDB") }
+                        searchNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
                         // Easy to see: an outlined button in the warning colour, full width.
                         OutlinedButton(
                             onClick = {

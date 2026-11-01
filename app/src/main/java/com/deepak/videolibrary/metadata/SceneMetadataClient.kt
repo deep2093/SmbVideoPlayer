@@ -57,13 +57,20 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
     suspend fun searchText(provider: String, rawTerm: String): List<SceneMatch> =
         searchTerm(provider, rawTerm.replace(Regex("[._]+"), " ").replace(Regex("\\s+"), " ").trim().take(160))
 
-    private suspend fun searchTerm(provider: String, term: String): List<SceneMatch> {
+    /**
+     * A title the user typed in Review. It is searched as plain words first (ThePornDB's file-name parser would
+     * otherwise keep returning the answer for the old name), then as a file name.
+     */
+    suspend fun searchTyped(provider: String, typed: String): List<SceneMatch> =
+        searchTerm(provider, typed.replace(Regex("[._]+"), " ").replace(Regex("\\s+"), " ").trim().take(160), plainFirst = true)
+
+    private suspend fun searchTerm(provider: String, term: String, plainFirst: Boolean = false): List<SceneMatch> {
         if (term.length < 4) return emptyList()
         if (provider == SceneMetadataSettings.TPDB) {
             // ThePornDB's own REST search works with real file names; its GraphQL search is only the fallback.
             var answered = false
             try {
-                val found = tpdbRestSearch(term)
+                val found = tpdbRestSearch(term, plainFirst)
                 answered = true
                 if (found.isNotEmpty()) return found
             } catch (e: ProviderException) {
@@ -100,11 +107,11 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
      * ThePornDB REST scenes (`/scenes`): first the name as ThePornDB parses a file name, then plain title searches with
      * the name changed a little (before the first hyphen, then the first four words) until something is found.
      */
-    private suspend fun tpdbRestSearch(term: String): List<SceneMatch> {
+    private suspend fun tpdbRestSearch(term: String, plainFirst: Boolean = false): List<SceneMatch> {
         val key = keys.get(SceneMetadataSettings.TPDB) ?: throw ProviderException(ProviderFailure.NO_KEY)
         var failure: ProviderException? = null
         var answered = false
-        for ((param, text) in tpdbVariants(term)) {
+        for ((param, text) in tpdbVariants(term, plainFirst)) {
             try {
                 val body = ArtworkHttp.getJson(
                     "https://api.theporndb.net/scenes?$param=" + java.net.URLEncoder.encode(text, "UTF-8") + "&per_page=10",
@@ -171,10 +178,9 @@ class SceneMetadataClient(private val keys: ProviderKeys) {
         private val HARD_FAILURES = setOf(ProviderFailure.UNAUTHORIZED, ProviderFailure.FORBIDDEN, ProviderFailure.NO_KEY, ProviderFailure.RATE_LIMITED, ProviderFailure.NETWORK)
 
         /** The searches tried for [term], in order: (REST parameter, text). */
-        internal fun tpdbVariants(term: String): List<Pair<String, String>> {
+        internal fun tpdbVariants(term: String, plainFirst: Boolean = false): List<Pair<String, String>> {
             val out = LinkedHashSet<Pair<String, String>>()
-            out += "parse" to term
-            out += "q" to term
+            if (plainFirst) { out += "q" to term; out += "parse" to term } else { out += "parse" to term; out += "q" to term }
             term.substringBefore('-').trim().takeIf { it.length >= 4 && it != term }?.let { out += "q" to it }
             val words = term.split(' ').filter { it.isNotBlank() }
             if (words.size > 4) out += "q" to words.take(4).joinToString(" ")

@@ -260,8 +260,8 @@ class SceneMetadataStore(context: Context, libraryId: String) :
             if (item.optString("provider") != providerId || item.optJSONObject("scene")?.optString("id") != sceneId) remaining.put(item)
         }
         writableDatabase.execSQL(
-            "UPDATE scene_metadata SET status=?, suggestions=?, checked=? WHERE path=? AND status='REVIEW'",
-            arrayOf(if (remaining.length() == 0) "DISMISSED" else "REVIEW", remaining.toString(), System.currentTimeMillis(), path),
+            "UPDATE scene_metadata SET status=?, suggestions=? WHERE path=? AND status='REVIEW'",
+            arrayOf(if (remaining.length() == 0) "DISMISSED" else "REVIEW", remaining.toString(), path),
         )
     }
 
@@ -271,8 +271,8 @@ class SceneMetadataStore(context: Context, libraryId: String) :
         val row = get(path) ?: return
         if (row.status == "CONFIRMED") return
         writableDatabase.execSQL(
-            "UPDATE scene_metadata SET status='REVIEW', suggestions=?, checked=? WHERE path=? AND status!='CONFIRMED'",
-            arrayOf(suggestions, System.currentTimeMillis(), path),
+            "UPDATE scene_metadata SET status='REVIEW', suggestions=? WHERE path=? AND status!='CONFIRMED'",
+            arrayOf(suggestions, path),
         )
     }
 
