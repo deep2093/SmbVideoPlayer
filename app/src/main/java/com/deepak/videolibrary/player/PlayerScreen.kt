@@ -127,9 +127,13 @@ fun PlayerScreen(
     // Playback gestures stay enabled without a global Playback settings page.
     val volumeGestureEnabled = true
     val brightnessGestureEnabled = true
-    var smooth60 by remember {
+    var smoothPref by remember {
         mutableStateOf(prefs.getBoolean("experimental_smooth_60fps", false))
     }
+    // HDR10, HDR10+, HLG and Dolby Vision videos play straight to the screen: smoothing switches itself off for
+    // them (the saved choice stays, so the next normal video is smoothed again).
+    var hdrVideo by remember { mutableStateOf(false) }
+    val smooth60 = smoothPref && !hdrVideo
     val nativeAvailable = remember { NativeSvpStream.available }
     val nativeController = remember { NativeSvpController() }
     // CPU smoothing (Adreno phones) runs at 1080p only after this device passed the 1080p speed check for this app
@@ -194,6 +198,11 @@ fun PlayerScreen(
     var displayHz by remember { mutableStateOf(0f) }
     // Prefer a 60 Hz display mode for even output cadence. SmoothVideoView performs
     // motion estimation separately; the display-mode request alone adds no frames.
+    DisposableEffect(activity, hdrVideo) {
+        val window = activity?.window
+        if (hdrVideo && window != null && Build.VERSION.SDK_INT >= 26) window.colorMode = android.content.pm.ActivityInfo.COLOR_MODE_HDR
+        onDispose { if (window != null && Build.VERSION.SDK_INT >= 26) window.colorMode = android.content.pm.ActivityInfo.COLOR_MODE_DEFAULT }
+    }
     DisposableEffect(activity, smooth60, smoothTargetFps) {
         val window = activity?.window
         val beforeId = window?.attributes?.preferredDisplayModeId ?: 0
@@ -668,6 +677,13 @@ fun PlayerScreen(
             override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
                 val format = player.videoFormat
                 if (format != null) {
+                    val transfer = format.colorInfo?.colorTransfer
+                    val codecs = format.codecs.orEmpty()
+                    val dolby = format.sampleMimeType == androidx.media3.common.MimeTypes.VIDEO_DOLBY_VISION ||
+                        codecs.startsWith("dvh") || codecs.startsWith("dva") || codecs.startsWith("dav1")
+                    hdrVideo = dolby || transfer == androidx.media3.common.C.COLOR_TRANSFER_ST2084 ||
+                        transfer == androidx.media3.common.C.COLOR_TRANSFER_HLG
+                    AppDiagnostics.record(context, "hdr", "hdr=$hdrVideo dolbyVision=$dolby transfer=$transfer codecs=$codecs")
                     AppDiagnostics.record(
                         context,
                         "codec",
@@ -683,7 +699,7 @@ fun PlayerScreen(
                             error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
                         )
                 ) {
-                    smooth60 = false
+                    if (!hdrVideo) smoothPref = false
                     player.setVideoEffects(emptyList())
                     player.prepare()
                     android.widget.Toast.makeText(context, "Smoothing unavailable for this video; using normal playback", android.widget.Toast.LENGTH_LONG).show()
@@ -806,7 +822,7 @@ fun PlayerScreen(
             AndroidView(
                 onReset = null,
                 onRelease = { it.release() },
-                factory = { SmoothVideoView(it).apply { onFailure = { smooth60 = false }; onStats = { stats -> smoothStats = stats }; smoothViewRef = this } },
+                factory = { SmoothVideoView(it).apply { onFailure = { smoothPref = false }; onStats = { stats -> smoothStats = stats }; smoothViewRef = this } },
                 update = { view ->
                     view.attach(player)
                     view.strength = smoothStrength
@@ -1047,8 +1063,8 @@ fun PlayerScreen(
                 onOptions = { showSettings = !showSettings; showTracks = false; revealControls() },
                 smoothOn = smooth60,
                 onSmooth = {
-                    smooth60 = !smooth60
-                    prefs.edit().putBoolean("experimental_smooth_60fps", smooth60).apply()
+                    smoothPref = !smoothPref
+                    prefs.edit().putBoolean("experimental_smooth_60fps", smoothPref).apply()
                     revealControls()
                 },
                 onAspect = { aspectIndex = (aspectIndex + 1) % aspectModes.size; zoom = 1f; revealControls() },
