@@ -139,6 +139,7 @@ fun PlayerScreen(
     val liveKey = "native_cpu1080_live_failed_$versionCode"
     var speedCheck by remember { mutableStateOf(prefs.getString(speedKey, null)) } // "pass|..." or "fail|..."
     var speedChecking by remember { mutableStateOf(false) }
+    var showGpuLab by remember { mutableStateOf(false) }
     var cpu1080LiveFailed by remember { mutableStateOf(prefs.getBoolean(liveKey, false)) }
     val cpuFullHd = speedCheck?.startsWith("pass|") == true && !cpu1080LiveFailed
     val nativeEffects = remember(cpuFullHd) { listOf(NativeSvpScale(cpuFullHd), NativeSvpEffect(nativeController)) }
@@ -937,6 +938,7 @@ fun PlayerScreen(
                 if (line2 != null) Text(line2, color = Color(0xFFB0BEC5), style = MaterialTheme.typography.labelSmall)
             }
         }
+        if (showGpuLab) GpuLabDialog(onDismiss = { showGpuLab = false })
         if (showQueue) {
             SkyWingQueueDialog(queue.map { it.name }, currentIndex, vm.playbackHasMore,
                 onDismiss = { showQueue = false; revealControls() },
@@ -1078,6 +1080,10 @@ fun PlayerScreen(
                             speedChecking = false
                         }
                     }) { Text("Check 1080p speed", color = Color.White) }
+                    TextButton(enabled = !speedChecking, onClick = {
+                        player.pause()
+                        showGpuLab = true
+                    }) { Text("GPU lab (diagnostics)", color = Color.White) }
                 }
                 if (smooth60 && !nativeAvailable) {
                     Text("Smoothing strength", color = Color.White)

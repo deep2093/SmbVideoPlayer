@@ -78,3 +78,9 @@ The phone's CPU probe at 1080p averaged 112 fps, but per-output time was uneven 
 * The overlay's second line shows the active processing size, backend, threads and lookahead.
 * Both Media3 effect-pipeline errors (5001 and 5002) now trigger the existing normal-playback fallback; previously only 5001 did.
 * Not changed yet: the synchronous `glReadPixels` per input frame and the `glFinish` per output frame. A one-frame-delayed PBO readback changes end-of-stream timing (the decoder end signal arrives off the GL thread) and is left for a separate change if the speed check and live tests point at GL-thread stalls.
+
+## GPU lab (Adreno OpenCL investigation)
+
+Player settings → "GPU lab (diagnostics)" runs the OpenCL path on a synthetic 1080p 24 fps clip (120 source frames, every output, clip end, engine shutdown) in a separate `:gpulab` process, once per variant. All OpenCL calls go through `libskywing_cl_trace.so` (`app/src/main/cpp/cl_trace.c`), selected by the patched engine through `OSVP_OPENCL_LIB`. The wrapper records per-queue enqueue/flush counts, each event's originating command and kernel, every thread's blocking call and event polls, and the last 96 calls; a watchdog writes a stall report when a call or event wait exceeds three seconds. The app kills a lab process that makes no progress for 20 s (60 s before the first output).
+
+Variants (`OSVP_CL_VARIANT`): `trace` (unchanged), `flushwait` (flush every queue before any wait, poll or finish: tests "a command only runs when later work is submitted"), `flushall` (flush after every enqueue), `blockwrite` (all host-to-device writes blocking: tests host-memory lifetime), `all`. The report is saved to Downloads as `SkyWing-gpu-lab-<time>.txt`.

@@ -26,3 +26,6 @@ cp "$libraries/libopen_svpflow.so" "$libraries/libsvpflow1_vs.so" "$libraries/li
 "$bin/aarch64-linux-android29-clang++" -shared -fPIC -O3 -std=c++17 -static-libstdc++ -Wall -Wextra -Werror \
   -I "$source_dir/crates/svpflow-capi/include" "$repo/app/src/main/cpp/native_svp_stream.cpp" \
   -L "$libraries" -lopen_svpflow -llog -Wl,-z,max-page-size=16384 -o "$output/libskywing_svp_stream.so"
+# OpenCL tracing wrapper for the in-app GPU lab (only loaded when the lab asks for it).
+"$bin/aarch64-linux-android29-clang" -shared -fPIC -O2 -std=gnu11 -Wall -Wextra -Werror -fvisibility=hidden \
+  "$repo/app/src/main/cpp/cl_trace.c" -ldl -llog -Wl,-z,max-page-size=16384 -o "$output/libskywing_cl_trace.so"

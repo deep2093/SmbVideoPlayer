@@ -25,7 +25,6 @@ internal object NativeSvpSpeedCheck {
     private const val BURST = 120
     private const val PACED = 600
     private const val FRAME_NS = 16_666_667L
-    private const val PAN = 6 // pixels per source frame
 
     fun run(context: Context, timeoutMs: Long = 90_000L): Result {
         if (!NativeSvpStream.available) return Result(false, "Speed check unavailable: native libraries are missing")
@@ -55,7 +54,7 @@ internal object NativeSvpSpeedCheck {
         )
         check(handle != 0L) { "engine could not be created" }
         try {
-            val scene = Scene()
+            val scene = NativeSvpTestScene(WIDTH, HEIGHT)
             val frame = ByteBuffer.allocateDirect(WIDTH * HEIGHT * 3 / 2)
             val output = ByteBuffer.allocateDirect(WIDTH * HEIGHT * 3 / 2)
             val totalOutputs = WARMUP + BURST + PACED
@@ -111,33 +110,34 @@ internal object NativeSvpSpeedCheck {
             NativeSvpStream.close(handle)
         }
     }
+}
 
-    /** Synthetic 1080p YUV420 frames: textured background panning right, striped block moving left. */
-    private class Scene {
-        private val span = WIDTH + PAN * 400
-        private val world = ByteArray(span * HEIGHT).also { world ->
-            for (y in 0 until HEIGHT) {
-                for (x in 0 until span) {
-                    val h = (x * 73856093) xor (y * 19349663)
-                    val noise = (h ushr 13) and 0x3F
-                    world[y * span + x] = (32 + ((x / 3 + y / 2) and 0x7F) + noise).toByte()
-                }
+/** Synthetic YUV420 frames for engine tests: textured background panning right, striped block moving left. */
+internal class NativeSvpTestScene(private val width: Int, private val height: Int) {
+    private val pan = 6
+    private val span = width + pan * 400
+    private val world = ByteArray(span * height).also { world ->
+        for (y in 0 until height) {
+            for (x in 0 until span) {
+                val h = (x * 73856093) xor (y * 19349663)
+                val noise = (h ushr 13) and 0x3F
+                world[y * span + x] = (32 + ((x / 3 + y / 2) and 0x7F) + noise).toByte()
             }
         }
-        private val stripes = ByteArray(400) { if ((it / 5) % 2 == 0) 230.toByte() else 30.toByte() }
-        private val chroma = ByteArray(WIDTH * HEIGHT / 2) { 128.toByte() }
+    }
+    private val stripes = ByteArray(minOf(400, width / 3)) { if ((it / 5) % 2 == 0) 230.toByte() else 30.toByte() }
+    private val chroma = ByteArray(width * height / 2) { 128.toByte() }
 
-        fun fill(frame: ByteBuffer, n: Int) {
-            frame.clear()
-            val shift = (PAN * n) % (span - WIDTH)
-            for (y in 0 until HEIGHT) frame.put(world, y * span + shift, WIDTH)
-            val left = Math.floorMod(1400 - 9 * n, WIDTH - stripes.size)
-            for (y in 400 until 700) {
-                frame.position(y * WIDTH + left)
-                frame.put(stripes)
-            }
-            frame.position(WIDTH * HEIGHT)
-            frame.put(chroma)
+    fun fill(frame: ByteBuffer, n: Int) {
+        frame.clear()
+        val shift = (pan * n) % (span - width)
+        for (y in 0 until height) frame.put(world, y * span + shift, width)
+        val left = Math.floorMod(width * 3 / 4 - 9 * n, width - stripes.size)
+        for (y in height * 3 / 8 until height * 5 / 8) {
+            frame.position(y * width + left)
+            frame.put(stripes)
         }
+        frame.position(width * height)
+        frame.put(chroma)
     }
 }

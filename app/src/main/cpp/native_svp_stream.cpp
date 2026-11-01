@@ -3,6 +3,7 @@
 #include <jni.h>
 #include <algorithm>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -132,3 +133,12 @@ Java_com_deepak_videolibrary_player_NativeSvpStream_cancel(JNIEnv *, jobject, jl
 }
 extern "C" JNIEXPORT void JNICALL
 Java_com_deepak_videolibrary_player_NativeSvpStream_close(JNIEnv *, jobject, jlong handle) { delete stream(handle); }
+// GPU lab only: set an environment variable before the engine loads OpenCL (tracing wrapper and its variant).
+extern "C" JNIEXPORT void JNICALL
+Java_com_deepak_videolibrary_player_NativeSvpStream_setEnv(JNIEnv *env, jobject, jstring name, jstring value) {
+    const char *n = env->GetStringUTFChars(name, nullptr);
+    const char *v = env->GetStringUTFChars(value, nullptr);
+    if (n && v) setenv(n, v, 1);
+    if (n) env->ReleaseStringUTFChars(name, n);
+    if (v) env->ReleaseStringUTFChars(value, v);
+}

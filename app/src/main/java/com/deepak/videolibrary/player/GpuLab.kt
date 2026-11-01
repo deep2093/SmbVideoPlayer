@@ -1,0 +1,186 @@
+package com.deepak.videolibrary.player
+
+import android.app.ActivityManager
+import android.app.Service
+import android.content.ContentValues
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.os.IBinder
+import android.os.SystemClock
+import android.provider.MediaStore
+import kotlinx.coroutines.delay
+import java.io.File
+import java.nio.ByteBuffer
+import java.util.Locale
+
+/**
+ * GPU lab: runs the native engine's OpenCL path on a synthetic 1080p 24 fps clip in a separate, disposable process
+ * (":gpulab"), with every OpenCL call going through the tracing wrapper (libskywing_cl_trace.so). A driver hang there
+ * cannot freeze the app: the app watches the log and kills the lab process when it stops making progress. Each run
+ * also exercises the two phases that failed on Adreno: the last frames of a finite clip and engine shutdown.
+ */
+class GpuLabService : Service() {
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val variant = intent?.getStringExtra(EXTRA_VARIANT) ?: "trace"
+        val path = intent?.getStringExtra(EXTRA_LOG) ?: return START_NOT_STICKY
+        Thread({
+            runLab(this, variant, File(path))
+            // A fresh process for every variant: environment, loaded libraries and any wedged driver state go away.
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }, "SkyWing-gpu-lab").start()
+        return START_NOT_STICKY
+    }
+
+    companion object {
+        const val EXTRA_VARIANT = "variant"
+        const val EXTRA_LOG = "log"
+        const val SOURCE_FRAMES = 120
+        const val WIDTH = 1920
+        const val HEIGHT = 1080
+    }
+}
+
+private fun runLab(context: Context, variant: String, log: File) {
+    val started = SystemClock.elapsedRealtime()
+    fun line(text: String) {
+        val seconds = (SystemClock.elapsedRealtime() - started) / 1000.0
+        log.appendText(String.format(Locale.ROOT, "[lab] %6.2fs %s\n", seconds, text))
+    }
+    try {
+        line("variant=$variant device=${Build.MANUFACTURER} ${Build.MODEL} android=${Build.VERSION.RELEASE} soc=${if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL else "?"}")
+        if (!NativeSvpStream.available) { line("DONE error: native libraries missing"); return }
+        NativeSvpStream.setEnv("OSVP_OPENCL_LIB", "libskywing_cl_trace.so")
+        NativeSvpStream.setEnv("OSVP_CL_VARIANT", variant)
+        NativeSvpStream.setEnv("OSVP_TRACE_FILE", log.absolutePath)
+        val width = GpuLabService.WIDTH
+        val height = GpuLabService.HEIGHT
+        val handle = NativeSvpStream.create(
+            NativeSvpStream.libraryDirectory(context), width, height, 24L, 1L, true,
+            NativeSvpTuning.GPU_THREADS, NativeSvpTuning.GPU_AHEAD,
+        )
+        check(handle != 0L) { "engine could not be created" }
+        line("engine created: OpenCL, ${width}x$height, 24 to 60 fps, ${NativeSvpTuning.GPU_THREADS} threads, ${NativeSvpTuning.GPU_AHEAD} ahead")
+        val scene = NativeSvpTestScene(width, height)
+        val frame = ByteBuffer.allocateDirect(width * height * 3 / 2)
+        val output = ByteBuffer.allocateDirect(width * height * 3 / 2)
+        val total = GpuLabService.SOURCE_FRAMES
+        val lastOutput = (total - 1) * 60 / 24
+        var pushed = 0
+        var ended = false
+        val renderStart = SystemClock.elapsedRealtime()
+        for (index in 0..lastOutput) {
+            val want = minOf(total, index * 24 / 60 + 10)
+            while (pushed < want) {
+                scene.fill(frame, pushed)
+                NativeSvpStream.push(handle, frame)
+                pushed++
+            }
+            if (pushed == total && !ended) {
+                NativeSvpStream.end(handle)
+                ended = true
+                line("all $total source frames sent; clip end signalled")
+            }
+            if (index == 0 || index % 15 == 0 || index >= lastOutput - 3) line("requesting output $index of $lastOutput")
+            check(NativeSvpStream.render(handle, index, output)) { "engine returned no frame $index" }
+        }
+        val seconds = (SystemClock.elapsedRealtime() - renderStart) / 1000.0
+        line(String.format(Locale.ROOT, "all %d outputs done in %.1f s (%.0f fps)", lastOutput + 1, seconds, (lastOutput + 1) / seconds))
+        line("closing engine (this is where shutdown hung before)")
+        NativeSvpStream.close(handle)
+        line("DONE ok")
+    } catch (t: Throwable) {
+        line("DONE error: ${t.message ?: t.javaClass.simpleName}")
+    }
+}
+
+/** Runs the lab variants one after another from the app's own process. */
+internal object GpuLabRunner {
+    val variants = listOf("trace", "flushwait", "flushall", "blockwrite", "all")
+
+    data class Outcome(val variant: String, val status: String)
+
+    private fun labPid(context: Context): Int? {
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        return manager.runningAppProcesses?.firstOrNull { it.processName == context.packageName + ":gpulab" }?.pid
+    }
+
+    private fun lastLab(file: File): String? =
+        runCatching { file.readLines().lastOrNull { it.startsWith("[lab]") } }.getOrNull()
+
+    /** [onStatus] gets a short progress text; returns the outcome of each variant. */
+    suspend fun run(context: Context, onStatus: (String) -> Unit): List<Outcome> {
+        val dir = File(context.filesDir, "gpulab").apply { mkdirs() }
+        val outcomes = mutableListOf<Outcome>()
+        for (variant in variants) {
+            labPid(context)?.let { android.os.Process.killProcess(it); delay(1000) }
+            val file = File(dir, "$variant.log")
+            file.delete()
+            context.startService(
+                Intent(context, GpuLabService::class.java)
+                    .putExtra(GpuLabService.EXTRA_VARIANT, variant)
+                    .putExtra(GpuLabService.EXTRA_LOG, file.absolutePath),
+            )
+            var last: String? = null
+            var lastChange = SystemClock.elapsedRealtime()
+            var firstOutput = false
+            var status = ""
+            while (true) {
+                delay(500)
+                val now = lastLab(file)
+                if (now != last) { last = now; lastChange = SystemClock.elapsedRealtime() }
+                if (now?.contains("requesting output") == true) firstOutput = true
+                onStatus("Variant $variant: " + (now?.substringAfter("s ", now) ?: "starting…"))
+                if (now?.contains("DONE ok") == true) { status = "OK — " + summary(file); break }
+                if (now?.contains("DONE error") == true) { status = "ERROR — " + now.substringAfter("DONE error: "); break }
+                // Kernel builds can take a while before the first output; after that, 20 s without progress is a hang.
+                val limit = if (firstOutput) 20_000L else 60_000L
+                if (SystemClock.elapsedRealtime() - lastChange > limit) {
+                    labPid(context)?.let { android.os.Process.killProcess(it) }
+                    file.appendText("[lab] HANG: no progress for ${limit / 1000} s; lab process killed\n")
+                    status = "HANG at: " + (last?.substringAfter("s ", last) ?: "start")
+                    break
+                }
+            }
+            outcomes += Outcome(variant, status)
+            delay(1500)
+        }
+        return outcomes
+    }
+
+    private fun summary(file: File): String =
+        runCatching { file.readLines().lastOrNull { it.contains("outputs done") }?.substringAfter("s ")?.trim() }.getOrNull() ?: "finished"
+
+    /** Saves everything to Downloads and returns the file's URI (for sharing). */
+    fun saveReport(context: Context, outcomes: List<Outcome>): Uri? = runCatching {
+        val text = buildString {
+            appendLine("SkyWing GPU lab report")
+            appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}")
+            val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }.getOrNull()
+            appendLine("App version code: $version")
+            appendLine()
+            outcomes.forEach { appendLine("${it.variant}: ${it.status}") }
+            for (variant in variants) {
+                val file = File(File(context.filesDir, "gpulab"), "$variant.log")
+                appendLine()
+                appendLine("===== $variant =====")
+                val lines = runCatching { file.readLines() }.getOrDefault(listOf("(no log)"))
+                (if (lines.size > 600) lines.take(300) + listOf("… ${lines.size - 600} lines cut …") + lines.takeLast(300) else lines)
+                    .forEach { appendLine(it) }
+            }
+        }
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(java.util.Date())
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, "SkyWing-gpu-lab-$stamp.txt")
+            put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+        }
+        val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
+        context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
+        uri
+    }.getOrNull()
+}

@@ -35,10 +35,23 @@ index ec4946b..ce34917 100644
          #[cfg(target_os = "windows")]
          let library = libloading::os::windows::Library::open_already_loaded(name);
 diff --git a/crates/svpflow-host/src/opencl.rs b/crates/svpflow-host/src/opencl.rs
-index ebd6ba4..f77dd21 100644
+index ebd6ba4..250f171 100644
 --- a/crates/svpflow-host/src/opencl.rs
 +++ b/crates/svpflow-host/src/opencl.rs
-@@ -194,6 +194,8 @@ impl OpenCl {
+@@ -190,10 +190,20 @@ impl OpenCl {
+     }
+ 
+     pub unsafe fn load() -> Result<Self, String> {
+-        let name = if cfg!(target_os = "windows") {
++        // Android diagnostics can route OpenCL through a tracing wrapper library.
++        let custom = if cfg!(target_os = "android") {
++            std::env::var("OSVP_OPENCL_LIB").ok().filter(|name| !name.is_empty())
++        } else {
++            None
++        };
++        let name = if let Some(custom) = custom.as_deref() {
++            custom
++        } else if cfg!(target_os = "windows") {
              "OpenCL.dll"
          } else if cfg!(target_os = "macos") {
              "/System/Library/Frameworks/OpenCL.framework/OpenCL"

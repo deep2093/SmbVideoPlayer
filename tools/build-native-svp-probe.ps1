@@ -45,5 +45,6 @@ foreach ($name in 'libopen_svpflow.so', 'libsvpflow1_vs.so', 'libsvpflow2_vs.so'
 }
 $clangCpp = Join-Path $ToolchainRoot 'android-ndk-r28c/toolchains/llvm/prebuilt/windows-x86_64/bin/clang++.exe'
 & $clangCpp --target=aarch64-linux-android29 -shared -fPIC -O3 -std=c++17 -static-libstdc++ -Wall -Wextra -Werror -I "$SourceDir/crates/svpflow-capi/include" "$PSScriptRoot/../app/src/main/cpp/native_svp_stream.cpp" -L $libraries -lopen_svpflow -llog '-Wl,-z,max-page-size=16384' -o "$appOutput/libskywing_svp_stream.so"
+& $clang --target=aarch64-linux-android29 -shared -fPIC -O2 -std=gnu11 -Wall -Wextra -Werror -fvisibility=hidden "$PSScriptRoot/../app/src/main/cpp/cl_trace.c" -ldl -llog '-Wl,-z,max-page-size=16384' -o "$appOutput/libskywing_cl_trace.so"
 if ($LASTEXITCODE -ne 0) { throw 'Live JNI bridge build failed' }
 Write-Output 'Native app and opt-in test libraries built.'

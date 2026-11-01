@@ -26,6 +26,8 @@ internal object NativeSvpStream {
     external fun end(handle: Long)
     external fun cancel(handle: Long)
     external fun close(handle: Long)
+    /** GPU lab only: set an environment variable for the engine before it loads OpenCL. */
+    external fun setEnv(name: String, value: String)
 
     /** Where the engine finds its sibling libraries (extracted libs, or straight from the APK). */
     fun libraryDirectory(context: Context): String {

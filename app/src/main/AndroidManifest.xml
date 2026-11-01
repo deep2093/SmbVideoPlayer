@@ -25,6 +25,12 @@
 
         <profileable android:shell="true" />
 
+        <!-- GPU lab: runs the native engine's OpenCL path in its own process so a driver hang cannot freeze the app. -->
+        <service
+            android:name=".player.GpuLabService"
+            android:exported="false"
+            android:process=":gpulab" />
+
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
