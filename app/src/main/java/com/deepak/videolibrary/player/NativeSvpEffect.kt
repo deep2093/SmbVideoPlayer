@@ -106,6 +106,12 @@ internal object NativeSvpTuning {
 
     /** Smoothing quality levels: processing size (the picture is fitted inside, keeping its shape). */
     val LEVEL_NAMES = listOf("720p", "900p", "1080p", "1440p")
+    /**
+     * When set (width, height), smoothed frames smaller than this are enlarged to fit inside it with a sharp bicubic
+     * filter, in the same GPU pass that turns the engine's picture into colour. The motion work still runs at the
+     * quality level's size; only the finished frame gets bigger and crisper.
+     */
+    @Volatile var upscaleTarget: IntArray? = null
     fun levelSize(level: Int): IntArray = when (level.coerceIn(0, 3)) {
         0 -> intArrayOf(1280, 720)
         1 -> intArrayOf(1600, 900)
@@ -162,6 +168,8 @@ private class NativeSvpShader(
     private var worker: Thread? = null
     private var width = 0
     private var height = 0
+    private var outWidth = 0
+    private var outHeight = 0
     private var firstUs = 0L
     @Volatile private var lastUs = 0L
     @Volatile private var requestedEndUs = Long.MAX_VALUE
@@ -323,11 +331,22 @@ private class NativeSvpShader(
         }
         handle = NativeSvpStream.create(directory, width, height, fpsNum, fpsDen, useGpu, threads, ahead)
         check(handle != 0L)
+        // Finished frames are enlarged to the requested size (never shrunk), keeping the picture's shape.
+        outWidth = width
+        outHeight = height
+        NativeSvpTuning.upscaleTarget?.let { target ->
+            val scale = minOf(target[0].toDouble() / width, target[1].toDouble() / height)
+            if (scale > 1.05) {
+                outWidth = (width * scale).toInt() and -2
+                outHeight = (height * scale).toInt() and -2
+            }
+        }
         val backend = if (useGpu) "OpenCL" else "CPU"
-        NativeSvpTuning.lastStream = "${width}x$height $backend · $threads threads · $ahead ahead"
+        NativeSvpTuning.lastStream = "${width}x$height $backend · $threads threads · $ahead ahead" +
+            if (outWidth != width) " → ${outWidth}x$outHeight sharp" else ""
         android.util.Log.i("NativeSvp", "Stream ${width}x$height source=$fpsNum/$fpsDen output=60 analysis=half backend=$backend threads=$threads ahead=$ahead outputs=$outputs")
         repeat(outputs) {
-            val texture = checkNotNull(provider).createBuffersForTexture(GlUtil.createTexture(width, height, false), width, height)
+            val texture = checkNotNull(provider).createBuffersForTexture(GlUtil.createTexture(outWidth, outHeight, false), outWidth, outHeight)
             textures.add(texture); free.add(texture)
         }
     }
@@ -368,14 +387,27 @@ private class NativeSvpShader(
                         height shr (if (p == 0) 0 else 1), 0, GL.GL_LUMINANCE, GL.GL_UNSIGNED_BYTE, null)
                 }
                 GL.glGenFramebuffers(1, workerFbo, 0)
+                val upscaling = outWidth != width || outHeight != height
+                // Catmull-Rom bicubic (nine texture reads) for the picture detail; colour is soft enough for plain filtering.
+                val sharpLuma = "uniform vec2 uYSize; float lumaAt(vec2 uv){" +
+                    "vec2 sp=uv*uYSize; vec2 t1=floor(sp-.5)+.5; vec2 f=sp-t1;" +
+                    "vec2 w0=f*(-.5+f*(1.-.5*f)); vec2 w1=1.+f*f*(-2.5+1.5*f); vec2 w2=f*(.5+f*(2.-1.5*f)); vec2 w3=f*f*(-.5+.5*f);" +
+                    "vec2 w12=w1+w2; vec2 o12=w2/w12;" +
+                    "vec2 a=(t1-1.)/uYSize; vec2 b=(t1+o12)/uYSize; vec2 c=(t1+2.)/uYSize;" +
+                    "float r=texture2D(uY,vec2(a.x,a.y)).r*w0.x*w0.y+texture2D(uY,vec2(b.x,a.y)).r*w12.x*w0.y+texture2D(uY,vec2(c.x,a.y)).r*w3.x*w0.y" +
+                    "+texture2D(uY,vec2(a.x,b.y)).r*w0.x*w12.y+texture2D(uY,vec2(b.x,b.y)).r*w12.x*w12.y+texture2D(uY,vec2(c.x,b.y)).r*w3.x*w12.y" +
+                    "+texture2D(uY,vec2(a.x,c.y)).r*w0.x*w3.y+texture2D(uY,vec2(b.x,c.y)).r*w12.x*w3.y+texture2D(uY,vec2(c.x,c.y)).r*w3.x*w3.y;" +
+                    "return r;} "
                 converter = GlProgram(
                     "attribute vec2 aPosition; varying vec2 vTex; void main(){gl_Position=vec4(aPosition,0.,1.);vTex=aPosition*.5+.5;}",
                     "precision highp float; varying vec2 vTex; uniform sampler2D uY; uniform sampler2D uU; uniform sampler2D uV; " +
-                        "void main(){float y=(texture2D(uY,vTex).r-16./255.)*(255./219.);" +
+                        (if (upscaling) sharpLuma else "") +
+                        "void main(){float y=((" + (if (upscaling) "lumaAt(vTex)" else "texture2D(uY,vTex).r") + ")-16./255.)*(255./219.);" +
                         "float u=(texture2D(uU,vTex).r-128./255.)*(255./224.);" +
                         "float v=(texture2D(uV,vTex).r-128./255.)*(255./224.);" +
                         "gl_FragColor=vec4(y+1.5748*v,y-.187324*u-.468124*v,y+1.8556*u,1.);}")
                 converter.setBufferAttribute("aPosition", floatArrayOf(-1f,-1f,1f,-1f,-1f,1f,1f,1f), 2)
+                if (upscaling) converter.setFloatsUniform("uYSize", floatArrayOf(width.toFloat(), height.toFloat()))
                 var index = 0
                 var lastPrint = 0L
                 while (active) {
@@ -418,7 +450,7 @@ private class NativeSvpShader(
                     }
                     GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, workerFbo[0])
                     GL.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0, GL.GL_TEXTURE_2D, texture.texId, 0)
-                    GL.glViewport(0, 0, width, height)
+                    GL.glViewport(0, 0, outWidth, outHeight)
                     converter.use()
                     converter.setSamplerTexIdUniform("uY", yuvTextures[0], 0)
                     converter.setSamplerTexIdUniform("uU", yuvTextures[1], 1)

@@ -108,3 +108,8 @@ The second live GPU test on the S26 Ultra (build 1579) ran 6.5 minutes at 1080p 
 * One watchdog for every native mode: after an 8 s grace, three seconds under 50 shown fps lower the level by one on the same engine; at 720p a Snapdragon GPU falls back to the CPU engine; a wrapper stall report falls back immediately. After 120 calm seconds (at least 57 fps) and three minutes since the last step down it raises the level by one, up to the chosen quality.
 * Snapdragon GPU path only: 4 outputs of lookahead, 5 output textures, input credit 10 (the tablet keeps 2/3/8).
 * The GPU path is now on by default for Snapdragon phones; the playback log records the active cap.
+
+## Max level, heat and power modes
+
+- **Max (1440p) stop.** The motion engine runs at the highest level the GPU check passed (at most 1080p on devices that fail the 1440p check). With the top stop selected, finished frames smaller than the screen (up to 2560x1440 in the current orientation) are enlarged with a Catmull-Rom bicubic filter in the same GPU pass that converts the engine's YUV picture to RGB. The extra cost is one full-frame pass, not more motion work. Portrait playback and sources already at or above the screen size are not enlarged.
+- **Power mode.** Battery caps smoothing at 900p and drops to 720p at the first "moderate" thermal status; Balanced (default) caps at 900p only while Android battery saver is on and lowers one step at "moderate", two at "severe"; Quality lowers only at "severe" (one step) and "critical" (to 720p). Levels come back one step at a time after 90 calm seconds. Thermal changes are written to the GPU playback report.

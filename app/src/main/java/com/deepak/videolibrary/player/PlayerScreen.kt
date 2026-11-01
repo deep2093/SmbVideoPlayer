@@ -156,9 +156,26 @@ fun PlayerScreen(
     var gpuCheckStatus by remember { mutableStateOf("") }
     val gpuAllowed = (gpuCheck?.substringBefore('|')?.toIntOrNull() ?: 2).coerceIn(0, 3)
     var sessionCap by remember { mutableIntStateOf(3) }
-    val gpuLevel = minOf(quality, gpuAllowed, sessionCap).coerceAtLeast(0)
+    // Power mode: 0 = Battery (at most 900p, lowered sooner when the phone warms), 1 = Balanced (default; also at most 900p
+    // while Android's battery saver is on), 2 = Quality (lowered only when the phone is getting seriously hot).
+    var powerMode by remember { mutableIntStateOf(prefs.getInt("native_power_mode", 1).coerceIn(0, 2)) }
+    var batterySaver by remember { mutableStateOf(false) }
+    var heatCap by remember { mutableIntStateOf(3) }
+    val modeCap = if (powerMode == 0 || (powerMode == 1 && batterySaver)) 1 else 3
+    // Highest level the device passed in its GPU check; the top stop (1440p) is also offered when only 1080p passed,
+    // as 1080p smoothing enlarged and sharpened to the screen.
+    val maxStop = if (gpuAllowed >= 2) 3 else gpuAllowed
+    val gpuLevel = minOf(quality, gpuAllowed, sessionCap, heatCap, modeCap).coerceAtLeast(0)
     val cpuLevel = minOf(quality, 0, sessionCap).coerceAtLeast(0)
-    val nativeEffects = remember(gpuLevel, cpuLevel, adrenoGpu) {
+    // The top stop: smoothed frames smaller than the screen are enlarged (up to 1440p) with a sharp filter.
+    val displayOrientation = androidx.compose.ui.platform.LocalConfiguration.current.orientation
+    val sharpTarget = remember(displayOrientation) {
+        val metrics = context.resources.displayMetrics
+        intArrayOf(minOf(metrics.widthPixels, 2560), minOf(metrics.heightPixels, 1440))
+    }
+    val sharp = smooth60 && nativeAvailable && quality == 3 && gpuLevel >= 2
+    NativeSvpTuning.upscaleTarget = if (sharp) sharpTarget else null
+    val nativeEffects = remember(gpuLevel, cpuLevel, adrenoGpu, sharp, sharpTarget[0], sharpTarget[1]) {
         listOf(NativeSvpScale(NativeSvpTuning.levelSize(gpuLevel), NativeSvpTuning.levelSize(cpuLevel)), NativeSvpEffect(nativeController))
     }
     val nativeInUse by rememberUpdatedState(smooth60 && nativeAvailable)
@@ -296,8 +313,44 @@ fun PlayerScreen(
     // least three minutes after the last step down) it steps back up one level towards the chosen quality.
     val currentGpuLevel by rememberUpdatedState(gpuLevel)
     val currentCpuLevel by rememberUpdatedState(cpuLevel)
-    val gpuTarget by rememberUpdatedState(minOf(quality, gpuAllowed))
+    val gpuTarget by rememberUpdatedState(minOf(quality, gpuAllowed, heatCap, modeCap))
     val cpuTarget by rememberUpdatedState(minOf(quality, 0))
+    // Heat: lower the smoothing level when Android reports the phone is warming up, raise it again one step at a time
+    // after 90 calm seconds. How early depends on the power mode.
+    LaunchedEffect(smooth60, nativeAvailable, powerMode) {
+        if (!(smooth60 && nativeAvailable)) return@LaunchedEffect
+        val power = context.getSystemService(android.os.PowerManager::class.java) ?: return@LaunchedEffect
+        var calmSince = 0L
+        var lastStatus = -1
+        while (true) {
+            batterySaver = power.isPowerSaveMode
+            val status = power.currentThermalStatus
+            if (status != lastStatus) {
+                lastStatus = status
+                GpuPlaybackReport.log(context, "thermal status=$status powerMode=$powerMode batterySaver=$batterySaver")
+            }
+            val allowed = when (powerMode) {
+                2 -> when { status >= 4 -> 0; status >= 3 -> 1; else -> 3 }
+                1 -> when { status >= 3 -> 0; status >= 2 -> 1; else -> 3 }
+                else -> when { status >= 2 -> 0; else -> 1 }
+            }
+            val now = SystemClock.elapsedRealtime()
+            if (allowed < heatCap) {
+                heatCap = allowed
+                calmSince = 0L
+                AppDiagnostics.record(context, "native-quality", "heat: capped at ${NativeSvpTuning.LEVEL_NAMES[allowed]}")
+                android.widget.Toast.makeText(context, "Phone is warm; smoothing lowered to ${NativeSvpTuning.LEVEL_NAMES[allowed]}", android.widget.Toast.LENGTH_LONG).show()
+            } else if (allowed > heatCap) {
+                if (calmSince == 0L) calmSince = now
+                else if (now - calmSince > 90_000L) {
+                    heatCap = minOf(allowed, heatCap + 1)
+                    calmSince = 0L
+                    AppDiagnostics.record(context, "native-quality", "heat: raised to ${NativeSvpTuning.LEVEL_NAMES[heatCap]}")
+                }
+            } else calmSince = 0L
+            delay(2000)
+        }
+    }
     LaunchedEffect(player, smooth60, nativeAvailable) {
         if (!(smooth60 && nativeAvailable)) return@LaunchedEffect
         val stallLog = NativeSvpTuning.stallLog(context)
@@ -1146,13 +1199,13 @@ fun PlayerScreen(
                     })
                 }
                 if (smooth60 && nativeAvailable) {
-                    Text("Smoothing quality: ${NativeSvpTuning.LEVEL_NAMES[quality.coerceAtMost(gpuAllowed)]}", color = Color.White, style = MaterialTheme.typography.bodySmall)
-                    var sliderPos by remember(quality, gpuAllowed) { mutableFloatStateOf(quality.coerceAtMost(gpuAllowed).toFloat()) }
+                    Text("Smoothing quality: ${NativeSvpTuning.LEVEL_NAMES[quality.coerceAtMost(maxStop)]}${if (quality == 3 && gpuAllowed < 3) " (sharp)" else ""}", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    var sliderPos by remember(quality, maxStop) { mutableFloatStateOf(quality.coerceAtMost(maxStop).toFloat()) }
                     Slider(
                         value = sliderPos,
-                        onValueChange = { sliderPos = it.coerceAtMost(gpuAllowed.toFloat()) },
+                        onValueChange = { sliderPos = it.coerceAtMost(maxStop.toFloat()) },
                         onValueChangeFinished = {
-                            val level = sliderPos.toInt().coerceIn(0, gpuAllowed)
+                            val level = sliderPos.toInt().coerceIn(0, maxStop)
                             sliderPos = level.toFloat()
                             quality = level
                             sessionCap = 3
@@ -1164,13 +1217,29 @@ fun PlayerScreen(
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         NativeSvpTuning.LEVEL_NAMES.forEachIndexed { index, name ->
-                            Text(name, color = if (index <= gpuAllowed) Color.White else Color.Gray, style = MaterialTheme.typography.labelSmall)
+                            Text(name, color = if (index <= maxStop) Color.White else Color.Gray, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState())) {
+                        listOf("Battery", "Balanced", "Quality").forEachIndexed { index, label ->
+                            FilterChip(
+                                selected = powerMode == index,
+                                onClick = {
+                                    powerMode = index
+                                    prefs.edit().putInt("native_power_mode", index).apply()
+                                    revealControls()
+                                },
+                                label = { Text(label) },
+                            )
                         }
                     }
                     val qualityNote = buildString {
                         append("Now: ${NativeSvpTuning.LEVEL_NAMES[gpuLevel]}")
-                        if (sessionCap < minOf(quality, gpuAllowed)) append(" (lowered for this session)")
-                        if (gpuAllowed < 3) append(" · higher levels are too heavy for this device")
+                        if (sharp) append(" smoothed, sharpened to the screen")
+                        if (heatCap < 3) append(" · lowered by heat")
+                        else if (modeCap < 3 && quality > modeCap) append(" · limited by the power mode")
+                        else if (sessionCap < minOf(quality, gpuAllowed)) append(" (lowered for this session)")
+                        if (gpuAllowed < 2) append(" · higher levels are too heavy for this device")
                     }
                     Text(qualityNote, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                 }
