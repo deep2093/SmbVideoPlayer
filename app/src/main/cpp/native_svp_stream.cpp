@@ -25,6 +25,7 @@ struct Stream {
     osvp_context *context = nullptr;
     osvp_clip *input = nullptr, *output = nullptr;
     int ahead = 2;
+    double sourcePerOutput = 0.4; // source frames per 60 fps output frame
     ~Stream() {
         osvp_clip_free(output);
         osvp_clip_free(input);
@@ -61,6 +62,7 @@ Java_com_deepak_videolibrary_player_NativeSvpStream_create(JNIEnv *env, jobject,
     auto result = std::make_unique<Stream>();
     result->source = std::make_shared<Source>(width, height);
     result->ahead = std::clamp(static_cast<int>(ahead), 1, 16);
+    result->sourcePerOutput = static_cast<double>(fps_num) / (static_cast<double>(fps_den) * 60.0);
     const char *dir = env->GetStringUTFChars(directory, nullptr);
     if (!dir) return 0;
     osvp_set_threads(std::clamp(static_cast<int>(threads), 1, 12));
@@ -119,6 +121,33 @@ Java_com_deepak_videolibrary_player_NativeSvpStream_render(JNIEnv *env, jobject,
         for (int y = 0; y < ph; y++) { memcpy(pixels, plane+y*stride, pw); pixels += pw; }
     }
     osvp_frame_free(frame);
+    // The motion engine can leave a bright or wrong line along the picture's edge (vectors pointing outside the
+    // frame). Take the outermost few pixels from the nearest real source frame instead.
+    {
+        const int n = static_cast<int>(index * s->sourcePerOutput + 0.5);
+        std::lock_guard<std::mutex> lock(s->source->mutex);
+        const int slot = n % slots;
+        if (n >= 0 && s->source->indices[slot] == n) {
+            const unsigned char *src = s->source->frames[slot].data();
+            unsigned char *dst = static_cast<unsigned char *>(env->GetDirectBufferAddress(yuvBuffer));
+            for (int p = 0; p < 3; p++) {
+                const int pw = w >> (p != 0), ph = h >> (p != 0);
+                const int edge = p == 0 ? 6 : 3;
+                if (pw > edge * 4 && ph > edge * 4) {
+                    for (int y = 0; y < ph; y++) {
+                        const size_t row = static_cast<size_t>(y) * pw;
+                        memcpy(dst + row, src + row, edge);
+                        memcpy(dst + row + pw - edge, src + row + pw - edge, edge);
+                    }
+                    memcpy(dst, src, static_cast<size_t>(edge) * pw);
+                    memcpy(dst + static_cast<size_t>(ph - edge) * pw, src + static_cast<size_t>(ph - edge) * pw, static_cast<size_t>(edge) * pw);
+                }
+                const size_t plane = static_cast<size_t>(pw) * ph;
+                dst += plane;
+                src += plane;
+            }
+        }
+    }
     return true;
 }
 extern "C" JNIEXPORT void JNICALL

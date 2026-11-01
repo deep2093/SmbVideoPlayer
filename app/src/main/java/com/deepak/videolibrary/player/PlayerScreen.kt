@@ -1104,13 +1104,15 @@ fun PlayerScreen(
         }
         if (showSettings && controlsVisible) {
             var showAdvanced by remember { mutableStateOf(false) }
+            // Opens just above the bottom-right three-dot button, within thumb reach in every layout.
+            BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             Column(
                 Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 48.dp, end = 8.dp, bottom = 8.dp)
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 8.dp, bottom = 56.dp)
                     .widthIn(max = 320.dp)
                     .fillMaxWidth(0.9f)
-                    .heightIn(max = 300.dp)
+                    .heightIn(max = (maxHeight - 64.dp).coerceIn(160.dp, 380.dp))
                     .background(Color(0xEE202020), RoundedCornerShape(12.dp))
                     .verticalScroll(androidx.compose.foundation.rememberScrollState())
                     .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1166,7 +1168,6 @@ fun PlayerScreen(
                         if (gpuAllowed < 3) append(" · higher levels are too heavy for this device")
                     }
                     Text(qualityNote, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-                    if (gpuChecking) Text(gpuCheckStatus, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Show frame rate", color = Color.White, modifier = Modifier.weight(1f))
@@ -1205,9 +1206,7 @@ fun PlayerScreen(
                             gpuChecking = false
                         }
                     }) { Text("Re-run GPU quality check", color = Color.White) }
-                    if (gpuCheck != null) {
-                        Text("GPU: " + gpuCheck!!.substringAfter('|'), color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-                    }
+                    if (gpuChecking) Text(gpuCheckStatus, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                     TextButton(enabled = !gpuChecking, onClick = {
                         player.pause()
                         showGpuLab = true
@@ -1227,6 +1226,7 @@ fun PlayerScreen(
                         }
                     }) { Text("Share GPU playback report", color = Color.White) }
                 }
+            }
             }
         }
         message?.let { warning ->
