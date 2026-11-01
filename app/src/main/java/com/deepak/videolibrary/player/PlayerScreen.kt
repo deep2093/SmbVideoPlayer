@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.*
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1086,15 +1087,24 @@ fun PlayerScreen(
             }
         }
         if (showSettings && controlsVisible) {
+            var showAdvanced by remember { mutableStateOf(false) }
             Column(
                 Modifier
-                    .align(
-                        Alignment.TopEnd,
-                    ).padding(top = 52.dp, end = 10.dp)
+                    .align(Alignment.TopEnd)
+                    .padding(top = 48.dp, end = 8.dp, bottom = 8.dp)
+                    .widthIn(max = 320.dp)
+                    .fillMaxWidth(0.9f)
+                    .heightIn(max = 300.dp)
                     .background(Color(0xEE202020), RoundedCornerShape(12.dp))
-                    .padding(12.dp),
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Text(stringResource(R.string.ui_hold_to_fast_forward_5f7f116), color = Color.White)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Settings", color = Color.White, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { showSettings = false }) { Text(stringResource(R.string.ui_close_bbfa773), color = Color.White) }
+                }
+                Text(stringResource(R.string.ui_hold_to_fast_forward_5f7f116), color = Color.White, style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(1.5f, 1.75f, 2f).forEach { speed ->
                         FilterChip(selected = holdSpeed == speed, onClick = {
@@ -1105,20 +1115,13 @@ fun PlayerScreen(
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.ui_picture_in_picture_7a61e37), color = Color.White)
+                    Text(stringResource(R.string.ui_picture_in_picture_7a61e37), color = Color.White, modifier = Modifier.weight(1f))
                     Switch(checked = pipEnabled, onCheckedChange = {
                         pipEnabled = it
                         prefs.edit().putBoolean("pip_enabled", it).apply()
                         revealControls()
                     })
                 }
-                HorizontalDivider(color = Color.White.copy(alpha = 0.2f))
-                Text("Smooth motion development preview", color = Color.White, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "Smooth motion estimates movement between decoded frames and creates in-between frames on the GPU, targeting 60 fps. Difficult scenes use source frames or masking; artifacts can still occur.",
-                    color = Color.LightGray,
-                    style = MaterialTheme.typography.bodySmall,
-                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Prefer 60 Hz output", color = Color.White, modifier = Modifier.weight(1f))
                     Switch(checked = prefer60Hz, onCheckedChange = { value ->
@@ -1128,7 +1131,7 @@ fun PlayerScreen(
                     })
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Smooth motion (experimental)", color = Color.White, modifier = Modifier.weight(1f))
+                    Text("Smooth motion 60 fps", color = Color.White, modifier = Modifier.weight(1f))
                     Switch(checked = smooth60, onCheckedChange = { value ->
                         smooth60 = value
                         prefs.edit().putBoolean("experimental_smooth_60fps", value).apply()
@@ -1136,8 +1139,6 @@ fun PlayerScreen(
                     })
                 }
                 if (smooth60 && nativeAvailable) {
-                    Text("Motion smoothing at 60 fps", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-                    Text("Smoothing quality", color = Color.White)
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
@@ -1159,14 +1160,57 @@ fun PlayerScreen(
                     val qualityNote = buildString {
                         append("Now: GPU ${NativeSvpTuning.LEVEL_NAMES[gpuLevel]}")
                         if (sessionCap < minOf(quality, gpuAllowed)) append(" (lowered for this session)")
-                        append(". ")
-                        append(
-                            if (gpuCheck == null) "Max (1440p) unlocks after the GPU quality check."
-                            else "GPU check: " + gpuCheck!!.substringAfter('|'),
-                        )
+                        if (gpuCheck == null) append(". Run the GPU check to unlock Max.")
                     }
                     Text(qualityNote, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                     if (gpuChecking) Text(gpuCheckStatus, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("GPU on Snapdragon phones", color = Color.White, modifier = Modifier.weight(1f))
+                        Switch(checked = adrenoGpu, onCheckedChange = { value ->
+                            if (value) runCatching { NativeSvpTuning.stallLog(context).delete() }
+                            sessionCap = 3
+                            adrenoGpu = value
+                            prefs.edit().putBoolean("native_adreno_gpu", value).apply()
+                            revealControls()
+                        })
+                    }
+                }
+                if (smooth60 && !nativeAvailable) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("Clean", "Balanced", "Max smooth").forEachIndexed { index, label ->
+                            FilterChip(
+                                selected = smoothStrength == index,
+                                onClick = {
+                                    smoothStrength = index
+                                    prefs.edit().putInt("smooth_60fps_strength", index).apply()
+                                    revealControls()
+                                },
+                                label = { Text(label) },
+                            )
+                        }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Show frame rate", color = Color.White, modifier = Modifier.weight(1f))
+                    Switch(checked = showFps, onCheckedChange = { value ->
+                        showFps = value
+                        prefs.edit().putBoolean("show_fps_indicator", value).apply()
+                        revealControls()
+                    })
+                }
+                Row {
+                    TextButton(onClick = {
+                        zoom = 1f
+                        aspectIndex = 0
+                        revealControls()
+                    }) { Text(stringResource(R.string.ui_reset_zoom_e573797), color = Color.White) }
+                    if (smooth60 && nativeAvailable) {
+                        TextButton(onClick = { showAdvanced = !showAdvanced }) {
+                            Text(if (showAdvanced) "Hide tests" else "Tests & report", color = Color.White)
+                        }
+                    }
+                }
+                if (showAdvanced && smooth60 && nativeAvailable) {
                     TextButton(enabled = !gpuChecking && !speedChecking, onClick = {
                         player.pause()
                         gpuChecking = true
@@ -1181,13 +1225,9 @@ fun PlayerScreen(
                             gpuChecking = false
                         }
                     }) { Text("Check GPU quality levels", color = Color.White) }
-                    val checkText = when {
-                        speedChecking -> "Checking 1080p speed… (about 20 s, video paused)"
-                        speedCheck == null -> "1080p speed: not checked yet (phones that smooth on the CPU use 720p until it passes)"
-                        cpu1080LiveFailed -> "1080p speed: " + speedCheck!!.substringAfter('|') + " · stepped down to 720p during playback"
-                        else -> "1080p speed: " + speedCheck!!.substringAfter('|')
+                    if (gpuCheck != null) {
+                        Text("GPU: " + gpuCheck!!.substringAfter('|'), color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                     }
-                    Text(checkText, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                     TextButton(enabled = !speedChecking, onClick = {
                         player.pause()
                         speedChecking = true
@@ -1202,6 +1242,10 @@ fun PlayerScreen(
                             speedChecking = false
                         }
                     }) { Text("Check CPU 1080p speed", color = Color.White) }
+                    speedCheck?.let {
+                        Text("CPU: " + it.substringAfter('|') + if (cpu1080LiveFailed) " · stepped down" else "", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (speedChecking) Text("Checking… (about 20 s, video paused)", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                     TextButton(enabled = !speedChecking, onClick = {
                         player.pause()
                         showGpuLab = true
@@ -1220,68 +1264,7 @@ fun PlayerScreen(
                             }
                         }
                     }) { Text("Share GPU playback report", color = Color.White) }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Use the GPU on Snapdragon phones", color = Color.White, modifier = Modifier.weight(1f))
-                        Switch(checked = adrenoGpu, onCheckedChange = { value ->
-                            if (value) runCatching { NativeSvpTuning.stallLog(context).delete() }
-                            sessionCap = 3
-                            adrenoGpu = value
-                            prefs.edit().putBoolean("native_adreno_gpu", value).apply()
-                            revealControls()
-                        })
-                    }
-                    Text(
-                        "GPU smoothing with the Adreno driver fix from the GPU lab. Cooler than the CPU engine; lowers the quality level if it falls behind and switches to the CPU only if the GPU stalls or cannot keep up even at 720p.",
-                        color = Color.LightGray,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
                 }
-                if (smooth60 && !nativeAvailable) {
-                    Text("Smoothing strength", color = Color.White)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Clean", "Balanced", "Max smooth").forEachIndexed { index, label ->
-                            FilterChip(
-                                selected = smoothStrength == index,
-                                onClick = {
-                                    smoothStrength = index
-                                    prefs.edit().putInt("smooth_60fps_strength", index).apply()
-                                    revealControls()
-                                },
-                                label = { Text(label) },
-                            )
-                        }
-                    }
-                    Text(
-                        "Clean shows the real frame wherever motion is doubtful: fewest artifacts, less smooth on fast action.",
-                        color = Color.LightGray,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Debug colours (green = moved, red = fallback)", color = Color.White, modifier = Modifier.weight(1f))
-                        Switch(checked = smoothDebug, onCheckedChange = { value ->
-                            smoothDebug = value
-                            prefs.edit().putBoolean("smooth_60fps_debug", value).apply()
-                            revealControls()
-                        })
-                    }
-                    TextButton(onClick = {
-                        smoothViewRef?.saveFrame()
-                        revealControls()
-                    }) { Text("Save smooth frames (5 images, press during action)", color = Color.White) }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Show frame rate on screen", color = Color.White, modifier = Modifier.weight(1f))
-                    Switch(checked = showFps, onCheckedChange = { value ->
-                        showFps = value
-                        prefs.edit().putBoolean("show_fps_indicator", value).apply()
-                        revealControls()
-                    })
-                }
-                TextButton(onClick = {
-                    zoom = 1f
-                    aspectIndex = 0
-                    revealControls()
-                }) { Text(stringResource(R.string.ui_reset_zoom_e573797), color = Color.White) }
             }
         }
         message?.let { warning ->
