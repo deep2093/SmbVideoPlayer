@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -271,7 +272,7 @@ internal fun PhoneVideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                androidx.compose.foundation.lazy.grid.itemsIndexed(current.videos, key = { _, v -> v.uri }) { index, video ->
+                itemsIndexed(current.videos, key = { _, v -> v.uri }) { index, video ->
                     Column(Modifier.clickable { play(current, index) }) {
                         Box {
                             PhoneThumb(video.uri, Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)))
