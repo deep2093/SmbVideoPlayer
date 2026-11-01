@@ -112,6 +112,8 @@ internal object NativeSvpTuning {
      * quality level's size; only the finished frame gets bigger and crisper.
      */
     @Volatile var upscaleTarget: IntArray? = null
+    /** For the playback report: what the last played video was (HDR detection, codec, colour info) and the screen's HDR state. */
+    @Volatile var lastVideoInfo: String = "(none yet)"
     fun levelSize(level: Int): IntArray = when (level.coerceIn(0, 3)) {
         0 -> intArrayOf(1280, 720)
         1 -> intArrayOf(1600, 900)

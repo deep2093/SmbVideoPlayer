@@ -324,6 +324,7 @@ internal object GpuPlaybackReport {
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}")
             appendLine("App version code: ${runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }.getOrNull()}")
             appendLine("GPU on Snapdragon: ${NativeSvpTuning.adrenoGpu}; last stream: ${NativeSvpTuning.lastStream}")
+            appendLine("Last video: ${NativeSvpTuning.lastVideoInfo}")
             appendLine()
             appendLine("===== recent app exits (Android) =====")
             append(exitReasons(context))

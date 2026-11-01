@@ -201,7 +201,10 @@ fun PlayerScreen(
     // motion estimation separately; the display-mode request alone adds no frames.
     DisposableEffect(activity, hdrVideo) {
         val window = activity?.window
-        if (hdrVideo && window != null && Build.VERSION.SDK_INT >= 26) window.colorMode = android.content.pm.ActivityInfo.COLOR_MODE_HDR
+        if (hdrVideo && window != null && Build.VERSION.SDK_INT >= 26) {
+            window.colorMode = android.content.pm.ActivityInfo.COLOR_MODE_HDR
+            NativeSvpTuning.lastVideoInfo += " | window colour mode set to HDR (now ${window.colorMode})"
+        }
         onDispose { if (window != null && Build.VERSION.SDK_INT >= 26) window.colorMode = android.content.pm.ActivityInfo.COLOR_MODE_DEFAULT }
     }
     DisposableEffect(activity, smooth60, smoothTargetFps) {
@@ -685,6 +688,11 @@ fun PlayerScreen(
                     hdrVideo = dolby || transfer == androidx.media3.common.C.COLOR_TRANSFER_ST2084 ||
                         transfer == androidx.media3.common.C.COLOR_TRANSFER_HLG
                     AppDiagnostics.record(context, "hdr", "hdr=$hdrVideo dolbyVision=$dolby transfer=$transfer codecs=$codecs")
+                    val ci = format.colorInfo
+                    val screen = activity?.window
+                    NativeSvpTuning.lastVideoInfo = "hdr=$hdrVideo dolbyVision=$dolby mime=${format.sampleMimeType} codecs=$codecs " +
+                        "colorSpace=${ci?.colorSpace} range=${ci?.colorRange} transfer=$transfer ${format.width}x${format.height} " +
+                        "displayIsHdr=${if (Build.VERSION.SDK_INT >= 26) screen?.decorView?.display?.isHdr else null}"
                     AppDiagnostics.record(
                         context,
                         "codec",
@@ -1276,14 +1284,12 @@ fun PlayerScreen(
                         aspectIndex = 0
                         revealControls()
                     }) { Text(stringResource(R.string.ui_reset_zoom_e573797), color = Color.White) }
-                    if (smooth60 && nativeAvailable) {
-                        TextButton(onClick = { showAdvanced = !showAdvanced }) {
-                            Text(if (showAdvanced) "Hide tests" else "Tests & report", color = Color.White)
-                        }
+                    TextButton(onClick = { showAdvanced = !showAdvanced }) {
+                        Text(if (showAdvanced) "Hide tests" else "Tests & report", color = Color.White)
                     }
                 }
-                if (showAdvanced && smooth60 && nativeAvailable) {
-                    TextButton(enabled = !gpuChecking, onClick = {
+                if (showAdvanced) {
+                    if (nativeAvailable) TextButton(enabled = !gpuChecking, onClick = {
                         player.pause()
                         gpuChecking = true
                         gpuCheckStatus = "Starting the GPU quality check (about 1 minute, video paused)…"
@@ -1300,7 +1306,7 @@ fun PlayerScreen(
                         }
                     }) { Text("Re-run GPU quality check", color = Color.White) }
                     if (gpuChecking) Text(gpuCheckStatus, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-                    TextButton(enabled = !gpuChecking, onClick = {
+                    if (nativeAvailable) TextButton(enabled = !gpuChecking, onClick = {
                         player.pause()
                         showGpuLab = true
                     }) { Text("GPU lab (diagnostics)", color = Color.White) }
