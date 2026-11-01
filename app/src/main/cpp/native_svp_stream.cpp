@@ -122,30 +122,25 @@ Java_com_deepak_videolibrary_player_NativeSvpStream_render(JNIEnv *env, jobject,
     }
     osvp_frame_free(frame);
     // The motion engine can leave a bright or wrong line along the picture's edge (vectors pointing outside the
-    // frame). Take the outermost few pixels from the nearest real source frame instead.
+    // frame). Hide it by stretching the first clean interpolated pixels outward, so the edge keeps moving with the
+    // rest of the smoothed picture (copying real frames there made the strip step at the source rate instead).
     {
-        const int n = static_cast<int>(index * s->sourcePerOutput + 0.5);
-        std::lock_guard<std::mutex> lock(s->source->mutex);
-        const int slot = n % slots;
-        if (n >= 0 && s->source->indices[slot] == n) {
-            const unsigned char *src = s->source->frames[slot].data();
-            unsigned char *dst = static_cast<unsigned char *>(env->GetDirectBufferAddress(yuvBuffer));
-            for (int p = 0; p < 3; p++) {
-                const int pw = w >> (p != 0), ph = h >> (p != 0);
-                const int edge = p == 0 ? 6 : 3;
-                if (pw > edge * 4 && ph > edge * 4) {
-                    for (int y = 0; y < ph; y++) {
-                        const size_t row = static_cast<size_t>(y) * pw;
-                        memcpy(dst + row, src + row, edge);
-                        memcpy(dst + row + pw - edge, src + row + pw - edge, edge);
-                    }
-                    memcpy(dst, src, static_cast<size_t>(edge) * pw);
-                    memcpy(dst + static_cast<size_t>(ph - edge) * pw, src + static_cast<size_t>(ph - edge) * pw, static_cast<size_t>(edge) * pw);
+        unsigned char *dst = static_cast<unsigned char *>(env->GetDirectBufferAddress(yuvBuffer));
+        for (int p = 0; p < 3; p++) {
+            const int pw = w >> (p != 0), ph = h >> (p != 0);
+            const int edge = p == 0 ? 6 : 3;
+            if (pw > edge * 4 && ph > edge * 4) {
+                for (int y = 0; y < ph; y++) {
+                    unsigned char *row = dst + static_cast<size_t>(y) * pw;
+                    memset(row, row[edge], edge);
+                    memset(row + pw - edge, row[pw - edge - 1], edge);
                 }
-                const size_t plane = static_cast<size_t>(pw) * ph;
-                dst += plane;
-                src += plane;
+                for (int y = 0; y < edge; y++) {
+                    memcpy(dst + static_cast<size_t>(y) * pw, dst + static_cast<size_t>(edge) * pw, pw);
+                    memcpy(dst + static_cast<size_t>(ph - 1 - y) * pw, dst + static_cast<size_t>(ph - 1 - edge) * pw, pw);
+                }
             }
+            dst += static_cast<size_t>(pw) * ph;
         }
     }
     return true;
