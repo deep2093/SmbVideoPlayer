@@ -19,12 +19,55 @@ import kotlin.math.abs
 
 internal object NativeSvpStream {
     val available: Boolean by lazy { runCatching { System.loadLibrary("skywing_svp_stream") }.isSuccess }
-    external fun create(directory: String, width: Int, height: Int, fpsNum: Long, fpsDen: Long, useGpu: Boolean): Long
+    /** [threads] native workers; [ahead] output frames the engine may prepare before they are requested. */
+    external fun create(directory: String, width: Int, height: Int, fpsNum: Long, fpsDen: Long, useGpu: Boolean, threads: Int, ahead: Int): Long
     external fun push(handle: Long, yuv: ByteBuffer)
     external fun render(handle: Long, index: Int, yuv: ByteBuffer): Boolean
     external fun end(handle: Long)
     external fun cancel(handle: Long)
     external fun close(handle: Long)
+
+    /** Where the engine finds its sibling libraries (extracted libs, or straight from the APK). */
+    fun libraryDirectory(context: Context): String {
+        val info = context.applicationInfo
+        return if (File(info.nativeLibraryDir, "libsvpflow1_vs.so").isFile) info.nativeLibraryDir
+        else info.sourceDir + "!/lib/arm64-v8a"
+    }
+}
+
+/**
+ * Pipeline settings. The OpenCL path (tablet) keeps the validated settings. The CPU path (Adreno phones) works
+ * further ahead: its per-frame cost is uneven (p95 about 35 ms, worst about 80 ms at 1080p in the phone probe) and two
+ * frames of lookahead (about 33 ms) let one slow frame in twenty miss its slot.
+ */
+internal object NativeSvpTuning {
+    const val GPU_THREADS = 4
+    const val GPU_AHEAD = 2
+    const val GPU_TEXTURES = 3
+    const val GPU_CREDIT = 8
+    const val CPU_THREADS = 6
+    const val CPU_AHEAD = 8
+    const val CPU_TEXTURES = 5
+    const val CPU_CREDIT = 12
+
+    /** What the last native stream actually runs with, for the on-screen overlay. */
+    @Volatile var lastStream: String? = null
+
+    fun isAdreno(): Boolean = GL.glGetString(GL.GL_RENDERER).orEmpty().contains("Adreno", ignoreCase = true)
+
+    /** Raise the calling thread so the engine's worker threads (created from it, inheriting its priority) keep up. */
+    fun boostCurrentThread() {
+        runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY) }
+    }
+
+    /** Thread ids whose name starts with [prefix]: our worker and the engine threads it created (they inherit its name). */
+    fun threadIds(prefix: String): IntArray {
+        val tasks = File("/proc/self/task").listFiles() ?: return IntArray(0)
+        return tasks.mapNotNull { dir ->
+            val name = runCatching { File(dir, "comm").readText().trim() }.getOrNull() ?: return@mapNotNull null
+            if (name.startsWith(prefix)) dir.name.toIntOrNull() else null
+        }.toIntArray()
+    }
 }
 
 /** SDR preview engine. Media3 owns output scheduling and the audio clock. */
@@ -33,15 +76,17 @@ internal class NativeSvpEffect(private val controller: NativeSvpController, priv
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram {
         check(!useHdr) { "Native interpolation currently supports SDR only" }
         check(NativeSvpStream.available) { "Native interpolation libraries are unavailable" }
-        val info = context.applicationInfo
-        val directory = if (File(info.nativeLibraryDir, "libsvpflow1_vs.so").isFile)
-            info.nativeLibraryDir else info.sourceDir + "!/lib/arm64-v8a"
-        return NativeSvpShader(directory, controller, gpuOverride)
+        return NativeSvpShader(NativeSvpStream.libraryDirectory(context), controller, gpuOverride, context.applicationContext)
     }
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
-private class NativeSvpShader(private val directory: String, private val controller: NativeSvpController, private val gpuOverride: Boolean?) : GlShaderProgram {
+private class NativeSvpShader(
+    private val directory: String,
+    private val controller: NativeSvpController,
+    private val gpuOverride: Boolean?,
+    private val appContext: Context,
+) : GlShaderProgram {
     private var input: GlShaderProgram.InputListener = object : GlShaderProgram.InputListener {}
     private var output: GlShaderProgram.OutputListener = object : GlShaderProgram.OutputListener {}
     private var errors = GlShaderProgram.ErrorListener {}
@@ -50,6 +95,8 @@ private class NativeSvpShader(private val directory: String, private val control
     private var credit = false
     private var count = 0
     private var consumed = 0
+    private var creditLimit = NativeSvpTuning.GPU_CREDIT
+    private var useGpu = true
     @Volatile private var ended = false
     @Volatile private var active = true
     @Volatile private var finished = false
@@ -100,7 +147,7 @@ private class NativeSvpShader(private val directory: String, private val control
     }
     private fun offerInput() {
         val ready = synchronized(lock) {
-            if (active && (!ended || finished) && !credit && (finished || count - consumed < 8)) { credit = true; true } else false
+            if (active && (!ended || finished) && !credit && (finished || count - consumed < creditLimit)) { credit = true; true } else false
         }
         if (ready) input.onReadyToAcceptInputFrame()
     }
@@ -194,11 +241,17 @@ private class NativeSvpShader(private val directory: String, private val control
     private fun open() {
         // Adreno OpenCL stalled during live playback on the S26 Ultra. Keep rendering
         // on GLES, but run interpolation on the CPU for this GPU family.
-        val useGpu = gpuOverride ?: !GL.glGetString(GL.GL_RENDERER).orEmpty().contains("Adreno", ignoreCase = true)
-        handle = NativeSvpStream.create(directory, width, height, fpsNum, fpsDen, useGpu)
+        useGpu = gpuOverride ?: !NativeSvpTuning.isAdreno()
+        val threads = if (useGpu) NativeSvpTuning.GPU_THREADS else NativeSvpTuning.CPU_THREADS
+        val ahead = if (useGpu) NativeSvpTuning.GPU_AHEAD else NativeSvpTuning.CPU_AHEAD
+        val outputs = if (useGpu) NativeSvpTuning.GPU_TEXTURES else NativeSvpTuning.CPU_TEXTURES
+        creditLimit = if (useGpu) NativeSvpTuning.GPU_CREDIT else NativeSvpTuning.CPU_CREDIT
+        handle = NativeSvpStream.create(directory, width, height, fpsNum, fpsDen, useGpu, threads, ahead)
         check(handle != 0L)
-        android.util.Log.i("NativeSvp", "Stream ${width}x$height source=$fpsNum/$fpsDen output=60 analysis=half backend=${if (useGpu) "OpenCL" else "CPU"}")
-        repeat(3) {
+        val backend = if (useGpu) "OpenCL" else "CPU"
+        NativeSvpTuning.lastStream = "${width}x$height $backend · $threads threads · $ahead ahead"
+        android.util.Log.i("NativeSvp", "Stream ${width}x$height source=$fpsNum/$fpsDen output=60 analysis=half backend=$backend threads=$threads ahead=$ahead outputs=$outputs")
+        repeat(outputs) {
             val texture = checkNotNull(provider).createBuffersForTexture(GlUtil.createTexture(width, height, false), width, height)
             textures.add(texture); free.add(texture)
         }
@@ -222,7 +275,10 @@ private class NativeSvpShader(private val directory: String, private val control
             val yuvTextures = IntArray(3)
             val workerFbo = IntArray(1)
             var converter: GlProgram? = null
+            var hint: AutoCloseable? = null // a PerformanceHintManager.Session on Android 13+
             try {
+                // The engine's pool threads are created from this thread on first use and inherit its priority and name.
+                if (!useGpu) NativeSvpTuning.boostCurrentThread()
                 check(EGL14.eglMakeCurrent(display, surface, surface, shared))
                 val pixels = ByteBuffer.allocateDirect(width * height * 3 / 2)
                 GL.glGenTextures(3, yuvTextures, 0)
@@ -252,8 +308,20 @@ private class NativeSvpShader(private val directory: String, private val control
                         if (active) free.removeFirst() else null
                     } ?: break
                     if (pastEnd(index)) { synchronized(lock) { free.add(texture) }; break }
+                    val renderStart = System.nanoTime()
                     if (!NativeSvpStream.render(handle, index, pixels) || !active || pastEnd(index)) {
                         synchronized(lock) { free.add(texture) }; break
+                    }
+                    if (!useGpu && android.os.Build.VERSION.SDK_INT >= 33) {
+                        // Tell the system these threads need a frame every 16.7 ms, so it keeps them on fast cores.
+                        if (hint == null && index == 30) hint = runCatching {
+                            val ids = NativeSvpTuning.threadIds("SkyWing-native")
+                            appContext.getSystemService(android.os.PerformanceHintManager::class.java)
+                                ?.takeIf { ids.isNotEmpty() }?.createHintSession(ids, 16_666_667L)
+                        }.getOrNull()
+                        (hint as? android.os.PerformanceHintManager.Session)?.let { session ->
+                            runCatching { session.reportActualWorkDuration(System.nanoTime() - renderStart) }
+                        }
                     }
                     var offset = 0
                     for (p in 0..2) {
@@ -287,6 +355,7 @@ private class NativeSvpShader(private val directory: String, private val control
                 }
             } catch (e: Throwable) { if (active) fail(e) }
             finally {
+                runCatching { hint?.close() }
                 converter?.delete()
                 GL.glDeleteTextures(3, yuvTextures, 0)
                 GL.glDeleteFramebuffers(1, workerFbo, 0)
@@ -341,12 +410,15 @@ private class NativeSvpShader(private val directory: String, private val control
     override fun release() { controller.unbind(decoderEnd); stop() }
 }
 
-/** Bound CPU work on Adreno and align the half-analysis planes to four pixels. */
+/**
+ * Bound CPU work on Adreno and align the half-analysis planes to four pixels. The CPU path uses 720p unless
+ * [cpuFullHd] is set, which the app only does after this device passed the 1080p speed check.
+ */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal class NativeSvpScale : androidx.media3.effect.GlMatrixTransformation {
+internal class NativeSvpScale(private val cpuFullHd: Boolean = false) : androidx.media3.effect.GlMatrixTransformation {
     private val identity = GlUtil.create4x4IdentityMatrix()
     override fun configure(inputWidth: Int, inputHeight: Int): androidx.media3.common.util.Size {
-        val cpu = GL.glGetString(GL.GL_RENDERER).orEmpty().contains("Adreno", ignoreCase = true)
+        val cpu = NativeSvpTuning.isAdreno() && !cpuFullHd
         val maxWidth = if (cpu) 1280.0 else 1920.0
         val maxHeight = if (cpu) 720.0 else 1080.0
         val scale = minOf(1.0, maxWidth / inputWidth, maxHeight / inputHeight)

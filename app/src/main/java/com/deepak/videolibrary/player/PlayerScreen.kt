@@ -68,6 +68,8 @@ import com.deepak.videolibrary.player.NativeSvpScale
 import com.deepak.videolibrary.player.NativeSvpStream
 import com.deepak.videolibrary.player.NativeSvpController
 import com.deepak.videolibrary.player.NativeSvpRenderersFactory
+import com.deepak.videolibrary.player.NativeSvpSpeedCheck
+import com.deepak.videolibrary.player.NativeSvpTuning
 import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.player.SmbPlaybackDataSource
 import com.deepak.videolibrary.settings.SmbSettings
@@ -130,7 +132,16 @@ fun PlayerScreen(
     }
     val nativeAvailable = remember { NativeSvpStream.available }
     val nativeController = remember { NativeSvpController() }
-    val nativeEffects = remember { listOf(NativeSvpScale(), NativeSvpEffect(nativeController)) }
+    // CPU smoothing (Adreno phones) runs at 1080p only after this device passed the 1080p speed check for this app
+    // version, and drops back to 720p for the session (and later ones) if live playback cannot keep up.
+    val versionCode = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }.getOrDefault(0L) }
+    val speedKey = "native_cpu1080_check_$versionCode"
+    val liveKey = "native_cpu1080_live_failed_$versionCode"
+    var speedCheck by remember { mutableStateOf(prefs.getString(speedKey, null)) } // "pass|..." or "fail|..."
+    var speedChecking by remember { mutableStateOf(false) }
+    var cpu1080LiveFailed by remember { mutableStateOf(prefs.getBoolean(liveKey, false)) }
+    val cpuFullHd = speedCheck?.startsWith("pass|") == true && !cpu1080LiveFailed
+    val nativeEffects = remember(cpuFullHd) { listOf(NativeSvpScale(cpuFullHd), NativeSvpEffect(nativeController)) }
     val nativeInUse by rememberUpdatedState(smooth60 && nativeAvailable)
     val nativeFrames = remember { java.util.concurrent.atomic.AtomicInteger() }
     var nativeShownFps by remember { mutableStateOf(0f) }
@@ -244,8 +255,48 @@ fun PlayerScreen(
             playWhenReady = false
         }
     }
-    LaunchedEffect(player, smooth60, nativeAvailable) {
+    LaunchedEffect(player, smooth60, nativeAvailable, nativeEffects) {
         player.setVideoEffects(if (smooth60 && nativeAvailable) nativeEffects else emptyList())
+    }
+    // Ask the system for steady (non-throttling-spike) performance while smoothing, where it supports that.
+    DisposableEffect(activity, smooth60, nativeAvailable) {
+        val window = activity?.window
+        val power = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        val sustained = smooth60 && nativeAvailable && window != null && power?.isSustainedPerformanceModeSupported == true
+        if (sustained) runCatching { window?.setSustainedPerformanceMode(true) }
+        onDispose { if (sustained) runCatching { window?.setSustainedPerformanceMode(false) } }
+    }
+    // 1080p CPU watchdog: after a grace period, three seconds in a row under 50 shown fps while playing means the
+    // phone cannot hold 1080p with this video; drop to 720p (the setting that is known to work).
+    LaunchedEffect(player, smooth60, nativeAvailable, cpuFullHd) {
+        if (!(smooth60 && nativeAvailable && cpuFullHd)) return@LaunchedEffect
+        var lastCount = nativeFrames.get()
+        var lastAt = SystemClock.elapsedRealtime()
+        var playingSince = 0L
+        var slow = 0
+        while (true) {
+            delay(1000)
+            val now = SystemClock.elapsedRealtime()
+            val count = nativeFrames.get()
+            val fps = (count - lastCount) * 1000f / (now - lastAt).coerceAtLeast(1L)
+            lastCount = count
+            lastAt = now
+            if (!player.isPlaying || NativeSvpTuning.lastStream?.contains("CPU") != true) {
+                playingSince = 0L
+                slow = 0
+                continue
+            }
+            if (playingSince == 0L) playingSince = now
+            if (now - playingSince < 8000L) continue
+            slow = if (fps < 50f) slow + 1 else 0
+            if (slow >= 3) {
+                prefs.edit().putBoolean(liveKey, true).apply()
+                cpu1080LiveFailed = true
+                AppDiagnostics.record(context, "native-cpu1080", "stepped down at ${fps.toInt()} fps")
+                android.widget.Toast.makeText(context, "1080p smoothing could not keep up (${fps.toInt()} fps); using 720p", android.widget.Toast.LENGTH_LONG).show()
+                break
+            }
+        }
     }
     LaunchedEffect(player, showFps) {
         if (!showFps) return@LaunchedEffect
@@ -476,7 +527,12 @@ fun PlayerScreen(
             }
             override fun onPlayerError(error: PlaybackException) {
                 AppDiagnostics.record(context, "error", error.errorCodeName)
-                if (nativeInUse && error.errorCodeName.contains("VIDEO_FRAME_PROCESSOR")) {
+                // Both effect-pipeline failure kinds: set-up (5001) and while running (5002).
+                if (nativeInUse && (
+                        error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED ||
+                            error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
+                        )
+                ) {
                     smooth60 = false
                     player.setVideoEffects(emptyList())
                     player.prepare()
@@ -864,7 +920,9 @@ fun PlayerScreen(
             } else {
                 "Normal playback · ${"%.1f".format(decodedFps)} fps shown (file says ${"%.1f".format(fileFps)})$hz"
             }
-            val line2 = if (smooth60 && !nativeAvailable && stats != null) {
+            val line2 = if (nativeInUse) {
+                "Processing " + (NativeSvpTuning.lastStream ?: "starting…")
+            } else if (smooth60 && !nativeAvailable && stats != null) {
                 when {
                     !stats.interpolating -> "Source is close to the selected target: shown as it is"
                     stats.warping -> "Adding in-between frames with motion estimate · real frames ${stats.fallbackPercent}%"
@@ -999,6 +1057,27 @@ fun PlayerScreen(
                 }
                 if (smooth60 && nativeAvailable) {
                     Text("Motion smoothing at 60 fps", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                    val checkText = when {
+                        speedChecking -> "Checking 1080p speed… (about 20 s, video paused)"
+                        speedCheck == null -> "1080p speed: not checked yet (phones that smooth on the CPU use 720p until it passes)"
+                        cpu1080LiveFailed -> "1080p speed: " + speedCheck!!.substringAfter('|') + " · stepped down to 720p during playback"
+                        else -> "1080p speed: " + speedCheck!!.substringAfter('|')
+                    }
+                    Text(checkText, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                    TextButton(enabled = !speedChecking, onClick = {
+                        player.pause()
+                        speedChecking = true
+                        revealControls()
+                        gestureScope.launch {
+                            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { NativeSvpSpeedCheck.run(context) }
+                            val text = (if (result.qualifies) "pass|" else "fail|") + result.summary
+                            prefs.edit().putString(speedKey, text).putBoolean(liveKey, false).apply()
+                            AppDiagnostics.record(context, "native-cpu1080", if (result.qualifies) "check passed" else "check failed")
+                            speedCheck = text
+                            cpu1080LiveFailed = false
+                            speedChecking = false
+                        }
+                    }) { Text("Check 1080p speed", color = Color.White) }
                 }
                 if (smooth60 && !nativeAvailable) {
                     Text("Smoothing strength", color = Color.White)

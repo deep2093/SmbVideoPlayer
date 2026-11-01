@@ -23,6 +23,7 @@ struct Stream {
     std::shared_ptr<Source> source;
     osvp_context *context = nullptr;
     osvp_clip *input = nullptr, *output = nullptr;
+    int ahead = 2;
     ~Stream() {
         osvp_clip_free(output);
         osvp_clip_free(input);
@@ -52,15 +53,16 @@ Stream *stream(jlong value) { return reinterpret_cast<Stream *>(value); }
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_deepak_videolibrary_player_NativeSvpStream_create(JNIEnv *env, jobject, jstring directory,
-    jint width, jint height, jlong fps_num, jlong fps_den, jboolean use_gpu) {
+    jint width, jint height, jlong fps_num, jlong fps_den, jboolean use_gpu, jint threads, jint ahead) {
     if (width <= 0 || height <= 0 || width > 4096 || height > 2160 || (width | height) & 1 || fps_num <= 0 || fps_den <= 0) {
         error(env, "Unsupported native frame geometry/rate"); return 0;
     }
     auto result = std::make_unique<Stream>();
     result->source = std::make_shared<Source>(width, height);
+    result->ahead = std::clamp(static_cast<int>(ahead), 1, 16);
     const char *dir = env->GetStringUTFChars(directory, nullptr);
     if (!dir) return 0;
-    osvp_set_threads(4);
+    osvp_set_threads(std::clamp(static_cast<int>(threads), 1, 12));
     result->context = osvp_create(dir);
     env->ReleaseStringUTFChars(directory, dir);
     if (!result->context) { error(env, osvp_error()); return 0; }
@@ -100,9 +102,9 @@ Java_com_deepak_videolibrary_player_NativeSvpStream_render(JNIEnv *env, jobject,
     if (!pixels || env->GetDirectBufferCapacity(yuvBuffer) < static_cast<jlong>(w) * h * 3 / 2) {
         error(env, "Native output buffer is too small"); return false;
     }
-    // Permit two outputs of work ahead, as in the verified native pipeline.
-    // The provider has eight frames of backpressure and cancellation wakes pending reads.
-    osvp_clip_set_end(s->output, index + 2);
+    // Let the engine prepare this many outputs ahead (2 on the validated GPU path, more on the CPU path to absorb
+    // uneven per-frame cost). The Java side gives matching input credit; cancellation wakes pending reads.
+    osvp_clip_set_end(s->output, index + s->ahead);
     const auto *frame = osvp_get_frame(s->output, index);
     if (!frame) {
         std::lock_guard<std::mutex> lock(s->source->mutex);
