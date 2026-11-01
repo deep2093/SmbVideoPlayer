@@ -184,3 +184,91 @@ internal object GpuLabRunner {
         uri
     }.getOrNull()
 }
+
+/**
+ * Report for live GPU playback problems: per-second playback log, the OpenCL wrapper's stall reports, the app's own
+ * recent exits as Android recorded them (including the native crash trace for a native crash) and the last Java crash.
+ */
+internal object GpuPlaybackReport {
+    fun playbackLog(context: Context): File = File(context.filesDir, "gpu-playback.log")
+    private fun javaCrash(context: Context): File = File(context.filesDir, "last-java-crash.txt")
+    private var installed = false
+
+    /** Keep the stack of an uncaught Java exception for the report, then let the app crash as usual. */
+    @Synchronized
+    fun installCrashCapture(context: Context) {
+        if (installed) return
+        installed = true
+        val app = context.applicationContext
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+            runCatching {
+                val trace = java.io.StringWriter().also { error.printStackTrace(java.io.PrintWriter(it)) }.toString()
+                javaCrash(app).writeText("time=${java.util.Date()} thread=${thread.name}\n$trace")
+            }
+            previous?.uncaughtException(thread, error)
+        }
+    }
+
+    fun log(context: Context, line: String) {
+        runCatching {
+            val file = playbackLog(context)
+            if (file.length() > 2_000_000L) file.delete()
+            file.appendText(line + "\n")
+        }
+    }
+
+    private fun exitReasons(context: Context): String {
+        if (Build.VERSION.SDK_INT < 30) return "(needs Android 11)"
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val exits = runCatching { manager.getHistoricalProcessExitReasons(context.packageName, 0, 6) }.getOrDefault(emptyList())
+        return buildString {
+            for (exit in exits) {
+                appendLine("${java.util.Date(exit.timestamp)} process=${exit.processName} reason=${exit.reason} status=${exit.status} ${exit.description ?: ""}")
+                if (exit.reason == android.app.ApplicationExitInfo.REASON_CRASH_NATIVE && Build.VERSION.SDK_INT >= 31) {
+                    val bytes = runCatching { exit.traceInputStream?.use { it.readBytes() } }.getOrNull() ?: continue
+                    // The native trace is a protobuf; its readable strings hold the signal, cause and backtrace frames.
+                    val strings = Regex("[ -~]{6,}").findAll(String(bytes, Charsets.ISO_8859_1)).map { it.value }.toList()
+                    strings.filter { s -> listOf(".so", "SIG", "signal", "Cause", "Abort", "fault", "pc ", "backtrace", "#").any { s.contains(it) } }
+                        .take(160).forEach { appendLine("    $it") }
+                }
+            }
+            if (exits.isEmpty()) appendLine("(none recorded)")
+        }
+    }
+
+    /** Builds the report, saves it to Downloads and returns its URI for sharing. */
+    fun save(context: Context): Uri? = runCatching {
+        fun tail(file: File, lines: Int): String {
+            val all = runCatching { file.readLines() }.getOrDefault(emptyList())
+            return if (all.isEmpty()) "(empty)\n" else all.takeLast(lines).joinToString("\n") + "\n"
+        }
+        val text = buildString {
+            appendLine("SkyWing GPU playback report")
+            appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}")
+            appendLine("App version code: ${runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }.getOrNull()}")
+            appendLine("GPU on Snapdragon: ${NativeSvpTuning.adrenoGpu}; last stream: ${NativeSvpTuning.lastStream}")
+            appendLine()
+            appendLine("===== recent app exits (Android) =====")
+            append(exitReasons(context))
+            appendLine()
+            appendLine("===== last Java crash =====")
+            append(runCatching { javaCrash(context).readText() }.getOrDefault("(none)\n"))
+            appendLine()
+            appendLine("===== OpenCL stall reports =====")
+            append(tail(NativeSvpTuning.stallLog(context), 500))
+            appendLine()
+            appendLine("===== playback log (one line a second) =====")
+            append(tail(playbackLog(context), 900))
+        }
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(java.util.Date())
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, "SkyWing-gpu-report-$stamp.txt")
+            put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+        }
+        val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
+        context.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
+        uri
+    }.getOrNull()
+}

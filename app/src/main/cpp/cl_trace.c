@@ -123,10 +123,23 @@ typedef struct { int64_t at; int tid; char text[96]; } Entry;
 static Entry ring[RING];
 static long ring_next;
 
-static int queue_index(H q) { // lock held
+// Queue slots. Only clCreateCommandQueue adds a queue; clReleaseCommandQueue frees its slot, so a released (freed) queue
+// is never flushed again and the table does not fill up across seeks and new videos.
+static int queue_index(H q) { // lock held; -1 for unknown or released queues
+    if (!q) return -1;
     for (int i = 0; i < queue_count; i++) if (queues[i].q == q) return i;
-    if (queue_count < MAX_QUEUES) { queues[queue_count].q = q; queues[queue_count].id = queue_count; return queue_count++; }
     return -1;
+}
+static int queue_add(H q) { // lock held
+    if (!q) return -1;
+    int i = queue_index(q);
+    if (i >= 0) return i;
+    for (i = 0; i < queue_count; i++) if (!queues[i].q) break;
+    if (i == queue_count) { if (queue_count >= MAX_QUEUES) return -1; queue_count++; }
+    memset(&queues[i], 0, sizeof queues[i]);
+    queues[i].q = q;
+    queues[i].id = i;
+    return i;
 }
 static const char *kernel_name(H k) { // lock held
     for (int i = 0; i < kernel_count; i++) if (kernels[i].kernel == k) return kernels[i].name;
@@ -180,14 +193,27 @@ static void end(void) {
     t->call = NULL;
     pthread_mutex_unlock(&lock);
 }
+static pthread_rwlock_t queue_life = PTHREAD_RWLOCK_INITIALIZER;
 static void flush_everything(void) {
     H all[MAX_QUEUES];
     int n;
+    pthread_rwlock_rdlock(&queue_life);
     pthread_mutex_lock(&lock);
     n = queue_count;
     for (int i = 0; i < n; i++) all[i] = queues[i].q;
     pthread_mutex_unlock(&lock);
-    for (int i = 0; i < n; i++) if (all[i]) clFlush(all[i]);
+    for (int i = 0; i < n; i++) if (all[i]) real_clFlush(all[i]);
+    pthread_rwlock_unlock(&queue_life);
+}
+// In flushwait mode: also flush every live queue once a millisecond, so a command whose cross-queue dependency finishes
+// while every engine thread is blocked inside the driver (a blocking map or finish) still gets started.
+static void *pump(void *unused) {
+    (void)unused;
+    for (;;) {
+        usleep(1000);
+        flush_everything();
+    }
+    return NULL;
 }
 
 // ---- report -------------------------------------------------------------------------------------------------------
@@ -248,8 +274,8 @@ static void report(ThreadState *stuck, const char *why) { // lock held
         emit(line);
     }
     // Event queries go last: if the driver itself is wedged they could block, and everything above is already out.
-    if (stuck->call && stuck->b) { describe_event(stuck->b, line, sizeof line); emit(line); }
-    if (stuck->polled) { describe_event(stuck->polled, line, sizeof line); emit(line); }
+    if (stuck->call && stuck->b && origin(stuck->b)) { describe_event(stuck->b, line, sizeof line); emit(line); }
+    if (stuck->polled && origin(stuck->polled)) { describe_event(stuck->polled, line, sizeof line); emit(line); }
     emit("=== end of stall report ===");
 }
 static void *watchdog(void *unused) {
@@ -294,6 +320,7 @@ static void load(void) {
     LOAD(clReleaseKernel) LOAD(clReleaseProgram)
     pthread_t thread;
     if (pthread_create(&thread, NULL, watchdog, NULL) == 0) pthread_detach(thread);
+    if (flush_on_wait && pthread_create(&thread, NULL, pump, NULL) == 0) pthread_detach(thread);
 }
 #define READY(name, fail) pthread_once(&load_once, load); if (!real_##name) return fail;
 
@@ -326,7 +353,7 @@ EXPORT H clCreateCommandQueue(H context, H device, cl_ulong props, cl_int *err) 
     READY(clCreateCommandQueue, NULL)
     H q = real_clCreateCommandQueue(context, device, props, err);
     pthread_mutex_lock(&lock);
-    int i = queue_index(q);
+    int i = queue_add(q);
     note("create Q%d props=0x%llx", i, (unsigned long long)props);
     pthread_mutex_unlock(&lock);
     return q;
@@ -485,7 +512,7 @@ EXPORT cl_int clGetEventInfo(H event, cl_uint param, size_t size, void *value, s
         cl_int status = *(cl_int *)value;
         pthread_mutex_lock(&lock);
         ThreadState *t = me();
-        if (status == 0 || rc != 0) { t->polled = NULL; }
+        if (status <= 0 || rc != 0) { t->polled = NULL; }
         else if (t->polled != event) { t->polled = event; t->poll_since = now_ns(); t->reported = 0; note("poll event status=%d", status); }
         if (status < 0) note("event error status=%d", status);
         pthread_mutex_unlock(&lock);
@@ -497,8 +524,7 @@ EXPORT cl_int clReleaseEvent(H event) {
     pthread_mutex_lock(&lock);
     EventOrigin *o = origin(event);
     if (o) o->event = NULL;
-    ThreadState *t = me();
-    if (t->polled == event) t->polled = NULL;
+    for (int i = 0; i < MAX_THREADS; i++) if (threads[i].polled == event) threads[i].polled = NULL;
     pthread_mutex_unlock(&lock);
     return real_clReleaseEvent(event);
 }
@@ -511,9 +537,13 @@ EXPORT cl_int clReleaseMemObject(H mem) {
 }
 EXPORT cl_int clReleaseCommandQueue(H q) {
     READY(clReleaseCommandQueue, -1)
+    pthread_rwlock_wrlock(&queue_life);
     pthread_mutex_lock(&lock);
-    note("release Q%d", queue_index(q));
+    int i = queue_index(q);
+    note("release Q%d", i);
+    if (i >= 0) queues[i].q = NULL;
     pthread_mutex_unlock(&lock);
+    pthread_rwlock_unlock(&queue_life);
     begin("clReleaseCommandQueue", q, NULL);
     cl_int rc = real_clReleaseCommandQueue(q);
     end();

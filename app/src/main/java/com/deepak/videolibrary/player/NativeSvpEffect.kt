@@ -55,6 +55,15 @@ internal object NativeSvpTuning {
     /** What the last native stream actually runs with, for the on-screen overlay. */
     @Volatile var lastStream: String? = null
 
+    /** Running counters for the playback report: input frames, output frames, outputs that differ from the previous one. */
+    val inputs = java.util.concurrent.atomic.AtomicLong()
+    val outputs = java.util.concurrent.atomic.AtomicLong()
+    val newPictures = java.util.concurrent.atomic.AtomicLong()
+    /** Slowest single output since the last read, in nanoseconds (read and reset with [takeSlowest]). */
+    private val slowest = java.util.concurrent.atomic.AtomicLong()
+    fun noteRender(ns: Long) { slowest.accumulateAndGet(ns) { a, b -> maxOf(a, b) } }
+    fun takeSlowest(): Long = slowest.getAndSet(0)
+
     /** Whether the GPU of the last native stream was an Adreno (set on the GL thread). */
     @Volatile var lastAdreno: Boolean = false
 
@@ -256,6 +265,7 @@ private class NativeSvpShader(
             synchronized(lock) {
                 lastUs = timeUs
                 count++
+                NativeSvpTuning.inputs.incrementAndGet()
                 if (lastUs >= requestedEndUs) {
                     check(handle != 0L) { "Native smoothing requires two decoded frames" }
                     ended = true; NativeSvpStream.end(handle)
@@ -333,6 +343,7 @@ private class NativeSvpShader(
                         "gl_FragColor=vec4(y+1.5748*v,y-.187324*u-.468124*v,y+1.8556*u,1.);}")
                 converter.setBufferAttribute("aPosition", floatArrayOf(-1f,-1f,1f,-1f,-1f,1f,1f,1f), 2)
                 var index = 0
+                var lastPrint = 0L
                 while (active) {
                     val texture = synchronized(lock) {
                         while (active && free.isEmpty()) lock.wait()
@@ -343,6 +354,13 @@ private class NativeSvpShader(
                     if (!NativeSvpStream.render(handle, index, pixels) || !active || pastEnd(index)) {
                         synchronized(lock) { free.add(texture) }; break
                     }
+                    NativeSvpTuning.noteRender(System.nanoTime() - renderStart)
+                    NativeSvpTuning.outputs.incrementAndGet()
+                    // Cheap picture fingerprint (64 luma samples) to tell new pictures from repeats in the report.
+                    var print = 17L
+                    val step = maxOf(1, width * height / 64)
+                    for (k in 0 until 64) print = print * 31 + pixels.get(minOf(k * step, width * height - 1))
+                    if (print != lastPrint) { NativeSvpTuning.newPictures.incrementAndGet(); lastPrint = print }
                     if (!useGpu && android.os.Build.VERSION.SDK_INT >= 33) {
                         // Tell the system these threads need a frame every 16.7 ms, so it keeps them on fast cores.
                         if (hint == null && index == 30) hint = runCatching {

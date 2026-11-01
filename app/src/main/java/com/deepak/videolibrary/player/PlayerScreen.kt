@@ -70,6 +70,7 @@ import com.deepak.videolibrary.player.NativeSvpController
 import com.deepak.videolibrary.player.NativeSvpRenderersFactory
 import com.deepak.videolibrary.player.NativeSvpSpeedCheck
 import com.deepak.videolibrary.player.NativeSvpTuning
+import com.deepak.videolibrary.player.GpuPlaybackReport
 import com.deepak.videolibrary.data.VideoEntity
 import com.deepak.videolibrary.player.SmbPlaybackDataSource
 import com.deepak.videolibrary.settings.SmbSettings
@@ -144,6 +145,7 @@ fun PlayerScreen(
     val cpuFullHd = speedCheck?.startsWith("pass|") == true && !cpu1080LiveFailed
     // Opt-in: run the engine on the GPU on Snapdragon (Adreno) phones too, with the driver fix found by the GPU lab.
     var adrenoGpu by remember { mutableStateOf(prefs.getBoolean("native_adreno_gpu", false)) }
+    remember { GpuPlaybackReport.installCrashCapture(context); true }
     NativeSvpTuning.adrenoGpu = adrenoGpu
     val nativeEffects = remember(cpuFullHd, adrenoGpu) { listOf(NativeSvpScale(cpuFullHd), NativeSvpEffect(nativeController)) }
     val nativeInUse by rememberUpdatedState(smooth60 && nativeAvailable)
@@ -276,6 +278,10 @@ fun PlayerScreen(
         if (!(smooth60 && nativeAvailable && adrenoGpu)) return@LaunchedEffect
         val stallLog = NativeSvpTuning.stallLog(context)
         val stallsBefore = runCatching { stallLog.readText() }.getOrDefault("").split("=== OpenCL stall").size
+        var lastOutputs = NativeSvpTuning.outputs.get()
+        var lastPictures = NativeSvpTuning.newPictures.get()
+        var lastInputs = NativeSvpTuning.inputs.get()
+        GpuPlaybackReport.log(context, "--- GPU playback session ${java.util.Date()} ---")
         var lastCount = nativeFrames.get()
         var lastAt = SystemClock.elapsedRealtime()
         var playingSince = 0L
@@ -288,6 +294,23 @@ fun PlayerScreen(
             lastCount = count
             lastAt = now
             val onAdrenoGpu = NativeSvpTuning.lastAdreno && NativeSvpTuning.lastStream?.contains("OpenCL") == true
+            val outputsNow = NativeSvpTuning.outputs.get()
+            val picturesNow = NativeSvpTuning.newPictures.get()
+            val inputsNow = NativeSvpTuning.inputs.get()
+            GpuPlaybackReport.log(
+                context,
+                String.format(
+                    java.util.Locale.ROOT,
+                    "%s state=%d playing=%b pos=%.1fs shown=%.0ffps engineOut=%d newPictures=%d inputs=%d slowest=%.0fms %s",
+                    java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()),
+                    player.playbackState, player.isPlaying, player.currentPosition / 1000.0, fps,
+                    outputsNow - lastOutputs, picturesNow - lastPictures, inputsNow - lastInputs,
+                    NativeSvpTuning.takeSlowest() / 1e6, NativeSvpTuning.lastStream ?: "-",
+                ),
+            )
+            lastOutputs = outputsNow
+            lastPictures = picturesNow
+            lastInputs = inputsNow
             val stalled = onAdrenoGpu &&
                 runCatching { stallLog.readText() }.getOrDefault("").split("=== OpenCL stall").size > stallsBefore
             if (!stalled) {
@@ -1122,6 +1145,20 @@ fun PlayerScreen(
                         player.pause()
                         showGpuLab = true
                     }) { Text("GPU lab (diagnostics)", color = Color.White) }
+                    TextButton(onClick = {
+                        gestureScope.launch {
+                            val uri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { GpuPlaybackReport.save(context) }
+                            if (uri == null) {
+                                android.widget.Toast.makeText(context, "Could not save the GPU report", android.widget.Toast.LENGTH_LONG).show()
+                            } else {
+                                val share = android.content.Intent(android.content.Intent.ACTION_SEND)
+                                    .setType("text/plain")
+                                    .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                    .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                context.startActivity(android.content.Intent.createChooser(share, "Share GPU report"))
+                            }
+                        }
+                    }) { Text("Share GPU playback report", color = Color.White) }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Use the GPU on Snapdragon phones (experimental)", color = Color.White, modifier = Modifier.weight(1f))
                         Switch(checked = adrenoGpu, onCheckedChange = { value ->
