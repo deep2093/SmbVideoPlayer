@@ -55,6 +55,32 @@ internal object NativeSvpTuning {
     /** What the last native stream actually runs with, for the on-screen overlay. */
     @Volatile var lastStream: String? = null
 
+    /** Whether the GPU of the last native stream was an Adreno (set on the GL thread). */
+    @Volatile var lastAdreno: Boolean = false
+
+    /** User opted in to the OpenCL path on Adreno (with the flush-while-waiting fix below). */
+    @Volatile var adrenoGpu: Boolean = false
+
+    private var adrenoFixReady = false
+
+    /** File the OpenCL wrapper writes a stall report to during playback (watched by the player). */
+    fun stallLog(context: Context): File = File(context.filesDir, "gpu-stall.log")
+
+    /**
+     * Adreno's OpenCL driver does not start a command whose wait-list event (from another queue) completes after the
+     * command was flushed, unless the queue is flushed again. The GPU lab showed the engine hangs at the first frame
+     * without help and runs 1080p (clip end and shutdown included) when every queue is flushed again while waiting.
+     * Route the engine's OpenCL through the tracing wrapper in that mode. Must run before the engine loads OpenCL.
+     */
+    @Synchronized
+    fun enableAdrenoFix(context: Context) {
+        if (adrenoFixReady) return
+        NativeSvpStream.setEnv("OSVP_OPENCL_LIB", "libskywing_cl_trace.so")
+        NativeSvpStream.setEnv("OSVP_CL_VARIANT", "flushwait")
+        NativeSvpStream.setEnv("OSVP_TRACE_FILE", stallLog(context).absolutePath)
+        adrenoFixReady = true
+    }
+
     fun isAdreno(): Boolean = GL.glGetString(GL.GL_RENDERER).orEmpty().contains("Adreno", ignoreCase = true)
 
     /** Raise the calling thread so the engine's worker threads (created from it, inheriting its priority) keep up. */
@@ -243,7 +269,10 @@ private class NativeSvpShader(
     private fun open() {
         // Adreno OpenCL stalled during live playback on the S26 Ultra. Keep rendering
         // on GLES, but run interpolation on the CPU for this GPU family.
-        useGpu = gpuOverride ?: !NativeSvpTuning.isAdreno()
+        val adreno = NativeSvpTuning.isAdreno()
+        NativeSvpTuning.lastAdreno = adreno
+        useGpu = gpuOverride ?: (!adreno || NativeSvpTuning.adrenoGpu)
+        if (useGpu && adreno) NativeSvpTuning.enableAdrenoFix(appContext)
         val threads = if (useGpu) NativeSvpTuning.GPU_THREADS else NativeSvpTuning.CPU_THREADS
         val ahead = if (useGpu) NativeSvpTuning.GPU_AHEAD else NativeSvpTuning.CPU_AHEAD
         val outputs = if (useGpu) NativeSvpTuning.GPU_TEXTURES else NativeSvpTuning.CPU_TEXTURES
@@ -396,8 +425,13 @@ private class NativeSvpShader(
         active = false
         if (handle != 0L) NativeSvpStream.cancel(handle)
         synchronized(lock) { lock.notifyAll() }
-        worker?.join(); worker = null
-        if (handle != 0L) { NativeSvpStream.close(handle); handle = 0 }
+        // Never wait forever: a worker stuck inside the GPU driver would otherwise freeze Media3's video thread and
+        // with it any fallback. A stuck worker and its native stream are abandoned (a small leak) instead.
+        val running = worker
+        running?.join(1500)
+        val stuck = running?.isAlive == true
+        worker = null
+        if (handle != 0L) { if (!stuck) NativeSvpStream.close(handle); handle = 0 }
         textures.forEach { it.release() }; textures.clear(); free.clear()
         if (readFbo != 0) GL.glDeleteFramebuffers(1, intArrayOf(readFbo), 0)
         if (packedTexture != 0) GL.glDeleteTextures(1, intArrayOf(packedTexture), 0)
@@ -420,7 +454,7 @@ private class NativeSvpShader(
 internal class NativeSvpScale(private val cpuFullHd: Boolean = false) : androidx.media3.effect.GlMatrixTransformation {
     private val identity = GlUtil.create4x4IdentityMatrix()
     override fun configure(inputWidth: Int, inputHeight: Int): androidx.media3.common.util.Size {
-        val cpu = NativeSvpTuning.isAdreno() && !cpuFullHd
+        val cpu = NativeSvpTuning.isAdreno() && !NativeSvpTuning.adrenoGpu && !cpuFullHd
         val maxWidth = if (cpu) 1280.0 else 1920.0
         val maxHeight = if (cpu) 720.0 else 1080.0
         val scale = minOf(1.0, maxWidth / inputWidth, maxHeight / inputHeight)

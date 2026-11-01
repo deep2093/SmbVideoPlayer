@@ -142,7 +142,10 @@ fun PlayerScreen(
     var showGpuLab by remember { mutableStateOf(false) }
     var cpu1080LiveFailed by remember { mutableStateOf(prefs.getBoolean(liveKey, false)) }
     val cpuFullHd = speedCheck?.startsWith("pass|") == true && !cpu1080LiveFailed
-    val nativeEffects = remember(cpuFullHd) { listOf(NativeSvpScale(cpuFullHd), NativeSvpEffect(nativeController)) }
+    // Opt-in: run the engine on the GPU on Snapdragon (Adreno) phones too, with the driver fix found by the GPU lab.
+    var adrenoGpu by remember { mutableStateOf(prefs.getBoolean("native_adreno_gpu", false)) }
+    NativeSvpTuning.adrenoGpu = adrenoGpu
+    val nativeEffects = remember(cpuFullHd, adrenoGpu) { listOf(NativeSvpScale(cpuFullHd), NativeSvpEffect(nativeController)) }
     val nativeInUse by rememberUpdatedState(smooth60 && nativeAvailable)
     val nativeFrames = remember { java.util.concurrent.atomic.AtomicInteger() }
     var nativeShownFps by remember { mutableStateOf(0f) }
@@ -266,6 +269,41 @@ fun PlayerScreen(
         val sustained = smooth60 && nativeAvailable && window != null && power?.isSustainedPerformanceModeSupported == true
         if (sustained) runCatching { window?.setSustainedPerformanceMode(true) }
         onDispose { if (sustained) runCatching { window?.setSustainedPerformanceMode(false) } }
+    }
+    // Adreno GPU watchdog: a stall report from the OpenCL wrapper, or three seconds in a row under 45 shown fps after a
+    // grace period, puts this phone back on the CPU engine (which is known to work).
+    LaunchedEffect(player, smooth60, nativeAvailable, adrenoGpu) {
+        if (!(smooth60 && nativeAvailable && adrenoGpu)) return@LaunchedEffect
+        val stallLog = NativeSvpTuning.stallLog(context)
+        val stallsBefore = runCatching { stallLog.readText() }.getOrDefault("").split("=== OpenCL stall").size
+        var lastCount = nativeFrames.get()
+        var lastAt = SystemClock.elapsedRealtime()
+        var playingSince = 0L
+        var slow = 0
+        while (true) {
+            delay(1000)
+            val now = SystemClock.elapsedRealtime()
+            val count = nativeFrames.get()
+            val fps = (count - lastCount) * 1000f / (now - lastAt).coerceAtLeast(1L)
+            lastCount = count
+            lastAt = now
+            val onAdrenoGpu = NativeSvpTuning.lastAdreno && NativeSvpTuning.lastStream?.contains("OpenCL") == true
+            val stalled = onAdrenoGpu &&
+                runCatching { stallLog.readText() }.getOrDefault("").split("=== OpenCL stall").size > stallsBefore
+            if (!stalled) {
+                if (!player.isPlaying || !onAdrenoGpu) { playingSince = 0L; slow = 0; continue }
+                if (playingSince == 0L) playingSince = now
+                if (now - playingSince < 8000L) continue
+                slow = if (fps < 45f) slow + 1 else 0
+                if (slow < 3) continue
+            }
+            prefs.edit().putBoolean("native_adreno_gpu", false).apply()
+            adrenoGpu = false
+            val reason = if (stalled) "the GPU stalled" else "only ${fps.toInt()} fps"
+            AppDiagnostics.record(context, "native-adreno-gpu", "fell back: $reason")
+            android.widget.Toast.makeText(context, "GPU smoothing: $reason; switched back to the CPU engine", android.widget.Toast.LENGTH_LONG).show()
+            break
+        }
     }
     // 1080p CPU watchdog: after a grace period, three seconds in a row under 50 shown fps while playing means the
     // phone cannot hold 1080p with this video; drop to 720p (the setting that is known to work).
@@ -1084,6 +1122,20 @@ fun PlayerScreen(
                         player.pause()
                         showGpuLab = true
                     }) { Text("GPU lab (diagnostics)", color = Color.White) }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Use the GPU on Snapdragon phones (experimental)", color = Color.White, modifier = Modifier.weight(1f))
+                        Switch(checked = adrenoGpu, onCheckedChange = { value ->
+                            if (value) runCatching { NativeSvpTuning.stallLog(context).delete() }
+                            adrenoGpu = value
+                            prefs.edit().putBoolean("native_adreno_gpu", value).apply()
+                            revealControls()
+                        })
+                    }
+                    Text(
+                        "1080p on the GPU with the Adreno driver fix from the GPU lab. Cooler than the CPU engine; switches back to the CPU automatically if the GPU stalls or falls behind.",
+                        color = Color.LightGray,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
                 if (smooth60 && !nativeAvailable) {
                     Text("Smoothing strength", color = Color.White)
