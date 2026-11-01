@@ -127,9 +127,6 @@ fun PlayerScreen(
     // Playback gestures stay enabled without a global Playback settings page.
     val volumeGestureEnabled = true
     val brightnessGestureEnabled = true
-    var prefer60Hz by remember {
-        mutableStateOf(prefs.getBoolean("experimental_output_60hz", false))
-    }
     var smooth60 by remember {
         mutableStateOf(prefs.getBoolean("experimental_smooth_60fps", false))
     }
@@ -138,15 +135,11 @@ fun PlayerScreen(
     // CPU smoothing (Adreno phones) runs at 1080p only after this device passed the 1080p speed check for this app
     // version, and drops back to 720p for the session (and later ones) if live playback cannot keep up.
     val versionCode = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode }.getOrDefault(0L) }
-    val speedKey = "native_cpu1080_check_$versionCode"
-    val liveKey = "native_cpu1080_live_failed_$versionCode"
-    var speedCheck by remember { mutableStateOf(prefs.getString(speedKey, null)) } // "pass|..." or "fail|..."
-    var speedChecking by remember { mutableStateOf(false) }
     var showGpuLab by remember { mutableStateOf(false) }
-    var cpu1080LiveFailed by remember { mutableStateOf(prefs.getBoolean(liveKey, false)) }
-    val cpuFullHd = speedCheck?.startsWith("pass|") == true && !cpu1080LiveFailed
+    // The CPU engine is only the automatic fallback for phones without a working GPU path; it always runs at 720p.
     // Run the engine on the GPU on Snapdragon (Adreno) phones too, with the driver fix found by the GPU lab.
-    var adrenoGpu by remember { mutableStateOf(prefs.getBoolean("native_adreno_gpu", true)) }
+    val gpuFailedKey = "native_gpu_failed_$versionCode"
+    var adrenoGpu by remember { mutableStateOf(!prefs.getBoolean(gpuFailedKey, false)) }
     remember { GpuPlaybackReport.installCrashCapture(context); true }
     NativeSvpTuning.adrenoGpu = adrenoGpu
     // Smoothing quality: 0 = Performance 720p, 1 = Balanced 900p, 2 = Quality 1080p, 3 = Max 1440p. The GPU may use up
@@ -154,14 +147,17 @@ fun PlayerScreen(
     // Snapdragon stays at 720p unless the CPU 1080p check passed. During playback the watchdog lowers [sessionCap] when
     // the device falls behind and raises it again after a calm stretch.
     var quality by remember { mutableStateOf(prefs.getInt("native_quality", 2).coerceIn(0, 3)) }
-    val gpuCheckKey = "native_gpu_levels_$versionCode"
-    var gpuCheck by remember { mutableStateOf(prefs.getString(gpuCheckKey, null)) } // "<max level>|summary"
+    var gpuCheck by remember { mutableStateOf(GpuQualityStore.read(context)) } // "<max level>|summary"
+    LaunchedEffect(Unit) {
+        // The first-run check (run from the main screen) may finish while this screen is closed; pick it up on open.
+        gpuCheck = GpuQualityStore.read(context)
+    }
     var gpuChecking by remember { mutableStateOf(false) }
     var gpuCheckStatus by remember { mutableStateOf("") }
-    val gpuAllowed = gpuCheck?.substringBefore('|')?.toIntOrNull() ?: 2
+    val gpuAllowed = (gpuCheck?.substringBefore('|')?.toIntOrNull() ?: 2).coerceIn(0, 3)
     var sessionCap by remember { mutableIntStateOf(3) }
     val gpuLevel = minOf(quality, gpuAllowed, sessionCap).coerceAtLeast(0)
-    val cpuLevel = minOf(quality, if (cpuFullHd) 2 else 0, sessionCap).coerceAtLeast(0)
+    val cpuLevel = minOf(quality, 0, sessionCap).coerceAtLeast(0)
     val nativeEffects = remember(gpuLevel, cpuLevel, adrenoGpu) {
         listOf(NativeSvpScale(NativeSvpTuning.levelSize(gpuLevel), NativeSvpTuning.levelSize(cpuLevel)), NativeSvpEffect(nativeController))
     }
@@ -181,10 +177,10 @@ fun PlayerScreen(
     var displayHz by remember { mutableStateOf(0f) }
     // Prefer a 60 Hz display mode for even output cadence. SmoothVideoView performs
     // motion estimation separately; the display-mode request alone adds no frames.
-    DisposableEffect(activity, prefer60Hz, smooth60, smoothTargetFps) {
+    DisposableEffect(activity, smooth60, smoothTargetFps) {
         val window = activity?.window
         val beforeId = window?.attributes?.preferredDisplayModeId ?: 0
-        if ((prefer60Hz || smooth60) && window != null) {
+        if (smooth60 && window != null) {
             val requestedHz = if (smooth60) smoothTargetFps.toFloat() else 60f
             val display = window.decorView.display
             val current = display?.mode
@@ -296,7 +292,7 @@ fun PlayerScreen(
     val currentGpuLevel by rememberUpdatedState(gpuLevel)
     val currentCpuLevel by rememberUpdatedState(cpuLevel)
     val gpuTarget by rememberUpdatedState(minOf(quality, gpuAllowed))
-    val cpuTarget by rememberUpdatedState(minOf(quality, if (cpuFullHd) 2 else 0))
+    val cpuTarget by rememberUpdatedState(minOf(quality, 0))
     LaunchedEffect(player, smooth60, nativeAvailable) {
         if (!(smooth60 && nativeAvailable)) return@LaunchedEffect
         val stallLog = NativeSvpTuning.stallLog(context)
@@ -342,7 +338,7 @@ fun PlayerScreen(
             lastInputs = inputsNow
             if (onAdrenoGpu && stallCount() > stallsBefore) {
                 stallsBefore = stallCount()
-                prefs.edit().putBoolean("native_adreno_gpu", false).apply()
+                prefs.edit().putBoolean(gpuFailedKey, true).apply()
                 adrenoGpu = false
                 playingSince = 0L
                 AppDiagnostics.record(context, "native-quality", "GPU stalled, CPU engine")
@@ -364,7 +360,7 @@ fun PlayerScreen(
                     AppDiagnostics.record(context, "native-quality", "down to ${NativeSvpTuning.LEVEL_NAMES[level - 1]} at ${fps.toInt()} fps")
                     toast("Smoothing kept up only at ${fps.toInt()} fps; lowered to ${NativeSvpTuning.LEVEL_NAMES[level - 1]}")
                 } else if (onAdrenoGpu) {
-                    prefs.edit().putBoolean("native_adreno_gpu", false).apply()
+                    prefs.edit().putBoolean(gpuFailedKey, true).apply()
                     adrenoGpu = false
                     AppDiagnostics.record(context, "native-quality", "GPU too slow at lowest level, CPU engine")
                     toast("GPU smoothing could not keep up even at 720p; switched to the CPU engine")
@@ -413,6 +409,22 @@ fun PlayerScreen(
     }
     val orientation = remember(activity) { com.deepak.videolibrary.ui.PlayerOrientation(activity) }
     DisposableEffect(orientation) { onDispose { orientation.restore() } }
+    // Turn the screen to match every video. The player only reports a size change when the size differs from the
+    // previous video, so also check the current picture size regularly and when the next video starts.
+    LaunchedEffect(player, orientation) {
+        while (true) {
+            val size = player.videoSize
+            val format = player.videoFormat
+            val quarterTurn = size.unappliedRotationDegrees == 90 || size.unappliedRotationDegrees == 270 ||
+                (size.width == 0 && (format?.rotationDegrees == 90 || format?.rotationDegrees == 270))
+            val w = if (size.width > 0) (size.width * size.pixelWidthHeightRatio).toInt() else format?.width ?: 0
+            val h = if (size.height > 0) size.height else format?.height ?: 0
+            if (w > 0 && h > 0) {
+                if (quarterTurn) orientation.onVideoShape(h, w) else orientation.onVideoShape(w, h)
+            }
+            delay(400)
+        }
+    }
     DisposableEffect(activity) {
         val window = activity?.window
         val beforeBrightness = window?.attributes?.screenBrightness
@@ -898,7 +910,11 @@ fun PlayerScreen(
                     }
                     if (mode == 1 && seekingGesture) player.seekTo(seekingTarget)
                     seekingGesture = false
-                    if (!moved && !holding) {
+                    if (!moved && !holding && (showSettings || showTracks)) {
+                        // A tap on the video only closes an open menu.
+                        showSettings = false
+                        showTracks = false
+                    } else if (!moved && !holding) {
                         val now = System.currentTimeMillis()
                         if (now - lastTapTime < 350L && lastTapSide == side) {
                             singleTap?.cancel()
@@ -1122,73 +1138,35 @@ fun PlayerScreen(
                         revealControls()
                     })
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Prefer 60 Hz output", color = Color.White, modifier = Modifier.weight(1f))
-                    Switch(checked = prefer60Hz, onCheckedChange = { value ->
-                        prefer60Hz = value
-                        prefs.edit().putBoolean("experimental_output_60hz", value).apply()
-                        revealControls()
-                    })
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Smooth motion 60 fps", color = Color.White, modifier = Modifier.weight(1f))
-                    Switch(checked = smooth60, onCheckedChange = { value ->
-                        smooth60 = value
-                        prefs.edit().putBoolean("experimental_smooth_60fps", value).apply()
-                        revealControls()
-                    })
-                }
                 if (smooth60 && nativeAvailable) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
-                    ) {
-                        listOf("Performance", "Balanced", "Quality", "Max").forEachIndexed { index, label ->
-                            FilterChip(
-                                selected = quality == index,
-                                enabled = index < 3 || gpuAllowed >= 3,
-                                onClick = {
-                                    quality = index
-                                    sessionCap = 3
-                                    prefs.edit().putInt("native_quality", index).apply()
-                                    revealControls()
-                                },
-                                label = { Text("$label ${NativeSvpTuning.LEVEL_NAMES[index]}") },
-                            )
+                    Text("Smoothing quality: ${NativeSvpTuning.LEVEL_NAMES[quality.coerceAtMost(gpuAllowed)]}", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    var sliderPos by remember(quality, gpuAllowed) { mutableFloatStateOf(quality.coerceAtMost(gpuAllowed).toFloat()) }
+                    Slider(
+                        value = sliderPos,
+                        onValueChange = { sliderPos = it.coerceAtMost(gpuAllowed.toFloat()) },
+                        onValueChangeFinished = {
+                            val level = sliderPos.toInt().coerceIn(0, gpuAllowed)
+                            sliderPos = level.toFloat()
+                            quality = level
+                            sessionCap = 3
+                            prefs.edit().putInt("native_quality", level).apply()
+                            revealControls()
+                        },
+                        valueRange = 0f..3f,
+                        steps = 2,
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        NativeSvpTuning.LEVEL_NAMES.forEachIndexed { index, name ->
+                            Text(name, color = if (index <= gpuAllowed) Color.White else Color.Gray, style = MaterialTheme.typography.labelSmall)
                         }
                     }
                     val qualityNote = buildString {
-                        append("Now: GPU ${NativeSvpTuning.LEVEL_NAMES[gpuLevel]}")
+                        append("Now: ${NativeSvpTuning.LEVEL_NAMES[gpuLevel]}")
                         if (sessionCap < minOf(quality, gpuAllowed)) append(" (lowered for this session)")
-                        if (gpuCheck == null) append(". Run the GPU check to unlock Max.")
+                        if (gpuAllowed < 3) append(" · higher levels are too heavy for this device")
                     }
                     Text(qualityNote, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                     if (gpuChecking) Text(gpuCheckStatus, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("GPU on Snapdragon phones", color = Color.White, modifier = Modifier.weight(1f))
-                        Switch(checked = adrenoGpu, onCheckedChange = { value ->
-                            if (value) runCatching { NativeSvpTuning.stallLog(context).delete() }
-                            sessionCap = 3
-                            adrenoGpu = value
-                            prefs.edit().putBoolean("native_adreno_gpu", value).apply()
-                            revealControls()
-                        })
-                    }
-                }
-                if (smooth60 && !nativeAvailable) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("Clean", "Balanced", "Max smooth").forEachIndexed { index, label ->
-                            FilterChip(
-                                selected = smoothStrength == index,
-                                onClick = {
-                                    smoothStrength = index
-                                    prefs.edit().putInt("smooth_60fps_strength", index).apply()
-                                    revealControls()
-                                },
-                                label = { Text(label) },
-                            )
-                        }
-                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Show frame rate", color = Color.White, modifier = Modifier.weight(1f))
@@ -1211,42 +1189,26 @@ fun PlayerScreen(
                     }
                 }
                 if (showAdvanced && smooth60 && nativeAvailable) {
-                    TextButton(enabled = !gpuChecking && !speedChecking, onClick = {
+                    TextButton(enabled = !gpuChecking, onClick = {
                         player.pause()
                         gpuChecking = true
                         gpuCheckStatus = "Starting the GPU quality check (about 1 minute, video paused)…"
                         revealControls()
                         gestureScope.launch {
                             val text = com.deepak.videolibrary.player.GpuLabRunner.runLevels(context) { gpuCheckStatus = "GPU check: $it" }
-                            prefs.edit().putString(gpuCheckKey, text).apply()
+                            GpuQualityStore.save(context, text)
+                            GpuQualityStore.clearFailure(context)
+                            adrenoGpu = true
                             AppDiagnostics.record(context, "native-quality", "GPU check max=${text.substringBefore('|')}")
                             gpuCheck = text
                             sessionCap = 3
                             gpuChecking = false
                         }
-                    }) { Text("Check GPU quality levels", color = Color.White) }
+                    }) { Text("Re-run GPU quality check", color = Color.White) }
                     if (gpuCheck != null) {
                         Text("GPU: " + gpuCheck!!.substringAfter('|'), color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
                     }
-                    TextButton(enabled = !speedChecking, onClick = {
-                        player.pause()
-                        speedChecking = true
-                        revealControls()
-                        gestureScope.launch {
-                            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { NativeSvpSpeedCheck.run(context) }
-                            val text = (if (result.qualifies) "pass|" else "fail|") + result.summary
-                            prefs.edit().putString(speedKey, text).putBoolean(liveKey, false).apply()
-                            AppDiagnostics.record(context, "native-cpu1080", if (result.qualifies) "check passed" else "check failed")
-                            speedCheck = text
-                            cpu1080LiveFailed = false
-                            speedChecking = false
-                        }
-                    }) { Text("Check CPU 1080p speed", color = Color.White) }
-                    speedCheck?.let {
-                        Text("CPU: " + it.substringAfter('|') + if (cpu1080LiveFailed) " · stepped down" else "", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-                    }
-                    if (speedChecking) Text("Checking… (about 20 s, video paused)", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-                    TextButton(enabled = !speedChecking, onClick = {
+                    TextButton(enabled = !gpuChecking, onClick = {
                         player.pause()
                         showGpuLab = true
                     }) { Text("GPU lab (diagnostics)", color = Color.White) }

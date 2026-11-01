@@ -183,6 +183,7 @@ class MainActivity : ComponentActivity() {
                     DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
                     val factory = remember(id) { androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory(application) }
                     key(id) { AppRoot(vm = androidx.lifecycle.viewmodel.compose.viewModel(viewModelStoreOwner = owner, factory = factory)) }
+                    if (reveal() >= 1f) com.deepak.videolibrary.ui.FirstRunGpuCheck()
                 } else {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         if (failed) {
