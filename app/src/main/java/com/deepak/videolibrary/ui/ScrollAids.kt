@@ -79,7 +79,7 @@ fun FastScrollBox(
 ) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
-    val edgePx = with(density) { 28.dp.toPx() }
+    val edgePx = with(density) { 36.dp.toPx() }
     val trackTopPx = with(density) { 8.dp.toPx() }
     val trackBottomPx = with(density) { (bottomInset + 8.dp).toPx() }
     val thumbHeightPx = with(density) { 48.dp.toPx() }
@@ -87,8 +87,8 @@ fun FastScrollBox(
 
     val total by remember { derivedStateOf { state.layoutInfo.totalItemsCount } }
     val visible by remember { derivedStateOf { state.layoutInfo.visibleItemsInfo.size } }
-    // Only long lists (more than about three screens) get a fast scroller.
-    val scrollerEnabled by remember { derivedStateOf { visible > 0 && total > visible * 3 } }
+    // Lists longer than about two screens get a fast scroller.
+    val scrollerEnabled by remember { derivedStateOf { visible > 0 && total > visible * 2 } }
 
     var dragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
@@ -112,11 +112,11 @@ fun FastScrollBox(
         if (state.isScrollInProgress || dragging) {
             thumbShown = true
         } else {
-            delay(1500)
+            delay(2500)
             thumbShown = false
         }
     }
-    val thumbAlpha by animateFloatAsState(if (thumbShown && scrollerEnabled) 1f else 0f, tween(250), label = "fast_scroll_thumb")
+    val thumbAlpha by animateFloatAsState(if (!scrollerEnabled) 0f else if (thumbShown) 1f else 0.35f, tween(250), label = "fast_scroll_thumb")
 
     Box(
         modifier

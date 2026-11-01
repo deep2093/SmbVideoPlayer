@@ -835,7 +835,7 @@ fun PlayerScreen(
                 },
             )
         } else {
-            AndroidView(
+            androidx.compose.runtime.key(hdrVideo) { AndroidView(
                 onReset = null,
                 onRelease = {
                     it.player = null
@@ -843,7 +843,7 @@ fun PlayerScreen(
                 factory = {
                     android.view.LayoutInflater
                         .from(it)
-                        .inflate(com.deepak.videolibrary.R.layout.playback_view, null) as PlayerView
+                        .inflate(if (hdrVideo) com.deepak.videolibrary.R.layout.playback_view_hdr else com.deepak.videolibrary.R.layout.playback_view, null) as PlayerView
                 },
                 update = { view ->
                     view.player = player
@@ -854,7 +854,7 @@ fun PlayerScreen(
                     scaleX = zoom
                     scaleY = zoom
                 },
-            )
+            ) }
         }
         // One full-width handler keeps both pinch pointers in the same coordinate space.
         // Separate stacked detectors previously competed and swallowed gestures.
@@ -1119,8 +1119,10 @@ fun PlayerScreen(
                 Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 56.dp, end = 12.dp)
-                    .widthIn(max = 290.dp)
+                    .widthIn(max = 320.dp)
+                    .heightIn(max = 340.dp)
                     .background(Color(0xF21A1A1E), RoundedCornerShape(16.dp))
+                    .verticalScroll(rememberScrollState())
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
@@ -1147,7 +1149,7 @@ fun PlayerScreen(
                         for (index in 0 until group.length) {
                             val supported = group.isTrackSupported(index)
                             val format = group.getTrackFormat(index)
-                            val label = format.label ?: format.language ?: "Track ${index + 1}"
+                            val label = trackLabel(format, index)
                             TextButton(enabled = supported, onClick = {
                                 player.trackSelectionParameters = player.trackSelectionParameters
                                     .buildUpon()
@@ -1343,4 +1345,21 @@ private fun formatPlaybackTime(milliseconds: Long): String {
     } else {
         "%d:%02d".format(minutes, seconds % 60)
     }
+}
+
+/** "English · AC-3 · 5.1" style name for an audio or subtitle track, so tracks can be told apart. */
+private fun trackLabel(format: androidx.media3.common.Format, index: Int): String {
+    val language = format.language?.takeIf { it != "und" }?.let { java.util.Locale.forLanguageTag(it).displayLanguage.ifBlank { it } }
+    val codec = when (format.sampleMimeType) {
+        "audio/ac3" -> "AC-3"; "audio/eac3" -> "E-AC-3"; "audio/eac3-joc" -> "Dolby Atmos"
+        "audio/true-hd" -> "TrueHD"; "audio/vnd.dts" -> "DTS"; "audio/vnd.dts.hd" -> "DTS-HD"
+        "audio/mp4a-latm" -> "AAC"; "audio/mpeg" -> "MP3"; "audio/opus" -> "Opus"; "audio/flac" -> "FLAC"
+        else -> null
+    }
+    val channels = when (format.channelCount) {
+        androidx.media3.common.Format.NO_VALUE, 0 -> null
+        1 -> "mono"; 2 -> "stereo"; 6 -> "5.1"; 8 -> "7.1"; else -> "${format.channelCount} ch"
+    }
+    val parts = listOfNotNull(format.label?.takeIf { it != language }, language, codec, channels.takeIf { codec != null || language != null })
+    return parts.joinToString(" · ").ifBlank { "Track ${index + 1}" }
 }
