@@ -28,8 +28,9 @@ class GpuLabService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val variant = intent?.getStringExtra(EXTRA_VARIANT) ?: "trace"
         val path = intent?.getStringExtra(EXTRA_LOG) ?: return START_NOT_STICKY
+        val levels = intent.getBooleanExtra(EXTRA_LEVELS, false)
         Thread({
-            runLab(this, variant, File(path))
+            if (levels) runLevels(this, File(path)) else runLab(this, variant, File(path))
             // A fresh process for every variant: environment, loaded libraries and any wedged driver state go away.
             android.os.Process.killProcess(android.os.Process.myPid())
         }, "SkyWing-gpu-lab").start()
@@ -39,6 +40,7 @@ class GpuLabService : Service() {
     companion object {
         const val EXTRA_VARIANT = "variant"
         const val EXTRA_LOG = "log"
+        const val EXTRA_LEVELS = "levels"
         const val SOURCE_FRAMES = 120
         const val WIDTH = 1920
         const val HEIGHT = 1080
@@ -98,6 +100,43 @@ private fun runLab(context: Context, variant: String, log: File) {
     }
 }
 
+/**
+ * GPU quality-level check, in the lab process: the same paced test as the CPU check, on the GPU engine with playback's
+ * settings (and the Adreno fix on Snapdragon), at 900p, 1080p and 1440p in turn. Stops at the first level that fails.
+ * Pass mark: almost nothing late at 60 fps and at least 66 fps flat out (10% headroom for decoding, display and heat).
+ */
+private fun runLevels(context: Context, log: File) {
+    val started = SystemClock.elapsedRealtime()
+    fun line(text: String) {
+        val seconds = (SystemClock.elapsedRealtime() - started) / 1000.0
+        log.appendText(String.format(Locale.ROOT, "[lab] %6.2fs %s\n", seconds, text))
+    }
+    var max = 0
+    try {
+        if (!NativeSvpStream.available) { line("DONE max=-1 native libraries missing"); return }
+        val qualcomm = NativeSvpTuning.isQualcommSoc()
+        if (qualcomm) NativeSvpTuning.enableAdrenoFix(context)
+        line("GPU quality check: ${Build.MANUFACTURER} ${Build.MODEL}${if (qualcomm) " (Snapdragon: Adreno fix on)" else ""}")
+        for (level in 1..3) {
+            val size = NativeSvpTuning.levelSize(level)
+            line("testing ${NativeSvpTuning.LEVEL_NAMES[level]} (${size[0]}x${size[1]})")
+            val result = NativeSvpSpeedCheck.measurePaced(
+                context, size[0], size[1], useGpu = true, threads = NativeSvpTuning.GPU_THREADS,
+                ahead = if (qualcomm) NativeSvpTuning.ADRENO_GPU_AHEAD else NativeSvpTuning.GPU_AHEAD,
+                textures = if (qualcomm) NativeSvpTuning.ADRENO_GPU_TEXTURES else NativeSvpTuning.GPU_TEXTURES,
+                minFlatOut = 66.0,
+            )
+            line("level=$level ${NativeSvpTuning.LEVEL_NAMES[level]} ${if (result.qualifies) "PASS" else "FAIL"} · ${result.summary}")
+            if (!result.qualifies) break
+            max = level
+        }
+        line("DONE max=$max")
+    } catch (t: Throwable) {
+        line("level error: ${t.message ?: t.javaClass.simpleName}")
+        line("DONE max=$max")
+    }
+}
+
 /** Runs the lab variants one after another from the app's own process. */
 internal object GpuLabRunner {
     val variants = listOf("trace", "flushwait", "flushall", "blockwrite", "all")
@@ -150,6 +189,43 @@ internal object GpuLabRunner {
             delay(1500)
         }
         return outcomes
+    }
+
+    /**
+     * Runs the GPU quality-level check in the lab process and returns "<highest passing level>|<summary>". A hang at
+     * some level counts as that level failing; level 0 (720p) is assumed workable.
+     */
+    suspend fun runLevels(context: Context, onStatus: (String) -> Unit): String {
+        val dir = File(context.filesDir, "gpulab").apply { mkdirs() }
+        labPid(context)?.let { android.os.Process.killProcess(it); delay(1000) }
+        val file = File(dir, "levels.log")
+        file.delete()
+        context.startService(
+            Intent(context, GpuLabService::class.java)
+                .putExtra(GpuLabService.EXTRA_LEVELS, true)
+                .putExtra(GpuLabService.EXTRA_LOG, file.absolutePath),
+        )
+        var last: String? = null
+        var lastChange = SystemClock.elapsedRealtime()
+        while (true) {
+            delay(500)
+            val now = lastLab(file)
+            if (now != last) { last = now; lastChange = SystemClock.elapsedRealtime() }
+            onStatus(now?.substringAfter("s ", now) ?: "starting…")
+            if (now?.contains("DONE max=") == true) break
+            // Each level takes about 15 s; 45 s without a new line means the GPU hung at the level being tested.
+            if (SystemClock.elapsedRealtime() - lastChange > 45_000L) {
+                labPid(context)?.let { android.os.Process.killProcess(it) }
+                file.appendText("[lab] HANG: no progress for 45 s; lab process killed\n")
+                break
+            }
+        }
+        val lines = runCatching { file.readLines() }.getOrDefault(emptyList())
+        val passed = lines.mapNotNull { Regex("level=(\\d) \\S+ PASS").find(it)?.groupValues?.get(1)?.toIntOrNull() }
+        val max = passed.maxOrNull() ?: 0
+        val details = lines.filter { it.contains("level=") || it.contains("HANG") || it.contains("error") }
+            .joinToString(" | ") { it.substringAfter("s ").trim() }
+        return "$max|${NativeSvpTuning.LEVEL_NAMES[max]} is the highest level that kept up · $details"
     }
 
     private fun summary(file: File): String =

@@ -47,6 +47,11 @@ internal object NativeSvpTuning {
     const val GPU_AHEAD = 2
     const val GPU_TEXTURES = 3
     const val GPU_CREDIT = 8
+    // Snapdragon (Adreno) GPU path: same threads as the validated GPU path, but more lookahead and buffers, because at
+    // 1080p it only has about 5-10% headroom and short slowdowns otherwise made the player drop late frames.
+    const val ADRENO_GPU_AHEAD = 4
+    const val ADRENO_GPU_TEXTURES = 5
+    const val ADRENO_GPU_CREDIT = 10
     const val CPU_THREADS = 6
     const val CPU_AHEAD = 8
     const val CPU_TEXTURES = 5
@@ -91,6 +96,22 @@ internal object NativeSvpTuning {
     }
 
     fun isAdreno(): Boolean = GL.glGetString(GL.GL_RENDERER).orEmpty().contains("Adreno", ignoreCase = true)
+
+    /** Without a GL context: whether this is a Qualcomm Snapdragon device (which has an Adreno GPU). */
+    fun isQualcommSoc(): Boolean {
+        val soc = if (android.os.Build.VERSION.SDK_INT >= 31) android.os.Build.SOC_MANUFACTURER else ""
+        return soc.contains("QTI", ignoreCase = true) || soc.contains("Qualcomm", ignoreCase = true) ||
+            android.os.Build.HARDWARE.contains("qcom", ignoreCase = true) || lastAdreno
+    }
+
+    /** Smoothing quality levels: processing size (the picture is fitted inside, keeping its shape). */
+    val LEVEL_NAMES = listOf("720p", "900p", "1080p", "1440p")
+    fun levelSize(level: Int): IntArray = when (level.coerceIn(0, 3)) {
+        0 -> intArrayOf(1280, 720)
+        1 -> intArrayOf(1600, 900)
+        2 -> intArrayOf(1920, 1080)
+        else -> intArrayOf(2560, 1440)
+    }
 
     /** Raise the calling thread so the engine's worker threads (created from it, inheriting its priority) keep up. */
     fun boostCurrentThread() {
@@ -283,10 +304,23 @@ private class NativeSvpShader(
         NativeSvpTuning.lastAdreno = adreno
         useGpu = gpuOverride ?: (!adreno || NativeSvpTuning.adrenoGpu)
         if (useGpu && adreno) NativeSvpTuning.enableAdrenoFix(appContext)
+        val adrenoGpuPath = useGpu && adreno
         val threads = if (useGpu) NativeSvpTuning.GPU_THREADS else NativeSvpTuning.CPU_THREADS
-        val ahead = if (useGpu) NativeSvpTuning.GPU_AHEAD else NativeSvpTuning.CPU_AHEAD
-        val outputs = if (useGpu) NativeSvpTuning.GPU_TEXTURES else NativeSvpTuning.CPU_TEXTURES
-        creditLimit = if (useGpu) NativeSvpTuning.GPU_CREDIT else NativeSvpTuning.CPU_CREDIT
+        val ahead = when {
+            adrenoGpuPath -> NativeSvpTuning.ADRENO_GPU_AHEAD
+            useGpu -> NativeSvpTuning.GPU_AHEAD
+            else -> NativeSvpTuning.CPU_AHEAD
+        }
+        val outputs = when {
+            adrenoGpuPath -> NativeSvpTuning.ADRENO_GPU_TEXTURES
+            useGpu -> NativeSvpTuning.GPU_TEXTURES
+            else -> NativeSvpTuning.CPU_TEXTURES
+        }
+        creditLimit = when {
+            adrenoGpuPath -> NativeSvpTuning.ADRENO_GPU_CREDIT
+            useGpu -> NativeSvpTuning.GPU_CREDIT
+            else -> NativeSvpTuning.CPU_CREDIT
+        }
         handle = NativeSvpStream.create(directory, width, height, fpsNum, fpsDen, useGpu, threads, ahead)
         check(handle != 0L)
         val backend = if (useGpu) "OpenCL" else "CPU"
@@ -465,17 +499,20 @@ private class NativeSvpShader(
 }
 
 /**
- * Bound CPU work on Adreno and align the half-analysis planes to four pixels. The CPU path uses 720p unless
- * [cpuFullHd] is set, which the app only does after this device passed the 1080p speed check.
+ * Fits the picture into the processing size of the chosen smoothing quality, keeping its shape, never enlarging, and
+ * aligning to four pixels for the half-size analysis. [gpuMax] applies to the GPU engine; [cpuMax] to CPU smoothing on
+ * Snapdragon phones whose GPU path is off.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal class NativeSvpScale(private val cpuFullHd: Boolean = false) : androidx.media3.effect.GlMatrixTransformation {
+internal class NativeSvpScale(
+    private val gpuMax: IntArray = intArrayOf(1920, 1080),
+    private val cpuMax: IntArray = intArrayOf(1280, 720),
+) : androidx.media3.effect.GlMatrixTransformation {
     private val identity = GlUtil.create4x4IdentityMatrix()
     override fun configure(inputWidth: Int, inputHeight: Int): androidx.media3.common.util.Size {
-        val cpu = NativeSvpTuning.isAdreno() && !NativeSvpTuning.adrenoGpu && !cpuFullHd
-        val maxWidth = if (cpu) 1280.0 else 1920.0
-        val maxHeight = if (cpu) 720.0 else 1080.0
-        val scale = minOf(1.0, maxWidth / inputWidth, maxHeight / inputHeight)
+        val cpu = NativeSvpTuning.isAdreno() && !NativeSvpTuning.adrenoGpu
+        val max = if (cpu) cpuMax else gpuMax
+        val scale = minOf(1.0, max[0].toDouble() / inputWidth, max[1].toDouble() / inputHeight)
         return androidx.media3.common.util.Size(maxOf(4, (inputWidth * scale).toInt() and -4),
             maxOf(4, (inputHeight * scale).toInt() and -4))
     }

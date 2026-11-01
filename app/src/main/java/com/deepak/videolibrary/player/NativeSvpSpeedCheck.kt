@@ -46,17 +46,38 @@ internal object NativeSvpSpeedCheck {
     }
 
     private fun measure(context: Context): Result {
+        val result = measurePaced(
+            context, WIDTH, HEIGHT, useGpu = false, threads = NativeSvpTuning.CPU_THREADS,
+            ahead = NativeSvpTuning.CPU_AHEAD, textures = NativeSvpTuning.CPU_TEXTURES, minFlatOut = 90.0,
+        )
+        val verdict = if (result.qualifies) "1080p OK" else "stays at 720p"
+        return Result(result.qualifies, "$verdict · ${result.summary}")
+    }
+
+    /**
+     * Paced engine test shared by the CPU 1080p check and the GPU quality-level check: warm-up, a flat-out burst, then
+     * ten seconds requested at the real 60 fps pace. Passes when at most 0.5% of outputs finish later than the display
+     * queue ([textures] - 1 frames) can hide and flat-out speed is at least [minFlatOut] fps.
+     */
+    fun measurePaced(
+        context: Context,
+        width: Int,
+        height: Int,
+        useGpu: Boolean,
+        threads: Int,
+        ahead: Int,
+        textures: Int,
+        minFlatOut: Double,
+    ): Result {
         NativeSvpTuning.boostCurrentThread()
-        val threads = NativeSvpTuning.CPU_THREADS
-        val ahead = NativeSvpTuning.CPU_AHEAD
         val handle = NativeSvpStream.create(
-            NativeSvpStream.libraryDirectory(context), WIDTH, HEIGHT, FPS.toLong(), 1L, false, threads, ahead,
+            NativeSvpStream.libraryDirectory(context), width, height, FPS.toLong(), 1L, useGpu, threads, ahead,
         )
         check(handle != 0L) { "engine could not be created" }
         try {
-            val scene = NativeSvpTestScene(WIDTH, HEIGHT)
-            val frame = ByteBuffer.allocateDirect(WIDTH * HEIGHT * 3 / 2)
-            val output = ByteBuffer.allocateDirect(WIDTH * HEIGHT * 3 / 2)
+            val scene = NativeSvpTestScene(width, height)
+            val frame = ByteBuffer.allocateDirect(width * height * 3 / 2)
+            val output = ByteBuffer.allocateDirect(width * height * 3 / 2)
             val totalOutputs = WARMUP + BURST + PACED
             val totalSource = totalOutputs * FPS / 60 + 12
             var pushed = 0
@@ -81,7 +102,7 @@ internal object NativeSvpSpeedCheck {
             val durations = LongArray(PACED)
             var late = 0
             // The worker can be this far ahead of the screen (output textures minus the one on screen).
-            val slack = (NativeSvpTuning.CPU_TEXTURES - 1) * FRAME_NS
+            val slack = (textures - 1) * FRAME_NS
             val pacedStart = System.nanoTime()
             for (k in 0 until PACED) {
                 val target = pacedStart + k * FRAME_NS
@@ -99,11 +120,10 @@ internal object NativeSvpSpeedCheck {
             val p95 = durations[(PACED * 95) / 100]
             val worst = durations[PACED - 1]
             // Pass: (almost) nothing late at the real pace, and enough spare speed for decoding and display.
-            val qualifies = late <= PACED / 200 && burstFps >= 90.0
-            val verdict = if (qualifies) "1080p OK" else "stays at 720p"
-            val summary = "$verdict · flat out ${String.format(Locale.ROOT, "%.0f", burstFps)} fps · per frame typical ${ms(p50)} ms, " +
+            val qualifies = late <= PACED / 200 && burstFps >= minFlatOut
+            val summary = "flat out ${String.format(Locale.ROOT, "%.0f", burstFps)} fps · per frame typical ${ms(p50)} ms, " +
                 "slowest 5% ${ms(p95)} ms, worst ${ms(worst)} ms · late $late of $PACED · $threads threads, $ahead ahead"
-            android.util.Log.i("NativeSvp", "Speed check: $summary")
+            android.util.Log.i("NativeSvp", "Paced check ${width}x$height gpu=$useGpu: $summary")
             return Result(qualifies, summary)
         } finally {
             NativeSvpStream.cancel(handle)
