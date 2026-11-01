@@ -83,6 +83,8 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     var playing by remember { mutableStateOf<VideoEntity?>(null) }
     var playQueue by remember { mutableStateOf<List<VideoEntity>>(emptyList()) }
     val foldersScrollState = rememberLazyGridState()
+    val phoneFoldersScrollState = rememberLazyGridState()
+    val phoneVideosScrollState = rememberLazyGridState()
     val videosScrollState = rememberLazyGridState()
     val folderVideosScrollState = rememberLazyGridState()
     val customFoldersScrollState = rememberLazyGridState()
@@ -319,7 +321,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                             label = "section_transition",
                         ) { currentTab ->
                             when (currentTab) {
-                                PHONE_TAB -> PhoneVideosScreen(vm, onPlay = { video, queue ->
+                                PHONE_TAB -> PhoneVideosScreen(vm, foldersState = phoneFoldersScrollState, videosState = phoneVideosScrollState, onPlay = { video, queue ->
                                     vm.resetPlaybackQueue()
                                     playing = video
                                     playQueue = queue

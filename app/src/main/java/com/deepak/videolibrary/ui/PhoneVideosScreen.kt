@@ -68,6 +68,18 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.deepak.videolibrary.data.VideoEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.rememberCoroutineScope
+import java.io.File
 
 /** Marks a library item that is a file on this phone (its relativePath is the content:// address). */
 internal const val PHONE_URI_PREFIX = "content://"
@@ -129,26 +141,34 @@ private fun loadPhoneFolders(context: Context): List<PhoneFolder> {
         .sortedWith(compareBy({ !it.title.equals("Camera", ignoreCase = true) }, { it.title.lowercase() }))
 }
 
-private val thumbCache = object : LruCache<String, Bitmap>(80) {}
+
+/** Phone section state that must outlive the screen: coming back from the player returns to the same folder. */
+internal object PhoneUi {
+    var openKey by mutableStateOf<String?>(null)
+    var query by mutableStateOf("")
+    var folderSort by mutableStateOf("NAME")
+    var videoSort by mutableStateOf("DATE")
+    var descending by mutableStateOf(false)
+    var cache: List<PhoneFolder>? = null
+}
+
+/** A cover/thumbnail for a phone video as a small cached file, so the shared folder cards can show it. */
+private suspend fun phoneThumbFile(context: Context, uri: String): File? = withContext(Dispatchers.IO) {
+    val dir = File(context.cacheDir, "phone-thumbs").apply { mkdirs() }
+    val file = File(dir, uri.substringAfterLast('/').filter { it.isLetterOrDigit() } + ".jpg")
+    if (file.length() > 0) return@withContext file
+    runCatching {
+        val bitmap = context.contentResolver.loadThumbnail(android.net.Uri.parse(uri), Size(640, 360), null)
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+        file
+    }.getOrNull()
+}
 
 @Composable
-private fun PhoneThumb(uri: String, modifier: Modifier) {
+private fun rememberPhoneThumb(uri: String?): File? {
     val context = LocalContext.current
-    val bitmap by produceState<Bitmap?>(thumbCache.get(uri), uri) {
-        if (value == null) {
-            value = withContext(Dispatchers.IO) {
-                runCatching { context.contentResolver.loadThumbnail(android.net.Uri.parse(uri), Size(480, 270), null) }.getOrNull()
-            }?.also { thumbCache.put(uri, it) }
-        }
-    }
-    Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-        val shown = bitmap
-        if (shown != null) {
-            Image(shown.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        } else {
-            Icon(Icons.Filled.PlayArrow, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+    val file by produceState<File?>(null, uri) { value = if (uri == null) null else phoneThumbFile(context, uri) }
+    return file
 }
 
 private fun formatDuration(ms: Long): String {
@@ -164,14 +184,23 @@ private fun formatSize(bytes: Long): String = when {
     else -> "%d MB".format(bytes / (1L shl 20))
 }
 
-/** The Phone section: videos stored on this device, listed under the folder they are in. */
+private fun PhoneFolder.newest() = videos.maxOfOrNull { it.modifiedSeconds } ?: 0L
+
+/** The Phone section: videos stored on this device, listed by folder with the same cards, sorting, search and layout as Folders. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun PhoneVideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>) -> Unit) {
+internal fun PhoneVideosScreen(
+    vm: LibraryViewModel,
+    foldersState: LazyGridState,
+    videosState: LazyGridState,
+    onPlay: (VideoEntity, List<VideoEntity>) -> Unit,
+) {
     val context = LocalContext.current
     var granted by remember { mutableStateOf(hasPhonePermission(context)) }
     var refresh by remember { mutableIntStateOf(0) }
-    var folders by remember { mutableStateOf<List<PhoneFolder>?>(null) }
-    var openKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var folders by remember { mutableStateOf(PhoneUi.cache) }
+    var searching by rememberSaveable { mutableStateOf(PhoneUi.query.isNotBlank()) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner) {
@@ -185,14 +214,44 @@ internal fun PhoneVideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(granted, refresh) {
-        folders = if (granted) withContext(Dispatchers.IO) { runCatching { loadPhoneFolders(context) }.getOrDefault(emptyList()) } else null
+        loading = true
+        val loaded = if (granted) withContext(Dispatchers.IO) { runCatching { loadPhoneFolders(context) }.getOrDefault(emptyList()) } else null
+        folders = loaded
+        PhoneUi.cache = loaded
+        loading = false
     }
-    val open = folders?.firstOrNull { it.key == openKey }
-    BackHandler(enabled = open != null) { openKey = null }
-    val bottomPadding = if (floatingPadding(vm)) 112.dp else 24.dp
+    val open = folders?.firstOrNull { it.key == PhoneUi.openKey }
+    // The saved folder disappeared (all its videos deleted): fall back to the folder list.
+    LaunchedEffect(folders, open) { if (folders != null && PhoneUi.openKey != null && open == null) PhoneUi.openKey = null }
+    fun closeFolder() { PhoneUi.openKey = null; PhoneUi.query = ""; searching = false }
+    BackHandler(enabled = open != null) { closeFolder() }
+    val query = PhoneUi.query.trim()
+    val descending = PhoneUi.descending
 
-    fun play(folder: PhoneFolder, index: Int) {
-        val queue = folder.videos.drop(index).map {
+    val shownFolders = remember(folders, query, PhoneUi.folderSort, descending) {
+        val base = folders.orEmpty().filter { query.isEmpty() || it.title.contains(query, ignoreCase = true) }
+        val sorted = when (PhoneUi.folderSort) {
+            "COUNT" -> base.sortedBy { it.videos.size }
+            "DATE" -> base.sortedBy { it.newest() }
+            "SIZE" -> base.sortedBy { f -> f.videos.sumOf { it.size } }
+            else -> base.sortedBy { it.title.lowercase() }
+        }
+        if (descending) sorted.reversed() else sorted
+    }
+    val shownVideos = remember(open, query, PhoneUi.videoSort, descending) {
+        val base = open?.videos.orEmpty().filter { query.isEmpty() || it.name.contains(query, ignoreCase = true) }
+        val sorted = when (PhoneUi.videoSort) {
+            "NAME" -> base.sortedBy { it.name.lowercase() }
+            "SIZE" -> base.sortedBy { it.size }
+            "DURATION" -> base.sortedBy { it.durationMs }
+            else -> base.sortedBy { it.modifiedSeconds }
+        }
+        // Dates and sizes read newest/biggest first unless the arrow is flipped.
+        if (PhoneUi.videoSort == "NAME") (if (descending) sorted.reversed() else sorted) else (if (descending) sorted else sorted.reversed())
+    }
+
+    fun play(folder: PhoneFolder, list: List<PhoneVideo>, index: Int) {
+        val queue = list.drop(index).map {
             VideoEntity(
                 relativePath = it.uri,
                 name = it.name,
@@ -207,21 +266,55 @@ internal fun PhoneVideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<
         onPlay(queue.first(), queue)
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (open != null) {
-                IconButton(onClick = { openKey = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to phone folders") }
+    Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN)) {
+        HubTopBar {
+            SearchableTopBar(
+                title = open?.title ?: "Phone",
+                searching = searching,
+                onSearchingChange = { searching = it },
+                query = PhoneUi.query,
+                onQueryChange = { PhoneUi.query = it },
+                placeholder = if (open == null) "Search phone folders" else "Search videos",
+                modifier = if (LocalHubTitle.current == null) Modifier.padding(top = 8.dp) else Modifier,
+                navigation = if (open != null) ({
+                    IconButton(onClick = { closeFolder() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to phone folders") }
+                }) else null,
+            ) {
+                if (granted) IconAction(Icons.Filled.Refresh, "Refresh phone videos", onClick = { refresh++ })
+                CardShapeButton(vm, if (open == null) PHONE_PAGE else PHONE_VIDEOS_PAGE)
+                Box {
+                    var menu by remember { mutableStateOf(false) }
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Filled.Sort, "Sort and layout") }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        val options = if (open == null) {
+                            listOf("NAME" to "Name", "COUNT" to "Number of videos", "DATE" to "Latest by date", "SIZE" to "Total size")
+                        } else {
+                            listOf("NAME" to "Name", "DATE" to "Date", "SIZE" to "Size", "DURATION" to "Length")
+                        }
+                        val current = if (open == null) PhoneUi.folderSort else PhoneUi.videoSort
+                        options.forEach { (key, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label + if (current == key) (if (descending) " ↓" else " ↑") else "") },
+                                leadingIcon = { Icon(Icons.Filled.Sort, null) },
+                                onClick = {
+                                    if (current == key) PhoneUi.descending = !PhoneUi.descending
+                                    else { if (open == null) PhoneUi.folderSort = key else PhoneUi.videoSort = key; PhoneUi.descending = false }
+                                    menu = false
+                                },
+                            )
+                        }
+                        HorizontalDivider()
+                        val listMode = if (open == null) vm.folderListMode else vm.videoListMode
+                        DropdownMenuItem(
+                            text = { Text(if (listMode) "Grid view" else "List view") },
+                            onClick = { if (open == null) vm.toggleFolderLayout() else vm.toggleVideoLayout(); menu = false },
+                        )
+                    }
+                }
             }
-            Text(
-                open?.title ?: "Phone",
-                style = MaterialTheme.typography.headlineSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            if (granted) IconButton(onClick = { refresh++ }) { Icon(Icons.Filled.Refresh, "Refresh") }
-            LocalTopBarEnd.current()
         }
+        Spacer(Modifier.height(12.dp))
+        val bottomPadding = if (floatingPadding(vm)) 112.dp else 24.dp
         when {
             !granted -> Column(
                 Modifier.fillMaxSize().padding(24.dp),
@@ -234,63 +327,79 @@ internal fun PhoneVideosScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<
             }
             folders == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Loading…") }
             folders!!.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No videos found on this phone.") }
-            open == null -> LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = bottomPadding),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(folders!!, key = { it.key }) { folder ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                            .clickable { openKey = folder.key }
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        PhoneThumb(folder.videos.first().uri, Modifier.size(width = 96.dp, height = 54.dp).clip(RoundedCornerShape(8.dp)))
-                        Column(Modifier.weight(1f)) {
-                            Text(folder.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                "${folder.videos.size} video${if (folder.videos.size == 1) "" else "s"} · ${folder.key}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Icon(Icons.Filled.Folder, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
             else -> {
-              val current = open!!
-              LazyVerticalGrid(
-                GridCells.Adaptive(160.dp),
-                Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = bottomPadding),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                itemsIndexed(current.videos, key = { _, v -> v.uri }) { index, video ->
-                    Column(Modifier.clickable { play(current, index) }) {
-                        Box {
-                            PhoneThumb(video.uri, Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)))
-                            Text(
-                                formatDuration(video.durationMs),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = androidx.compose.ui.graphics.Color.White,
-                                modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
-                                    .background(androidx.compose.ui.graphics.Color(0xAA000000), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
-                            )
+                val inFolder = open != null
+                val state = if (inFolder) videosState else foldersState
+                val listMode = if (inFolder) vm.videoListMode else vm.folderListMode
+                val columns = libraryColumns(vm, folders = !inFolder)
+                val aspect = cardAspect(vm, if (inFolder) PHONE_VIDEOS_PAGE else PHONE_PAGE)
+                ScrollToTopOnChange(PhoneUi.query + PhoneUi.folderSort + PhoneUi.videoSort + PhoneUi.descending, state)
+                val sortByName = if (inFolder) PhoneUi.videoSort == "NAME" else PhoneUi.folderSort == "NAME"
+                FastScrollBox(
+                    state = state,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    labelFor = if (sortByName) ({ index ->
+                        if (inFolder) shownVideos.getOrNull(index)?.name?.let(::sectionLetter)
+                        else shownFolders.getOrNull(index)?.title?.let(::sectionLetter)
+                    }) else null,
+                    bottomInset = if (floatingPadding(vm)) 100.dp else 16.dp,
+                ) {
+                    PullToRefreshBox(isRefreshing = loading, onRefresh = { refresh++ }, modifier = Modifier.fillMaxSize()) {
+                        LazyVerticalGrid(
+                            state = state,
+                            columns = GridCells.Fixed(if (listMode) 1 else columns),
+                            horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
+                            verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
+                            contentPadding = PaddingValues(bottom = bottomPadding),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            if (!inFolder) {
+                                if (shownFolders.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                                    Text("No matching folders.", modifier = Modifier.padding(vertical = 24.dp))
+                                }
+                                gridItems(shownFolders, key = { it.key }) { folder ->
+                                    val cover = rememberPhoneThumb(folder.videos.maxByOrNull { it.modifiedSeconds }?.uri)
+                                    FolderTile(
+                                        title = folder.title,
+                                        detail = "${folder.videos.size} video${if (folder.videos.size == 1) "" else "s"}",
+                                        cover = cover,
+                                        aspect = aspect,
+                                        listMode = listMode,
+                                        onClick = { PhoneUi.openKey = folder.key; PhoneUi.query = ""; searching = false },
+                                        onLongPress = {},
+                                    )
+                                }
+                                if (shownFolders.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
+                                    ListTotal("${shownFolders.size} folders")
+                                }
+                            } else {
+                                val current = open!!
+                                if (shownVideos.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                                    Text("No matching videos.", modifier = Modifier.padding(vertical = 24.dp))
+                                }
+                                itemsIndexed(shownVideos, key = { _, v -> v.uri }) { index, video ->
+                                    val cover = rememberPhoneThumb(video.uri)
+                                    FolderTile(
+                                        title = video.name,
+                                        detail = formatDuration(video.durationMs) + " · " + formatSize(video.size),
+                                        cover = cover,
+                                        aspect = aspect,
+                                        listMode = listMode,
+                                        onClick = { play(current, shownVideos, index) },
+                                        onLongPress = {},
+                                    )
+                                }
+                                if (shownVideos.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
+                                    ListTotal("${shownVideos.size} videos")
+                                }
+                            }
                         }
-                        Text(video.name, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
-                        Text(formatSize(video.size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-            }
             }
         }
     }
 }
+
+private const val PHONE_PAGE = "phone"
+private const val PHONE_VIDEOS_PAGE = "phone-videos"

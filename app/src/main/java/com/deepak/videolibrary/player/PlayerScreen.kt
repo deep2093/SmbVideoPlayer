@@ -272,6 +272,8 @@ fun PlayerScreen(
             .setPrioritizeTimeOverSizeThresholds(false)
             .build()
         ExoPlayer.Builder(context, renderers).setLoadControl(loadControl).build().apply {
+        // When a video has several audio languages, start with English (a video with no English track plays its default).
+        trackSelectionParameters = trackSelectionParameters.buildUpon().setPreferredAudioLanguage("en").build()
             if (smooth60 && nativeAvailable) setVideoEffects(nativeEffects)
             setVideoFrameMetadataListener { _, _, _, _ -> nativeFrames.incrementAndGet() }
             setAudioAttributes(
