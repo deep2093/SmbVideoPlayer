@@ -114,6 +114,10 @@ internal object NativeSvpTuning {
     @Volatile var upscaleTarget: IntArray? = null
     /** For the playback report: what the last played video was (HDR detection, codec, colour info) and the screen's HDR state. */
     @Volatile var lastVideoInfo: String = "(none yet)"
+    /** One line a second while a video plays WITHOUT smoothing (frames shown, dropped, file fps, screen refresh rate); last 180 kept. */
+    private val normalLog = java.util.ArrayDeque<String>()
+    @Synchronized fun logNormal(line: String) { normalLog.addLast(line); while (normalLog.size > 180) normalLog.removeFirst() }
+    @Synchronized fun normalLogText(): String = if (normalLog.isEmpty()) "(none)\n" else normalLog.joinToString("\n") + "\n"
     fun levelSize(level: Int): IntArray = when (level.coerceIn(0, 3)) {
         0 -> intArrayOf(1280, 720)
         1 -> intArrayOf(1600, 900)

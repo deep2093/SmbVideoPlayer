@@ -447,8 +447,8 @@ fun PlayerScreen(
             }
         }
     }
-    LaunchedEffect(player, showFps) {
-        if (!showFps) return@LaunchedEffect
+    // Runs always (not only with the on-screen numbers) so the playback report can show how normal playback went.
+    LaunchedEffect(player) {
         var lastCount = -1
         var lastAt = 0L
         var lastNativeCount = nativeFrames.get()
@@ -466,6 +466,17 @@ fun PlayerScreen(
             lastAt = now
             fileFps = player.videoFormat?.frameRate?.takeIf { it > 0f } ?: 0f
             displayHz = activity?.window?.decorView?.display?.refreshRate ?: 0f
+            if (!nativeInUse && player.isPlaying) {
+                val display = activity?.window?.decorView?.display
+                val modes = display?.supportedModes?.map { "%.0f".format(it.refreshRate) }?.distinct()?.joinToString("/")
+                NativeSvpTuning.logNormal(
+                    java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()) +
+                        " shown=${"%.1f".format(decodedFps)}fps file=${player.videoFormat?.frameRate ?: -1f}fps " +
+                        "dropped=${counters?.droppedBufferCount} skipped=${counters?.skippedOutputBufferCount} " +
+                        "display=${"%.0f".format(displayHz)}Hz modes=$modes pos=${player.currentPosition / 1000}s " +
+                        "${player.videoFormat?.width}x${player.videoFormat?.height} ${player.videoFormat?.sampleMimeType}",
+                )
+            }
         }
     }
     var transitionSerial by remember { mutableIntStateOf(0) }
