@@ -134,7 +134,10 @@ fun PlayerScreen(
     // HDR10, HDR10+, HLG and Dolby Vision videos play straight to the screen: smoothing switches itself off for
     // them (the saved choice stays, so the next normal video is smoothed again).
     var hdrVideo by remember { mutableStateOf(false) }
-    val smooth60 = smoothPref && !hdrVideo
+    // Videos above 60 fps (90, 120, ...) already move smoothly and cannot go through the 60 fps smoothing engine, so
+    // smoothing steps aside for them too and the screen is asked for its fastest refresh rate.
+    var highFpsVideo by remember { mutableStateOf(false) }
+    val smooth60 = smoothPref && !hdrVideo && !highFpsVideo
     val nativeAvailable = remember { NativeSvpStream.available }
     val nativeController = remember { NativeSvpController() }
     // CPU smoothing (Adreno phones) runs at 1080p only after this device passed the 1080p speed check for this app
@@ -199,6 +202,29 @@ fun PlayerScreen(
     var displayHz by remember { mutableStateOf(0f) }
     // Prefer a 60 Hz display mode for even output cadence. SmoothVideoView performs
     // motion estimation separately; the display-mode request alone adds no frames.
+    DisposableEffect(activity, highFpsVideo) {
+        val window = activity?.window
+        val beforeId = window?.attributes?.preferredDisplayModeId ?: 0
+        if (highFpsVideo && window != null) {
+            val display = window.decorView.display
+            val current = display?.mode
+            val fastest = display?.supportedModes
+                ?.filter { current == null || (it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight) }
+                ?.maxByOrNull { it.refreshRate }
+            if (fastest != null && fastest.refreshRate >= 90f) {
+                val params = window.attributes
+                params.preferredDisplayModeId = fastest.modeId
+                window.attributes = params
+            }
+        }
+        onDispose {
+            if (highFpsVideo && window != null) {
+                val params = window.attributes
+                params.preferredDisplayModeId = beforeId
+                window.attributes = params
+            }
+        }
+    }
     DisposableEffect(activity, hdrVideo) {
         val window = activity?.window
         if (hdrVideo && window != null && Build.VERSION.SDK_INT >= 26) {
@@ -465,6 +491,7 @@ fun PlayerScreen(
             lastCount = count
             lastAt = now
             fileFps = player.videoFormat?.frameRate?.takeIf { it > 0f } ?: 0f
+            if (fileFps > 61f) highFpsVideo = true
             displayHz = activity?.window?.decorView?.display?.refreshRate ?: 0f
             if (!nativeInUse && player.isPlaying) {
                 val display = activity?.window?.decorView?.display
@@ -704,11 +731,12 @@ fun PlayerScreen(
                         codecs.startsWith("dvh") || codecs.startsWith("dva") || codecs.startsWith("dav1")
                     hdrVideo = dolby || transfer == androidx.media3.common.C.COLOR_TRANSFER_ST2084 ||
                         transfer == androidx.media3.common.C.COLOR_TRANSFER_HLG
+                    highFpsVideo = format.frameRate > 61f
                     AppDiagnostics.record(context, "hdr", "hdr=$hdrVideo dolbyVision=$dolby transfer=$transfer codecs=$codecs")
                     val ci = format.colorInfo
                     val screen = activity?.window
                     NativeSvpTuning.lastVideoInfo = "hdr=$hdrVideo dolbyVision=$dolby mime=${format.sampleMimeType} codecs=$codecs " +
-                        "colorSpace=${ci?.colorSpace} range=${ci?.colorRange} transfer=$transfer ${format.width}x${format.height} " +
+                        "fps=${format.frameRate} colorSpace=${ci?.colorSpace} range=${ci?.colorRange} transfer=$transfer ${format.width}x${format.height} " +
                         "displayIsHdr=${if (Build.VERSION.SDK_INT >= 26) screen?.decorView?.display?.isHdr else null}"
                     AppDiagnostics.record(
                         context,
@@ -727,7 +755,7 @@ fun PlayerScreen(
                             error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
                         )
                 ) {
-                    if (!hdrVideo) smoothPref = false
+                    if (!hdrVideo && !highFpsVideo) smoothPref = false
                     player.setVideoEffects(emptyList())
                     player.prepare()
                     android.widget.Toast.makeText(context, "Smoothing unavailable for this video; using normal playback", android.widget.Toast.LENGTH_LONG).show()
@@ -863,7 +891,7 @@ fun PlayerScreen(
                 },
             )
         } else {
-            androidx.compose.runtime.key(hdrVideo) { AndroidView(
+            androidx.compose.runtime.key(hdrVideo || highFpsVideo) { AndroidView(
                 onReset = null,
                 onRelease = {
                     it.player = null
@@ -871,7 +899,7 @@ fun PlayerScreen(
                 factory = {
                     android.view.LayoutInflater
                         .from(it)
-                        .inflate(if (hdrVideo) com.deepak.videolibrary.R.layout.playback_view_hdr else com.deepak.videolibrary.R.layout.playback_view, null) as PlayerView
+                        .inflate(if (hdrVideo || highFpsVideo) com.deepak.videolibrary.R.layout.playback_view_hdr else com.deepak.videolibrary.R.layout.playback_view, null) as PlayerView
                 },
                 update = { view ->
                     view.player = player
