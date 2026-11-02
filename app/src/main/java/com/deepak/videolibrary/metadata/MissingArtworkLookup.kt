@@ -9,8 +9,12 @@ import com.deepak.videolibrary.ServiceLocator
  * failed to download) are tried again; without it, only new or changed items are looked up.
  */
 object MissingArtworkLookup {
-    /** Returns false when nothing is switched on, so there was nothing to start. */
-    fun start(context: Context, services: ServiceLocator, recheck: Boolean): Boolean {
+    /**
+     * Returns false when nothing is switched on, so there was nothing to start. Over remote access (VPN up) it does
+     * nothing unless [manual], i.e. unless you asked for the lookup yourself.
+     */
+    fun start(context: Context, services: ServiceLocator, recheck: Boolean, manual: Boolean = false): Boolean {
+        if (!manual && RemoteAccess.active(context)) return false
         val libraryId = services.libraryId
         var started = false
         val art = services.artwork.settings.value

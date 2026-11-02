@@ -719,6 +719,8 @@ fun PlayerScreen(
             }
             override fun onPlayerError(error: PlaybackException) {
                 AppDiagnostics.record(context, "error", error.errorCodeName)
+                NativeSvpTuning.lastVideoInfo = "PLAYBACK ERROR ${error.errorCodeName}: ${error.cause?.message ?: error.message} | was: ${NativeSvpTuning.lastVideoInfo}"
+                NativeSvpTuning.logNormal("ERROR ${error.errorCodeName}: ${error.cause?.message ?: error.message}")
                 // Both effect-pipeline failure kinds: set-up (5001) and while running (5002).
                 if (nativeInUse && (
                         error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED ||

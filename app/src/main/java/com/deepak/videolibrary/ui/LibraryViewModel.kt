@@ -2246,7 +2246,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     fun lookUpMissing() {
         viewModelScope.launch {
             val started = withContext(Dispatchers.IO) {
-                com.deepak.videolibrary.metadata.MissingArtworkLookup.start(getApplication(), services, recheck = true)
+                com.deepak.videolibrary.metadata.MissingArtworkLookup.start(getApplication(), services, recheck = true, manual = true)
             }
             notice = if (started) "Looking for missing scenes and posters…"
             else "Turn on scene matching or performer portraits in Settings to look up posters."

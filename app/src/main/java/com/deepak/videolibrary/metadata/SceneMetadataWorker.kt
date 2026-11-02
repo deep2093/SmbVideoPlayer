@@ -47,6 +47,8 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
         val manual = inputData.getBoolean("manual", false)
         val settings = services.sceneMetadataPreferences.settings.value
         if (!settings.enabled || !settings.allowedOnlineLookup) return Result.success()
+        // Over remote access (VPN up) only lookups you asked for run; automatic ones wait until you pull.
+        if (!manual && RemoteAccess.active(applicationContext)) return Result.success()
 
         val profile = services.settings.loadProfile() ?: return Result.success()
         if (profile.username.isNotBlank() && profile.password.isBlank()) return Result.success()

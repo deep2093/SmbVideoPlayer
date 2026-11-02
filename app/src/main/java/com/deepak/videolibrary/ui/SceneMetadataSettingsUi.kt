@@ -240,7 +240,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         confirmButton = { TextButton(onClick = {
             consentOpen = false
             prefs.update { it.copy(enabled = true, allowedOnlineLookup = true) }
-            MissingArtworkLookup.start(context, service, recheck = false)
+            MissingArtworkLookup.start(context, service, recheck = false, manual = true)
         }) { Text("Allow lookups") } },
         dismissButton = { TextButton(onClick = { consentOpen = false }) { Text("Cancel") } },
     )
