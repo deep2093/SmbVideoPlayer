@@ -462,7 +462,11 @@ fun PlayerScreen(
             lastInputs = inputsNow
             if (onAdrenoGpu && stallCount() > stallsBefore) {
                 stallsBefore = stallCount()
-                prefs.edit().putBoolean(gpuFailedKey, true).apply()
+                // One stall can be a passing driver hiccup: use the CPU engine for now, and give up on the GPU for
+                // good only after the third stall.
+                val stalls = prefs.getInt("native_gpu_stalls_$versionCode", 0) + 1
+                prefs.edit().putInt("native_gpu_stalls_$versionCode", stalls).apply()
+                if (stalls >= 3) prefs.edit().putBoolean(gpuFailedKey, true).apply()
                 adrenoGpu = false
                 playingSince = 0L
                 AppDiagnostics.record(context, "native-quality", "GPU stalled, CPU engine")
@@ -493,7 +497,7 @@ fun PlayerScreen(
                     AppDiagnostics.record(context, "native-quality", "down to ${NativeSvpTuning.LEVEL_NAMES[level - 1]} at ${fps.toInt()} fps")
                     toast("Smoothing kept up only at ${fps.toInt()} fps; lowered to ${NativeSvpTuning.LEVEL_NAMES[level - 1]}")
                 } else if (onAdrenoGpu) {
-                    prefs.edit().putBoolean(gpuFailedKey, true).apply()
+                    // For this playback only (a busy or hot moment); the GPU is tried again next time.
                     adrenoGpu = false
                     AppDiagnostics.record(context, "native-quality", "GPU too slow at lowest level, CPU engine")
                     toast("GPU smoothing could not keep up even at 720p; switched to the CPU engine")
@@ -800,13 +804,15 @@ fun PlayerScreen(
                             error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
                         )
                 ) {
-                    // Fast scrubbing can trip a passing hiccup in Media3's frame hand-over ("Textures are all in use").
-                    // That is not this video's fault: restart the player at the same spot with smoothing still on, a
-                    // few times per video, before giving up on smoothing for it.
-                    val detail = (error.cause?.message ?: error.message).orEmpty()
-                    val passing = detail.contains("Textures are all in use") || detail.contains("in-use textures")
+                    // Most engine errors are passing: fast scrubbing tripping Media3's frame hand-over ("Textures are all
+                    // in use"), a mid-video size change, a timeline jump. Restart the player at the same spot with
+                    // smoothing still on, up to three times per video, before giving up on smoothing for that video.
+                    val detail = generateSequence(error as Throwable?) { it.cause }.mapNotNull { it.message }.joinToString(" | ")
+                    // Errors that will happen again whatever we do: no retry.
+                    val permanent = listOf("SDR only", "libraries are unavailable", "Unsupported source frame rate", "requires two decoded frames")
+                        .any { detail.contains(it) }
                     val tries = if (smoothRetry.first == playingPath) smoothRetry.second else 0
-                    if (passing && tries < 3) {
+                    if (!permanent && tries < 3) {
                         smoothRetry = playingPath to tries + 1
                         rebuildPlayer()
                         return
