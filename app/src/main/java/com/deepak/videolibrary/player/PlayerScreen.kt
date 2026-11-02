@@ -278,8 +278,15 @@ fun PlayerScreen(
         entries.distinctBy { it.relativePath }.ifEmpty { listOf(video) }
     }
     val initialIndex = remember(video.relativePath, queue) { queue.indexOfFirst { it.relativePath == video.relativePath }.coerceAtLeast(0) }
-    val player = remember(queue, profile) {
+    // Once a player has had video effects set (even an empty list), Media3 keeps sending every frame through its
+    // GPU effects pipeline, which costs speed (a 120 fps video stalled at ~100). Without smoothing the player must
+    // never touch effects, so switching smoothing off rebuilds the player at the same spot instead.
+    var playerGeneration by remember { mutableIntStateOf(0) }
+    var restartAt by remember { mutableStateOf<Pair<Int, Long>?>(null) }
+    val effectsUsed = remember { booleanArrayOf(false) }
+    val player = remember(queue, profile, playerGeneration) {
         AppDiagnostics.record(context, "player", "open")
+        effectsUsed[0] = false
         val renderers = NativeSvpRenderersFactory(context, nativeController).setEnableDecoderFallback(true)
         // Size the sample buffer to the device: tablets with plenty of heap keep the full 96 MB
         // for 4K Wi-Fi jitter, smaller devices get less so playback never competes with the UI.
@@ -300,7 +307,10 @@ fun PlayerScreen(
         ExoPlayer.Builder(context, renderers).setLoadControl(loadControl).build().apply {
             // When a video has several audio languages, start with English (a video with no English track plays its default).
             trackSelectionParameters = trackSelectionParameters.buildUpon().setPreferredAudioLanguage("en").build()
-            if (smooth60 && nativeAvailable) setVideoEffects(nativeEffects)
+            if (smooth60 && nativeAvailable) {
+                setVideoEffects(nativeEffects)
+                effectsUsed[0] = true
+            }
             setVideoFrameMetadataListener { _, _, _, _ -> nativeFrames.incrementAndGet() }
             setAudioAttributes(
                 AudioAttributes
@@ -337,8 +347,17 @@ fun PlayerScreen(
             playWhenReady = false
         }
     }
+    fun rebuildWithoutEffects() {
+        restartAt = player.currentMediaItemIndex.coerceAtLeast(0) to player.currentPosition.coerceAtLeast(0L)
+        playerGeneration++
+    }
     LaunchedEffect(player, smooth60, nativeAvailable, nativeEffects) {
-        player.setVideoEffects(if (smooth60 && nativeAvailable) nativeEffects else emptyList())
+        if (smooth60 && nativeAvailable) {
+            player.setVideoEffects(nativeEffects)
+            effectsUsed[0] = true
+        } else if (effectsUsed[0]) {
+            rebuildWithoutEffects()
+        }
     }
     // Ask the system for steady (non-throttling-spike) performance while smoothing, where it supports that.
     DisposableEffect(activity, smooth60, nativeAvailable) {
@@ -594,9 +613,17 @@ fun PlayerScreen(
     var seekingTarget by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(player) {
-        val saved = vm.resumeFor(video.relativePath)
-        val resume = if (saved != null && !(saved.durationMs > 0 && saved.positionMs >= saved.durationMs - 10_000)) saved.positionMs else 0L
-        player.seekTo(initialIndex, resume.coerceAtLeast(0))
+        val restart = restartAt
+        if (restart != null) {
+            // Rebuilt without smoothing: carry on from the same video and moment.
+            restartAt = null
+            currentIndex = restart.first
+            player.seekTo(restart.first, restart.second)
+        } else {
+            val saved = vm.resumeFor(video.relativePath)
+            val resume = if (saved != null && !(saved.durationMs > 0 && saved.positionMs >= saved.durationMs - 10_000)) saved.positionMs else 0L
+            player.seekTo(initialIndex, resume.coerceAtLeast(0))
+        }
         player.prepare()
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))player.play()
         var saves = 0
@@ -756,8 +783,7 @@ fun PlayerScreen(
                         )
                 ) {
                     if (!hdrVideo && !highFpsVideo) smoothPref = false
-                    player.setVideoEffects(emptyList())
-                    player.prepare()
+                    rebuildWithoutEffects()
                     android.widget.Toast.makeText(context, "Smoothing unavailable for this video; using normal playback", android.widget.Toast.LENGTH_LONG).show()
                     return
                 }
