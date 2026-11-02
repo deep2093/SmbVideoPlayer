@@ -114,6 +114,9 @@ internal object NativeSvpTuning {
     @Volatile var upscaleTarget: IntArray? = null
     /** For the playback report: what the last played video was (HDR detection, codec, colour info) and the screen's HDR state. */
     @Volatile var lastVideoInfo: String = "(none yet)"
+    /** The frame rate the file says it has (0 when unknown). Phone-camera videos vary from frame to frame, so the
+     *  file's own figure is a better beat to snap frames to than the gap between the first two frames. */
+    @Volatile var sourceFpsHint: Float = 0f
     /** One line a second while a video plays WITHOUT smoothing (frames shown, dropped, file fps, screen refresh rate); last 180 kept. */
     private val normalLog = java.util.ArrayDeque<String>()
     @Synchronized fun logNormal(line: String) { normalLog.addLast(line); while (normalLog.size > 180) normalLog.removeFirst() }
@@ -277,29 +280,36 @@ private class NativeSvpShader(
             if (dither) GL.glEnable(GL.GL_DITHER)
             if (blend) GL.glEnable(GL.GL_BLEND)
             GlUtil.checkGlError()
+            var pushed = 1
             if (count == 0) {
                 first = ByteBuffer.allocateDirect(pixels.capacity()).apply { put(pixels); rewind() }
             } else {
                 if (handle == 0L) {
-                    val measured = 1_000_000.0 / (timeUs - firstUs)
+                    val hint = NativeSvpTuning.sourceFpsHint.toDouble()
+                    val measured = if (hint in 10.0..61.0) hint else 1_000_000.0 / (timeUs - firstUs)
                     val rates = listOf(24000L to 1001L, 24L to 1L, 25L to 1L, 28L to 1L, 30000L to 1001L, 30L to 1L, 50L to 1L, 60000L to 1001L, 60L to 1L)
                     val nearest = rates.minBy { abs(it.first.toDouble() / it.second - measured) }
-                    if (abs(nearest.first.toDouble() / nearest.second - measured) < measured * 0.002) {
+                    if (abs(nearest.first.toDouble() / nearest.second - measured) < measured * 0.01) {
                         fpsNum = nearest.first; fpsDen = nearest.second
                     } else { fpsNum = 1_000_000; fpsDen = timeUs - firstUs }
                     check(measured in 10.0..61.0) { "Unsupported source frame rate" }
                     open()
                     NativeSvpStream.push(handle, checkNotNull(first)); first = null
                 }
-                // A discontinuity must be handled by a Media3 flush, never by interpolating across it.
-                check(abs((timeUs - firstUs) - count * 1_000_000.0 * fpsDen / fpsNum) < 20_000) {
-                    "Variable-rate video is not supported by native interpolation yet"
+                // Phone cameras record at a varying rate: snap every frame to the nearest beat of a steady grid.
+                // A frame landing on a beat already filled is skipped; missed beats are filled by repeating this
+                // frame. A gap of more than a second is a real discontinuity, which needs a Media3 flush instead.
+                val slot = Math.round((timeUs - firstUs) * fpsNum.toDouble() / (fpsDen * 1_000_000.0)).toInt()
+                check(slot - count <= MAX_FILL) { "Gap of ${slot - count} frames in the video timeline" }
+                pushed = if (slot < count) 0 else slot - count + 1
+                repeat(pushed) {
+                    pixels.rewind()
+                    NativeSvpStream.push(handle, pixels)
                 }
-                NativeSvpStream.push(handle, pixels)
             }
             synchronized(lock) {
                 lastUs = timeUs
-                count++
+                count += pushed
                 NativeSvpTuning.inputs.incrementAndGet()
                 if (lastUs >= requestedEndUs) {
                     check(handle != 0L) { "Native smoothing requires two decoded frames" }
@@ -549,10 +559,15 @@ internal class NativeSvpScale(
     private val identity = GlUtil.create4x4IdentityMatrix()
     override fun configure(inputWidth: Int, inputHeight: Int): androidx.media3.common.util.Size {
         val cpu = NativeSvpTuning.isAdreno() && !NativeSvpTuning.adrenoGpu
-        val max = if (cpu) cpuMax else gpuMax
+        val box = if (cpu) cpuMax else gpuMax
+        // Upright (portrait) videos get the box turned the same way: 1080x1920 instead of squeezing into 1920x1080.
+        val max = if (inputHeight > inputWidth) intArrayOf(box[1], box[0]) else box
         val scale = minOf(1.0, max[0].toDouble() / inputWidth, max[1].toDouble() / inputHeight)
         return androidx.media3.common.util.Size(maxOf(4, (inputWidth * scale).toInt() and -4),
             maxOf(4, (inputHeight * scale).toInt() and -4))
     }
     override fun getGlMatrixArray(presentationTimeUs: Long): FloatArray = identity
 }
+
+/** Longest gap (in source frames, about a second) the variable-rate snapping fills by repeating a frame. */
+private const val MAX_FILL = 30

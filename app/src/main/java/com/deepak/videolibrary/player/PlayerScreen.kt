@@ -137,7 +137,10 @@ fun PlayerScreen(
     // Videos above 60 fps (90, 120, ...) already move smoothly and cannot go through the 60 fps smoothing engine, so
     // smoothing steps aside for them too and the screen is asked for its fastest refresh rate.
     var highFpsVideo by remember { mutableStateOf(false) }
-    val smooth60 = smoothPref && !hdrVideo && !highFpsVideo
+    // A video the smoothing engine failed on plays normally; your smoothing setting itself stays on.
+    var smoothFailedPath by remember { mutableStateOf<String?>(null) }
+    var playingPath by remember { mutableStateOf(video.relativePath) }
+    val smooth60 = smoothPref && !hdrVideo && !highFpsVideo && smoothFailedPath != playingPath
     val nativeAvailable = remember { NativeSvpStream.available }
     val nativeController = remember { NativeSvpController() }
     // CPU smoothing (Adreno phones) runs at 1080p only after this device passed the 1080p speed check for this app
@@ -618,6 +621,7 @@ fun PlayerScreen(
             // Rebuilt without smoothing: carry on from the same video and moment.
             restartAt = null
             currentIndex = restart.first
+            playingPath = queue.getOrNull(currentIndex)?.relativePath ?: playingPath
             player.seekTo(restart.first, restart.second)
         } else {
             val saved = vm.resumeFor(video.relativePath)
@@ -634,6 +638,7 @@ fun PlayerScreen(
             duration = player.duration.coerceAtLeast(0)
             isPlaying = player.playWhenReady
             currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
+            playingPath = queue.getOrNull(currentIndex)?.relativePath ?: playingPath
             if (++saves >= 5) {
                 saves = 0
                 if (player.playbackState != Player.STATE_IDLE && (position != lastSavedPosition || duration != lastSavedDuration)) {
@@ -759,6 +764,7 @@ fun PlayerScreen(
                     hdrVideo = dolby || transfer == androidx.media3.common.C.COLOR_TRANSFER_ST2084 ||
                         transfer == androidx.media3.common.C.COLOR_TRANSFER_HLG
                     highFpsVideo = format.frameRate > 61f
+                    NativeSvpTuning.sourceFpsHint = if (format.frameRate > 0f) format.frameRate else 0f
                     AppDiagnostics.record(context, "hdr", "hdr=$hdrVideo dolbyVision=$dolby transfer=$transfer codecs=$codecs")
                     val ci = format.colorInfo
                     val screen = activity?.window
@@ -782,7 +788,7 @@ fun PlayerScreen(
                             error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
                         )
                 ) {
-                    if (!hdrVideo && !highFpsVideo) smoothPref = false
+                    smoothFailedPath = playingPath
                     rebuildWithoutEffects()
                     android.widget.Toast.makeText(context, "Smoothing unavailable for this video; using normal playback", android.widget.Toast.LENGTH_LONG).show()
                     return
@@ -818,6 +824,7 @@ fun PlayerScreen(
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 orientation.newVideo()
                 currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
+                playingPath = queue.getOrNull(currentIndex)?.relativePath ?: playingPath
                 player.trackSelectionParameters = player.trackSelectionParameters
                     .buildUpon()
                     .clearOverrides()
