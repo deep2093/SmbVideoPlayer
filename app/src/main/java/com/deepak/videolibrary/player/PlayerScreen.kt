@@ -139,6 +139,7 @@ fun PlayerScreen(
     var highFpsVideo by remember { mutableStateOf(false) }
     // A video the smoothing engine failed on plays normally; your smoothing setting itself stays on.
     var smoothFailedPath by remember { mutableStateOf<String?>(null) }
+    var smoothRetry by remember { mutableStateOf("" to 0) }
     var playingPath by remember { mutableStateOf(video.relativePath) }
     val smooth60 = smoothPref && !hdrVideo && !highFpsVideo && smoothFailedPath != playingPath
     val nativeAvailable = remember { NativeSvpStream.available }
@@ -350,7 +351,8 @@ fun PlayerScreen(
             playWhenReady = false
         }
     }
-    fun rebuildWithoutEffects() {
+    /** Recreates the player at the same video and moment; it gets smoothing only if smoothing is on at that point. */
+    fun rebuildPlayer() {
         restartAt = player.currentMediaItemIndex.coerceAtLeast(0) to player.currentPosition.coerceAtLeast(0L)
         playerGeneration++
     }
@@ -359,7 +361,7 @@ fun PlayerScreen(
             player.setVideoEffects(nativeEffects)
             effectsUsed[0] = true
         } else if (effectsUsed[0]) {
-            rebuildWithoutEffects()
+            rebuildPlayer()
         }
     }
     // Ask the system for steady (non-throttling-spike) performance while smoothing, where it supports that.
@@ -429,6 +431,7 @@ fun PlayerScreen(
         var slow = 0
         var calm = 0
         var lastStepDown = 0L
+        var lastPos = -1L
         fun toast(text: String) = android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_LONG).show()
         while (true) {
             delay(1000)
@@ -471,6 +474,11 @@ fun PlayerScreen(
             // is built for, so it always falls behind then. That says nothing about the quality level: don't judge it,
             // and give it the usual settling time once normal speed is back.
             if (player.playbackParameters.speed != 1f) { playingSince = 0L; slow = 0; calm = 0; continue }
+            // A jump (seek bar, scrubbing, double-tap skip) restarts the engine, which is briefly slow: same treatment.
+            val posNow = player.currentPosition
+            val jumped = lastPos >= 0 && kotlin.math.abs(posNow - lastPos - 1000L) > 2500L
+            lastPos = posNow
+            if (jumped) { playingSince = 0L; slow = 0; calm = 0; continue }
             if (playingSince == 0L) playingSince = now
             if (now - playingSince < 8000L) continue
             if (fps < 50f) { slow++; calm = 0 } else { slow = 0; if (fps >= 57f) calm++ }
@@ -792,8 +800,19 @@ fun PlayerScreen(
                             error.errorCode == PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
                         )
                 ) {
+                    // Fast scrubbing can trip a passing hiccup in Media3's frame hand-over ("Textures are all in use").
+                    // That is not this video's fault: restart the player at the same spot with smoothing still on, a
+                    // few times per video, before giving up on smoothing for it.
+                    val detail = (error.cause?.message ?: error.message).orEmpty()
+                    val passing = detail.contains("Textures are all in use") || detail.contains("in-use textures")
+                    val tries = if (smoothRetry.first == playingPath) smoothRetry.second else 0
+                    if (passing && tries < 3) {
+                        smoothRetry = playingPath to tries + 1
+                        rebuildPlayer()
+                        return
+                    }
                     smoothFailedPath = playingPath
-                    rebuildWithoutEffects()
+                    rebuildPlayer()
                     android.widget.Toast.makeText(context, "Smoothing unavailable for this video; using normal playback", android.widget.Toast.LENGTH_LONG).show()
                     return
                 }
