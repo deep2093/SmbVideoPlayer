@@ -467,6 +467,10 @@ fun PlayerScreen(
                 continue
             }
             if (!player.isPlaying || stream == null) { playingSince = 0L; slow = 0; calm = 0; continue }
+            // Hold-to-fast-forward (or any speed other than normal) feeds the engine several times more frames than it
+            // is built for, so it always falls behind then. That says nothing about the quality level: don't judge it,
+            // and give it the usual settling time once normal speed is back.
+            if (player.playbackParameters.speed != 1f) { playingSince = 0L; slow = 0; calm = 0; continue }
             if (playingSince == 0L) playingSince = now
             if (now - playingSince < 8000L) continue
             if (fps < 50f) { slow++; calm = 0 } else { slow = 0; if (fps >= 57f) calm++ }
