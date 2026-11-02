@@ -3,6 +3,10 @@ package com.deepak.videolibrary.player
 import android.content.Context
 import android.os.Handler
 import androidx.media3.common.C
+import androidx.media3.common.ColorInfo
+import androidx.media3.common.MimeTypes
+import androidx.media3.exoplayer.DecoderReuseEvaluation
+import androidx.media3.exoplayer.FormatHolder
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.Renderer
@@ -34,6 +38,23 @@ internal class NativeSvpRenderersFactory(context: Context, private val controlle
             .setEventHandler(eventHandler).setEventListener(eventListener)
             .setMaxDroppedFramesToNotify(50)) {
             private var lastCompositionUs = C.TIME_UNSET
+            // Dolby Vision profile 8 files without colour tags in the container: tell the (HEVC) decoder to treat the
+            // picture as HDR10 so the screen switches to HDR instead of showing the PQ picture washed out.
+            override fun onInputFormatChanged(formatHolder: FormatHolder): DecoderReuseEvaluation? {
+                val format = formatHolder.format
+                if (format != null && format.colorInfo == null && format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION &&
+                    (format.codecs.orEmpty().startsWith("dvhe.08") || format.codecs.orEmpty().startsWith("dvh1.08"))
+                ) {
+                    formatHolder.format = format.buildUpon().setColorInfo(
+                        ColorInfo.Builder()
+                            .setColorSpace(C.COLOR_SPACE_BT2020)
+                            .setColorRange(C.COLOR_RANGE_LIMITED)
+                            .setColorTransfer(C.COLOR_TRANSFER_ST2084)
+                            .build(),
+                    ).build()
+                }
+                return super.onInputFormatChanged(formatHolder)
+            }
             override fun onProcessedOutputBuffer(presentationTimeUs: Long) {
                 lastCompositionUs = presentationTimeUs + bufferTimestampAdjustmentUs
                 super.onProcessedOutputBuffer(presentationTimeUs)

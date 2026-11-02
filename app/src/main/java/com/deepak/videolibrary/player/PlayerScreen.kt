@@ -631,6 +631,7 @@ fun PlayerScreen(
                 initializationDurationMs: Long,
             ) {
                 AppDiagnostics.record(context, "decoder", "name=$decoderName initMs=$initializationDurationMs")
+                NativeSvpTuning.lastVideoInfo += " | decoder=$decoderName"
             }
             override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) {
                 AppDiagnostics.record(
