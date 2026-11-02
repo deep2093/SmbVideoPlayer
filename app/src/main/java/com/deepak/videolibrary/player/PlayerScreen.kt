@@ -358,8 +358,9 @@ fun PlayerScreen(
     }
     LaunchedEffect(player, smooth60, nativeAvailable, nativeEffects) {
         if (smooth60 && nativeAvailable) {
-            player.setVideoEffects(nativeEffects)
-            effectsUsed[0] = true
+            // Effects only take hold on a player that had them from the start: a player built without smoothing
+            // ignores them (smoothing switched back on stayed at the plain frame rate). Rebuild it with smoothing.
+            if (effectsUsed[0]) player.setVideoEffects(nativeEffects) else rebuildPlayer()
         } else if (effectsUsed[0]) {
             rebuildPlayer()
         }
@@ -457,6 +458,7 @@ fun PlayerScreen(
                     NativeSvpTuning.takeSlowest() / 1e6, sessionCap, stream ?: "-",
                 ),
             )
+            val fed = inputsNow - lastInputs > 0
             lastOutputs = outputsNow
             lastPictures = picturesNow
             lastInputs = inputsNow
@@ -478,6 +480,8 @@ fun PlayerScreen(
             // is built for, so it always falls behind then. That says nothing about the quality level: don't judge it,
             // and give it the usual settling time once normal speed is back.
             if (player.playbackParameters.speed != 1f) { playingSince = 0L; slow = 0; calm = 0; continue }
+            // The engine got no frames at all (it is not in the picture path): a lower level would not help.
+            if (!fed) { playingSince = 0L; slow = 0; calm = 0; continue }
             // A jump (seek bar, scrubbing, double-tap skip) restarts the engine, which is briefly slow: same treatment.
             val posNow = player.currentPosition
             val jumped = lastPos >= 0 && kotlin.math.abs(posNow - lastPos - 1000L) > 2500L
