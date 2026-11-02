@@ -38,20 +38,31 @@ internal class NativeSvpRenderersFactory(context: Context, private val controlle
             .setEventHandler(eventHandler).setEventListener(eventListener)
             .setMaxDroppedFramesToNotify(50)) {
             private var lastCompositionUs = C.TIME_UNSET
-            // Dolby Vision profile 8 files without colour tags in the container: tell the (HEVC) decoder to treat the
-            // picture as HDR10 so the screen switches to HDR instead of showing the PQ picture washed out.
+            private val hasDolbyVisionDecoder: Boolean by lazy {
+                runCatching {
+                    android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos
+                        .any { !it.isEncoder && it.supportedTypes.any { t -> t.equals(MimeTypes.VIDEO_DOLBY_VISION, ignoreCase = true) } }
+                }.getOrDefault(false)
+            }
+            // Dolby Vision files without colour tags in the container, on a phone with no Dolby Vision decoder: the
+            // player decodes their HDR10 base layer (profiles 4, 7, 8 and 10), so tell the decoder it is HDR10 PQ.
+            // Otherwise the picture can reach the screen as plain SDR and look washed out. Profile 5 has no such layer.
             override fun onInputFormatChanged(formatHolder: FormatHolder): DecoderReuseEvaluation? {
                 val format = formatHolder.format
-                if (format != null && format.colorInfo == null && format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION &&
-                    (format.codecs.orEmpty().startsWith("dvhe.08") || format.codecs.orEmpty().startsWith("dvh1.08"))
-                ) {
-                    formatHolder.format = format.buildUpon().setColorInfo(
-                        ColorInfo.Builder()
-                            .setColorSpace(C.COLOR_SPACE_BT2020)
-                            .setColorRange(C.COLOR_RANGE_LIMITED)
-                            .setColorTransfer(C.COLOR_TRANSFER_ST2084)
-                            .build(),
-                    ).build()
+                if (format != null && format.colorInfo == null && !hasDolbyVisionDecoder) {
+                    val codecs = format.codecs.orEmpty()
+                    val profile = if (format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION &&
+                        (codecs.startsWith("dvhe.") || codecs.startsWith("dvh1.") || codecs.startsWith("dav1."))
+                    ) codecs.substringAfter('.').substringBefore('.').toIntOrNull() else null
+                    if (profile == 4 || profile == 7 || profile == 8 || profile == 10) {
+                        formatHolder.format = format.buildUpon().setColorInfo(
+                            ColorInfo.Builder()
+                                .setColorSpace(C.COLOR_SPACE_BT2020)
+                                .setColorRange(C.COLOR_RANGE_LIMITED)
+                                .setColorTransfer(C.COLOR_TRANSFER_ST2084)
+                                .build(),
+                        ).build()
+                    }
                 }
                 return super.onInputFormatChanged(formatHolder)
             }
