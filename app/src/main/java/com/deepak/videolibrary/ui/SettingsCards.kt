@@ -33,8 +33,8 @@ internal fun settingsCardBorder(emphasised: Boolean = false): BorderStroke {
 @Composable
 private fun settingsPanelColor(): Color {
     val surface = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 1f)
-    return if (LocalLibraryTheme.current.light) lerp(surface, Color.White, 0.32f)
-        else lerp(surface, Color.Black, 0.48f)
+    return if (LocalLibraryTheme.current.light) lerp(surface, Color.White, 0.42f)
+        else lerp(surface, Color.Black, 0.22f)
 }
 
 @Composable
@@ -77,15 +77,9 @@ internal fun SettingsIconTile(title: String) {
     }
 }
 
-/** A softly tinted title band identifies the controls belonging to this section. */
 @Composable
 internal fun SettingsHeader(content: @Composable () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    val fill = lerp(settingsPanelColor(), colors.tertiary, 0.10f)
-    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(9.dp), color = fill,
-        contentColor = colors.onSurface) {
-        Box(Modifier.padding(horizontal = 9.dp, vertical = 4.dp)) { content() }
-    }
+    Box(Modifier.fillMaxWidth().padding(vertical = 4.dp)) { content() }
 }
 
 @Composable
