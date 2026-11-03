@@ -190,8 +190,8 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                 ) {
                     if (page == null) {
                         SETTINGS_SECTIONS.groupBy { it.group }.forEach { (group, entries) ->
-                            SettingsLabel(group)
                             SettingsPanel {
+                                SettingsHeader { Text(group, style = MaterialTheme.typography.titleMedium) }
                                 entries.forEachIndexed { index, entry ->
                                     if (index > 0) androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                     SettingsPageRow(entry) {
@@ -386,7 +386,7 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                             }
 
                         }
-                        "Appearance" -> SettingsStaticCard("Themes & readability") { ThemeSettings() }
+                        "Appearance" -> ThemeSettings()
                         "Diagnostics" -> {
                             SettingsStaticCard("Library backup & restore") {
                                 LibraryBackupActions(vm)

@@ -27,14 +27,15 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun settingsCardBorder(emphasised: Boolean = false): BorderStroke {
     val colors = MaterialTheme.colorScheme
-    return BorderStroke(1.dp, lerp(colors.outlineVariant, colors.tertiary, if (emphasised) 0.70f else 0.34f))
+    return BorderStroke(if (emphasised) 2.dp else 1.dp, lerp(colors.tertiary, colors.onSurface, 0.50f).copy(alpha = 1f))
 }
 
 @Composable
 internal fun SettingsPanel(modifier: Modifier = Modifier, emphasised: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val colors = MaterialTheme.colorScheme
     val theme = LocalLibraryTheme.current
-    val base = colors.surfaceContainerHigh
+    val base = if (theme.light) lerp(colors.surfaceContainerHigh.copy(alpha = 1f), Color.White, 0.80f)
+        else lerp(colors.surfaceContainerHigh.copy(alpha = 1f), Color.White, 0.12f)
     // Glass gets a subtle specular wash. Reduced transparency and solid themes stay opaque.
     val top = if (theme.glass && !theme.reduceTransparency) lerp(base, colors.onSurface, 0.07f) else base
     Surface(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp),
@@ -70,11 +71,24 @@ internal fun SettingsIconTile(title: String) {
     }
 }
 
+/** A solid theme-coloured title band identifies the controls belonging to this section. */
+@Composable
+internal fun SettingsHeader(content: @Composable () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val fill = lerp(colors.tertiary, if (LocalLibraryTheme.current.light) Color.Black else Color.White, 0.27f).copy(alpha = 1f)
+    Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(9.dp), color = fill,
+        contentColor = if (fill.luminance() > 0.179f) Color.Black else Color.White) {
+        Box(Modifier.padding(horizontal = 9.dp, vertical = 4.dp)) { content() }
+    }
+}
+
 @Composable
 internal fun SettingsGroupHeading(title: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        SettingsIconTile(title)
-        Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+    SettingsHeader {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(settingsIcon(title), contentDescription = null, modifier = Modifier.size(20.dp))
+            Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        }
     }
 }
 
@@ -95,18 +109,20 @@ internal fun SettingsAccordion(
     val expanded = vm.ui.accordionOpen(page, id, initialOpen)
     Column(Modifier.fillMaxWidth()) {
         SettingsPanel(Modifier.padding(vertical = 1.dp), emphasised = expanded) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
-                .clickable(enabled = enabled, role = Role.Button) { vm.ui.setAccordionOpen(page, id, !expanded) },
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                SettingsIconTile(title)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium,
-                        color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SettingsHeader {
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
+                    .clickable(enabled = enabled, role = Role.Button) { vm.ui.setAccordionOpen(page, id, !expanded) },
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Icon(settingsIcon(title), contentDescription = null, modifier = Modifier.size(20.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(title, style = MaterialTheme.typography.titleMedium,
+                            color = LocalContentColor.current)
+                        Text(summary, style = MaterialTheme.typography.bodySmall, color = LocalContentColor.current)
+                    }
+                    Icon(if (expanded) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight,
+                        contentDescription = null, tint = LocalContentColor.current)
                 }
-                Icon(if (expanded) Icons.Outlined.ExpandMore else Icons.Outlined.ChevronRight,
-                    contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (expanded && enabled && !splitContent) content()
         }

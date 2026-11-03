@@ -362,28 +362,32 @@ internal fun ThemeSettings() {
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Keep all saved themes easy to reach before the richer glass previews.
-        Box {
-            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("Theme: ${libraryThemes.first { it.id == choice }.label}")
-            }
-            DropdownMenu(expanded, onDismissRequest = { expanded = false }) {
-                libraryThemes.forEach { theme ->
-                    DropdownMenuItem(text = { Text(theme.label + if (theme.id == choice) " ✓" else "") }, onClick = {
-                        select(theme.id)
-                        expanded = false
-                    })
+        SettingsStaticCard("Theme") {
+            Box {
+                OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Theme: ${libraryThemes.first { it.id == choice }.label}")
+                }
+                DropdownMenu(expanded, onDismissRequest = { expanded = false }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 1f)) {
+                    libraryThemes.forEach { theme ->
+                        DropdownMenuItem(text = { Text(theme.label + if (theme.id == choice) " ✓" else "") }, onClick = {
+                            select(theme.id)
+                            expanded = false
+                        })
+                    }
                 }
             }
+            SkyWingThemeChoices(choice, onSelect = ::select)
         }
-        SkyWingThemeChoices(choice, onSelect = ::select)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Reduce transparency", style = MaterialTheme.typography.bodyLarge)
-                Text("Solid panels and no backdrop blur", style = MaterialTheme.typography.bodySmall)
+        SettingsStaticCard("Readability") {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Reduce transparency", style = MaterialTheme.typography.bodyLarge)
+                    Text("Solid panels and no backdrop blur", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = reduceTransparency, onCheckedChange = { value ->
+                    context.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit().putBoolean("reduce_transparency", value).apply()
+                }, modifier = Modifier.semantics { contentDescription = "Reduce transparency" })
             }
-            Switch(checked = reduceTransparency, onCheckedChange = { value ->
-                context.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit().putBoolean("reduce_transparency", value).apply()
-            }, modifier = Modifier.semantics { contentDescription = "Reduce transparency" })
         }
     }
 }
