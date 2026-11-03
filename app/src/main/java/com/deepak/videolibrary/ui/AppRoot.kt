@@ -174,11 +174,15 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                 },
             ),
         ) {
-            androidx.compose.runtime.key(playing!!.relativePath) {
-                if(playQueue.any { it.name.endsWith(".wmv",true) || it.name.endsWith(".asf",true) }) {
-                    VlcPlayerScreen(video=playing!!,settings=vm.settings,vm=vm,playlist=playQueue,onQueueEnded=advanceQueue,onClose=closePlayer)
-                } else {
-                    PlayerScreen(video=playing!!,settings=vm.settings,vm=vm,playlist=playQueue,onQueueEnded=advanceQueue,onClose=closePlayer)
+            // The player is always dark (its controls sit over video), whatever the app theme: light themes would
+            // otherwise give its menus and buttons dark text on dark panels.
+            PlayerDarkColors {
+                androidx.compose.runtime.key(playing!!.relativePath) {
+                    if(playQueue.any { it.name.endsWith(".wmv",true) || it.name.endsWith(".asf",true) }) {
+                        VlcPlayerScreen(video=playing!!,settings=vm.settings,vm=vm,playlist=playQueue,onQueueEnded=advanceQueue,onClose=closePlayer)
+                    } else {
+                        PlayerScreen(video=playing!!,settings=vm.settings,vm=vm,playlist=playQueue,onQueueEnded=advanceQueue,onClose=closePlayer)
+                    }
                 }
             }
         }
@@ -244,6 +248,9 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
     }
     val glassTheme = LocalLibraryTheme.current.glass
     val hazeState = androidx.compose.runtime.remember { dev.chrisbanes.haze.HazeState() }
+    // Lens glass (Android 13+, Blur at 0): the dock bends the recorded content behind it.
+    val lensGlass = rememberLensGlass()
+    val lensOn = LocalGlassSettings.current.lensOn
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val tabletLayout = maxWidth >= 700.dp
         val useDock = floating || (glassTheme && !tabletLayout)
@@ -276,7 +283,8 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                 // Glass themes: the content is the source the floating bar blurs.
                 Row(
                     Modifier.padding(padding).fillMaxSize()
-                        .then(if (glassTheme && useDock) Modifier.hazeSource(hazeState) else Modifier),
+                        .then(if (glassTheme && useDock) Modifier.hazeSource(hazeState) else Modifier)
+                        .then(if (glassTheme && useDock && lensGlass != null) lensGlass.source(lensOn) else Modifier),
                 ) {
                     if (tabletLayout && !useDock) {
                         LibrarySidebar(selected = tab, labels = TAB_LABELS, icons = TAB_ICONS, modifier = Modifier.width(SIDEBAR_WIDTH).fillMaxHeight(), onSelect = onTabTapped)
@@ -388,7 +396,7 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
                     closing = false
                     playing = video
                 })
-                if (useDock) {
+                if (useDock) androidx.compose.runtime.CompositionLocalProvider(LocalLensGlass provides (if (glassTheme) lensGlass else null)) {
                     FloatingLibraryNavigation(
                         tab,
                         TAB_LABELS,

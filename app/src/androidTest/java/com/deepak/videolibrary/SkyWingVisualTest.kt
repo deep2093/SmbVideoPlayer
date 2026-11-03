@@ -34,7 +34,7 @@ import java.util.UUID
 class SkyWingVisualTest {
     @get:Rule val rule = createComposeRule()
 
-    @Test fun captureFourThemesAcrossRealSurfaces() = runBlocking {
+    @Test fun captureThemesAcrossRealSurfaces() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue(args.getString("skywingVisual") == "true")
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Application
@@ -45,9 +45,9 @@ class SkyWingVisualTest {
             override fun <T : ViewModel> create(modelClass: Class<T>): T = LibraryViewModel(app, services) as T
         })[LibraryViewModel::class.java]
         val prefs = app.getSharedPreferences("appearance", android.content.Context.MODE_PRIVATE)
-        val prior = prefs.getString("theme", "CHARCOAL")
+        val prior = prefs.getString("theme", DEFAULT_THEME)
         val priorReduction = prefs.getBoolean("reduce_transparency", false)
-        val theme = mutableStateOf("LIQUID")
+        val theme = mutableStateOf(DEFAULT_THEME)
         val player = mutableStateOf(false)
         val showing = mutableStateOf(true)
         val output = File(app.getExternalFilesDir(null), "skywing-visual").apply { mkdirs() }
@@ -92,7 +92,7 @@ class SkyWingVisualTest {
                     File(output, "$device-${theme.value}-$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
                 }
             }
-            skyWingGlassThemes.forEach { palette ->
+            libraryThemes.forEach { palette ->
                 rule.runOnIdle {
                     prefs.edit().putString("theme", palette.id).putBoolean("reduce_transparency", false).commit()
                     theme.value = palette.id

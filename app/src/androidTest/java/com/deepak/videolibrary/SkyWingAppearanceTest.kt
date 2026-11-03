@@ -18,10 +18,10 @@ import org.junit.Test
 class SkyWingAppearanceTest {
     @get:Rule val rule = createComposeRule()
 
-    @Test fun allFourChoicesPersistAndApplyWithoutRestart() {
+    @Test fun allThemeChoicesPersistAndApplyWithoutRestart() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val prefs = context.getSharedPreferences("appearance", Context.MODE_PRIVATE)
-        val previous = prefs.getString("theme", "CHARCOAL")
+        val previous = prefs.getString("theme", DEFAULT_THEME)
         var observed = ""
         var generation by mutableIntStateOf(0)
         try {
@@ -34,8 +34,8 @@ class SkyWingAppearanceTest {
                     }
                 }
             }
-            skyWingGlassThemes.forEach { theme ->
-                rule.onNodeWithText(theme.label).performScrollTo().performClick()
+            libraryThemes.forEach { theme ->
+                rule.onNodeWithContentDescription(theme.label).performScrollTo().performClick()
                 rule.runOnIdle {
                     assertEquals(theme.id, prefs.getString("theme", null))
                     assertEquals(theme.id, observed)

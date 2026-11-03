@@ -182,16 +182,15 @@ try:
     find('1 · Online matching & accounts')
     click('Back to Settings')
     scroll_to('Appearance',up=True);click('Appearance')
-    current='Dark grey'
-    for theme in ['AMOLED black','Midnight blue','Forest','Plum','Dark grey']:
-        click('Theme: '+current);click(theme);find('Theme: '+theme)
-        current=theme
-    screenshot('dark-grey-theme')
+    # Pixallery themes: round swatches (content description = theme name); the heading shows the chosen one.
+    for theme in ['Warm Light','Photo Night','Vivid Night','Luminous Light','Liquid Day']:
+        click(theme);find('Theme: '+theme)
+    screenshot('liquid-day-theme')
     adb('shell','am','force-stop',APP)
     adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
     find('Virtual folders')  # Wait for the fresh home frame after restart.
-    click('Settings');click('Appearance');find('Theme: Dark grey')
-    print('PASS: five theme choices apply live and persist across restart')
+    click('Settings');click('Appearance');find('Theme: Liquid Day')
+    print('PASS: theme choices apply live and persist across restart')
     click('Folders')
     click('Original folders')
     # Original folders lists only the folders you add: add the fixture's Movies folder first.

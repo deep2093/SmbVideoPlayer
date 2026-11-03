@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -41,6 +42,19 @@ private fun settingsPanelColor(): Color {
 internal fun SettingsPanel(modifier: Modifier = Modifier, emphasised: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val colors = MaterialTheme.colorScheme
     val theme = LocalLibraryTheme.current
+    if (theme.glass) {
+        // Pixallery glass: a see-through frosted film with depth and a fine rim (solid with the glass effect off).
+        val shape = RoundedCornerShape(15.dp)
+        CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
+            Column(
+                modifier.fillMaxWidth().glassPanel(shape)
+                    .then(if (emphasised) Modifier.glassRim(shape, strength = 1.6f) else Modifier)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp), content = content,
+            )
+        }
+        return
+    }
     val base = settingsPanelColor()
     // Glass gets a subtle specular wash. Reduced transparency and solid themes stay opaque.
     val top = if (theme.glass && !theme.reduceTransparency) lerp(base, colors.onSurface, 0.025f) else base

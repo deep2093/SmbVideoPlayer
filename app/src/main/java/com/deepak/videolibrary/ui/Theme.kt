@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shape
@@ -18,12 +20,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 
@@ -51,64 +58,172 @@ data class LibraryTheme(
     /** The phone's own wallpaper shows through the app (with a veil for readable text). */
     val showsWallpaper: Boolean = false,
     val reduceTransparency: Boolean = false,
+    // ---- Pixallery glass (ported 4 Nov 2026) ----
+    /** One line under the theme's name in Settings. */
+    val description: String = "",
+    /** Fine specular edge on glass, and how strong it is (1 = usual). */
+    val rim: Color = Color.White,
+    val rimStrength: Float = 1f,
+    /** Bars when there is nothing to blur or the glass effect is off. */
+    val glassFallback: Color = Color.Unspecified,
+    /** How strongly floating bars blur what scrolls under them (times the Blur slider). */
+    val blurRadius: Dp = 12.dp,
+    /** Frosted selection: a see-through white film instead of a solid accent fill on selected pills and buttons. */
+    val accentFill: Color? = null,
+    /** Frosted panels and cards: a see-through film instead of a solid card colour. */
+    val panelFill: Color? = null,
+    /** Text and icons on glass, and the softer secondary ink. */
+    val ink: Color = Color.White,
+    val inkSecondary: Color = Color(0xD9FFFFFF),
 )
 
-/** The look shared by the adaptive themes: smoky dark glass over a wallpaper made from the covers on screen. */
-private fun adaptiveTheme(id: String, label: String, style: AdaptiveStyle, card: Color, tint: Color, menu: Color) = LibraryTheme(
-    id, label, Color.Transparent, Color(0x1F000000), card, style.fallbackAccent,
-    glass = true,
-    wallpaper = style.fallback,
-    glassTint = tint,
-    menu = menu,
-    adaptive = style,
+/** What a selected pill, button or tick is filled with: the frosted film where the theme has one, else the accent. */
+val LibraryTheme.accentSurface: Color get() = accentFill ?: accent
+
+/**
+ * The Pixallery glass look, shared by every theme: clear see-through bars with a little frost and depth, frosted panels,
+ * frosted selection (a white film, not a colour) and white text. Only the wallpaper differs. "Milky" is the
+ * almost-untinted iOS-style glass of the deep light theme.
+ */
+private fun glassTheme(
+    id: String,
+    label: String,
+    description: String,
+    wallpaper: List<Long>,
+    glows: List<WallpaperGlow>,
+    rim: Long,
+    milky: Boolean,
+    blur: Dp = 12.dp,
+    adaptive: AdaptiveStyle? = null,
+): LibraryTheme {
+    val fallback = Color(if (milky) 0xE6505660 else 0xE61A1C22)
+    val base = Color(wallpaper.first())
+    val solid = fallback.compositeOver(base)
+    val panel = Color(if (milky) 0x1FFFFFFF else 0x1AFFFFFF)
+    return LibraryTheme(
+        id = id,
+        label = label,
+        background = base,
+        surface = solid,
+        card = panel,
+        accent = Color.White,
+        glass = true,
+        wallpaper = wallpaper.map { Color(it) },
+        glows = glows,
+        glassTint = Color(if (milky) 0x1F8A9098 else 0x730C0D10),
+        menu = solid,
+        light = false,
+        adaptive = adaptive,
+        description = description,
+        rim = Color(rim),
+        rimStrength = 1.1f,
+        glassFallback = fallback,
+        blurRadius = blur,
+        accentFill = Color(if (milky) 0x38FFFFFF else 0x33FFFFFF),
+        panelFill = panel,
+        ink = Color.White,
+        inkSecondary = Color(0xD9FFFFFF),
+    )
+}
+
+/** The pale-page version of a light theme: light wallpaper, clear almost colourless glass, dark text and icons. */
+private fun pale(deep: LibraryTheme, wallpaper: List<Long>, glows: List<WallpaperGlow>, ink: Long): LibraryTheme {
+    val base = Color(wallpaper.first())
+    val fallback = Color(0xDBF4F6FA)
+    val solid = fallback.compositeOver(base)
+    return deep.copy(
+        light = true,
+        background = base,
+        wallpaper = wallpaper.map { Color(it) },
+        glows = glows,
+        surface = solid,
+        menu = solid,
+        card = Color(0x61FFFFFF),
+        panelFill = Color(0x61FFFFFF),
+        accentFill = Color(0x80FFFFFF),
+        glassTint = Color(0x24FFFFFF),
+        glassFallback = fallback,
+        accent = Color(ink),
+        ink = Color(ink),
+        inkSecondary = Color(ink).copy(alpha = 0.72f),
+    )
+}
+
+/**
+ * The six Pixallery themes, with Pixallery's ids. Old SkyWing theme ids (Charcoal, Clarity, Aurora, ...) are no longer
+ * listed, so a saved one falls back to [DEFAULT_THEME]. Photo Night and Vivid Night keep the ids of SkyWing's old
+ * Adaptive Midnight and Adaptive Vivid, so those choices carry over.
+ */
+val libraryThemes: List<LibraryTheme> = listOf(
+    // ---- Light ----
+    glassTheme(
+        "PEARL_MIST", "Warm Light", "Warm peach glass on a pale page",
+        wallpaper = listOf(0xFF4E2824, 0xFF6A3830, 0xFF7C4A3C),
+        glows = listOf(WallpaperGlow(0.9f, 0.05f, 0.7f, Color(0x59FF9A7A)), WallpaperGlow(0.05f, 0.6f, 0.7f, Color(0x40FFC48A)), WallpaperGlow(0.6f, 1.0f, 0.8f, Color(0x40F4B9C1))),
+        rim = 0xFFFFD9C8, milky = false,
+    ).let { deep ->
+        pale(deep, listOf(0xFFFFF8F1, 0xFFFBEDE6, 0xFFF4E0D6),
+            listOf(WallpaperGlow(0.9f, 0.05f, 0.7f, Color(0x40F4B9C1)), WallpaperGlow(0.05f, 0.6f, 0.7f, Color(0x33E8B48A)), WallpaperGlow(0.6f, 1.0f, 0.8f, Color(0x33F6C9C9))),
+            ink = 0xFF000000)
+    },
+    glassTheme(
+        "AURORA_GLASS_LIGHT", "Luminous Light", "Bright blue, cyan and violet glow",
+        wallpaper = listOf(0xFF182F66, 0xFF243F7C, 0xFF2E4A90),
+        glows = listOf(WallpaperGlow(0.9f, 0.05f, 0.7f, Color(0x805AC8FA)), WallpaperGlow(0.05f, 0.7f, 0.75f, Color(0x667C78FF)), WallpaperGlow(0.5f, 0.35f, 0.4f, Color(0x33FFFFFF))),
+        rim = 0xFFA8CCFF, milky = false, blur = 14.dp,
+    ).let { deep ->
+        pale(deep, listOf(0xFFE3F1FF, 0xFFF2F7FF, 0xFFE4E0FF),
+            listOf(WallpaperGlow(0.9f, 0.05f, 0.7f, Color(0x4D5AC8FA)), WallpaperGlow(0.05f, 0.7f, 0.75f, Color(0x407C78FF)), WallpaperGlow(0.5f, 0.35f, 0.4f, Color(0x80FFFFFF))),
+            ink = 0xFF000000)
+    },
+    glassTheme(
+        "LIQUID_DAY", "Liquid Day", "Clear glass over a bright sky",
+        wallpaper = listOf(0xFF102F58, 0xFF1A4476, 0xFF225384),
+        glows = listOf(WallpaperGlow(0.85f, 0.08f, 0.8f, Color(0x80FFD9A0)), WallpaperGlow(0.1f, 0.6f, 0.8f, Color(0x6659C8FF)), WallpaperGlow(0.7f, 0.95f, 0.7f, Color(0x55A98CFF))),
+        rim = 0xFFFFFFFF, milky = false,
+    ).let { deep ->
+        pale(deep, listOf(0xFFF7F8FB, 0xFFEEF1F7, 0xFFE6EBF4),
+            listOf(WallpaperGlow(0.85f, 0.08f, 0.8f, Color(0x33FFD9A0)), WallpaperGlow(0.1f, 0.6f, 0.8f, Color(0x2659C8FF))),
+            ink = 0xFF14171C)
+    },
+    glassTheme(
+        "CRYSTAL_GLASS_LIGHT", "Clear Light", "Neutral grey-blue glass, white text",
+        wallpaper = listOf(0xFF2B3642, 0xFF394655, 0xFF465566),
+        glows = listOf(WallpaperGlow(0.5f, 0.2f, 0.7f, Color(0x33FFFFFF))),
+        rim = 0xFFD5DEE8, milky = true,
+    ),
+    // ---- Dark (colours from the covers on screen) ----
+    glassTheme(
+        "ADAPTIVE_MIDNIGHT", "Photo Night", "Nearly black, one soft light from your covers",
+        wallpaper = listOf(0xFF2A3550, 0xFF141A26, 0xFF0A0A10),
+        glows = emptyList(), rim = 0xFF6E8AA0, milky = false,
+        adaptive = AdaptiveStyle(
+            listOf(0.30f, 0.12f, 0.04f), 0.25f, 0.55f, glow = 0.7f, scrim = 0.30f,
+            fallback = listOf(Color(0xFF2A3550), Color(0xFF141A26), Color(0xFF0A0A10)),
+            layout = AdaptiveLayout.NIGHT, opacity = 1f,
+        ),
+    ),
+    glassTheme(
+        "ADAPTIVE_VIVID", "Vivid Night", "Bold, saturated colours from your covers",
+        wallpaper = listOf(0xFF0E5A5F, 0xFF1D3F7A, 0xFF2B2466),
+        glows = emptyList(), rim = 0xFF8AB6C8, milky = false,
+        adaptive = AdaptiveStyle(
+            listOf(0.46f, 0.38f, 0.30f), 0.85f, 1.0f, glow = 0.5f, scrim = 0.48f,
+            fallback = listOf(Color(0xFF0E5A5F), Color(0xFF1D3F7A), Color(0xFF2B2466)),
+            layout = AdaptiveLayout.DIAGONAL, opacity = 1f,
+        ),
+    ),
 )
 
-val libraryThemes = listOf(
-    // Clarity: opaque, accessible panels with a restrained accent and clean typography.
-    // Explicitly non-glass to retain readable text behind every settings control.
-    LibraryTheme("CLARITY_DARK", "Clarity · Dark", Color(0xFF0B111B), Color(0xFF192434), Color(0xFF233348), Color(0xFF78B6FF), menu = Color(0xFF192434)),
-    LibraryTheme("CLARITY_LIGHT", "Clarity · Light", Color(0xFFF5F7FB), Color(0xFFFFFFFF), Color(0xFFE7EDF5), Color(0xFF2266B5), menu = Color(0xFFFFFFFF), light = true),
-    LibraryTheme("CHARCOAL", "Dark grey", Color(0xFF0D0D0D), Color(0xFF171717), Color(0xFF262626), Color(0xFFFF837A)),
-    LibraryTheme("AMOLED", "AMOLED black", Color.Black, Color.Black, Color(0xFF101010), Color(0xFFFF837A)),
-    LibraryTheme("SLATE", "Midnight blue", Color(0xFF141C29), Color(0xFF1B2738), Color(0xFF26364D), Color(0xFF3569AA)),
-    LibraryTheme("FOREST", "Forest", Color(0xFF14221D), Color(0xFF1D3028), Color(0xFF2A4036), Color(0xFF26715B)),
-    LibraryTheme("PLUM", "Plum", Color(0xFF241A2B), Color(0xFF30233A), Color(0xFF40304D), Color(0xFF884EAA)),
-    // Preserve saved LIQUID / LIQUID_GLASS selections while adding both new variants.
-    *skyWingGlassThemes.toTypedArray(),
-    // Each adapts in its own way: Glow lays the cover colours in a diagonal gradient with a bright accent of the
-    // same colour; Midnight washes one soft colour down from the top over near-black with a pale accent; Vivid paints
-    // bright aurora blobs with the opposite colour as accent. Panels are clear glass, so the colours show through them.
-    adaptiveTheme(
-        "ADAPTIVE_GLOW", "Adaptive Glow",
-        AdaptiveStyle(
-            listOf(0.36f, 0.26f, 0.16f), 0.35f, 0.75f, glow = 0.32f, scrim = 0.22f,
-            fallback = listOf(Color(0xFF3A2A5A), Color(0xFF1E3A4A), Color(0xFF241A30)),
-            layout = AdaptiveLayout.GLOW, accent = AdaptiveAccent.SAME_HUE, fallbackAccent = Color(0xFFFFC27A), opacity = 1f,
-        ),
-        card = Color(0x1FFFFFFF), tint = Color(0x8C101016), menu = Color(0xFF1B1B24),
-    ),
-    adaptiveTheme(
-        "ADAPTIVE_MIDNIGHT", "Adaptive Midnight",
-        AdaptiveStyle(
-            listOf(0.22f, 0.15f, 0.30f), 0.25f, 0.55f, glow = 0.30f, scrim = 0.30f,
-            fallback = listOf(Color(0xFF1C2333), Color(0xFF14202A), Color(0xFF2A3550)),
-            layout = AdaptiveLayout.WASH, accent = AdaptiveAccent.SOFT, fallbackAccent = Color(0xFFCFE3FF), opacity = 1f,
-        ),
-        card = Color(0x14FFFFFF), tint = Color(0xB3060609), menu = Color(0xFF111117),
-    ),
-    adaptiveTheme(
-        "ADAPTIVE_VIVID", "Adaptive Vivid",
-        AdaptiveStyle(
-            listOf(0.62f, 0.55f, 0.20f), 0.6f, 0.95f, glow = 0.55f, scrim = 0.34f,
-            fallback = listOf(Color(0xFF8A2C7C), Color(0xFF1F6F9E), Color(0xFF2A1240)),
-            layout = AdaptiveLayout.AURORA, accent = AdaptiveAccent.OPPOSITE, fallbackAccent = Color(0xFF5CF2C2), opacity = 1f,
-        ),
-        card = Color(0x29FFFFFF), tint = Color(0x80180A24), menu = Color(0xFF221430),
-    ),
-)
+/** Settings sections, as in Pixallery: three pale light themes plus deep Clear Light, then the two dark ones. */
+val lightThemes: List<LibraryTheme> get() = libraryThemes.take(4)
+val darkThemes: List<LibraryTheme> get() = libraryThemes.drop(4)
+
+/** Liquid Day for everyone who hasn't picked one of the new themes (Pixallery's default). */
+const val DEFAULT_THEME = "LIQUID_DAY"
 
 /** The active theme, for components that draw glass effects. */
-val LocalLibraryTheme = staticCompositionLocalOf { libraryThemes.first() }
+val LocalLibraryTheme = staticCompositionLocalOf { libraryThemes.first { it.id == DEFAULT_THEME } }
 
 /** Paints a glass theme's wallpaper: the base gradient, its glows and a faint diagonal sheen. */
 internal fun DrawScope.drawGlassWallpaper(theme: LibraryTheme) {
@@ -135,36 +250,14 @@ internal fun DrawScope.drawGlassWallpaper(theme: LibraryTheme) {
 }
 
 /**
- * Outline for pills and cards: in glass themes a specular rim (bright at the top-left, fading, then a
- * softer glint at the bottom-right) like light catching the edge of glass; otherwise the usual thin line.
+ * Outline for pills and cards. Glass themes: Pixallery's fine specular rim in the theme's rim colour, bright at the
+ * top-left, fading, with a softer glint at the bottom-right. Other themes: the usual thin line.
  */
 @Composable
 fun Modifier.themedOutline(shape: Shape, emphasised: Boolean = false): Modifier {
     val theme = LocalLibraryTheme.current
-    return if (theme.glass && theme.light) {
-        // On a light wallpaper a white rim vanishes, so the edge is a fine warm-grey line with a bright glint.
-        val edge = Color(0xFF54708C)
-        this.border(
-            1.dp,
-            Brush.linearGradient(
-                0f to Color.White.copy(alpha = 0.95f),
-                0.35f to edge.copy(alpha = if (emphasised) 0.32f else 0.2f),
-                0.7f to edge.copy(alpha = if (emphasised) 0.26f else 0.14f),
-                1f to Color.White.copy(alpha = 0.8f),
-            ),
-            shape,
-        )
-    } else if (theme.glass) {
-        this.border(
-            1.dp,
-            Brush.linearGradient(
-                0f to Color.White.copy(alpha = if (emphasised) 0.75f else 0.55f),
-                0.35f to Color.White.copy(alpha = 0.12f),
-                0.7f to Color.White.copy(alpha = 0.06f),
-                1f to Color.White.copy(alpha = 0.3f),
-            ),
-            shape,
-        )
+    return if (theme.glass) {
+        this.glassRim(shape, strength = if (emphasised) 1.3f else 1f)
     } else {
         this.border(
             1.dp,
@@ -178,7 +271,7 @@ fun Modifier.themedOutline(shape: Shape, emphasised: Boolean = false): Modifier 
 private fun rememberThemeChoice(): State<String> {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("appearance", Context.MODE_PRIVATE) }
-    fun read() = prefs.getString("theme", "CHARCOAL")?.takeIf { name -> libraryThemes.any { it.id == name } } ?: "CHARCOAL"
+    fun read() = prefs.getString("theme", DEFAULT_THEME)?.takeIf { name -> libraryThemes.any { it.id == name } } ?: DEFAULT_THEME
     val selected = remember { mutableStateOf(read()) }
     DisposableEffect(prefs) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key -> if (key == "theme")selected.value = read() }
@@ -204,18 +297,45 @@ private fun rememberAppearanceFlag(key: String): State<Boolean> {
 }
 
 @Composable
+private fun rememberAppearanceInt(key: String, default: Int): State<Int> {
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("appearance", Context.MODE_PRIVATE) }
+    val value = remember(prefs, key) { mutableStateOf(prefs.getInt(key, default)) }
+    DisposableEffect(prefs, key) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, changed ->
+            if (changed == key) value.value = prefs.getInt(key, default)
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    return value
+}
+
+/** Blur slider steps 0..4 (Pixallery): 0 = no blur (lens glass on Android 13+), 3 = the theme's own strength. */
+private val BLUR_SCALES = floatArrayOf(0f, 0.3f, 0.6f, 1f, 1.5f)
+internal const val DEFAULT_BLUR_STEP = 3
+
+@Composable
 fun VideoLibraryTheme(content: @Composable () -> Unit) {
     val choice by rememberThemeChoice()
+    // "Turn off glass effect" (stored under its old name, Reduce transparency): solid panels, no blur.
     val reduceTransparency by rememberAppearanceFlag("reduce_transparency")
+    val blurStep by rememberAppearanceInt("blur_step", DEFAULT_BLUR_STEP)
+    val glassSettings = GlassSettings(
+        glassOn = !reduceTransparency,
+        blurScale = BLUR_SCALES[blurStep.coerceIn(0, 4)],
+        lensOn = !reduceTransparency && blurStep == 0 && android.os.Build.VERSION.SDK_INT >= 33,
+    )
     val selected = libraryThemes.first { it.id == choice }
     val chosen = if (reduceTransparency && selected.glass) selected.copy(
-        card = selected.menu, surface = selected.menu, glassTint = selected.menu, reduceTransparency = true,
+        card = selected.menu, surface = selected.menu, glassTint = selected.menu, reduceTransparency = true, panelFill = null,
     ) else selected
     // Adaptive themes: colours follow the covers on screen, and so does the accent.
     val adaptiveStyle = chosen.adaptive
     val adaptiveColors = if (adaptiveStyle != null) rememberAdaptiveColors(adaptiveStyle) else null
-    val theme = if (adaptiveStyle != null) chosen.copy(accent = rememberAdaptiveAccent(adaptiveStyle)) else chosen
-    val ink = if (theme.id == "CLARITY_LIGHT") Color(0xFF17263A) else Color(0xFF14243A)
+    // Frosted (Pixallery) themes keep their white or ink accent; selection is a film, not a colour.
+    val theme = if (adaptiveStyle != null && chosen.accentFill == null) chosen.copy(accent = rememberAdaptiveAccent(adaptiveStyle)) else chosen
+    val ink = theme.ink
     val colors = if (theme.light) lightColorScheme(
         primary = ink,
         onPrimary = Color.White,
@@ -226,7 +346,7 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         secondaryContainer = theme.card,
         onSecondaryContainer = ink,
         tertiary = theme.accent,
-        onTertiary = Color.White,
+        onTertiary = if (theme.accent.luminance() > 0.5f) Color.Black else Color.White,
         tertiaryContainer = theme.card,
         onTertiaryContainer = ink,
         background = if (theme.glass) Color.Transparent else theme.background,
@@ -234,10 +354,10 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         surface = theme.surface,
         onSurface = ink,
         surfaceVariant = theme.card,
-        onSurfaceVariant = if (theme.id == "CLARITY_LIGHT") Color(0xFF34465C) else Color(0xFF43556B),
+        onSurfaceVariant = theme.inkSecondary,
         surfaceTint = Color.Transparent,
-        outline = Color(0xFF5C7088),
-        outlineVariant = Color(0x3354708C),
+        outline = ink.copy(alpha = 0.55f),
+        outlineVariant = ink.copy(alpha = 0.16f),
         error = Color(0xFFC62828),
         onError = Color.White,
         errorContainer = Color(0xFFFFDAD6),
@@ -270,9 +390,9 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         surface = theme.surface,
         onSurface = Color.White,
         surfaceVariant = theme.card,
-        onSurfaceVariant = if (theme.glass) Color(0xD9FFFFFF) else if (theme.id == "CLARITY_DARK") Color(0xFFDAE4EF) else Color(0xFFB8B8B8),
+        onSurfaceVariant = theme.inkSecondary,
         surfaceTint = Color.Transparent,
-        outline = if (theme.glass) Color(0x99FFFFFF) else Color(0xFF777777),
+        outline = if (theme.glass) theme.rim.copy(alpha = 0.6f) else Color(0xFF777777),
         outlineVariant = if (theme.glass) Color(0x4DFFFFFF) else Color(0xFF333333),
         error = Color(0xFFFF6B6B),
         onError = Color.Black,
@@ -336,7 +456,7 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
             extraLarge = RoundedCornerShape(32.dp),
         ),
         content = {
-            CompositionLocalProvider(LocalLibraryTheme provides theme) {
+            CompositionLocalProvider(LocalLibraryTheme provides theme, LocalGlassSettings provides glassSettings) {
                 if (adaptiveStyle != null && adaptiveColors != null) {
                     Box(Modifier.fillMaxSize().drawBehind { drawAdaptiveWallpaper(adaptiveColors.map { it.value }, adaptiveStyle) }) { content() }
                 } else if (theme.showsWallpaper) {
@@ -354,39 +474,89 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
 @Composable
 internal fun ThemeSettings() {
     val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("appearance", Context.MODE_PRIVATE) }
     val choice by rememberThemeChoice()
     val reduceTransparency by rememberAppearanceFlag("reduce_transparency")
-    var expanded by remember { mutableStateOf(false) }
-    fun select(id: String) {
-        context.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit().putString("theme", id).apply()
-    }
+    val blurStep by rememberAppearanceInt("blur_step", DEFAULT_BLUR_STEP)
+    val current = libraryThemes.first { it.id == choice }
+    fun select(id: String) = prefs.edit().putString("theme", id).apply()
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Keep all saved themes easy to reach before the richer glass previews.
         SettingsStaticCard("Theme") {
-            Box {
-                OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Theme: ${libraryThemes.first { it.id == choice }.label}")
-                }
-                DropdownMenu(expanded, onDismissRequest = { expanded = false }, containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 1f)) {
-                    libraryThemes.forEach { theme ->
-                        DropdownMenuItem(text = { Text(theme.label + if (theme.id == choice) " ✓" else "") }, onClick = {
-                            select(theme.id)
-                            expanded = false
-                        })
-                    }
-                }
-            }
-            SkyWingThemeChoices(choice, onSelect = ::select)
+            Text("Theme: ${current.label}", style = MaterialTheme.typography.titleMedium)
+            Text(current.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(8.dp))
+            Text("Light", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            ThemeSwatchRow(lightThemes, choice, ::select)
+            Text("Dark · colours from your covers", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            ThemeSwatchRow(darkThemes, choice, ::select)
         }
-        SettingsStaticCard("Readability") {
+        SettingsStaticCard("Glass") {
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Reduce transparency", style = MaterialTheme.typography.bodyLarge)
-                    Text("Solid panels and no backdrop blur", style = MaterialTheme.typography.bodySmall)
+                    Text("Glass effect", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        if (reduceTransparency) "Off: solid panels and bars, no blur" else "See-through bars that blur what's behind them",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                Switch(checked = reduceTransparency, onCheckedChange = { value ->
-                    context.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit().putBoolean("reduce_transparency", value).apply()
-                }, modifier = Modifier.semantics { contentDescription = "Reduce transparency" })
+                Switch(checked = !reduceTransparency, onCheckedChange = { on ->
+                    prefs.edit().putBoolean("reduce_transparency", !on).apply()
+                }, modifier = Modifier.semantics { contentDescription = "Glass effect" })
+            }
+            if (!reduceTransparency) {
+                val step = blurStep.coerceIn(0, 4)
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text("Blur", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    Text(if (step == 0) "None" else "$step of 4", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Slider(
+                    value = step.toFloat(),
+                    onValueChange = { v -> val next = Math.round(v); if (next != step) prefs.edit().putInt("blur_step", next).apply() },
+                    valueRange = 0f..4f,
+                    steps = 3,
+                    modifier = Modifier.semantics { contentDescription = "Blur strength, 0 to 4" },
+                )
+                if (step == 0) {
+                    Text(
+                        if (android.os.Build.VERSION.SDK_INT >= 33) "No blur: the bars act like thick lens glass, bending what's behind them."
+                        else "No blur: a clear film only.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Pixallery's round theme swatches: the theme's wallpaper with its rim colour, a ring and a tick on the chosen one. */
+@Composable
+private fun ThemeSwatchRow(themes: List<LibraryTheme>, selected: String, onSelect: (String) -> Unit) {
+    val ring = MaterialTheme.colorScheme.onSurface
+    // Scrolls sideways on narrow phones instead of squeezing the swatches.
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        themes.forEach { option ->
+            val active = option.id == selected
+            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, modifier = Modifier.width(76.dp)) {
+                Box(
+                    Modifier.size(64.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                        .selectable(selected = active, role = androidx.compose.ui.semantics.Role.RadioButton, onClick = { onSelect(option.id) })
+                        .semantics { contentDescription = option.label },
+                    contentAlignment = androidx.compose.ui.Alignment.Center,
+                ) {
+                    if (active) Box(Modifier.size(64.dp).border(3.dp, ring, androidx.compose.foundation.shape.CircleShape))
+                    Box(
+                        Modifier.size(if (active) 50.dp else 56.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(Brush.linearGradient(option.wallpaper + option.rim))
+                            .border(1.dp, ring.copy(alpha = 0.25f), androidx.compose.foundation.shape.CircleShape),
+                        contentAlignment = androidx.compose.ui.Alignment.Center,
+                    ) {
+                        if (active) Icon(androidx.compose.material.icons.Icons.Filled.Check, contentDescription = null, tint = option.ink, modifier = Modifier.size(24.dp))
+                    }
+                }
+                Text(option.label, style = MaterialTheme.typography.labelSmall, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         }
     }

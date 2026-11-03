@@ -40,8 +40,12 @@ data class AdaptiveStyle(
     val opacity: Float = 0.7f,
 )
 
-/** GLOW: a diagonal gradient with two soft lights. WASH: one colour washing down from the top over near-black. AURORA: three bright blobs. */
-enum class AdaptiveLayout { GLOW, WASH, AURORA }
+/**
+ * GLOW: a diagonal gradient with two soft lights. WASH: one colour washing down from the top over near-black. AURORA: three
+ * bright blobs. From Pixallery: NIGHT (nearly black, one soft light at the top; Photo Night) and DIAGONAL (all three colours
+ * corner to corner; Vivid Night).
+ */
+enum class AdaptiveLayout { GLOW, WASH, AURORA, NIGHT, DIAGONAL }
 
 /** SAME_HUE: a bright version of the main cover colour. SOFT: a pale tint of the average colour. OPPOSITE: the complementary colour. */
 enum class AdaptiveAccent { SAME_HUE, SOFT, OPPOSITE }
@@ -152,8 +156,19 @@ internal fun adaptiveAccent(colors: List<Color>, style: AdaptiveStyle): Color {
 /** The three gradient colours of an adaptive theme, easing slowly from one set to the next as the screen changes. */
 @Composable
 internal fun rememberAdaptiveColors(style: AdaptiveStyle): List<State<Color>> {
-    val target by remember(style) { derivedStateOf { adaptivePalette(ScreenColors.current(), style) } }
-    return List(3) { i -> animateColorAsState(target[i], tween(1400), label = "adaptive_$i") }
+    // Pages without pictures (Settings, Downloads) keep the last colours that came from covers instead of dropping back
+    // to the plain fallback, as in Pixallery.
+    val kept = remember(style) { androidx.compose.runtime.mutableStateOf<List<Color>?>(null) }
+    androidx.compose.runtime.LaunchedEffect(style) {
+        androidx.compose.runtime.snapshotFlow { ScreenColors.current() }.collect { colors ->
+            if (colors.isNotEmpty()) kept.value = adaptivePalette(colors, style)
+        }
+    }
+    val target by remember(style) {
+        derivedStateOf { ScreenColors.current().takeIf { it.isNotEmpty() }?.let { adaptivePalette(it, style) } ?: kept.value ?: style.fallback }
+    }
+    // Follows new covers within about half a second (Pixallery: 550 ms).
+    return List(3) { i -> animateColorAsState(target[i], tween(550), label = "adaptive_$i") }
 }
 
 /**
@@ -196,6 +211,16 @@ internal fun DrawScope.drawAdaptiveWallpaper(colors: List<Color>, style: Adaptiv
                 ),
             )
             drawRect(Brush.radialGradient(listOf(colors[0].copy(alpha = style.glow * 0.6f), Color.Transparent), Offset(size.width, size.height), size.maxDimension * 0.6f))
+        }
+        AdaptiveLayout.NIGHT -> {
+            drawRect(colors[2].copy(alpha = o))
+            drawRect(Brush.radialGradient(listOf(colors[0].copy(alpha = style.glow), Color.Transparent), Offset(size.width * 0.5f, size.height * -0.1f), size.maxDimension * 0.8f))
+            drawRect(Brush.radialGradient(listOf(colors[1].copy(alpha = style.glow * 0.35f), Color.Transparent), Offset(size.width * 0.5f, size.height * 1.1f), size.maxDimension * 0.5f))
+        }
+        AdaptiveLayout.DIAGONAL -> {
+            drawRect(Brush.linearGradient(listOf(colors[0], colors[2], colors[1]).map { it.copy(alpha = o) }, start = Offset.Zero, end = Offset(size.width, size.height)))
+            drawRect(Brush.radialGradient(listOf(colors[0].copy(alpha = style.glow), Color.Transparent), Offset(size.width * 0.85f, size.height * 0.08f), size.maxDimension * 0.7f))
+            drawRect(Brush.radialGradient(listOf(colors[1].copy(alpha = style.glow * 0.8f), Color.Transparent), Offset(size.width * 0.1f, size.height * 0.9f), size.maxDimension * 0.75f))
         }
         AdaptiveLayout.AURORA -> {
             drawRect(colors[2].copy(alpha = o))

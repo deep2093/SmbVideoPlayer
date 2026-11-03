@@ -43,28 +43,11 @@ internal fun FloatingLibraryNavigation(
     val glass = theme.glass
     val shape = RoundedCornerShape(percent = 50)
     val shadowAlpha = if (theme.light) 0.35f else 1f
-    val surface = Modifier
-        .shadow(if (glass) 20.dp else 12.dp, shape, ambientColor = Color.Black.copy(alpha = shadowAlpha), spotColor = Color.Black.copy(alpha = shadowAlpha))
+    // Glass themes: Pixallery chrome glass (blur, rim, depth; lens glass with Blur at 0). Others: opaque capsule.
+    val surface = if (glass) Modifier.glassChrome(shape, hazeState, elevation = 20.dp) else Modifier
+        .shadow(12.dp, shape, ambientColor = Color.Black.copy(alpha = shadowAlpha), spotColor = Color.Black.copy(alpha = shadowAlpha))
         .clip(shape)
-        .then(
-            if (glass && hazeState != null && !theme.reduceTransparency) {
-                Modifier.hazeEffect(
-                    state = hazeState,
-                    style = HazeStyle(
-                        backgroundColor = theme.menu,
-                        tints = listOf(HazeTint(theme.glassTint), HazeTint(Color.White.copy(alpha = if (theme.light) 0.2f else 0.06f))),
-                        blurRadius = 26.dp,
-                        noiseFactor = 0.04f,
-                        // Android 10 and 11 cannot blur: fall back to a stronger tint.
-                        fallbackTint = HazeTint(theme.menu.copy(alpha = if (theme.reduceTransparency) 1f else 0.92f)),
-                    ),
-                )
-            } else if (glass) {
-                Modifier.background(theme.menu.copy(alpha = if (theme.reduceTransparency) 1f else 0.92f))
-            } else {
-                Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            },
-        )
+        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
         .themedOutline(shape)
     Row(
         modifier.widthIn(max = 460.dp).fillMaxWidth().padding(horizontal = 16.dp)
@@ -73,10 +56,10 @@ internal fun FloatingLibraryNavigation(
     ) {
         labels.forEachIndexed { index, label ->
             val isSelected = selected == index
+            // Frosted selection (Pixallery): a see-through white film with a fine bright edge, not a colour.
             val lensColor = when {
                 !isSelected -> Color.Transparent
-                glass && theme.light -> theme.accent.copy(alpha = 0.14f)
-                glass -> Color.White.copy(alpha = 0.2f)
+                glass -> theme.accentSurface
                 else -> theme.accent.copy(alpha = 0.22f)
             }
             val lens by animateColorAsState(
@@ -87,19 +70,20 @@ internal fun FloatingLibraryNavigation(
             Column(
                 Modifier.weight(1f).heightIn(min = 56.dp)
                     .clip(RoundedCornerShape(percent = 50)).background(lens)
+                    .then(if (isSelected && glass) Modifier.frostedEdge(RoundedCornerShape(percent = 50)) else Modifier)
                     .selectable(selected = isSelected, role = Role.Tab, onClick = { onSelect(index) })
                     .padding(horizontal = 2.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
             ) {
                 val ink = when {
+                    glass && isSelected -> theme.ink
                     isSelected -> theme.accent
-                    glass && theme.light -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
-                    glass -> Color.White.copy(alpha = 0.88f)
+                    glass -> theme.ink.copy(alpha = 0.82f)
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                 }
-                Icon(icons[index], null, tint = ink, modifier = Modifier.size(22.dp))
-                Text(label, color = ink, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                DepthIcon(icons[index], null, tint = ink, modifier = Modifier.size(22.dp))
+                DepthText(label, color = ink, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -114,9 +98,8 @@ internal fun LibrarySidebar(
     onSelect: (Int) -> Unit,
 ) {
     val theme = LocalLibraryTheme.current
-    Column(modifier.then(if (theme.glass) Modifier.skyWingGlassSurface(
-        shape = RoundedCornerShape(28.dp), liveBlur = false,
-    ) else Modifier.background(MaterialTheme.colorScheme.background)).padding(16.dp)) {
+    Column(modifier.then(if (theme.glass) Modifier.glassPanel(RoundedCornerShape(28.dp))
+    else Modifier.background(MaterialTheme.colorScheme.background)).padding(16.dp)) {
         AppIconMark(40.dp, Modifier.padding(top = 12.dp, bottom = 12.dp))
         Text(APP_NAME, style = MaterialTheme.typography.titleMedium)
         Text("SMB media", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -126,7 +109,8 @@ internal fun LibrarySidebar(
             val ink = if (selected == index) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(percent = 50))
-                    .background(if (selected == index) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
+                    .background(if (selected == index) (if (theme.glass) theme.accentSurface else MaterialTheme.colorScheme.surfaceVariant) else Color.Transparent)
+                    .then(if (selected == index && theme.glass) Modifier.frostedEdge(RoundedCornerShape(percent = 50)) else Modifier)
                     .selectable(selected = selected == index, role = Role.Tab, onClick = { onSelect(index) })
                     .padding(horizontal = 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,

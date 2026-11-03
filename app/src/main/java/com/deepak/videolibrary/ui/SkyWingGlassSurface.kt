@@ -20,11 +20,9 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 
 /**
- * Reusable glass optical surface. Uses existing Haze 1.6.1 (NOT Haze 2 APIs).
- *
- * The `hazeState` must belong to a parent content area with `Modifier.hazeSource(hazeState)`.
- * For video surfaces that Haze cannot safely capture, pass `liveBlur = false`:
- * this gives a readable frosted-looking tint without repeatedly capturing frames.
+ * Reusable glass surface, now Pixallery's glass: floating chrome (blurs [hazeState] content; the parent must use
+ * `Modifier.hazeSource(hazeState)`) when [liveBlur] and a haze state are given, otherwise a frosted panel. Video surfaces
+ * that Haze cannot safely capture pass `liveBlur = false`.
  */
 @Composable
 fun Modifier.skyWingGlassSurface(
@@ -35,47 +33,13 @@ fun Modifier.skyWingGlassSurface(
     reduceTransparency: Boolean = false,
 ): Modifier {
     val theme = LocalLibraryTheme.current
-    if (!theme.glass) {
-        return this.clip(shape).background(theme.card)
+    if (!theme.glass) return this.clip(shape).background(theme.card)
+    if (reduceTransparency) return this.clip(shape).background(theme.menu.copy(alpha = 1f)).glassRim(shape)
+    return if (liveBlur && hazeState != null) {
+        this.glassChrome(shape, hazeState, elevation = if (elevated) 16.dp else 0.dp)
+    } else {
+        this.then(if (elevated) Modifier.shadow(12.dp, shape) else Modifier).glassPanel(shape)
     }
-    val solid = reduceTransparency || theme.reduceTransparency
-    val crystal = theme.skyWingGlassFamily() == "CRYSTAL"
-    val edge = if (theme.light) Color(0x6654708C) else Color(0x70D7EEFF)
-    val tint = when {
-        solid -> if (theme.light) Color(0xFFF6FAFF) else Color(0xFF122038)
-        theme.light && crystal -> Color(0xCFFFFFFF)
-        theme.light -> Color(0xBDECF5FF)
-        crystal -> Color(0xB8203347)
-        else -> Color(0xB3162050)
-    }
-    return this
-        .then(if (elevated) Modifier.shadow(12.dp, shape) else Modifier)
-        .clip(shape)
-        .then(
-            if (liveBlur && hazeState != null && !solid) {
-                Modifier.hazeEffect(
-                    state = hazeState,
-                    style = HazeStyle(
-                        backgroundColor = theme.menu,
-                        tints = listOf(HazeTint(theme.glassTint), HazeTint(tint.copy(alpha = 0.24f))),
-                        blurRadius = if (crystal) 20.dp else 28.dp,
-                        noiseFactor = 0.035f,
-                        fallbackTint = HazeTint(tint),
-                    ),
-                )
-            } else {
-                Modifier.background(tint)
-            },
-        )
-        .border(
-            1.dp,
-            Brush.linearGradient(
-                0f to Color.White.copy(alpha = if (theme.light) 0.96f else 0.72f),
-                0.42f to edge.copy(alpha = 0.45f),
-                1f to edge.copy(alpha = 0.28f),
-            ),
-            shape,
-        )
 }
 
 @Composable
