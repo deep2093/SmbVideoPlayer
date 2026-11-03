@@ -91,6 +91,17 @@ def open_section(name, probe):
         click(step)
     scroll_to(probe)
 
+def click_clear_of_toolbar(label):
+    """Tap a control, first scrolling it out from under the floating toolbar at the bottom of the screen."""
+    width,height=map(int,re.findall(r'(\d+)x(\d+)',adb('shell','wm','size').decode())[-1])
+    for _ in range(4):
+        node=find(label)
+        y1,y2=map(int,re.findall(r'\d+',node.attrib['bounds'])[1::2])
+        if (y1+y2)//2 < height*0.7: break
+        adb('shell','input','swipe',int(width*.5),int(height*.7),int(width*.5),int(height*.4),400)
+        time.sleep(.6)
+    click(label)
+
 def settings_index():
     # Sub-pages are two levels deep: Back until the index shows.
     for _ in range(3):
@@ -182,8 +193,8 @@ try:
     settings_index()
     scroll_to('Look & layout',up=True);click('Look & layout')
     # Pixallery themes: round swatches (content description = theme name); the heading shows the chosen one.
-    for theme in ['Warm Light','Photo Night','Vivid Night','Luminous Light','Liquid Day']:
-        click(theme);find('Theme: '+theme)
+    for theme in ['Warm Light','Photo Night','Vivid Night','Calm Dark','Calm Light','Luminous Light','Liquid Day']:
+        click_clear_of_toolbar(theme);find('Theme: '+theme)
     screenshot('liquid-day-theme')
     adb('shell','am','force-stop',APP)
     adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
