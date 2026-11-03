@@ -89,7 +89,7 @@ private val SETTINGS_SECTIONS = listOf(
     SettingsSection("Sync", "Library management", "Scanning, refresh and hidden items", "Library"),
     SettingsSection("Artwork", "Artwork & scene metadata", "Video posters, folder portraits and matching", "Library"),
     SettingsSection("Layout", "App layout", "Navigation, folder tabs and grid sizes", "Personalisation"),
-    SettingsSection("Appearance", "Appearance", "Themes and transparency", "Personalisation"),
+    SettingsSection("Appearance", "Appearance", "Themes and glass", "Personalisation"),
     SettingsSection("Diagnostics", "Backup & diagnostics", "Export, restore and reports", "Support"),
     SettingsSection("WhatsNew", "What's new", "Changes in this version", "Support"),
 )

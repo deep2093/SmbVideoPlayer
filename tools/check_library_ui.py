@@ -171,7 +171,7 @@ try:
     find('Hollywood')
     print('PASS: a virtual folder reads its chosen drive folder and shows the subfolder of the video filed there')
     click('Settings')
-    find('Connection');scroll_to('Artwork & scene metadata');scroll_to('Sync & scanning',up=True)
+    find('Connection');scroll_to('Artwork & scene metadata');scroll_to('Library management',up=True)
     # Diagnostics is the last page; it may sit below the fold on a phone.
     scroll_to('Backup & diagnostics');scroll_to('Connection',up=True)
     screenshot('settings-categories')
@@ -179,7 +179,7 @@ try:
     click('Back to Settings')
     # Playback settings were intentionally removed. Gestures stay enabled in the player.
     scroll_to('Artwork & scene metadata');click('Artwork & scene metadata')
-    find('1 · Online matching & accounts')
+    find('Online matching & accounts')
     click('Back to Settings')
     scroll_to('Appearance',up=True);click('Appearance')
     # Pixallery themes: round swatches (content description = theme name); the heading shows the chosen one.
