@@ -44,7 +44,10 @@ internal fun FloatingLibraryNavigation(
     val shape = RoundedCornerShape(percent = 50)
     val shadowAlpha = if (theme.light) 0.35f else 1f
     // Glass themes: Pixallery chrome glass (blur, rim, depth; lens glass with Blur at 0). Others: opaque capsule.
-    val surface = if (glass) Modifier.glassChrome(shape, hazeState, elevation = 20.dp) else Modifier
+    val surface = if (glass) Modifier.glassChrome(shape, hazeState, elevation = 20.dp)
+    // Calm: a solid toolbar with a hairline edge and no shadow.
+    else if (theme.flat) Modifier.clip(shape).background(theme.surface).themedOutline(shape)
+    else Modifier
         .shadow(12.dp, shape, ambientColor = Color.Black.copy(alpha = shadowAlpha), spotColor = Color.Black.copy(alpha = shadowAlpha))
         .clip(shape)
         .background(MaterialTheme.colorScheme.surfaceContainerHigh)

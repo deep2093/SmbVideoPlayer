@@ -76,30 +76,29 @@ def gone(label, wait=3):
     return not any(n.get('content-desc')==label or label in n.get('text','').splitlines() for n in tree().iter('node'))
 
 def open_section(name, probe):
-    """Open a Settings page, returning to the index if another page is selected."""
+    """Open a Settings page (or a sub-page: 'Artwork>Thumbnails'), going back to the index first if needed."""
     try:
         find(probe, timeout=2)
         return
     except AssertionError:
         pass
-    try:
-        find('Back to Settings', timeout=1)
-        click('Back to Settings')
-    except AssertionError:
-        pass
-    try:
-        find(name, timeout=1)
-    except AssertionError:
-        scroll_to(name, up=True)
-    click(name)
+    settings_index()
+    for step in name.split('>'):
+        try:
+            find(step, timeout=1)
+        except AssertionError:
+            scroll_to(step, up=True)
+        click(step)
     scroll_to(probe)
 
 def settings_index():
-    try:
-        find('Back to Settings', timeout=1)
-        click('Back to Settings')
-    except AssertionError:
-        pass
+    # Sub-pages are two levels deep: Back until the index shows.
+    for _ in range(3):
+        try:
+            find('Back to Settings', timeout=1)
+            click('Back to Settings')
+        except AssertionError:
+            break
 
 def click(label,long=False,last=False):
     node=find(label)
@@ -171,17 +170,17 @@ try:
     find('Hollywood')
     print('PASS: a virtual folder reads its chosen drive folder and shows the subfolder of the video filed there')
     click('Settings')
-    find('Connection');scroll_to('Artwork & scene metadata');scroll_to('Library management',up=True)
+    find('Connection');scroll_to('Artwork');scroll_to('Scanning and hidden items',up=True)
     # Diagnostics is the last page; it may sit below the fold on a phone.
     scroll_to('Backup & diagnostics');scroll_to('Connection',up=True)
     screenshot('settings-categories')
     click('Connection');find('Server address');find('Share name');click('Advanced connection options');find('Domain (optional)');find('Require SMB encryption')
     click('Back to Settings')
     # Playback settings were intentionally removed. Gestures stay enabled in the player.
-    scroll_to('Artwork & scene metadata');click('Artwork & scene metadata')
-    find('Online matching & accounts')
-    click('Back to Settings')
-    scroll_to('Appearance',up=True);click('Appearance')
+    # Every section opens its own page; Artwork has its own list of sub-pages.
+    scroll_to('Artwork');click('Artwork');click('Online matching');find('Match online')
+    settings_index()
+    scroll_to('Look & layout',up=True);click('Look & layout')
     # Pixallery themes: round swatches (content description = theme name); the heading shows the chosen one.
     for theme in ['Warm Light','Photo Night','Vivid Night','Luminous Light','Liquid Day']:
         click(theme);find('Theme: '+theme)
@@ -189,7 +188,7 @@ try:
     adb('shell','am','force-stop',APP)
     adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
     find('Virtual folders')  # Wait for the fresh home frame after restart.
-    click('Settings');click('Appearance');find('Theme: Liquid Day')
+    click('Settings');click('Look & layout');find('Theme: Liquid Day')
     print('PASS: theme choices apply live and persist across restart')
     click('Folders')
     click('Original folders')
@@ -229,9 +228,9 @@ try:
     click('Videos');click(NAME,long=True);click('Remove / Hide')
     click('Files');click('Movies');screenshot('hidden-in-explorer')
     assert gone(NAME), 'A hidden video must not be listed in Files'
-    click('Settings');open_section('App layout','Unhide files and folders');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
+    click('Settings');open_section('Library','Unhide files and folders');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
     find('No hidden items.');screenshot('unhide')
-    adb('shell','input','keyevent','4')  # Back from Hidden items to App layout.
+    adb('shell','input','keyevent','4')  # Back from Hidden items to the Library page.
     print('PASS: hidden video is left out of Files and can be restored in Settings')
     click('Folders');click('Custom folders');click('Add custom folder');click('Create filename collection')
     enter_text('Cruise');click('Create');find('Cruise')
@@ -243,14 +242,14 @@ try:
     # Put many live, unindexed files before the failed video in the real listing.
     for i in range(80):
         (target.parent/f'A{i:03}.txt').write_text('fixture')
-    click('Settings');open_section('Artwork & scene metadata','Thumbnail generation & reset')
-    click('Thumbnail generation & reset')
+    click('Settings');open_section('Artwork>Thumbnails','View failed thumbnails')
     scroll_to('View failed thumbnails');click('View failed thumbnails');scroll_to(NAME);click(NAME);click('Open folder in File Explorer')
     find('Target file: '+NAME);screenshot('exact-file-jump')
     labels=[n.get('text','') for n in tree().iter('node')]
     assert 'A000.txt' not in labels, 'Shortcut must scroll beyond the first page'
     print('PASS: failed-thumbnail shortcut scrolls to the exact file and highlights it')
-    click('Settings');open_section('App layout','Floating bottom bar');click('Floating bottom bar');click('Folders');find('Custom folders');screenshot('floating-navigation')
+    # The floating toolbar is the only navigation now.
+    click('Folders');find('Custom folders');screenshot('floating-navigation')
     # Publish codec fixtures only now so background refresh cannot change the
     # earlier one-video selection scenario. Exercise generated WMV8 and real WMV9.
     for source,name in [('/tmp/videolibrary-sample.wmv','Sample.wmv'),('/tmp/videolibrary-wmv9.wmv','WMV9.wmv')]:
@@ -287,7 +286,6 @@ try:
         print('PASS: '+name+' streams from SMB with advancing video output')
 
     # Native visual review at exact logical widths, after the existing functional checks.
-    click('Settings');open_section('App layout','Sidebar');click('Sidebar')
     for width,height,density,label in [(780,1688,320,'phone-390'),(1536,2048,320,'tablet-768'),(2560,1600,320,'landscape-1280')]:
         adb('shell','wm','size',str(width)+'x'+str(height))
         adb('shell','wm','density',str(density))

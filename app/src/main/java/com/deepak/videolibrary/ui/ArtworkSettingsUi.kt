@@ -96,12 +96,10 @@ private fun ModePicker(label: String, scope: ArtworkScope, current: ArtworkMode,
     }
 }
 
-/** A collapsible group inside Settings > Artwork: a title, a one-line summary, and its options when opened. */
+/** One flat section of an Artwork sub-page, shown only on its own page ([visible]). */
 @Composable
-private fun ArtworkGroup(vm: LibraryViewModel, id: String, title: String, summary: String, enabled: Boolean, content: @Composable () -> Unit) {
-    SettingsAccordion(vm, "Artwork", "legacy-$id", title, summary, enabled = enabled) {
-        content()
-    }
+private fun ArtworkGroup(visible: Boolean, title: String, content: @Composable () -> Unit) {
+    if (visible) SettingsStaticCard(title) { content() }
 }
 
 /**
@@ -110,7 +108,7 @@ private fun ArtworkGroup(vm: LibraryViewModel, id: String, title: String, summar
  * always has, and nothing touches the internet.
  */
 @Composable
-internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
+internal fun ArtworkSettingsSection(vm: LibraryViewModel, part: String = "covers") {
     val settings by vm.artworkSettings.collectAsStateWithLifecycle()
     val sceneSettings by vm.metadataSettings.collectAsStateWithLifecycle()
     val review by vm.portraitReview.collectAsStateWithLifecycle()
@@ -119,67 +117,33 @@ internal fun ArtworkSettingsSection(vm: LibraryViewModel) {
     val s = settings
     val portraitsOn = s.enabled && s.adultConsent
 
-    ArtworkGroup(
-        vm, "covers", "Fallback covers & existing artwork",
-        "Selected fallback rules · Drive folders: ${s.smbFolderMode.label} · Virtual: ${s.virtualFolderMode.label}",
-        true,
-    ) {
-        ToggleRow(
-            "Enable existing artwork overrides",
-            "Turn on the existing cover rules and preserve your hand-picked artwork. This also enables fallback-cover choices.",
-            s.enabled,
-        ) { on -> vm.updateArtwork { it.copy(enabled = on) } }
-        SettingsLabel("FALLBACK COVER CHOICES")
-        ModePicker("Drive folders", ArtworkScope.SMB_FOLDER, s.smbFolderMode, s.enabled) { m -> vm.updateArtwork { it.withMode(ArtworkScope.SMB_FOLDER, m) } }
-        ModePicker("Virtual and custom folders", ArtworkScope.VIRTUAL_FOLDER, s.virtualFolderMode, s.enabled) { m -> vm.updateArtwork { it.withMode(ArtworkScope.VIRTUAL_FOLDER, m) } }
+    // The old "Enable existing artwork overrides" switch is gone: cover rules are always on (the view model turns the
+    // saved flag on), and anything that uses the internet still needs its own permission.
+    ArtworkGroup(part == "covers", "Default covers") {
+        ModePicker("Drive folders", ArtworkScope.SMB_FOLDER, s.smbFolderMode, true) { m -> vm.updateArtwork { it.withMode(ArtworkScope.SMB_FOLDER, m) } }
+        ModePicker("Virtual and custom folders", ArtworkScope.VIRTUAL_FOLDER, s.virtualFolderMode, true) { m -> vm.updateArtwork { it.withMode(ArtworkScope.VIRTUAL_FOLDER, m) } }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("Collage frames: ${s.collageTiles}", Modifier.weight(1f))
             OutlinedButton(onClick = { vm.updateArtwork { it.copy(collageTiles = (it.collageTiles - 1).coerceIn(2, 6)) } }, enabled = s.collageTiles > 2) { Text("−") }
             OutlinedButton(onClick = { vm.updateArtwork { it.copy(collageTiles = (it.collageTiles + 1).coerceIn(2, 6)) } }, enabled = s.collageTiles < 6, modifier = Modifier.padding(start = 8.dp)) { Text("+") }
         }
-        Hint("A cover you pick for one item (hold it, then Change cover) always wins over these defaults.")
+        Hint("A cover you pick (hold an item, Change cover) always wins.")
     }
 
-    ArtworkGroup(
-        vm, "portraits", "Internet portraits",
-        if (!s.adultConsent) "Off · nothing is sent to the internet"
-        else listOfNotNull(
-            "On",
-            "folders".takeIf { s.portraitsOnFolders },
-            "after scans".takeIf { s.autoFetchOnScan },
-            if (vm.providerHasKey(ProviderIds.STASH_DB) || vm.providerHasKey(ProviderIds.TPDB)) "Provider key ready" else "Provider key missing",
-        ).joinToString(" · "),
-        s.enabled,
-    ) {
-        Text("Portraits are used on Virtual folders only. Online permission is managed above in Artwork & scene metadata.", style = MaterialTheme.typography.bodySmall)
+    ArtworkGroup(part == "artwork" && portraitsOn, "Portrait options") {
         SelectionPicker("Virtual folders", s.virtualFolderSelection, portraitsOn) { sel -> vm.updateArtwork { it.withSelection(ArtworkScope.VIRTUAL_FOLDER, sel) } }
         ToggleRow("Wi-Fi only", null, s.wifiOnly, portraitsOn) { on -> vm.updateArtwork { it.copy(wifiOnly = on) } }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                "API keys: " + (if (sceneSettings.primary == com.deepak.videolibrary.metadata.SceneMetadataSettings.TPDB) "ThePornDB first" else "StashDB first") + ". Manage both keys in Scene metadata.",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = { vm.ui.settingsSection = "Artwork" }) { Text("Manage") }
-        }
         PortraitProviderAdvanced(vm, s, portraitsOn)
     }
 
     // The names sent to the search are set in Settings > Auto grouping.
 
-    ArtworkGroup(
-        vm, "tools", "Review folder portrait suggestions",
-        if (review.isEmpty()) "No suggestions awaiting approval" else "${review.size} performer portraits need your review",
-        s.enabled,
-    ) {
+    ArtworkGroup(part == "review", "Folder portraits") {
         OutlinedButton(onClick = { reviewOpen = true }, enabled = review.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-            Text(if (review.isEmpty()) "No folder portraits to review" else "Review folder portrait suggestions (${review.size})")
+            Text(if (review.isEmpty()) "Nothing to review" else "Review portraits (${review.size})")
         }
-
         val note = remember(settings) { vm.artworkBackgroundNote() }
         if (note != null) Hint(note)
-
-        Hint("Pictures you chose yourself are kept. Videos on your server are never changed.")
     }
     if (reviewOpen) ReviewPortraitsDialog(vm, onDismiss = { reviewOpen = false })
 

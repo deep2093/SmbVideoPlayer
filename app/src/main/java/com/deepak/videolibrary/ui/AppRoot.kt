@@ -412,5 +412,5 @@ fun AppRoot(vm: LibraryViewModel = viewModel()) {
 }
 
 @androidx.compose.runtime.Composable
-internal fun floatingPadding(vm: LibraryViewModel): Boolean = vm.navigationPosition == "FLOATING" ||
-    (LocalLibraryTheme.current.glass && androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 700)
+@Suppress("UNUSED_PARAMETER")
+internal fun floatingPadding(vm: LibraryViewModel): Boolean = true // The floating toolbar is always shown.

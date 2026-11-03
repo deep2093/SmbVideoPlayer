@@ -12,6 +12,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -42,6 +43,17 @@ private fun settingsPanelColor(): Color {
 internal fun SettingsPanel(modifier: Modifier = Modifier, emphasised: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val colors = MaterialTheme.colorScheme
     val theme = LocalLibraryTheme.current
+    if (theme.flat) {
+        // Calm: a flat group on the page, set apart only by a hairline below it.
+        val line = colors.outlineVariant
+        Column(
+            modifier.fillMaxWidth()
+                .drawBehind { drawLine(line, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height), 1.dp.toPx()) }
+                .padding(horizontal = 4.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp), content = content,
+        )
+        return
+    }
     if (theme.glass) {
         // Pixallery glass: a see-through frosted film with depth and a fine rim (solid with the glass effect off).
         val shape = RoundedCornerShape(15.dp)
@@ -84,6 +96,13 @@ internal fun settingsIcon(title: String): ImageVector = when {
 @Composable
 internal fun SettingsIconTile(title: String) {
     val colors = MaterialTheme.colorScheme
+    if (LocalLibraryTheme.current.flat) {
+        // Calm: a plain line icon, no tile.
+        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+            Icon(settingsIcon(title), contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(20.dp))
+        }
+        return
+    }
     Surface(shape = RoundedCornerShape(12.dp), color = lerp(colors.surfaceContainerHigh, colors.tertiary, 0.30f)) {
         Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
             Icon(settingsIcon(title), contentDescription = null, tint = colors.onSurface, modifier = Modifier.size(19.dp))

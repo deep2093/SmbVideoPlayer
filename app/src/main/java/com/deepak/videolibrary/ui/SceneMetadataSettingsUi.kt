@@ -70,9 +70,12 @@ import com.deepak.videolibrary.thumbs.CustomThumbs
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 
-/** Separate Settings page. Artwork defaults, manually chosen covers and virtual folders are untouched. */
+/**
+ * Settings > Artwork, one sub-page at a time ([part]): "online" (matching on/off, provider, keys), "artwork" (the posters
+ * and portraits switches), "advanced" (methods, recheck, clearing) and "review". Dialogs are shared by all parts.
+ */
 @Composable
-internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: (VideoEntity) -> Unit = {}) {
+internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: (VideoEntity) -> Unit = {}, part: String = "online") {
     val context = LocalContext.current
     val service = remember(vm, context) { ServiceLocator.get(context) }
     val prefs = service.sceneMetadataPreferences
@@ -85,11 +88,10 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
 
     val artwork by vm.artworkSettings.collectAsStateWithLifecycle()
     var portraitConsent by remember { mutableStateOf(false) }
-    MetadataPanel(vm, "setup", "Online matching & accounts",
-        if (options.enabled && options.allowedOnlineLookup) "On" else "Off", initialOpen = true) {
+    MetadataPanel(part == "online", "Matching") {
         SwitchRow(
-            "Match scenes and posters online",
-            "Cleaned file and folder names and file fingerprints go to your providers. SMB paths and account details are never sent.",
+            "Match online",
+            "Names and fingerprints only. Never paths or passwords.",
             options.enabled && options.allowedOnlineLookup,
         ) { on ->
             if (on) consentOpen = true
@@ -99,9 +101,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
             }
         }
         SettingsDivider()
-        SettingsLabel("Portrait provider")
-        Text("Choose which provider to try first for portraits. Scenes and movie posters use ThePornDB.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SettingsLabel("Try first for portraits")
         SettingsChoice(listOf("ThePornDB", "StashDB"),
             if (options.primary == SceneMetadataSettings.TPDB) 0 else 1) { index ->
             prefs.update { it.copy(primary = if (index == 0) SceneMetadataSettings.TPDB else SceneMetadataSettings.STASHDB) }
@@ -110,39 +110,38 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         SettingsLabel("Provider keys")
         SceneKeyEntry(vm, SceneMetadataSettings.STASHDB, "StashDB", keyRevision)
         SceneKeyEntry(vm, SceneMetadataSettings.TPDB, "ThePornDB", keyRevision)
-        Text("Keys are encrypted on this device.", style = MaterialTheme.typography.bodySmall)
+        Text("Stored encrypted on this phone.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 
-    MetadataPanel(vm, "videos", "Videos & Original folders",
-        if (options.videoPosters) "Scene posters on videos · movie posters on movie folders" else "Movie posters on movie folders") {
-        SwitchRow(
-            "Scene posters on videos",
-            "Every video is matched to its scene and shows that scene's poster. Otherwise your video frame or custom cover.",
-            options.videoPosters,
-        ) { on -> prefs.update { it.copy(videoPosters = on) }; if (on) ScenePosterWorker.enqueue(context, service.libraryId) }
-        Text("Movie folders inside the folders you add in Original folders get a full movie poster from ThePornDB automatically, searched by the folder's name and then by its file names. The folder you added is skipped.",
-            style = MaterialTheme.typography.bodySmall)
-        Text("Clear matches are applied after every scan and when you pull down. Unclear ones wait in Review.", style = MaterialTheme.typography.bodySmall)
-    }
-
-    MetadataPanel(vm, "portraits", "Virtual folders · performer portraits",
-        if (artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders) "On" else "Off") {
-        Text("The name folders inside your Virtual folders (made from the text before a comma or hyphen, or the first two words of a file name) get a performer portrait. The Virtual folder you name yourself and Custom folders are never filled automatically: choose their poster or performer in Change cover.", style = MaterialTheme.typography.bodySmall)
-        SwitchRow("Performer portraits on Virtual folders",
-            "Search for portraits by folder/person name. Separate from scene identification.",
+    // One place for every automatic picture, each with a one-line note (details live in the consent pop-ups).
+    MetadataPanel(part == "artwork", "Automatic artwork") {
+        SwitchRow("Scene posters", "On videos", options.videoPosters) { on ->
+            prefs.update { it.copy(videoPosters = on) }; if (on) ScenePosterWorker.enqueue(context, service.libraryId)
+        }
+        SettingsDivider()
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Movie posters", style = MaterialTheme.typography.bodyLarge)
+                Text("On movie folders in Original folders · automatic", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        SettingsDivider()
+        SwitchRow("Performer portraits", "On Virtual folders",
             artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders,
         ) { on ->
             if (on) portraitConsent = true
             else vm.updateArtwork { it.copy(portraitsOnFolders = false) }
         }
-        Text(vm.artworkBackgroundNote() ?: "No recent portrait lookup.", style = MaterialTheme.typography.bodySmall)
+        if (!(options.enabled && options.allowedOnlineLookup)) {
+            Text("Needs Match online (Online matching).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 
-    MetadataPanel(vm, "maintenance", "Recheck, advanced & clear", "Fingerprint methods, recheck and clearing saved results") {
-        SwitchRow("Match by file name only", "Reads nothing from your drive while matching, so it can stay asleep. Less exact: it relies on file names, and unclear matches go to review.", options.nameOnly) { enabled ->
+    MetadataPanel(part == "advanced", "Matching methods") {
+        SwitchRow("File name only", "Lets the drive sleep. Less exact.", options.nameOnly) { enabled ->
             prefs.update { old -> old.copy(nameOnly = enabled) }
         }
-        SwitchRow("Try video pHash", "Experimental and slower over SMB. Suggested results always need review.", options.phash) { enabled ->
+        SwitchRow("Video pHash", "Experimental, slower. Always reviewed.", options.phash) { enabled ->
             prefs.update { old -> old.copy(phash = enabled) }
         }
         OutlinedButton(
@@ -153,10 +152,10 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
             },
             enabled = options.allowedOnlineLookup,
             modifier = Modifier.fillMaxWidth(),
-        ) { Text("Recheck unconfirmed with preferred provider") }
-        SettingsLabel("CLEAR SAVED RESULTS")
-        Text("These remove only Skywing's local caches. Your SMB videos and hand-picked covers remain untouched.",
-            style = MaterialTheme.typography.bodySmall)
+        ) { Text("Recheck unconfirmed") }
+    }
+    MetadataPanel(part == "advanced", "Clear saved results") {
+        Text("Only SkyWing's own data. Your videos and chosen covers stay.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedButton(onClick = { clearPrompt = "scene" }, modifier = Modifier.fillMaxWidth()) {
             Text("Clear scene matches…")
         }
@@ -169,7 +168,10 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
 
-    OutlinedButton(onClick = { vm.ui.reviewRequest++ }) { Text("Review artwork matches") }
+    if (part == "review") MetadataPanel(true, "Scenes & movie posters") {
+        Text("Matches that weren't clear enough to apply.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedButton(onClick = { vm.ui.reviewRequest++ }, modifier = Modifier.fillMaxWidth()) { Text("Review matches") }
+    }
 
     if (clearPrompt != null) {
         val selected = clearPrompt!!
@@ -244,19 +246,10 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     // open the same one.
 }
 
-/** Each settings area has its own solid, labelled card and visible expansion affordance. */
+/** One flat section of an Artwork sub-page; shown only on its own page ([visible]). */
 @Composable
-private fun MetadataPanel(
-    vm: LibraryViewModel,
-    id: String,
-    title: String,
-    summary: String,
-    initialOpen: Boolean = false,
-    body: @Composable () -> Unit,
-) {
-    SettingsAccordion(vm, "Artwork", id, title, summary, initialOpen = initialOpen) {
-        body()
-    }
+private fun MetadataPanel(visible: Boolean, title: String, body: @Composable () -> Unit) {
+    if (visible) SettingsStaticCard(title) { body() }
 }
 
 @Composable

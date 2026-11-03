@@ -83,16 +83,46 @@ import kotlinx.coroutines.launch
 
 private class SettingsSection(val id: String, val title: String, val description: String, val group: String)
 
+/*
+ * Settings, minimal (4 Nov 2026): every row opens its own page, nothing folds open in place, one short line under each.
+ * Pages can have their own sub-pages ("Artwork/Covers"); Back goes up one level.
+ */
 private val SETTINGS_SECTIONS = listOf(
-    // One question per section, in the order you need them: the server first, troubleshooting last.
-    SettingsSection("Connection", "Connection", "Server, account and remote access", "Library"),
-    SettingsSection("Sync", "Library management", "Scanning, refresh and hidden items", "Library"),
-    SettingsSection("Artwork", "Artwork & scene metadata", "Video posters, folder portraits and matching", "Library"),
-    SettingsSection("Layout", "App layout", "Navigation, folder tabs and grid sizes", "Personalisation"),
-    SettingsSection("Appearance", "Appearance", "Themes and glass", "Personalisation"),
-    SettingsSection("Diagnostics", "Backup & diagnostics", "Export, restore and reports", "Support"),
+    SettingsSection("Connection", "Connection", "Server and remote access", "Media"),
+    SettingsSection("Sync", "Library", "Scanning and hidden items", "Media"),
+    SettingsSection("Artwork", "Artwork", "Posters, portraits and matching", "Media"),
+    SettingsSection("Appearance", "Look & layout", "Theme, folders and grids", "Personalisation"),
+    SettingsSection("Diagnostics", "Backup & diagnostics", "Backup, restore and reports", "Support"),
     SettingsSection("WhatsNew", "What's new", "Changes in this version", "Support"),
 )
+
+private val SETTINGS_SUBPAGES = listOf(
+    SettingsSection("Connection/VPN", "Remote access", "WireGuard VPN", "Connection"),
+    SettingsSection("Artwork/Review", "Review matches", "Waiting for your choice", "Artwork"),
+    SettingsSection("Artwork/Automatic", "Automatic artwork", "Posters and portraits", "Artwork"),
+    SettingsSection("Artwork/Online", "Online matching", "Providers and keys", "Artwork"),
+    SettingsSection("Artwork/Covers", "Covers", "Defaults for folders", "Artwork"),
+    SettingsSection("Artwork/Thumbnails", "Thumbnails", "Make, retry and reset", "Artwork"),
+    SettingsSection("Artwork/Advanced", "Advanced", "Matching methods and clearing", "Artwork"),
+)
+
+private fun settingsTitle(id: String): String =
+    (SETTINGS_SECTIONS + SETTINGS_SUBPAGES).firstOrNull { it.id == id }?.title ?: "Settings"
+
+/** The page Back goes to: "Artwork/Covers" -> "Artwork", a top page -> the index (null). */
+private fun settingsParent(id: String): String? = id.substringBeforeLast('/', "").ifEmpty { null }
+
+/** A page's own list of sub-pages, as plain rows. */
+@Composable
+private fun SettingsSubpageList(parent: String, open: (String) -> Unit) {
+    val entries = SETTINGS_SUBPAGES.filter { it.group == parent }
+    SettingsPanel {
+        entries.forEachIndexed { index, entry ->
+            if (index > 0) androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            SettingsPageRow(entry) { open(entry.id) }
+        }
+    }
+}
 
 /** Settings index row. Each group opens its own page. */
 @Composable
@@ -119,7 +149,7 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
         HiddenItemsScreen(vm) { vm.ui.setFlag("settings.hidden", false) }
         return
     }
-    BackHandler(enabled = section != null) { section = null }
+    BackHandler(enabled = section != null) { section = section?.let(::settingsParent) }
 
     val saved = vm.settings
     var host by remember { mutableStateOf(saved.host) }
@@ -155,7 +185,8 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
         targetState = section,
         modifier = Modifier.fillMaxSize(),
         transitionSpec = {
-            val opening = initialState == null && targetState != null
+            // Deeper page: slides in from the right; going back: from the left.
+            val opening = (targetState?.count { it == '/' }?.plus(1) ?: 0) > (initialState?.count { it == '/' }?.plus(1) ?: 0)
             slideInHorizontally(tween(320, easing = FastOutSlowInEasing)) { width -> if (opening) width else -width } togetherWith
                 slideOutHorizontally(tween(320, easing = FastOutSlowInEasing)) { width -> if (opening) -width else width }
         },
@@ -171,12 +202,12 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                     Row(Modifier.fillMaxWidth().padding(start = if (page == null) 16.dp else 8.dp, end = 16.dp, top = 16.dp),
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         if (page != null) {
-                            IconButton(onClick = { section = null }) {
+                            IconButton(onClick = { section = settingsParent(page) }) {
                                 Icon(Icons.Filled.ArrowBack, contentDescription = "Back to Settings")
                             }
                         }
                         Text(
-                            if (page == null) "Settings" else SETTINGS_SECTIONS.first { it.id == page }.title,
+                            if (page == null) "Settings" else settingsTitle(page),
                             style = MaterialTheme.typography.titleLarge,
                             modifier = Modifier.weight(1f),
                         )
@@ -346,47 +377,39 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                                 is TestState.Failure -> Text(t.message, color = MaterialTheme.colorScheme.error)
                             }
                             }
-                            // Remote access is part of reaching the server, so it lives here, folded away until needed.
-                            SettingsAccordion(vm, "Connection", "vpn", "Remote access (VPN)",
-                                "WireGuard, for reaching your server away from home", splitContent = true) { VpnSettings() }
+                            SettingsSubpageList("Connection") { section = it }
                         }
+                        "Connection/VPN" -> VpnSettings()
                         "Sync" -> {
                             SyncAndThumbnailsSettings(vm, scan = true, thumbnails = false)
-                            SettingsStaticCard("Hidden files and folders") {
+                            SettingsStaticCard("Hidden items") {
                                 OutlinedButton(onClick = { vm.ui.setFlag("settings.hidden", true) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
                             }
                         }
-                        "Artwork" -> {
-                            SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo)
-                            ArtworkSettingsSection(vm)
-                            SettingsAccordion(
-                                vm, "Artwork", "thumbnail-tools",
-                                "Thumbnail generation & reset",
-                                "Generate, retry, clear cache and reset manually chosen artwork",
-                            ) {
-                                SyncAndThumbnailsSettings(vm, scan = false, thumbnails = true)
-                                ResetChoicesSetting(vm)
-                            }
+                        "Artwork" -> SettingsSubpageList("Artwork") { section = it }
+                        "Artwork/Review" -> {
+                            SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo, part = "review")
+                            ArtworkSettingsSection(vm, part = "review")
                         }
-                        "Layout" -> {
-                            SettingsStaticCard("Visible folder sections") {
-                                FolderTabsSetting(vm)
-                            }
-                            SettingsStaticCard("Navigation") {
-                                SettingsChoice(listOf(stringResource(R.string.ui_sidebar_f5171c9), stringResource(R.string.ui_floating_bottom_bar_b162779)),
-                                    if (vm.navigationPosition == "SIDEBAR") 0 else 1) {
-                                    vm.updateNavigationPosition(if (it == 0) "SIDEBAR" else "FLOATING")
-                                }
-                            }
-                            SettingsStaticCard("Folder pages") {
-                                GridSizeSetting(vm, folders = true)
-                            }
-                            SettingsStaticCard("Video pages") {
-                                GridSizeSetting(vm, folders = false)
-                            }
-
+                        "Artwork/Automatic" -> {
+                            SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo, part = "artwork")
+                            ArtworkSettingsSection(vm, part = "artwork")
                         }
-                        "Appearance" -> ThemeSettings()
+                        "Artwork/Online" -> SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo, part = "online")
+                        "Artwork/Covers" -> ArtworkSettingsSection(vm, part = "covers")
+                        "Artwork/Thumbnails" -> {
+                            SyncAndThumbnailsSettings(vm, scan = false, thumbnails = true)
+                            ResetChoicesSetting(vm)
+                        }
+                        "Artwork/Advanced" -> SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo, part = "advanced")
+                        // Look & layout: theme and glass, then the library's folder tabs and grid sizes. The floating
+                        // toolbar is the only navigation now, so there is no navigation choice.
+                        "Appearance" -> {
+                            ThemeSettings()
+                            SettingsStaticCard("Folder tabs") { FolderTabsSetting(vm) }
+                            SettingsStaticCard("Folder grid") { GridSizeSetting(vm, folders = true) }
+                            SettingsStaticCard("Video grid") { GridSizeSetting(vm, folders = false) }
+                        }
                         "Diagnostics" -> {
                             SettingsStaticCard("Library backup & restore") {
                                 LibraryBackupActions(vm)

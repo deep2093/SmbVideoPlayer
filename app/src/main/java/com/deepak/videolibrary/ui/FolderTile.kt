@@ -108,7 +108,12 @@ internal fun FolderTile(
     }
     Column(
         modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium)
-            .background(if (selected == true) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
+            // Calm (flat) themes: the caption sits on the page itself, no card.
+            .background(
+                if (selected == true) MaterialTheme.colorScheme.primaryContainer
+                else if (LocalLibraryTheme.current.flat) androidx.compose.ui.graphics.Color.Transparent
+                else MaterialTheme.colorScheme.surface,
+            )
             .onGloballyPositioned { card = it }
             .pointerInput(Unit) {
                 // Watches where each press starts without taking the touch away from the click handling below.

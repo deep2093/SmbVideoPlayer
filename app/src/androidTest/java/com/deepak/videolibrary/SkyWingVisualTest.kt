@@ -108,7 +108,7 @@ class SkyWingVisualTest {
                 rule.onNodeWithText("Other addresses (optional)").assertExists()
                 capture("settings-connection")
                 rule.onNodeWithContentDescription("Back to Settings").performClick()
-                rule.onNodeWithText("Appearance").performClick()
+                rule.onNodeWithText("Look & layout").performClick()
                 capture("settings-appearance")
                 rule.onNodeWithContentDescription("Back to Settings").performClick()
                 rule.runOnIdle { player.value = true }

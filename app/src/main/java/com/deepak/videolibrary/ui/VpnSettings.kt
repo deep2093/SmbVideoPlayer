@@ -96,8 +96,7 @@ fun VpnSettings() {
     SettingsPanel {
         SettingsGroupHeading("WireGuard VPN")
         Text(
-            "Reach your home SMB server from anywhere through your existing WireGuard setup. " +
-                "The server address comes from Settings > Connection.",
+            "Reach your drive away from home with WireGuard.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

@@ -105,17 +105,8 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
 
     // Grid preset preferences are independent for each library tab.
     private val layoutPrefs = app.getSharedPreferences("library_layout", Application.MODE_PRIVATE)
-    var navigationPosition by mutableStateOf(layoutPrefs.getString("navigation_position", "SIDEBAR") ?: "SIDEBAR")
-        private set
-    fun updateNavigationPosition(value: String) {
-        if (value !in
-            setOf("SIDEBAR", "FLOATING")
-        ) {
-            return
-        }
-        navigationPosition = value
-        layoutPrefs.edit().putString("navigation_position", value).apply()
-    }
+    /** The floating bottom toolbar is the only navigation (4 Nov 2026): no sidebar, no plain bottom bar. */
+    val navigationPosition: String get() = "FLOATING"
     private val isTablet = app.resources.configuration.smallestScreenWidthDp >= 600
     private val allowedGridPresets = LibraryLayout.presets.toSet()
     private fun restoredGrid(key: String, default: String): String =
@@ -1415,6 +1406,9 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     init {
         viewModelScope.launch {
             services.artwork.ensureLoaded()
+            // The "Enable existing artwork overrides" switch was removed (4 Nov 2026): cover rules are always on.
+            // Internet portraits still need their own permission (adultConsent), so nothing new goes online.
+            if (!services.artwork.settings.value.enabled) updateArtwork { it.copy(enabled = true) }
             // Rebuild folder covers whenever settings or stored artwork change.
             // Only folders whose artwork changed get a new cover; the rest keep theirs (no flashing during lookups).
             services.artwork.revision.collect { artwork.refresh() }

@@ -31,7 +31,7 @@ for _ in range(5):
         x1,y1,x2,y2=map(int,re.findall(r'\d+',got.get('bounds')));adb('shell','input','tap',str((x1+x2)//2),str((y1+y2)//2));time.sleep(1)
     else:break
 find('Virtual folders')
-click('Settings');click('Appearance');find('Theme: Liquid Day')
+click('Settings');click('Look & layout');find('Theme: Liquid Day')
 click('Files');click('Movies');find('Tom Cruise - Fixture.mp4')
 Path('preview/device-optimized.png').write_bytes(adb('exec-out','screencap','-p'))
 log=adb('logcat','-d').decode(errors='replace')

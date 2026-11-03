@@ -75,6 +75,8 @@ data class LibraryTheme(
     /** Text and icons on glass, and the softer secondary ink. */
     val ink: Color = Color.White,
     val inkSecondary: Color = Color(0xD9FFFFFF),
+    /** Minimal layout (Calm): no card fills or shadows; settings and lists are flat rows with hairline dividers. */
+    val flat: Boolean = false,
 )
 
 /** What a selected pill, button or tick is filled with: the frosted film where the theme has one, else the accent. */
@@ -224,13 +226,13 @@ val calmThemes: List<LibraryTheme> = listOf(
         id = "CALM_DARK", label = "Calm Dark", description = "Minimal and matte, soft contrast for the eyes",
         background = Color(0xFF15171A), surface = Color(0xFF1C1F23), card = Color(0xFF23272C), accent = Color(0xFF8FB3C9),
         menu = Color(0xFF1C1F23), light = false,
-        rim = Color(0xFF3A4048), ink = Color(0xFFE3E5E8), inkSecondary = Color(0xFF9CA3AB),
+        rim = Color(0xFF3A4048), ink = Color(0xFFE3E5E8), inkSecondary = Color(0xFF9CA3AB), flat = true,
     ),
     LibraryTheme(
         id = "CALM_LIGHT", label = "Calm Light", description = "Minimal warm paper, gentle on the eyes",
         background = Color(0xFFF3F2EE), surface = Color(0xFFFBFAF7), card = Color(0xFFEAE8E2), accent = Color(0xFF4A6A80),
         menu = Color(0xFFFBFAF7), light = true,
-        rim = Color(0xFFD6D3CB), ink = Color(0xFF2A2C30), inkSecondary = Color(0xFF63666C),
+        rim = Color(0xFFD6D3CB), ink = Color(0xFF2A2C30), inkSecondary = Color(0xFF63666C), flat = true,
     ),
 )
 
