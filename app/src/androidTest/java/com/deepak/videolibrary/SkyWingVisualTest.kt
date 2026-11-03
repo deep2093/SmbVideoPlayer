@@ -105,8 +105,10 @@ class SkyWingVisualTest {
                     capture(label.lowercase())
                 }
                 rule.onNodeWithText("Connection").performClick()
+                rule.onNodeWithText("Server & account").performClick()
                 rule.onNodeWithText("Other addresses (optional)").assertExists()
                 capture("settings-connection")
+                rule.onNodeWithContentDescription("Back to Settings").performClick()
                 rule.onNodeWithContentDescription("Back to Settings").performClick()
                 rule.onNodeWithText("Look & layout").performClick()
                 capture("settings-appearance")

@@ -185,21 +185,21 @@ try:
     # Diagnostics is the last page; it may sit below the fold on a phone.
     scroll_to('Backup & diagnostics');scroll_to('Connection',up=True)
     screenshot('settings-categories')
-    click('Connection');find('Server address');find('Share name');click('Advanced connection options');find('Domain (optional)');find('Require SMB encryption')
-    click('Back to Settings')
+    click('Connection');click('Server & account');find('Server address');find('Share name');click('Advanced connection options');find('Domain (optional)');find('Require SMB encryption')
+    settings_index()
     # Playback settings were intentionally removed. Gestures stay enabled in the player.
     # Every section opens its own page; Artwork has its own list of sub-pages.
     scroll_to('Artwork');click('Artwork');click('Online matching');find('Match online')
     settings_index()
-    scroll_to('Look & layout',up=True);click('Look & layout')
+    scroll_to('Look & layout',up=True);click('Look & layout');click('Theme')
     # Pixallery themes: round swatches (content description = theme name); the heading shows the chosen one.
-    for theme in ['Warm Light','Photo Night','Vivid Night','Calm Dark','Calm Light','Luminous Light','Liquid Day']:
+    for theme in ['Warm Light','Photo Night','Vivid Night','Calm Dark','Onyx','Onyx Vivid','Calm Light','Luminous Light','Liquid Day']:
         click_clear_of_toolbar(theme);find('Theme: '+theme)
     screenshot('liquid-day-theme')
     adb('shell','am','force-stop',APP)
     adb('shell','am','start','-n',APP+'/com.deepak.videolibrary.MainActivity')
     find('Virtual folders')  # Wait for the fresh home frame after restart.
-    click('Settings');click('Look & layout');find('Theme: Liquid Day')
+    click('Settings');settings_index();click('Look & layout');click('Theme');find('Theme: Liquid Day')
     print('PASS: theme choices apply live and persist across restart')
     click('Folders')
     click('Original folders')
@@ -239,7 +239,7 @@ try:
     click('Videos');click(NAME,long=True);click('Remove / Hide')
     click('Files');click('Movies');screenshot('hidden-in-explorer')
     assert gone(NAME), 'A hidden video must not be listed in Files'
-    click('Settings');open_section('Library','Unhide files and folders');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
+    click('Settings');open_section('Library>Hidden items','Unhide files and folders');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
     find('No hidden items.');screenshot('unhide')
     adb('shell','input','keyevent','4')  # Back from Hidden items to the Library page.
     print('PASS: hidden video is left out of Files and can be restored in Settings')

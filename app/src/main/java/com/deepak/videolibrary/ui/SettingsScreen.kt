@@ -97,7 +97,17 @@ private val SETTINGS_SECTIONS = listOf(
 )
 
 private val SETTINGS_SUBPAGES = listOf(
+    SettingsSection("Connection/Server", "Server & account", "Address, share and sign-in", "Connection"),
     SettingsSection("Connection/VPN", "Remote access", "WireGuard VPN", "Connection"),
+    SettingsSection("Sync/Refresh", "Automatic refresh", "Every 12 hours when you open the app", "Sync"),
+    SettingsSection("Sync/Scan", "Library scan", "Scan, resume and status", "Sync"),
+    SettingsSection("Sync/Hidden", "Hidden items", "Show them again", "Sync"),
+    SettingsSection("Appearance/Theme", "Theme", "Colours and glass", "Appearance"),
+    SettingsSection("Appearance/Tabs", "Folder tabs", "Which tabs Folders shows", "Appearance"),
+    SettingsSection("Appearance/FolderGrid", "Folder grid", "List or columns", "Appearance"),
+    SettingsSection("Appearance/VideoGrid", "Video grid", "List or columns", "Appearance"),
+    SettingsSection("Diagnostics/Backup", "Backup & restore", "Your library, settings and covers", "Diagnostics"),
+    SettingsSection("Diagnostics/Reports", "Performance & diagnostics", "Reports for troubleshooting", "Diagnostics"),
     SettingsSection("Artwork/Review", "Review matches", "Waiting for your choice", "Artwork"),
     SettingsSection("Artwork/Automatic", "Automatic artwork", "Posters and portraits", "Artwork"),
     SettingsSection("Artwork/Online", "Online matching", "Providers and keys", "Artwork"),
@@ -221,10 +231,15 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                 ) {
                     if (page == null) {
                         SETTINGS_SECTIONS.groupBy { it.group }.forEach { (group, entries) ->
+                            val grouped = LocalLibraryTheme.current.grouped
+                            if (grouped) androidx.compose.foundation.layout.Spacer(Modifier.height(6.dp))
                             SettingsPanel {
-                                SettingsHeader { Text(group, style = MaterialTheme.typography.titleMedium) }
+                                if (!grouped) SettingsHeader { Text(group, style = MaterialTheme.typography.titleMedium) }
                                 entries.forEachIndexed { index, entry ->
-                                    if (index > 0) androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                    if (index > 0) androidx.compose.material3.HorizontalDivider(
+                                        Modifier.padding(start = if (grouped) 52.dp else 0.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                    )
                                     SettingsPageRow(entry) {
                                         if (entry.id == "WhatsNew") vm.ui.whatsNewOpen = true else section = entry.id
                                     }
@@ -234,7 +249,9 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                     } else {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             when (page) {
-                        "Connection" -> {
+                        // Every top page is a list of its own pages, like Artwork.
+                        "Connection", "Sync", "Appearance", "Diagnostics" -> SettingsSubpageList(page) { section = it }
+                        "Connection/Server" -> {
                             SettingsStaticCard("Server & account") {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 PillTextField(
@@ -377,11 +394,11 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                                 is TestState.Failure -> Text(t.message, color = MaterialTheme.colorScheme.error)
                             }
                             }
-                            SettingsSubpageList("Connection") { section = it }
                         }
                         "Connection/VPN" -> VpnSettings()
-                        "Sync" -> {
-                            SyncAndThumbnailsSettings(vm, scan = true, thumbnails = false)
+                        "Sync/Refresh" -> AutomaticSyncSummary()
+                        "Sync/Scan" -> SyncAndThumbnailsSettings(vm, scan = true, thumbnails = false, refresh = false)
+                        "Sync/Hidden" -> {
                             SettingsStaticCard("Hidden items") {
                                 OutlinedButton(onClick = { vm.ui.setFlag("settings.hidden", true) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
                             }
@@ -404,20 +421,12 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                         "Artwork/Advanced" -> SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo, part = "advanced")
                         // Look & layout: theme and glass, then the library's folder tabs and grid sizes. The floating
                         // toolbar is the only navigation now, so there is no navigation choice.
-                        "Appearance" -> {
-                            ThemeSettings()
-                            SettingsStaticCard("Folder tabs") { FolderTabsSetting(vm) }
-                            SettingsStaticCard("Folder grid") { GridSizeSetting(vm, folders = true) }
-                            SettingsStaticCard("Video grid") { GridSizeSetting(vm, folders = false) }
-                        }
-                        "Diagnostics" -> {
-                            SettingsStaticCard("Library backup & restore") {
-                                LibraryBackupActions(vm)
-                            }
-                            SettingsStaticCard("Performance & diagnostics") {
-                                DiagnosticsSettings()
-                            }
-                        }
+                        "Appearance/Theme" -> ThemeSettings()
+                        "Appearance/Tabs" -> SettingsStaticCard("Folder tabs") { FolderTabsSetting(vm) }
+                        "Appearance/FolderGrid" -> SettingsStaticCard("Folder grid") { GridSizeSetting(vm, folders = true) }
+                        "Appearance/VideoGrid" -> SettingsStaticCard("Video grid") { GridSizeSetting(vm, folders = false) }
+                        "Diagnostics/Backup" -> SettingsStaticCard("Backup & restore") { LibraryBackupActions(vm) }
+                        "Diagnostics/Reports" -> SettingsStaticCard("Performance & diagnostics") { DiagnosticsSettings() }
                         else -> Unit
                             }
                         }

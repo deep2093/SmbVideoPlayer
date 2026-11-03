@@ -62,7 +62,7 @@ internal fun FloatingLibraryNavigation(
             // Frosted selection (Pixallery): a see-through white film with a fine bright edge, not a colour.
             val lensColor = when {
                 !isSelected -> Color.Transparent
-                glass -> theme.accentSurface
+                glass -> theme.accentFill ?: theme.accent.copy(alpha = 0.3f)
                 else -> theme.accent.copy(alpha = 0.22f)
             }
             val lens by animateColorAsState(

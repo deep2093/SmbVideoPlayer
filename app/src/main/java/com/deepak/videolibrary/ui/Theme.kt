@@ -77,6 +77,8 @@ data class LibraryTheme(
     val inkSecondary: Color = Color(0xD9FFFFFF),
     /** Minimal layout (Calm): no card fills or shadows; settings and lists are flat rows with hairline dividers. */
     val flat: Boolean = false,
+    /** One UI style (Onyx): black page, raised rounded groups without outlines, colourful round icons in Settings. */
+    val grouped: Boolean = false,
 )
 
 /** What a selected pill, button or tick is filled with: the frosted film where the theme has one, else the accent. */
@@ -236,8 +238,37 @@ val calmThemes: List<LibraryTheme> = listOf(
     ),
 )
 
-/** Every theme, for saved choices: the Pixallery glass themes, then Calm. */
-private val allThemes: List<LibraryTheme> get() = libraryThemes + calmThemes
+/**
+ * Onyx: inspired by Samsung One UI. A true-black page, raised rounded groups in a deep blue-black (not grey), no outlines,
+ * colourful round icons for every Settings row. Onyx Vivid does the same over vivid colours taken from your covers.
+ */
+val onyxThemes: List<LibraryTheme> = listOf(
+    LibraryTheme(
+        id = "ONYX", label = "Onyx", description = "Black, with raised groups and colourful icons",
+        background = Color(0xFF000000), surface = Color(0xFF15171E), card = Color(0xFF15171E), accent = Color(0xFF5E9BFF),
+        menu = Color(0xFF15171E), light = false,
+        rim = Color(0xFF2A2E38), ink = Color(0xFFF2F3F5), inkSecondary = Color(0xFFA2A6B0), grouped = true,
+    ),
+    LibraryTheme(
+        id = "ONYX_VIVID", label = "Onyx Vivid", description = "Onyx over vivid colours from your covers",
+        background = Color(0xFF000000), surface = Color(0xE6101218), card = Color(0xD9121419), accent = Color(0xFF7FB2FF),
+        glass = true,
+        wallpaper = listOf(Color(0xFF1E0B3A), Color(0xFF07163A), Color(0xFF020205)),
+        glassTint = Color(0x8C07080C), menu = Color(0xFF14161C), light = false,
+        adaptive = AdaptiveStyle(
+            listOf(0.44f, 0.36f, 0.06f), 0.8f, 1.0f, glow = 0.6f, scrim = 0.40f,
+            fallback = listOf(Color(0xFF1E0B3A), Color(0xFF07163A), Color(0xFF020205)),
+            layout = AdaptiveLayout.AURORA, accent = AdaptiveAccent.SAME_HUE, fallbackAccent = Color(0xFF7FB2FF), opacity = 1f,
+        ),
+        rim = Color(0xFF3A3F4C), glassFallback = Color(0xE614161C), blurRadius = 16.dp,
+        // Raised groups stay fairly solid so text reads over bright covers.
+        panelFill = Color(0xD9121419),
+        ink = Color(0xFFF2F3F5), inkSecondary = Color(0xFFB0B4BE), grouped = true,
+    ),
+)
+
+/** Every theme, for saved choices: the Pixallery glass themes, Calm, then Onyx. */
+private val allThemes: List<LibraryTheme> get() = libraryThemes + calmThemes + onyxThemes
 
 /** Settings sections: Calm first (minimal), then the glass themes as in Pixallery. */
 val lightThemes: List<LibraryTheme> get() = libraryThemes.take(4)
@@ -511,6 +542,8 @@ internal fun ThemeSettings() {
             Spacer(Modifier.height(8.dp))
             Text("Calm · minimal", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ThemeSwatchRow(calmThemes, choice, ::select)
+            Text("Onyx · black with colourful icons", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            ThemeSwatchRow(onyxThemes, choice, ::select)
             Text("Light", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ThemeSwatchRow(lightThemes, choice, ::select)
             Text("Dark · colours from your covers", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -62,7 +62,7 @@ import com.deepak.videolibrary.scan.ScanStatus
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel, scan: Boolean = true, thumbnails: Boolean = true) {
+internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel, scan: Boolean = true, thumbnails: Boolean = true, refresh: Boolean = scan) {
     val session by vm.session.collectAsStateWithLifecycle()
     val pending by vm.pendingDirs.collectAsStateWithLifecycle()
     val errors by vm.errors.collectAsStateWithLifecycle()
@@ -89,7 +89,7 @@ internal fun SyncAndThumbnailsSettings(vm: LibraryViewModel, scan: Boolean = tru
     )
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             // ---- Automatic sync ----
-            if (scan) AutomaticSyncSummary()
+            if (scan && refresh) AutomaticSyncSummary()
 
             // ---- Library scan: status, numbers, actions ----
             if (scan) run {
@@ -317,7 +317,7 @@ private fun ScanStat(label: String, value: String, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun AutomaticSyncSummary() {
+internal fun AutomaticSyncSummary() {
     val context = LocalContext.current
     val dao = remember(context) { com.deepak.videolibrary.ServiceLocator.get(context).db.dao() }
     val latest by dao.observeLatestSession().collectAsStateWithLifecycle(null)
@@ -335,8 +335,7 @@ private fun AutomaticSyncSummary() {
     }
     ScanSection("Automatic refresh") {
         Text(
-            "When you open the app and the last scan is more than 12 hours old, the library refreshes by itself. " +
-                "Otherwise the drive is left alone until you refresh, scan, change files or play a video. Your names and covers are kept.",
+            "Refreshes by itself when you open the app and the last scan is over 12 hours old. Otherwise the drive is left alone.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

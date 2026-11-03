@@ -13,6 +13,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -43,6 +45,19 @@ private fun settingsPanelColor(): Color {
 internal fun SettingsPanel(modifier: Modifier = Modifier, emphasised: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val colors = MaterialTheme.colorScheme
     val theme = LocalLibraryTheme.current
+    if (theme.grouped) {
+        // One UI style: a raised rounded group, no outline (a slightly stronger fill when expanded/emphasised).
+        val shape = RoundedCornerShape(26.dp)
+        val fill = theme.panelFill ?: theme.surface
+        CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
+            Column(
+                modifier.fillMaxWidth().clip(shape).background(if (emphasised) lerp(fill, Color.White, 0.04f) else fill)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp), content = content,
+            )
+        }
+        return
+    }
     if (theme.flat) {
         // Calm: a flat group on the page, set apart only by a hairline below it.
         val line = colors.outlineVariant
@@ -77,15 +92,47 @@ internal fun SettingsPanel(modifier: Modifier = Modifier, emphasised: Boolean = 
     }
 }
 
+/** One UI style icon colours, by the same kinds as [settingsIcon]. */
+internal fun settingsIconColor(title: String): Color = when {
+    title.contains("key", true) || title.contains("Server", true) -> Color(0xFF3E8BFF)
+    title.contains("remote", true) || title.contains("VPN", true) -> Color(0xFF14B8A6)
+    title.contains("Connection", true) || title.contains("online", true) -> Color(0xFF2F7CF6)
+    title.contains("review", true) -> Color(0xFFFF8A00)
+    title.contains("provider", true) || title.contains("advanced", true) -> Color(0xFF8B5CF6)
+    title.contains("theme", true) || title.contains("Look", true) || title.contains("Appearance", true) -> Color(0xFFEC4899)
+    title.contains("portrait", true) -> Color(0xFFF43F5E)
+    title.contains("artwork", true) || title.contains("poster", true) || title.contains("cover", true) -> Color(0xFFF97316)
+    title.contains("thumbnail", true) -> Color(0xFFEAB308)
+    title.contains("refresh", true) || title.contains("Sync", true) -> Color(0xFF22C55E)
+    title.contains("scan", true) || title.contains("Library", true) -> Color(0xFF10B981)
+    title.contains("hidden", true) -> Color(0xFF64748B)
+    title.contains("grid", true) || title.contains("tabs", true) || title.contains("folder", true) -> Color(0xFF0EA5E9)
+    title.contains("backup", true) || title.contains("restore", true) -> Color(0xFF6366F1)
+    title.contains("diagnostic", true) || title.contains("Performance", true) -> Color(0xFF94A3B8)
+    title.contains("new", true) -> Color(0xFFF59E0B)
+    else -> Color(0xFF3E8BFF)
+}
+
 internal fun settingsIcon(title: String): ImageVector = when {
-    title.contains("key", true) || title.contains("Server", true) -> Icons.Outlined.Key
+    title.contains("Server", true) -> Icons.Outlined.Dns
+    title.contains("key", true) -> Icons.Outlined.Key
+    title.contains("remote", true) || title.contains("VPN", true) -> Icons.Outlined.VpnKey
+    title.contains("review", true) -> Icons.Outlined.RateReview
+    title.contains("Automatic artwork", true) -> Icons.Outlined.AutoAwesome
     title.contains("provider", true) -> Icons.Outlined.Layers
-    title.contains("online", true) || title.contains("Connection", true) || title.contains("VPN", true) -> Icons.Outlined.Language
-    title.contains("theme", true) || title.contains("Appearance", true) -> Icons.Outlined.Palette
+    title.contains("online", true) || title.contains("Connection", true) -> Icons.Outlined.Language
+    title.contains("theme", true) || title.contains("Look", true) || title.contains("Appearance", true) -> Icons.Outlined.Palette
     title.contains("portrait", true) -> Icons.Outlined.Person
-    title.contains("artwork", true) || title.contains("poster", true) || title.contains("thumbnail", true) -> Icons.Outlined.Image
-    title.contains("scan", true) || title.contains("refresh", true) || title.contains("Sync", true) -> Icons.Outlined.Sync
+    title.contains("thumbnail", true) -> Icons.Outlined.PhotoLibrary
+    title.contains("artwork", true) || title.contains("poster", true) || title.contains("cover", true) -> Icons.Outlined.Image
+    title.contains("refresh", true) || title.contains("Sync", true) -> Icons.Outlined.Sync
+    title.contains("scan", true) -> Icons.Outlined.Search
+    title.contains("hidden", true) -> Icons.Outlined.VisibilityOff
+    title.contains("grid", true) -> Icons.Outlined.GridView
+    title.contains("tabs", true) -> Icons.Outlined.Tab
+    title.contains("Library", true) -> Icons.Outlined.VideoLibrary
     title.contains("backup", true) || title.contains("restore", true) -> Icons.Outlined.Backup
+    title.contains("Performance", true) -> Icons.Outlined.Speed
     title.contains("diagnostic", true) || title.contains("advanced", true) -> Icons.Outlined.Tune
     title.contains("folder", true) || title.contains("files", true) -> Icons.Outlined.Folder
     title.contains("Video", true) -> Icons.Outlined.PlayCircleOutline
@@ -96,6 +143,13 @@ internal fun settingsIcon(title: String): ImageVector = when {
 @Composable
 internal fun SettingsIconTile(title: String) {
     val colors = MaterialTheme.colorScheme
+    if (LocalLibraryTheme.current.grouped) {
+        // One UI style: a colourful circle with a white symbol, a colour per kind of setting.
+        Box(Modifier.size(36.dp).clip(CircleShape).background(settingsIconColor(title)), contentAlignment = Alignment.Center) {
+            Icon(settingsIcon(title), contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+        }
+        return
+    }
     if (LocalLibraryTheme.current.flat) {
         // Calm: a plain line icon, no tile.
         Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
