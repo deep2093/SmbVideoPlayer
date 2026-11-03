@@ -1,5 +1,7 @@
 package com.deepak.videolibrary.ui
 
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -90,36 +92,37 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         Text("Review all (scenes, portraits, movie posters)")
     }
 
-    MetadataPanel(vm, "setup", "1 · Online matching & accounts",
+    MetadataPanel(vm, "setup", "Online matching & accounts",
         if (options.enabled && options.allowedOnlineLookup) "On" else "Off", initialOpen = true) {
-        SwitchRow(
-            "Match scenes and posters online",
-            "Cleaned file and folder names and file fingerprints go to your providers. SMB paths and account details are never sent.",
-            options.enabled && options.allowedOnlineLookup,
-        ) { on ->
-            if (on) consentOpen = true
-            else {
-                prefs.update { it.copy(enabled = false, allowedOnlineLookup = false) }
-                SceneMetadataWorker.cancel(context, service.libraryId)
+        SettingsStaticCard("Match scenes and posters online") {
+            SwitchRow(
+                "Online matching",
+                "Cleaned file and folder names and file fingerprints go to your providers. SMB paths and account details are never sent.",
+                options.enabled && options.allowedOnlineLookup,
+            ) { on ->
+                if (on) consentOpen = true
+                else {
+                    prefs.update { it.copy(enabled = false, allowedOnlineLookup = false) }
+                    SceneMetadataWorker.cancel(context, service.libraryId)
+                }
             }
         }
-        SettingsLabel("PROVIDER ACCOUNTS")
-        Text("Scenes and movie posters use ThePornDB only. This choice sets which provider performer portraits try first. Keys are shared with performer portraits.", style = MaterialTheme.typography.bodySmall)
-        listOf(SceneMetadataSettings.TPDB, SceneMetadataSettings.STASHDB).forEach { id ->
-            val title = if (id == SceneMetadataSettings.TPDB) "ThePornDB" else "StashDB"
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                androidx.compose.material3.RadioButton(selected = options.primary == id, onClick = {
-                    prefs.update { it.copy(primary = id) }
-                })
-                TextButton(onClick = { prefs.update { it.copy(primary = id) } }) { Text("Search $title first") }
+        SettingsStaticCard("Provider preference") {
+            Text("Scenes and movie posters use ThePornDB only. This choice sets which provider performer portraits try first. Keys are shared with performer portraits.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SettingsChoice(listOf("Search ThePornDB first", "Search StashDB first"),
+                if (options.primary == SceneMetadataSettings.TPDB) 0 else 1) { index ->
+                prefs.update { it.copy(primary = if (index == 0) SceneMetadataSettings.TPDB else SceneMetadataSettings.STASHDB) }
             }
         }
-        SceneKeyEntry(vm, SceneMetadataSettings.STASHDB, "StashDB", keyRevision)
-        SceneKeyEntry(vm, SceneMetadataSettings.TPDB, "ThePornDB", keyRevision)
-        Text("Keys are encrypted using Android Keystore and are never embedded in the APK.", style = MaterialTheme.typography.bodySmall)
+        SettingsStaticCard("Provider keys") {
+            SceneKeyEntry(vm, SceneMetadataSettings.STASHDB, "StashDB", keyRevision)
+            SceneKeyEntry(vm, SceneMetadataSettings.TPDB, "ThePornDB", keyRevision)
+            Text("Keys are encrypted using Android Keystore and are never embedded in the APK.", style = MaterialTheme.typography.bodySmall)
+        }
     }
 
-    MetadataPanel(vm, "videos", "2 · Videos & Original folders",
+    MetadataPanel(vm, "videos", "Videos & Original folders",
         if (options.videoPosters) "Scene posters on videos · movie posters on movie folders" else "Movie posters on movie folders") {
         SwitchRow(
             "Scene posters on videos",
@@ -131,7 +134,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         Text("Clear matches are applied after every scan and when you pull down. Unclear ones wait in Review.", style = MaterialTheme.typography.bodySmall)
     }
 
-    MetadataPanel(vm, "portraits", "3 · Virtual folders · performer portraits",
+    MetadataPanel(vm, "portraits", "Virtual folders · performer portraits",
         if (artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders) "On" else "Off") {
         Text("The name folders inside your Virtual folders (made from the text before a comma or hyphen, or the first two words of a file name) get a performer portrait. The Virtual folder you name yourself and Custom folders are never filled automatically: choose their poster or performer in Change cover.", style = MaterialTheme.typography.bodySmall)
         SwitchRow("Performer portraits on Virtual folders",
@@ -144,7 +147,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         Text(vm.artworkBackgroundNote() ?: "No recent portrait lookup.", style = MaterialTheme.typography.bodySmall)
     }
 
-    MetadataPanel(vm, "maintenance", "4 · Recheck, advanced & clear", "Fingerprint methods, recheck and clearing saved results") {
+    MetadataPanel(vm, "maintenance", "Recheck, advanced & clear", "Fingerprint methods, recheck and clearing saved results") {
         SwitchRow("Match by file name only", "Reads nothing from your drive while matching, so it can stay asleep. Less exact: it relies on file names, and unclear matches go to review.", options.nameOnly) { enabled ->
             prefs.update { old -> old.copy(nameOnly = enabled) }
         }
@@ -258,7 +261,7 @@ private fun MetadataPanel(
     initialOpen: Boolean = false,
     body: @Composable () -> Unit,
 ) {
-    SettingsAccordion(vm, "Artwork", id, title, summary, initialOpen = initialOpen) {
+    SettingsAccordion(vm, "Artwork", id, title, summary, initialOpen = initialOpen, splitContent = id == "setup") {
         body()
     }
 }
@@ -272,32 +275,46 @@ private fun SceneKeyEntry(vm: LibraryViewModel, provider: String, label: String,
     var testing by remember(provider) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val saved = remember(provider, revision) { vm.providerHasKey(provider) }
-    Text(label, style = MaterialTheme.typography.titleSmall)
-    OutlinedTextField(
-        value = key, onValueChange = { key = it }, modifier = Modifier.fillMaxWidth(),
-        singleLine = true, visualTransformation = PasswordVisualTransformation(),
-        label = { Text(if (saved) "Key saved. Type to replace." else "API key") },
-    )
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextButton(onClick = {
-            if (vm.saveProviderKey(provider, key)) { key = ""; result = "Key saved securely." }
-            else result = "Couldn't save key. Check its format and device Keystore."
-        }, enabled = key.isNotBlank()) { Text("Save key") }
-        TextButton(onClick = {
-            testing = true
-            scope.launch {
-                result = try {
-                    val ok = withContext(Dispatchers.IO) { SceneMetadataClient(service.providerKeys).test(provider) }
-                    if (ok) "Connected successfully." else "The provider did not confirm this key."
-                } catch (e: CancellationException) { throw e
-                } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) { "Provider error: " + e.failure.message }
-                catch (_: Exception) { "Connection failed. Check the key, network, and GraphQL provider settings." }
-                testing = false
-            }
-        }, enabled = saved && !testing) { Text(if (testing) "Testing…" else "Test") }
-        if (saved) TextButton(onClick = { vm.clearProviderKey(provider); result = "Key removed." }) { Text("Remove") }
+    var expanded by remember(provider) { mutableStateOf(false) }
+    androidx.compose.material3.Surface(shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer, border = settingsCardBorder()) {
+        Row(Modifier.fillMaxWidth().clickable(role = androidx.compose.ui.semantics.Role.Button) { expanded = !expanded }
+            .heightIn(min = 48.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(if (saved) "Key saved" else "API key", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            androidx.compose.material3.Icon(
+                if (expanded) androidx.compose.material.icons.Icons.Filled.ExpandMore else androidx.compose.material.icons.Icons.Filled.ChevronRight,
+                contentDescription = if (expanded) "Close $label" else "Open $label")
+        }
     }
-    result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    if (expanded) {
+        OutlinedTextField(
+            value = key, onValueChange = { key = it }, modifier = Modifier.fillMaxWidth(),
+            singleLine = true, visualTransformation = PasswordVisualTransformation(),
+            label = { Text(if (saved) "Key saved. Type to replace." else "API key") },
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = {
+                if (vm.saveProviderKey(provider, key)) { key = ""; result = "Key saved securely." }
+                else result = "Couldn't save key. Check its format and device Keystore."
+            }, enabled = key.isNotBlank()) { Text("Save key") }
+            TextButton(onClick = {
+                testing = true
+                scope.launch {
+                    result = try {
+                        val ok = withContext(Dispatchers.IO) { SceneMetadataClient(service.providerKeys).test(provider) }
+                        if (ok) "Connected successfully." else "The provider did not confirm this key."
+                    } catch (e: CancellationException) { throw e
+                    } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) { "Provider error: " + e.failure.message }
+                    catch (_: Exception) { "Connection failed. Check the key, network, and GraphQL provider settings." }
+                    testing = false
+                }
+            }, enabled = saved && !testing) { Text(if (testing) "Testing…" else "Test") }
+            if (saved) TextButton(onClick = { vm.clearProviderKey(provider); result = "Key removed." }) { Text("Remove") }
+        }
+        result?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    }
 }
 
 /**

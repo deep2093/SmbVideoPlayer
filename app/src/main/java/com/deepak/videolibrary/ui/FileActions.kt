@@ -444,26 +444,30 @@ internal fun HiddenItemsScreen(vm: LibraryViewModel, back: () -> Unit) {
         }
         Text(stringResource(R.string.ui_hidden_items_stay_on_your_smb_drive_and_re_26d930b))
         TextButton(enabled = hidden.isNotEmpty(), onClick = vm::unhideAll) { Text("Unhide all (${hidden.size})") }
-        if (hidden.isEmpty()) Text(stringResource(R.string.ui_no_hidden_items_b5145e2))
+        if (hidden.isEmpty()) SettingsStaticCard("Hidden items") {
+            Text(stringResource(R.string.ui_no_hidden_items_b5145e2))
+        }
         LazyColumn {
             items(hidden, key = { "${it.kind}:${it.target}" }) { item ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(item.label)
-                        Text(
-                            "${if (item.kind == "MATCH") {
-                                "Custom folder"
-                            } else if (item.kind == "GROUP") {
-                                "Virtual folder"
-                            } else if (item.kind == "DIRECTORY") {
-                                "Original folder"
-                            } else {
-                                "File"
-                            }} · ${item.target}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                SettingsPanel(Modifier.padding(vertical = 5.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(item.label)
+                            Text(
+                                "${if (item.kind == "MATCH") {
+                                    "Custom folder"
+                                } else if (item.kind == "GROUP") {
+                                    "Virtual folder"
+                                } else if (item.kind == "DIRECTORY") {
+                                    "Original folder"
+                                } else {
+                                    "File"
+                                }} · ${item.target}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        TextButton(onClick = { vm.unhide(item) }) { Text(stringResource(R.string.ui_unhide_37f0297)) }
                     }
-                    TextButton(onClick = { vm.unhide(item) }) { Text(stringResource(R.string.ui_unhide_37f0297)) }
                 }
             }
         }

@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -95,124 +93,113 @@ fun VpnSettings() {
     val busy = state == VpnState.Connecting
     val active = state is VpnState.Connected
 
-    Card(
-        shape = MaterialTheme.shapes.medium,
-        border = settingsCardBorder(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("WireGuard", style = MaterialTheme.typography.titleMedium)
+    SettingsPanel {
+        SettingsGroupHeading("WireGuard VPN")
+        Text(
+            "Reach your home SMB server from anywhere through your existing WireGuard setup. " +
+                "The server address comes from Settings > Connection.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        val (statusText, isProblem) = describe(state)
+        Text(
+            "Status: $statusText",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isProblem) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+        )
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (playing && active) {
             Text(
-                "Reach your home SMB server from anywhere through your existing WireGuard setup. " +
-                    "The server address comes from Settings > Connection.",
-                style = MaterialTheme.typography.bodySmall,
+                "Video is playing. The VPN stays up until playback ends.",
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-
-            val (statusText, isProblem) = describe(state)
+        }
+        message?.let {
             Text(
-                "Status: $statusText",
-                style = MaterialTheme.typography.bodyMedium,
-                color = if (isProblem) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (messageIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             )
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-            if (playing && active) {
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (active) {
+                Button(onClick = ::disconnect) { Text("Disconnect") }
+            } else {
+                Button(onClick = ::connect, enabled = hasConfig && !busy) { Text("Connect") }
+            }
+            OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !busy) {
+                Text(if (hasConfig) "Replace config" else "Import .conf")
+            }
+        }
+        if (hasConfig) {
+            TextButton(onClick = { askRemove = true }, enabled = !busy) { Text("Remove configuration") }
+        }
+    }
+
+    SettingsPanel {
+        SettingsGroupHeading("VPN preferences")
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Auto Connect VPN")
                 Text(
-                    "Video is playing. The VPN stays up until playback ends.",
+                    "When the app opens and the server can't be reached directly, connect the VPN first. " +
+                        "Not used when you are on the home network.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            message?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (messageIsError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                )
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (active) {
-                    Button(onClick = ::disconnect) { Text("Disconnect") }
-                } else {
-                    Button(onClick = ::connect, enabled = hasConfig && !busy) { Text("Connect") }
-                }
-                OutlinedButton(onClick = { picker.launch(arrayOf("*/*")) }, enabled = !busy) {
-                    Text(if (hasConfig) "Replace config" else "Import .conf")
-                }
-            }
-            if (hasConfig) {
-                TextButton(onClick = { askRemove = true }, enabled = !busy) { Text("Remove configuration") }
-            }
+            Switch(
+                checked = autoConnect,
+                enabled = hasConfig,
+                onCheckedChange = {
+                    autoConnect = it
+                    vpn.prefs.autoConnect = it
+                },
+            )
         }
-    }
-
-    Card(
-        shape = MaterialTheme.shapes.medium,
-        border = settingsCardBorder(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Auto Connect VPN")
-                    Text(
-                        "When the app opens and the server can't be reached directly, connect the VPN first. " +
-                            "Not used when you are on the home network.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = autoConnect,
-                    enabled = hasConfig,
-                    onCheckedChange = {
-                        autoConnect = it
-                        vpn.prefs.autoConnect = it
-                    },
-                )
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Disconnect VPN when I leave the app")
-                    Text(
-                        "Disconnects right away when you close the app, or 5 minutes after you leave it or lock the phone. Never during playback.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = autoDisconnect,
-                    onCheckedChange = {
-                        autoDisconnect = it
-                        vpn.prefs.autoDisconnect = it
-                    },
-                )
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Use VPN for this app only")
-                    Text(
-                        "Other apps keep their normal connection. Applies the next time the VPN connects.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(
-                    checked = appOnly,
-                    onCheckedChange = {
-                        appOnly = it
-                        vpn.prefs.appOnly = it
-                    },
-                )
-            }
-            if (!appOnly) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Disconnect VPN when I leave the app")
                 Text(
-                    "With this off, the tunnel follows the routes in your WireGuard file and may carry other apps' traffic.",
+                    "Disconnects right away when you close the app, or 5 minutes after you leave it or lock the phone. Never during playback.",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            Switch(
+                checked = autoDisconnect,
+                onCheckedChange = {
+                    autoDisconnect = it
+                    vpn.prefs.autoDisconnect = it
+                },
+            )
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Use VPN for this app only")
+                Text(
+                    "Other apps keep their normal connection. Applies the next time the VPN connects.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = appOnly,
+                onCheckedChange = {
+                    appOnly = it
+                    vpn.prefs.appOnly = it
+                },
+            )
+        }
+        if (!appOnly) {
+            Text(
+                "With this off, the tunnel follows the routes in your WireGuard file and may carry other apps' traffic.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 

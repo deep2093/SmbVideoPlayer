@@ -97,24 +97,13 @@ private val SETTINGS_SECTIONS = listOf(
 /** Settings index row. Each group opens its own page. */
 @Composable
 private fun SettingsPageRow(entry: SettingsSection, onOpen: () -> Unit) {
-    val cardShape = MaterialTheme.shapes.medium
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Open ${entry.title}", onClick = onOpen),
-        shape = cardShape,
-        border = settingsCardBorder(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-    ) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
+    SettingsPanel(Modifier.clickable(role = Role.Button, onClickLabel = "Open ${entry.title}", onClick = onOpen)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            SettingsIconTile(entry.title)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(entry.title, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    entry.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                )
+                Text(entry.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -188,16 +177,16 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                         }
                         Text(
                             if (page == null) "Settings" else SETTINGS_SECTIONS.first { it.id == page }.title,
-                            style = MaterialTheme.typography.headlineMedium,
+                            style = MaterialTheme.typography.titleLarge,
                             modifier = Modifier.weight(1f),
                         )
                     }
                 }
                 Column(
                     Modifier.fillMaxSize().imePadding().verticalScroll(activeScroll)
-                        .padding(horizontal = 12.dp, vertical = 12.dp)
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
                         .padding(bottom = if (floatingPadding(vm)) 100.dp else 0.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (page == null) {
                         SETTINGS_SECTIONS.forEach { entry ->
@@ -348,11 +337,10 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                                 is TestState.Success -> Text(t.message, color = MaterialTheme.colorScheme.primary)
                                 is TestState.Failure -> Text(t.message, color = MaterialTheme.colorScheme.error)
                             }
-                            SettingsDivider()
+                            }
                             // Remote access is part of reaching the server, so it lives here, folded away until needed.
                             SettingsAccordion(vm, "Connection", "vpn", "Remote access (VPN)",
-                                "WireGuard, for reaching your server away from home") { VpnSettings() }
-                            }
+                                "WireGuard, for reaching your server away from home", splitContent = true) { VpnSettings() }
                         }
                         "Sync" -> SyncAndThumbnailsSettings(vm, scan = true, thumbnails = false)
                         "Artwork" -> {
@@ -372,12 +360,10 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                                 FolderTabsSetting(vm)
                             }
                             SettingsStaticCard("Navigation") {
-                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                                RadioButton(selected = vm.navigationPosition == "SIDEBAR", onClick = { vm.updateNavigationPosition("SIDEBAR") })
-                                TextButton(onClick = { vm.updateNavigationPosition("SIDEBAR") }) { Text(stringResource(R.string.ui_sidebar_f5171c9)) }
-                                RadioButton(selected = vm.navigationPosition == "FLOATING", onClick = { vm.updateNavigationPosition("FLOATING") })
-                                TextButton(onClick = { vm.updateNavigationPosition("FLOATING") }) { Text(stringResource(R.string.ui_floating_bottom_bar_b162779)) }
-                            }
+                                SettingsChoice(listOf(stringResource(R.string.ui_sidebar_f5171c9), stringResource(R.string.ui_floating_bottom_bar_b162779)),
+                                    if (vm.navigationPosition == "SIDEBAR") 0 else 1) {
+                                    vm.updateNavigationPosition(if (it == 0) "SIDEBAR" else "FLOATING")
+                                }
                             }
                             SettingsStaticCard("Folder pages") {
                                 GridSizeSetting(vm, folders = true)
@@ -453,17 +439,10 @@ private fun ResetChoicesSetting(vm: LibraryViewModel) {
 /** A small heading inside a section. */
 @Composable
 internal fun SettingsLabel(text: String) {
-    // One strong visual hierarchy shared by *all* Settings pages.
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier.padding(end = 10.dp).width(4.dp).height(23.dp)
-                .background(MaterialTheme.colorScheme.tertiary, RoundedCornerShape(8.dp)),
-        )
-        Text(text, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-    }
+    Text(text.lowercase().replaceFirstChar { it.titlecase() },
+        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+        style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+
 }
 
 /** A thin line between the parts of a section (instead of boxes inside boxes). */
