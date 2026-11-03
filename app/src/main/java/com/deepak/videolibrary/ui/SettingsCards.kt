@@ -31,13 +31,19 @@ internal fun settingsCardBorder(emphasised: Boolean = false): BorderStroke {
 }
 
 @Composable
+private fun settingsPanelColor(): Color {
+    val surface = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 1f)
+    return if (LocalLibraryTheme.current.light) lerp(surface, Color.White, 0.32f)
+        else lerp(surface, Color.Black, 0.48f)
+}
+
+@Composable
 internal fun SettingsPanel(modifier: Modifier = Modifier, emphasised: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     val colors = MaterialTheme.colorScheme
     val theme = LocalLibraryTheme.current
-    val base = if (theme.light) lerp(colors.surfaceContainerHigh.copy(alpha = 1f), Color.White, 0.80f)
-        else lerp(colors.surfaceContainerHigh.copy(alpha = 1f), Color.White, 0.12f)
+    val base = settingsPanelColor()
     // Glass gets a subtle specular wash. Reduced transparency and solid themes stay opaque.
-    val top = if (theme.glass && !theme.reduceTransparency) lerp(base, colors.onSurface, 0.07f) else base
+    val top = if (theme.glass && !theme.reduceTransparency) lerp(base, colors.onSurface, 0.025f) else base
     Surface(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp),
         color = Color.Transparent, contentColor = colors.onSurface, border = settingsCardBorder(emphasised)) {
         Column(Modifier.background(Brush.verticalGradient(listOf(top, base))).padding(horizontal = 12.dp, vertical = 8.dp),
@@ -71,13 +77,13 @@ internal fun SettingsIconTile(title: String) {
     }
 }
 
-/** A solid theme-coloured title band identifies the controls belonging to this section. */
+/** A softly tinted title band identifies the controls belonging to this section. */
 @Composable
 internal fun SettingsHeader(content: @Composable () -> Unit) {
     val colors = MaterialTheme.colorScheme
-    val fill = lerp(colors.tertiary, if (LocalLibraryTheme.current.light) Color.Black else Color.White, 0.27f).copy(alpha = 1f)
+    val fill = lerp(settingsPanelColor(), colors.tertiary, 0.10f)
     Surface(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(9.dp), color = fill,
-        contentColor = if (fill.luminance() > 0.179f) Color.Black else Color.White) {
+        contentColor = colors.onSurface) {
         Box(Modifier.padding(horizontal = 9.dp, vertical = 4.dp)) { content() }
     }
 }
