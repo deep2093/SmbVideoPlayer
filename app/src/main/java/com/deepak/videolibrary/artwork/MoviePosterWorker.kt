@@ -55,6 +55,8 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         val scope = inputData.getString("scope").orEmpty().trim('/')
         val force = inputData.getBoolean("force", false)
         val kind = if (inputData.getString("kind") == KIND_SCENE) KIND_SCENE else KIND_MOVIE
+        // Movie posters switched off: automatic runs stop; "Fetch posters" on a folder (force) still works.
+        if (kind == KIND_MOVIE && !force && !options.moviePosters) return Result.success()
         val client = SceneMetadataClient(services.providerKeys)
 
         val saved = services.settings.load()

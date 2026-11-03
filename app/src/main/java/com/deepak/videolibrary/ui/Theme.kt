@@ -249,6 +249,13 @@ val onyxThemes: List<LibraryTheme> = listOf(
         menu = Color(0xFF15171E), light = false,
         rim = Color(0xFF2A2E38), ink = Color(0xFFF2F3F5), inkSecondary = Color(0xFFA2A6B0), grouped = true,
     ),
+    // In between: a mid slate page (neither black nor light) with lighter raised groups, white text, colourful icons.
+    LibraryTheme(
+        id = "ONYX_SLATE", label = "Onyx Slate", description = "Mid-tone slate, raised groups and colourful icons",
+        background = Color(0xFF3A3F4A), surface = Color(0xFF484E5A), card = Color(0xFF484E5A), accent = Color(0xFF9CC3FF),
+        menu = Color(0xFF484E5A), light = false,
+        rim = Color(0xFF5A606C), ink = Color(0xFFF3F4F7), inkSecondary = Color(0xFFC6CBD4), grouped = true,
+    ),
     LibraryTheme(
         id = "ONYX_VIVID", label = "Onyx Vivid", description = "Onyx over vivid colours from your covers",
         background = Color(0xFF000000), surface = Color(0xE6101218), card = Color(0xD9121419), accent = Color(0xFF7FB2FF),
@@ -542,7 +549,7 @@ internal fun ThemeSettings() {
             Spacer(Modifier.height(8.dp))
             Text("Calm · minimal", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ThemeSwatchRow(calmThemes, choice, ::select)
-            Text("Onyx · black with colourful icons", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Onyx · One UI style, colourful icons", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ThemeSwatchRow(onyxThemes, choice, ::select)
             Text("Light", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ThemeSwatchRow(lightThemes, choice, ::select)

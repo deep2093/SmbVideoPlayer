@@ -115,25 +115,29 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
 
     // One place for every automatic picture, each with a one-line note (details live in the consent pop-ups).
     MetadataPanel(part == "artwork", "Automatic artwork") {
-        SwitchRow("Scene posters", "On videos", options.videoPosters) { on ->
+        val online = options.enabled && options.allowedOnlineLookup
+        // All three need Match online, so the note sits at the top and the switches grey out while it's off.
+        if (!online) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Turn on Match online first.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                TextButton(onClick = { vm.ui.settingsSection = "Artwork/Online" }) { Text("Online matching") }
+            }
+            SettingsDivider()
+        }
+        SwitchRow("Scene posters", "On videos", options.videoPosters, enabled = online) { on ->
             prefs.update { it.copy(videoPosters = on) }; if (on) ScenePosterWorker.enqueue(context, service.libraryId)
         }
         SettingsDivider()
-        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("Movie posters", style = MaterialTheme.typography.bodyLarge)
-                Text("On movie folders in Original folders · automatic", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+        SwitchRow("Movie posters", "On movie folders in Original folders", options.moviePosters, enabled = online) { on ->
+            prefs.update { it.copy(moviePosters = on) }
+            if (on) com.deepak.videolibrary.artwork.MoviePosterWorker.enqueue(context, service.libraryId)
         }
         SettingsDivider()
         SwitchRow("Performer portraits", "On Virtual folders",
-            artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders,
+            artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders, enabled = online,
         ) { on ->
             if (on) portraitConsent = true
             else vm.updateArtwork { it.copy(portraitsOnFolders = false) }
-        }
-        if (!(options.enabled && options.allowedOnlineLookup)) {
-            Text("Needs Match online (Online matching).", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 

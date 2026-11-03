@@ -37,6 +37,8 @@ data class SceneMetadataSettings(
     val allowedOnlineLookup: Boolean = false,
     val posterMode: PosterMode = PosterMode.AUTOMATIC,
     val videoPosters: Boolean = true,
+    /** Movie posters on movie folders inside Original folders (its own switch since 4 Nov 2026; on by default). */
+    val moviePosters: Boolean = true,
     val folderPosters: Boolean = false,
     val originalFolderCover: FolderCoverChoice = FolderCoverChoice.ORIGINAL,
     val customFolderCover: FolderCoverChoice = FolderCoverChoice.ORIGINAL,
@@ -74,7 +76,7 @@ data class SceneMetadataSettings(
 
     fun needsFolderScenePosters() = false
 
-    fun needsMoviePosters() = true
+    fun needsMoviePosters() = moviePosters
 }
 
 class SceneMetadataPreferences(context: Context, libraryId: String) {
@@ -94,6 +96,7 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
         // Confirmed scene posters are always applied automatically; there is no approval step or off switch.
         posterMode = PosterMode.AUTOMATIC,
         videoPosters = prefs.getBoolean("video_posters", true),
+        moviePosters = prefs.getBoolean("movie_posters", true),
         folderPosters = prefs.getBoolean("folder_posters", false),
         originalFolderCover = savedChoice("original_folder_cover"),
         customFolderCover = savedChoice("custom_folder_cover"),
@@ -121,6 +124,7 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
             .putBoolean("online_consent", next.allowedOnlineLookup)
             .putString("poster_mode", next.posterMode.name)
             .putBoolean("video_posters", next.videoPosters)
+            .putBoolean("movie_posters", next.moviePosters)
             .putBoolean("folder_posters", next.folderPosters)
             .putString("original_folder_cover", next.originalFolderCover.name)
             .putString("custom_folder_cover", next.customFolderCover.name)
