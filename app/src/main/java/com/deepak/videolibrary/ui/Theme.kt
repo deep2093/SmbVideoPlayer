@@ -215,7 +215,29 @@ val libraryThemes: List<LibraryTheme> = listOf(
     ),
 )
 
-/** Settings sections, as in Pixallery: three pale light themes plus deep Clear Light, then the two dark ones. */
+/**
+ * Calm: the minimal pair. Solid, matte surfaces with no glass, glow or blur; soft off-white (or soft charcoal) text
+ * instead of pure white (or black) to cut glare; one muted accent. Made for long evenings of browsing.
+ */
+val calmThemes: List<LibraryTheme> = listOf(
+    LibraryTheme(
+        id = "CALM_DARK", label = "Calm Dark", description = "Minimal and matte, soft contrast for the eyes",
+        background = Color(0xFF15171A), surface = Color(0xFF1C1F23), card = Color(0xFF23272C), accent = Color(0xFF8FB3C9),
+        menu = Color(0xFF1C1F23), light = false,
+        rim = Color(0xFF3A4048), ink = Color(0xFFE3E5E8), inkSecondary = Color(0xFF9CA3AB),
+    ),
+    LibraryTheme(
+        id = "CALM_LIGHT", label = "Calm Light", description = "Minimal warm paper, gentle on the eyes",
+        background = Color(0xFFF3F2EE), surface = Color(0xFFFBFAF7), card = Color(0xFFEAE8E2), accent = Color(0xFF4A6A80),
+        menu = Color(0xFFFBFAF7), light = true,
+        rim = Color(0xFFD6D3CB), ink = Color(0xFF2A2C30), inkSecondary = Color(0xFF63666C),
+    ),
+)
+
+/** Every theme, for saved choices: the Pixallery glass themes, then Calm. */
+private val allThemes: List<LibraryTheme> get() = libraryThemes + calmThemes
+
+/** Settings sections: Calm first (minimal), then the glass themes as in Pixallery. */
 val lightThemes: List<LibraryTheme> get() = libraryThemes.take(4)
 val darkThemes: List<LibraryTheme> get() = libraryThemes.drop(4)
 
@@ -271,7 +293,7 @@ fun Modifier.themedOutline(shape: Shape, emphasised: Boolean = false): Modifier 
 private fun rememberThemeChoice(): State<String> {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("appearance", Context.MODE_PRIVATE) }
-    fun read() = prefs.getString("theme", DEFAULT_THEME)?.takeIf { name -> libraryThemes.any { it.id == name } } ?: DEFAULT_THEME
+    fun read() = prefs.getString("theme", DEFAULT_THEME)?.takeIf { name -> allThemes.any { it.id == name } } ?: DEFAULT_THEME
     val selected = remember { mutableStateOf(read()) }
     DisposableEffect(prefs) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key -> if (key == "theme")selected.value = read() }
@@ -326,7 +348,7 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         blurScale = BLUR_SCALES[blurStep.coerceIn(0, 4)],
         lensOn = !reduceTransparency && blurStep == 0 && android.os.Build.VERSION.SDK_INT >= 33,
     )
-    val selected = libraryThemes.first { it.id == choice }
+    val selected = allThemes.first { it.id == choice }
     val chosen = if (reduceTransparency && selected.glass) selected.copy(
         card = selected.menu, surface = selected.menu, glassTint = selected.menu, reduceTransparency = true, panelFill = null,
     ) else selected
@@ -386,9 +408,9 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         tertiaryContainer = theme.card,
         onTertiaryContainer = Color.White,
         background = if (theme.glass) Color.Transparent else theme.background,
-        onBackground = Color.White,
+        onBackground = theme.ink,
         surface = theme.surface,
-        onSurface = Color.White,
+        onSurface = theme.ink,
         surfaceVariant = theme.card,
         onSurfaceVariant = theme.inkSecondary,
         surfaceTint = Color.Transparent,
@@ -478,19 +500,21 @@ internal fun ThemeSettings() {
     val choice by rememberThemeChoice()
     val reduceTransparency by rememberAppearanceFlag("reduce_transparency")
     val blurStep by rememberAppearanceInt("blur_step", DEFAULT_BLUR_STEP)
-    val current = libraryThemes.first { it.id == choice }
+    val current = allThemes.first { it.id == choice }
     fun select(id: String) = prefs.edit().putString("theme", id).apply()
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SettingsStaticCard("Theme") {
             Text("Theme: ${current.label}", style = MaterialTheme.typography.titleMedium)
             Text(current.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(8.dp))
+            Text("Calm · minimal", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            ThemeSwatchRow(calmThemes, choice, ::select)
             Text("Light", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ThemeSwatchRow(lightThemes, choice, ::select)
             Text("Dark · colours from your covers", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ThemeSwatchRow(darkThemes, choice, ::select)
         }
-        SettingsStaticCard("Glass") {
+        if (current.glass) SettingsStaticCard("Glass") {
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Glass effect", style = MaterialTheme.typography.bodyLarge)
@@ -549,7 +573,7 @@ private fun ThemeSwatchRow(themes: List<LibraryTheme>, selected: String, onSelec
                     if (active) Box(Modifier.size(64.dp).border(3.dp, ring, androidx.compose.foundation.shape.CircleShape))
                     Box(
                         Modifier.size(if (active) 50.dp else 56.dp).clip(androidx.compose.foundation.shape.CircleShape)
-                            .background(Brush.linearGradient(option.wallpaper + option.rim))
+                            .background(Brush.linearGradient((option.wallpaper.ifEmpty { listOf(option.background, option.card) }) + option.rim))
                             .border(1.dp, ring.copy(alpha = 0.25f), androidx.compose.foundation.shape.CircleShape),
                         contentAlignment = androidx.compose.ui.Alignment.Center,
                     ) {
