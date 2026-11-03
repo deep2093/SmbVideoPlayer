@@ -5,9 +5,11 @@ import com.deepak.videolibrary.vpn.VpnState
 import com.deepak.videolibrary.vpn.WireGuardManager
 
 /**
- * Remote access = the VPN tunnel to the drive is up. While it is, scene, poster and portrait lookups never start by
- * themselves (after a scan, a periodic sync or a settings change); they run only when you ask for them: pull down to
- * refresh, "Fetch scenes/posters" on a folder, or the buttons in Settings.
+ * Remote access = the VPN tunnel to the drive is up. While it is, nothing heavy starts by itself:
+ * - scene, poster and portrait lookups run only when you ask (pull down to refresh, "Fetch scenes/posters", Settings);
+ * - library scans run only from Refresh or when you add folders (the 12-hour refresh and the periodic sync wait);
+ * - thumbnails and video lengths (which read the video files) wait until you are home, or until you start thumbnails
+ *   yourself in Settings.
  */
 object RemoteAccess {
     fun active(context: Context): Boolean =

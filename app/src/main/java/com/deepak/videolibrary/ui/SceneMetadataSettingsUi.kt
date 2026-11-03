@@ -628,9 +628,11 @@ internal fun SceneMetadataReviewDialog(
                                     } else {
                                         val proposed = JSONArray()
                                         found.forEach { proposed.put(it.encoded()) }
-                                        service.sceneMetadataStore.offerAlternatives(record.path, proposed.toString())
+                                        val offered = service.sceneMetadataStore.offerAlternatives(record.path, proposed.toString())
                                         refresh++
-                                        message = "ThePornDB returned " + found.size + " suggestions."
+                                        message = if (offered == 0) "ThePornDB: only scenes you already rejected for this file. Try another title."
+                                            else if (offered < found.size) "ThePornDB returned $offered suggestions (${found.size - offered} you rejected before are hidden)."
+                                            else "ThePornDB returned " + found.size + " suggestions."
                                         searchNote = message
                                     }
                                 } catch (e: com.deepak.videolibrary.artwork.online.ProviderException) {

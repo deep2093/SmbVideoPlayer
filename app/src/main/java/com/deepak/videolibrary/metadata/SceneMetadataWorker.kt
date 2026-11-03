@@ -163,7 +163,13 @@ class SceneMetadataWorker(context: Context, params: WorkerParameters) : Coroutin
             result == null -> services.sceneMetadataStore.save(video, "RETRY")
             result.first.isEmpty() -> services.sceneMetadataStore.save(video, if (result.second) "RETRY" else "NO_MATCH")
             else -> {
-                val matches = result.first.distinctBy { it.provider + ":" + it.id }
+                // Scenes you rejected for this file never come back, not even as an automatic match.
+                val rejected = services.sceneMetadataStore.rejectedIds(video.relativePath)
+                val matches = result.first.distinctBy { it.provider + ":" + it.id }.filter { (it.provider + ":" + it.id) !in rejected }
+                if (matches.isEmpty()) {
+                    services.sceneMetadataStore.save(video, "DISMISSED")
+                    return
+                }
                 // A file-hash match, or a title that clearly is this file's, is applied automatically.
                 // Anything unclear (several scenes, a partial title, Android pHash) waits in Review.
                 val chosen = SceneAutoMatch.choose(matches, video.name, services.sceneMetadataPreferences.settings.value.sceneProviders())

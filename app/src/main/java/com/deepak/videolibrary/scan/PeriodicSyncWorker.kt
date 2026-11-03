@@ -27,6 +27,10 @@ class PeriodicSyncWorker(context: Context, params: WorkerParameters) : Coroutine
             .putLong("last_attempt", now)
             .putString("last_status", "RUNNING")
             .apply()
+        if (com.deepak.videolibrary.metadata.RemoteAccess.active(applicationContext)) {
+            prefs.edit().putString("last_status", "SKIPPED: Remote access (VPN) is on; refresh by hand").apply()
+            return Result.success()
+        }
         val saved = services.settings.load()
         if (com.deepak.videolibrary.settings.LibraryIdentity.of(saved) != services.libraryId) return Result.retry()
         val profile = saved.takeIf { it.host.isNotBlank() && it.share.isNotBlank() }?.let(services.settings::toProfile)

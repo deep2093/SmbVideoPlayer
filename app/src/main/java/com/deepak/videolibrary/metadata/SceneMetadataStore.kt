@@ -145,14 +145,57 @@ data class SceneMetadataRecord(
 
 /** A new SQLite database, so no migration or modifications to existing Room library/artwork schemas. */
 class SceneMetadataStore(context: Context, libraryId: String) :
-    SQLiteOpenHelper(context.applicationContext, "scene-metadata-$libraryId.db", null, 1) {
+    SQLiteOpenHelper(context.applicationContext, "scene-metadata-$libraryId.db", null, 2) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE scene_metadata(path TEXT PRIMARY KEY NOT NULL, size INTEGER NOT NULL, modified INTEGER NOT NULL, status TEXT NOT NULL, result TEXT, suggestions TEXT, checked INTEGER NOT NULL)")
         db.execSQL("CREATE INDEX idx_scene_metadata_status ON scene_metadata(status, checked)")
+        createRejected(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createRejected(db)
+    }
+
+    /**
+     * Scenes you rejected for a file (version 2). They never come back for that file: not from a manual re-search, a
+     * folder "Fetch scenes", a change of provider, or an automatic match. Kept until the file's matches are cleared.
+     */
+    private fun createRejected(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS scene_rejected(path TEXT NOT NULL, provider TEXT NOT NULL, scene TEXT NOT NULL, PRIMARY KEY(path, provider, scene))")
+    }
+
+    private fun rememberRejected(path: String, provider: String, sceneId: String) {
+        if (sceneId.isEmpty()) return
+        writableDatabase.insertWithOnConflict(
+            "scene_rejected", null,
+            ContentValues().apply { put("path", path); put("provider", provider); put("scene", sceneId) },
+            SQLiteDatabase.CONFLICT_IGNORE,
+        )
+    }
+
+    /** "provider:sceneId" of every scene rejected for [path]. */
+    @Synchronized
+    fun rejectedIds(path: String): Set<String> {
+        val ids = HashSet<String>()
+        readableDatabase.query("scene_rejected", arrayOf("provider", "scene"), "path=?", arrayOf(path), null, null, null).use { c ->
+            while (c.moveToNext()) ids += c.getString(0) + ":" + c.getString(1)
+        }
+        return ids
+    }
+
+    /** [suggestions] (a JSON array of {provider, scene}) without the scenes rejected for [path]. */
+    fun withoutRejected(path: String, suggestions: String): org.json.JSONArray {
+        val rejected = rejectedIds(path)
+        val all = runCatching { org.json.JSONArray(suggestions) }.getOrDefault(org.json.JSONArray())
+        val kept = org.json.JSONArray()
+        for (i in 0 until all.length()) {
+            val item = all.optJSONObject(i) ?: continue
+            val key = item.optString("provider") + ":" + item.optJSONObject("scene")?.optString("id").orEmpty()
+            if (key !in rejected) kept.put(item)
+        }
+        return kept
+    }
 
     private val changes = MutableStateFlow(0)
 
@@ -258,6 +301,7 @@ class SceneMetadataStore(context: Context, libraryId: String) :
         for (i in 0 until current.length()) {
             val item = current.optJSONObject(i) ?: continue
             if (item.optString("provider") != providerId || item.optJSONObject("scene")?.optString("id") != sceneId) remaining.put(item)
+            else rememberRejected(path, providerId, sceneId)
         }
         writableDatabase.execSQL(
             "UPDATE scene_metadata SET status=?, suggestions=? WHERE path=? AND status='REVIEW'",
@@ -265,15 +309,21 @@ class SceneMetadataStore(context: Context, libraryId: String) :
         )
     }
 
-    /** Apply user-requested search results. Previously confirmed matches are not overwritten by background jobs. */
+    /**
+     * Apply user-requested search results, without scenes you rejected for this file. Previously confirmed matches are
+     * not overwritten. Returns how many suggestions were offered (0 when every result had been rejected before).
+     */
     @Synchronized
-    fun offerAlternatives(path: String, suggestions: String) {
-        val row = get(path) ?: return
-        if (row.status == "CONFIRMED") return
+    fun offerAlternatives(path: String, suggestions: String): Int {
+        val row = get(path) ?: return 0
+        if (row.status == "CONFIRMED") return 0
+        val kept = withoutRejected(path, suggestions)
+        if (kept.length() == 0) return 0
         writableDatabase.execSQL(
             "UPDATE scene_metadata SET status='REVIEW', suggestions=? WHERE path=? AND status!='CONFIRMED'",
-            arrayOf(suggestions, path),
+            arrayOf(kept.toString(), path),
         )
+        return kept.length()
     }
 
     /** Forgets "no match" and "retry" results for videos under [folder] (a drive path without a trailing slash). */
@@ -307,6 +357,14 @@ class SceneMetadataStore(context: Context, libraryId: String) :
 
     @Synchronized
     fun dismiss(path: String) {
+        // Dismissing a file rejects every scene it was offering.
+        get(path)?.takeIf { it.status == "REVIEW" }?.suggestions?.let { text ->
+            val list = runCatching { org.json.JSONArray(text) }.getOrDefault(org.json.JSONArray())
+            for (i in 0 until list.length()) {
+                val item = list.optJSONObject(i) ?: continue
+                rememberRejected(path, item.optString("provider"), item.optJSONObject("scene")?.optString("id").orEmpty())
+            }
+        }
         writableDatabase.execSQL("UPDATE scene_metadata SET status='DISMISSED', suggestions=NULL WHERE path=? AND status='REVIEW'", arrayOf(path))
         changes.value += 1
     }
@@ -318,5 +376,8 @@ class SceneMetadataStore(context: Context, libraryId: String) :
     }
 
     /** Clear local scene results only. Does not touch SMB files or manual covers. */
-    fun clearMatches(): Int = writableDatabase.delete("scene_metadata", null, null).also { changes.value += 1 }
+    fun clearMatches(): Int = writableDatabase.delete("scene_metadata", null, null).also {
+        writableDatabase.delete("scene_rejected", null, null)
+        changes.value += 1
+    }
 }

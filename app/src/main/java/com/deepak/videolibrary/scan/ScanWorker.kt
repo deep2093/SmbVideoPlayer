@@ -31,6 +31,10 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val profile = services.settings.toProfile(saved)
         val expected = inputData.getString("libraryId")
         if (expected != null && expected != services.libraryId) return Result.failure()
+        // Remote access (VPN up): scans start only when you ask (Refresh, adding folders); the 12-hour refresh waits
+        // until you are home. Thumbnails and length reading (which open the video files) wait too.
+        val remote = com.deepak.videolibrary.metadata.RemoteAccess.active(applicationContext)
+        if (remote && !inputData.getBoolean("manual", false)) return Result.success()
 
         try {
             setForeground(WorkNotifications.info(applicationContext, 1, "Scanning your video library"))
@@ -44,13 +48,13 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val completed = coroutineScope {
             val scan = async { services.scanRepository.run(requested, profile, id.toString()) }
             // Thumbnails are made while the scan is still running, so artwork appears progressively.
-            val thumbs = async { services.thumbnails.run(profile) { scan.isCompleted } }
+            val thumbs = async { if (remote) true else services.thumbnails.run(profile) { scan.isCompleted } }
             val ok = scan.await()
             if (!thumbs.await()) com.deepak.videolibrary.thumbs.ThumbnailWorker.enqueue(applicationContext, services.libraryId)
             ok
         }
         // Lengths for videos that have none saved yet: read once, then never again.
-        if (completed) runCatching { services.lengthBackfill.run(profile) }.onFailure { if (it is CancellationException) throw it }
+        if (completed && !remote) runCatching { services.lengthBackfill.run(profile) }.onFailure { if (it is CancellationException) throw it }
         // After every finished scan, look up what is new or still missing and apply it.
         val finished = completed || services.db.dao().pendingCountNow() == 0
         if (finished) com.deepak.videolibrary.metadata.MissingArtworkLookup.start(applicationContext, services, recheck = false)
@@ -65,9 +69,10 @@ class ScanWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         private const val KEY_MODE = "mode"
         private const val MAX_RETRIES = 2
 
-        fun enqueue(context: Context, mode: ScanMode, afterCurrent: Boolean = false, libraryId: String = ServiceLocator.get(context).libraryId) {
+        /** [manual]: you asked for it (Refresh, adding folders), so it also runs over remote access (VPN). */
+        fun enqueue(context: Context, mode: ScanMode, afterCurrent: Boolean = false, libraryId: String = ServiceLocator.get(context).libraryId, manual: Boolean = false) {
             val request = OneTimeWorkRequestBuilder<ScanWorker>()
-                .setInputData(androidx.work.workDataOf("libraryId" to libraryId, "mode" to mode.name))
+                .setInputData(androidx.work.workDataOf("libraryId" to libraryId, "mode" to mode.name, "manual" to manual))
                 .setConstraints(
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
                 ).build()

@@ -22,6 +22,8 @@ class ThumbnailWorker(context: Context, params: WorkerParameters) : CoroutineWor
         val profile = services.settings.toProfile(saved)
         val expected = inputData.getString("libraryId")
         if (expected != null && expected != services.libraryId) return Result.failure()
+        // Remote access (VPN up): thumbnails (which read the video files) are made only when you ask for them.
+        if (!inputData.getBoolean("manual", false) && com.deepak.videolibrary.metadata.RemoteAccess.active(applicationContext)) return Result.success()
 
         try {
             setForeground(WorkNotifications.info(applicationContext, 2, "Creating video thumbnails"))
@@ -40,9 +42,10 @@ class ThumbnailWorker(context: Context, params: WorkerParameters) : CoroutineWor
         const val UNIQUE_NAME = "library_thumbnails"
         fun name(id: String) = "$UNIQUE_NAME:$id"
 
-        fun enqueue(context: Context, libraryId: String = ServiceLocator.get(context).libraryId) {
+        /** [manual]: you asked for it, so it also runs over remote access (VPN). */
+        fun enqueue(context: Context, libraryId: String = ServiceLocator.get(context).libraryId, manual: Boolean = false) {
             val request = OneTimeWorkRequestBuilder<ThumbnailWorker>()
-                .setInputData(androidx.work.workDataOf("libraryId" to libraryId))
+                .setInputData(androidx.work.workDataOf("libraryId" to libraryId, "manual" to manual))
                 .setConstraints(
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
                 ).build()

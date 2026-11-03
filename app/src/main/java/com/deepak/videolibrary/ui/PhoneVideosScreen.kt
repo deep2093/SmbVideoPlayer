@@ -36,6 +36,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
@@ -150,6 +154,45 @@ internal object PhoneUi {
     var videoSort by mutableStateOf("DATE")
     var descending by mutableStateOf(false)
     var cache: List<PhoneFolder>? = null
+    var showHidden by mutableStateOf(false)
+    /** Videos ticked in the open folder (their content:// addresses). */
+    val selected = androidx.compose.runtime.mutableStateListOf<String>()
+}
+
+/**
+ * Your own touches to phone folders, kept on this phone only: a name shown in SkyWing (the folder itself is never
+ * renamed), a chosen cover video, and hidden folders. Keyed by the folder's path on the phone.
+ */
+private class PhoneFolderPrefs(context: Context) {
+    private val prefs = context.getSharedPreferences("phone_folders", Context.MODE_PRIVATE)
+    var revision by mutableIntStateOf(0)
+        private set
+
+    fun name(folder: PhoneFolder): String = prefs.getString("name:" + folder.key, null) ?: folder.title
+    fun rename(folder: PhoneFolder, name: String) {
+        val clean = name.trim()
+        prefs.edit().apply { if (clean.isEmpty() || clean == folder.title) remove("name:" + folder.key) else putString("name:" + folder.key, clean) }.apply()
+        revision++
+    }
+
+    fun hidden(folder: PhoneFolder): Boolean = folder.key in prefs.getStringSet("hidden", emptySet()).orEmpty()
+    fun setHidden(folder: PhoneFolder, hide: Boolean) {
+        val now = prefs.getStringSet("hidden", emptySet()).orEmpty().toMutableSet()
+        if (hide) now += folder.key else now -= folder.key
+        prefs.edit().putStringSet("hidden", now).apply()
+        revision++
+    }
+
+    /** The chosen cover video when it is still in the folder, else the newest video. */
+    fun coverUri(folder: PhoneFolder): String? {
+        val chosen = prefs.getString("cover:" + folder.key, null)
+        return chosen?.takeIf { uri -> folder.videos.any { it.uri == uri } } ?: folder.videos.maxByOrNull { it.modifiedSeconds }?.uri
+    }
+    fun hasCustomCover(folder: PhoneFolder): Boolean = prefs.contains("cover:" + folder.key)
+    fun setCover(folder: PhoneFolder, uri: String?) {
+        prefs.edit().apply { if (uri == null) remove("cover:" + folder.key) else putString("cover:" + folder.key, uri) }.apply()
+        revision++
+    }
 }
 
 /** A cover/thumbnail for a phone video as a small cached file, so the shared folder cards can show it. */
@@ -220,21 +263,34 @@ internal fun PhoneVideosScreen(
         PhoneUi.cache = loaded
         loading = false
     }
+    val folderPrefs = remember(context) { PhoneFolderPrefs(context) }
+    val prefsRevision = folderPrefs.revision
+    var optionsFor by remember { mutableStateOf<PhoneFolder?>(null) }
+    var renaming by remember { mutableStateOf<PhoneFolder?>(null) }
+    var choosingCover by remember { mutableStateOf<PhoneFolder?>(null) }
+    val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) { PhoneUi.selected.clear(); refresh++ }
+    }
     val open = folders?.firstOrNull { it.key == PhoneUi.openKey }
+    LaunchedEffect(PhoneUi.openKey) { PhoneUi.selected.clear() }
     // The saved folder disappeared (all its videos deleted): fall back to the folder list.
     LaunchedEffect(folders, open) { if (folders != null && PhoneUi.openKey != null && open == null) PhoneUi.openKey = null }
     fun closeFolder() { PhoneUi.openKey = null; PhoneUi.query = ""; searching = false }
     BackHandler(enabled = open != null) { closeFolder() }
+    // Registered later, so while videos are ticked Back clears the selection first.
+    BackHandler(enabled = PhoneUi.selected.isNotEmpty()) { PhoneUi.selected.clear() }
     val query = PhoneUi.query.trim()
     val descending = PhoneUi.descending
 
-    val shownFolders = remember(folders, query, PhoneUi.folderSort, descending) {
-        val base = folders.orEmpty().filter { query.isEmpty() || it.title.contains(query, ignoreCase = true) }
+    val shownFolders = remember(folders, query, PhoneUi.folderSort, descending, PhoneUi.showHidden, prefsRevision) {
+        val base = folders.orEmpty()
+            .filter { PhoneUi.showHidden || !folderPrefs.hidden(it) }
+            .filter { query.isEmpty() || folderPrefs.name(it).contains(query, ignoreCase = true) }
         val sorted = when (PhoneUi.folderSort) {
             "COUNT" -> base.sortedBy { it.videos.size }
             "DATE" -> base.sortedBy { it.newest() }
             "SIZE" -> base.sortedBy { f -> f.videos.sumOf { it.size } }
-            else -> base.sortedBy { it.title.lowercase() }
+            else -> base.sortedBy { folderPrefs.name(it).lowercase() }
         }
         if (descending) sorted.reversed() else sorted
     }
@@ -255,7 +311,7 @@ internal fun PhoneVideosScreen(
             VideoEntity(
                 relativePath = it.uri,
                 name = it.name,
-                parentDir = folder.title,
+                parentDir = folderPrefs.name(folder),
                 size = it.size,
                 modified = it.modifiedSeconds * 1000,
                 groupKey = "phone",
@@ -268,8 +324,39 @@ internal fun PhoneVideosScreen(
 
     Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN)) {
         HubTopBar {
-            SearchableTopBar(
-                title = open?.title ?: "Phone",
+            if (open != null && PhoneUi.selected.isNotEmpty()) {
+                val picked = shownVideos.filter { it.uri in PhoneUi.selected }
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { PhoneUi.selected.clear() }) { Icon(Icons.Filled.Close, "Done") }
+                    Text("${PhoneUi.selected.size} selected", style = MaterialTheme.typography.titleMedium, maxLines = 1, modifier = Modifier.weight(1f))
+                    SelectAllToggle(
+                        allSelected = shownVideos.isNotEmpty() && shownVideos.all { it.uri in PhoneUi.selected },
+                        onSelectAll = { PhoneUi.selected.clear(); PhoneUi.selected.addAll(shownVideos.map { it.uri }) },
+                        onDeselectAll = { PhoneUi.selected.clear() },
+                    )
+                    IconAction(Icons.Filled.PlayArrow, "Play selected", enabled = picked.isNotEmpty(), onClick = {
+                        play(open, picked, 0)
+                        PhoneUi.selected.clear()
+                    })
+                    IconAction(Icons.Filled.Share, "Share selected", enabled = picked.isNotEmpty(), onClick = {
+                        val uris = ArrayList(picked.map { android.net.Uri.parse(it.uri) })
+                        val send = android.content.Intent(if (uris.size == 1) android.content.Intent.ACTION_SEND else android.content.Intent.ACTION_SEND_MULTIPLE)
+                            .setType("video/*")
+                            .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        if (uris.size == 1) send.putExtra(android.content.Intent.EXTRA_STREAM, uris[0])
+                        else send.putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, uris)
+                        runCatching { context.startActivity(android.content.Intent.createChooser(send, "Share videos")) }
+                    })
+                    // Deleting needs Android's own confirmation (Android 11 and newer).
+                    if (Build.VERSION.SDK_INT >= 30) IconAction(Icons.Filled.Delete, "Delete selected", enabled = picked.isNotEmpty(), onClick = {
+                        runCatching {
+                            val request = MediaStore.createDeleteRequest(context.contentResolver, picked.map { android.net.Uri.parse(it.uri) })
+                            deleteLauncher.launch(androidx.activity.result.IntentSenderRequest.Builder(request.intentSender).build())
+                        }
+                    })
+                }
+            } else SearchableTopBar(
+                title = open?.let { folderPrefs.name(it) } ?: "Phone",
                 searching = searching,
                 onSearchingChange = { searching = it },
                 query = PhoneUi.query,
@@ -304,6 +391,14 @@ internal fun PhoneVideosScreen(
                             )
                         }
                         HorizontalDivider()
+                        if (open == null) DropdownMenuItem(
+                            text = { Text(if (PhoneUi.showHidden) "Don't show hidden folders" else "Show hidden folders") },
+                            onClick = { PhoneUi.showHidden = !PhoneUi.showHidden; menu = false },
+                        )
+                        if (open != null) DropdownMenuItem(
+                            text = { Text("Select videos") },
+                            onClick = { shownVideos.firstOrNull()?.let { PhoneUi.selected.add(it.uri) }; menu = false },
+                        )
                         val listMode = if (open == null) vm.folderListMode else vm.videoListMode
                         DropdownMenuItem(
                             text = { Text(if (listMode) "Grid view" else "List view") },
@@ -358,15 +453,17 @@ internal fun PhoneVideosScreen(
                                     Text("No matching folders.", modifier = Modifier.padding(vertical = 24.dp))
                                 }
                                 gridItems(shownFolders, key = { it.key }) { folder ->
-                                    val cover = rememberPhoneThumb(folder.videos.maxByOrNull { it.modifiedSeconds }?.uri)
+                                    val cover = rememberPhoneThumb(remember(folder, prefsRevision) { folderPrefs.coverUri(folder) })
+                                    val hidden = remember(folder, prefsRevision) { folderPrefs.hidden(folder) }
                                     FolderTile(
-                                        title = folder.title,
-                                        detail = "${folder.videos.size} video${if (folder.videos.size == 1) "" else "s"}",
+                                        title = remember(folder, prefsRevision) { folderPrefs.name(folder) },
+                                        detail = "${folder.videos.size} video${if (folder.videos.size == 1) "" else "s"}" + if (hidden) " · Hidden" else "",
                                         cover = cover,
                                         aspect = aspect,
                                         listMode = listMode,
                                         onClick = { PhoneUi.openKey = folder.key; PhoneUi.query = ""; searching = false },
-                                        onLongPress = {},
+                                        onLongPress = { optionsFor = folder },
+                                        onRename = { renaming = folder },
                                     )
                                 }
                                 if (shownFolders.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
@@ -379,14 +476,18 @@ internal fun PhoneVideosScreen(
                                 }
                                 itemsIndexed(shownVideos, key = { _, v -> v.uri }) { index, video ->
                                     val cover = rememberPhoneThumb(video.uri)
+                                    val selecting = PhoneUi.selected.isNotEmpty()
+                                    fun toggle() { if (video.uri in PhoneUi.selected) PhoneUi.selected.remove(video.uri) else PhoneUi.selected.add(video.uri) }
                                     FolderTile(
                                         title = video.name,
                                         detail = formatDuration(video.durationMs) + " · " + formatSize(video.size),
                                         cover = cover,
                                         aspect = aspect,
                                         listMode = listMode,
-                                        onClick = { play(current, shownVideos, index) },
-                                        onLongPress = {},
+                                        // Hold a video to start ticking; while ticking, a tap ticks or unticks.
+                                        selected = if (selecting) video.uri in PhoneUi.selected else null,
+                                        onClick = { if (selecting) toggle() else play(current, shownVideos, index) },
+                                        onLongPress = { toggle() },
                                     )
                                 }
                                 if (shownVideos.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
@@ -398,6 +499,66 @@ internal fun PhoneVideosScreen(
                 }
             }
         }
+    }
+    PhoneFolderDialogs(folderPrefs, optionsFor, renaming, choosingCover, { optionsFor = it }, { renaming = it }, { choosingCover = it })
+}
+
+@Composable
+private fun PhoneFolderDialogs(
+    prefs: PhoneFolderPrefs,
+    optionsFor: PhoneFolder?,
+    renaming: PhoneFolder?,
+    choosingCover: PhoneFolder?,
+    onOptions: (PhoneFolder?) -> Unit,
+    onRename: (PhoneFolder?) -> Unit,
+    onChooseCover: (PhoneFolder?) -> Unit,
+) {
+    optionsFor?.let { folder ->
+        val hidden = prefs.hidden(folder)
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { onOptions(null) },
+            title = { Text(prefs.name(folder)) },
+            text = {
+                Column {
+                    androidx.compose.material3.TextButton(onClick = { onOptions(null); onRename(folder) }) { Text("Rename") }
+                    androidx.compose.material3.TextButton(onClick = { onOptions(null); onChooseCover(folder) }) { Text("Choose cover video") }
+                    if (prefs.hasCustomCover(folder)) {
+                        androidx.compose.material3.TextButton(onClick = { prefs.setCover(folder, null); onOptions(null) }) { Text("Use the newest video as cover") }
+                    }
+                    androidx.compose.material3.TextButton(onClick = { prefs.setHidden(folder, !hidden); onOptions(null) }) {
+                        Text(if (hidden) "Show this folder again" else "Hide this folder")
+                    }
+                }
+            },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { onOptions(null) }) { Text("Close") } },
+        )
+    }
+    renaming?.let { folder ->
+        RenameDialog(
+            "Rename folder",
+            prefs.name(folder),
+            "Only the name shown in SkyWing changes; the folder on your phone keeps its name (\"${folder.title}\"). Leave it empty to go back.",
+            { onRename(null) },
+        ) { prefs.rename(folder, it) }
+    }
+    choosingCover?.let { folder ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { onChooseCover(null) },
+            title = { Text("Cover for ${prefs.name(folder)}") },
+            text = {
+                LazyVerticalGrid(GridCells.Adaptive(96.dp), Modifier.heightIn(max = 380.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    gridItems(folder.videos, key = { it.uri }) { video ->
+                        val thumb = rememberPhoneThumb(video.uri)
+                        Box(
+                            Modifier.aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable { prefs.setCover(folder, video.uri); onChooseCover(null) },
+                        ) { FileImage(thumb, Modifier.fillMaxSize()) }
+                    }
+                }
+            },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = { onChooseCover(null) }) { Text("Cancel") } },
+        )
     }
 }
 

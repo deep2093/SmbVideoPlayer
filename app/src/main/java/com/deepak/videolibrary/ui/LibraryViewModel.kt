@@ -333,7 +333,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
         viewModelScope.launch {
             try {
                 folderCollections.add(paths,recursive,namespace.value)
-                onSaved(); ScanWorker.enqueue(getApplication(), ScanMode.REFRESH, afterCurrent = true, libraryId = services.libraryId)
+                onSaved(); ScanWorker.enqueue(getApplication(), ScanMode.REFRESH, afterCurrent = true, libraryId = services.libraryId, manual = true)
             } catch(e: CancellationException) { throw e }
             catch(_: Exception) { organizerError = "Could not add folders. Check the connection and try again." }
         }
@@ -1140,7 +1140,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
                     roots.any { root -> stateDao.count(LibraryQueries.count(LibraryScope(namespace.value, sourcePath = root, includeSubfolders = true))).first() == 0 }
                 }
                 if (unindexed) {
-                    ScanWorker.enqueue(getApplication(), ScanMode.REFRESH, afterCurrent = true, libraryId = services.libraryId)
+                    ScanWorker.enqueue(getApplication(), ScanMode.REFRESH, afterCurrent = true, libraryId = services.libraryId, manual = true)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -1240,7 +1240,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
                     stateDao.count(LibraryQueries.count(LibraryScope(namespace.value, sourcePath = root, includeSubfolders = true))).first() == 0
                 } || (files.isNotEmpty() && indexedVideos(files).size < files.size)
             }
-            if (unindexed) ScanWorker.enqueue(getApplication(), ScanMode.REFRESH, afterCurrent = true, libraryId = services.libraryId)
+            if (unindexed) ScanWorker.enqueue(getApplication(), ScanMode.REFRESH, afterCurrent = true, libraryId = services.libraryId, manual = true)
         }
     }
 
@@ -2126,7 +2126,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
             notice = "Enter the server address and share name in Settings first."
             return
         }
-        ThumbnailWorker.enqueue(getApplication(), services.libraryId)
+        ThumbnailWorker.enqueue(getApplication(), services.libraryId, manual = true)
     }
 
     fun retryFailedThumbnails() {
@@ -2272,7 +2272,7 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
                 }
             }
             notice = reason
-            if (reason == null) ScanWorker.enqueue(getApplication(), mode, libraryId = services.libraryId)
+            if (reason == null) ScanWorker.enqueue(getApplication(), mode, libraryId = services.libraryId, manual = true)
         }
     }
 
