@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 
 /**
  * Player overlay in the style of VLC: no solid bars, only soft dark gradients at the top and bottom over the
@@ -58,7 +59,23 @@ internal fun LibraryPlayerControls(
 ) {
     var scrubbing by remember(title) { mutableStateOf(false) }
     var fraction by remember(title) { mutableFloatStateOf(0f) }
-    val shownPosition = if (scrubbing) (fraction.toDouble() * duration).toLong() else position
+    // Quick taps on -10 / +10 add up and the player jumps once, after the last tap (4 Nov 2026): every jump restarts
+    // smoothing, and many in a row could stall playback for a few seconds.
+    var pendingJump by remember(title) { mutableStateOf<Long?>(null) }
+    val jumpScope = rememberCoroutineScope()
+    var jumpJob by remember(title) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    fun jump(by: Long) {
+        if (duration <= 0) return
+        val target = ((pendingJump ?: position) + by).coerceIn(0L, duration)
+        pendingJump = target
+        jumpJob?.cancel()
+        jumpJob = jumpScope.launch {
+            kotlinx.coroutines.delay(JUMP_SETTLE_MS)
+            pendingJump = null
+            onSeek(target)
+        }
+    }
+    val shownPosition = pendingJump ?: if (scrubbing) (fraction.toDouble() * duration).toLong() else position
     val ink = Color.White
     val muted = Color.White.copy(alpha = 0.7f)
     val disabled = Color.White.copy(alpha = 0.35f)
@@ -68,7 +85,7 @@ internal fun LibraryPlayerControls(
         IconButton(enabled = canPrevious, onClick = { onPrevious(); onInteraction() }) {
             Icon(Icons.Filled.SkipPrevious, "Previous video", tint = if (canPrevious) ink else disabled)
         }
-        IconButton(enabled = duration > 0, onClick = { onSeek((position - 10_000L).coerceAtLeast(0)); onInteraction() }) {
+        IconButton(enabled = duration > 0, onClick = { jump(-10_000L); onInteraction() }) {
             Icon(Icons.Filled.Replay10, "Rewind 10 seconds", tint = if (duration > 0) ink else disabled)
         }
         // Outlined round play/pause, as in VLC.
@@ -84,7 +101,7 @@ internal fun LibraryPlayerControls(
                 modifier = Modifier.size(32.dp),
             )
         }
-        IconButton(enabled = duration > 0, onClick = { onSeek((position + 10_000L).coerceAtMost(duration)); onInteraction() }) {
+        IconButton(enabled = duration > 0, onClick = { jump(10_000L); onInteraction() }) {
             Icon(Icons.Filled.Forward10, "Forward 10 seconds", tint = if (duration > 0) ink else disabled)
         }
         IconButton(enabled = canNext, onClick = { onNext(); onInteraction() }) {
@@ -131,6 +148,20 @@ internal fun LibraryPlayerControls(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(200.dp)
                 .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xD9000000)))),
         )
+        // A play/pause button in the middle of the picture (4 Nov 2026), easy to reach with either thumb: medium-sized,
+        // on a soft dark circle so it reads on bright scenes too.
+        IconButton(
+            enabled = canPlay,
+            onClick = { onTogglePlayback(); onInteraction() },
+            modifier = Modifier.align(Alignment.Center).size(72.dp).background(Color(0x66000000), CircleShape),
+        ) {
+            Icon(
+                if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                if (isPlaying) "Pause video" else "Play video",
+                tint = if (canPlay) ink else disabled,
+                modifier = Modifier.size(42.dp),
+            )
+        }
         Column(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing),
             verticalArrangement = Arrangement.SpaceBetween,
@@ -161,7 +192,7 @@ internal fun LibraryPlayerControls(
                         Text(if (duration > 0) DateUtils.formatElapsedTime(duration / 1000) else "--:--", color = ink, style = MaterialTheme.typography.labelLarge)
                     }
                     Slider(
-                        value = if (scrubbing) fraction else (position.toDouble() / duration.coerceAtLeast(1)).coerceIn(0.0, 1.0).toFloat(),
+                        value = if (scrubbing) fraction else ((pendingJump ?: position).toDouble() / duration.coerceAtLeast(1)).coerceIn(0.0, 1.0).toFloat(),
                         onValueChange = { scrubbing = true; fraction = it; onInteraction() },
                         onValueChangeFinished = {
                             if (duration > 0) onSeek((fraction.toDouble() * duration).toLong())
@@ -209,3 +240,6 @@ internal fun LibraryPlayerControls(
         }
     }
 }
+
+/** How long after the last -10 / +10 tap the player jumps. */
+private const val JUMP_SETTLE_MS = 450L

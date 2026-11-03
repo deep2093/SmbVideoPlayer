@@ -54,8 +54,7 @@ class PortraitFetcher(
         val settings = repository.settings.value
         val scope = ArtworkKeys.scopeOf(identity)
         // Includes Custom mode, where the user searches or picks images themselves and nothing runs in the background.
-        if (scenePreferences.settings.value.folderChoice(identity) !=
-            com.deepak.videolibrary.metadata.FolderCoverChoice.PERFORMER ||
+        if (!scenePreferences.settings.value.portraitsFor(identity) ||
             !settings.enabled || !settings.adultConsent || !settings.portraitsOnFolders ||
             settings.selectionFor(scope) == PortraitSelection.CUSTOM) return Outcome.Skipped
         val selection = settings.selectionFor(scope)

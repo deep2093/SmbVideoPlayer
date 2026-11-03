@@ -106,6 +106,18 @@ internal fun FolderTile(
             }
         }
     }
+    // Drag to reorder: holding the card and then sliding moves it (the grid's [FolderReorder]); holding and letting go
+    // without moving opens the options as before. Off while selecting.
+    val reorder = LocalFolderReorder.current
+    val reorderKey = LocalReorderKey.current
+    val canDrag = reorder != null && reorderKey != null && reorder.enabled && selected == null
+    val gesture = remember { TileGesture() }
+    val longAction: () -> Unit = { if (onRename != null && selected == null && heldName()) onRename() else onLongPress() }
+    val currentLongAction by androidx.compose.runtime.rememberUpdatedState(longAction)
+    val currentCanDrag by androidx.compose.runtime.rememberUpdatedState(canDrag)
+    val currentReorder by androidx.compose.runtime.rememberUpdatedState(reorder)
+    val currentKey by androidx.compose.runtime.rememberUpdatedState(reorderKey)
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     Column(
         modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium)
             // Calm (flat) themes: the caption sits on the page itself, no card.
@@ -116,19 +128,58 @@ internal fun FolderTile(
             )
             .onGloballyPositioned { card = it }
             .pointerInput(Unit) {
-                // Watches where each press starts without taking the touch away from the click handling below.
-                awaitPointerEventScope {
+                // Watches each press before the click handling below sees it: where it starts, and (once held) whether
+                // the finger slides on to move the card.
+                try { awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                        if (event.type == androidx.compose.ui.input.pointer.PointerEventType.Press) {
-                            downAt = event.changes.first().position
+                        val change = event.changes.firstOrNull() ?: continue
+                        when (event.type) {
+                            androidx.compose.ui.input.pointer.PointerEventType.Press -> {
+                                downAt = change.position
+                                gesture.down = true
+                                gesture.held = false
+                                gesture.dragging = false
+                            }
+                            androidx.compose.ui.input.pointer.PointerEventType.Move -> if (gesture.held && currentCanDrag) {
+                                val r = currentReorder
+                                val key = currentKey
+                                if (!gesture.dragging && r != null && key != null &&
+                                    (change.position - downAt).getDistance() > viewConfiguration.touchSlop
+                                ) {
+                                    gesture.dragging = true
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    r.start(key)
+                                }
+                                if (gesture.dragging) {
+                                    card?.takeIf { it.isAttached }?.let { r?.move(it.localToRoot(change.position)) }
+                                    change.consume()
+                                }
+                            }
+                            androidx.compose.ui.input.pointer.PointerEventType.Release -> {
+                                gesture.down = false
+                                if (gesture.dragging) {
+                                    currentReorder?.end()
+                                    change.consume()
+                                } else if (gesture.held) {
+                                    currentLongAction()
+                                }
+                                gesture.held = false
+                                gesture.dragging = false
+                            }
+                            else -> Unit
                         }
                     }
+                } } finally {
+                    // The card left the screen mid-move: let the grid go.
+                    if (gesture.dragging) { gesture.dragging = false; currentReorder?.end() }
                 }
             }
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = { if (onRename != null && selected == null && heldName()) onRename() else onLongPress() },
+                // While a finger is down on a movable card, the hold only arms the move; what happens is decided when it
+                // slides (move) or lifts (options). Accessibility long-clicks have no finger down and act at once.
+                onLongClick = { if (canDrag && gesture.down) gesture.held = true else longAction() },
                 onLongClickLabel = if (onRename != null) "Rename or options" else "Options",
             ),
     ) {
@@ -142,6 +193,13 @@ internal fun FolderTile(
             caption()
         }
     }
+}
+
+/** What a finger on a folder card is doing (not drawn, so not state). */
+private class TileGesture {
+    var down = false
+    var held = false
+    var dragging = false
 }
 
 /** A simple rename dialog. [hint] says what renaming changes. */

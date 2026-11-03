@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Search
@@ -49,7 +48,6 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
     val ready = listing.ready && listing.path == path && listing.query == query
     val listedChildren = if(ready) listing.rows else emptyList()
     val children = rememberFolderOrder("original:$path", listedChildren) { it.path }
-    var reordering by remember { mutableStateOf(false) }
     val count = if(ready) listing.totalCount else 0
     var searchExpanded by remember { mutableStateOf(query.isNotBlank()) }
     // One scroll position per folder level: going up restores where you were, entering starts at the top.
@@ -76,6 +74,10 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
     val selectPage = SelectionPages.ORIGINAL
     val selection = vm.ui.selectionOn(selectPage)
     BackHandler(enabled = selection != null) { vm.ui.endSelection(selectPage) }
+    // Hold a folder and slide it to change the order (not while selecting or searching).
+    val reorder = rememberFolderReorder(gridState, "original:$path", children.map { it.path }, enabled = selection == null && query.isBlank()) { key ->
+        (key as? String)?.takeIf { it.startsWith("folder:") }?.removePrefix("folder:")
+    }
     LaunchedEffect(active, path) { if (!active) vm.ui.endSelection(selectPage) }
     LaunchedEffect(path) { vm.ui.endSelection(selectPage) }
     ScrollTopOnRequest(vm, gridState, active)
@@ -121,7 +123,6 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
         ) {
             if (!inside) IconAction(Icons.Filled.CreateNewFolder, "Add folders", onClick = { adding = true })
             IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0 || listing.totalCount > 0, onClick = { vm.playLibrary("originals", onPlay = onPlay) })
-            if (children.size > 1) IconAction(Icons.Filled.SwapVert, "Reorder folders", onClick = { reordering = true })
             CardShapeButton(vm, Pages.original(path))
             RefreshLibraryAction(vm)
         }
@@ -163,7 +164,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
             verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
             contentPadding = PaddingValues(bottom = if (floatingPadding(vm))112.dp else 24.dp),
-            modifier = Modifier.fillMaxSize().testTag("original-folder-grid"),
+            modifier = Modifier.fillMaxSize().folderReorderGrid(reorder).testTag("original-folder-grid"),
         ) {
             if (count == 0 &&
                 children.isEmpty()
@@ -181,7 +182,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                     )
                 }
             }
-            items(children, key = { "folder:${it.path}" }) { folder ->
+            items(children, key = { "folder:${it.path}" }) { folder -> ReorderableFolder(folder.path, reorder) {
                 OriginalFolderCard(vm, folder, aspect, vm.ui.tick(selectPage, folder.path), addedByYou = folder.path.trim('/') in roots) {
                     if (vm.ui.selectionOn(selectPage) != null) {
                         vm.ui.toggleFolder(selectPage, folder.path)
@@ -192,7 +193,7 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
                         ""
                     vm.originalPath = folder.path
                 }
-            }
+            } }
             items(count = videos.itemCount, key = videos.itemKey { "video:${it.relativePath}" }) { index ->
                 val video = videos[index]
                 if(video != null) {
@@ -216,7 +217,6 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
         }
         }
     }
-    if (reordering) ReorderFoldersDialog("original:$path", children.map { it.path to vm.originalDisplayName(it.path) }) { reordering = false }
     if (adding) {
         DrivePicker(
             vm = vm,

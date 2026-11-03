@@ -62,18 +62,57 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
         val saved = services.settings.load()
         val serverKey = saved.host.trim().lowercase(java.util.Locale.ROOT) + "/" + saved.share.trim().lowercase(java.util.Locale.ROOT)
         val roots = com.deepak.videolibrary.data.OriginalRootStore(services.artworkContext).load(serverKey)
-        if (roots.isEmpty()) return Result.success()
         services.artwork.ensureLoaded()
         val movies = services.moviePosters
-        val targets = OriginalFolderPaths.movieFolders(roots, services.db.dao().allParentDirs())
-            .filter { path -> OriginalFolderPaths.inScope(path, scope) }
-            .filter { path ->
-                val identity = ArtworkKeys.originalFolder(path)
-                if (force && movies.fileFor(identity) == null) movies.reset(identity)
-                services.artwork.effectiveRow(identity)?.manual != true &&
-                    movies.fileFor(identity) == null && !movies.checkedRecently(identity) &&
-                    !movies.hasReview(identity) && !movies.isRejected(identity)
+        fun wanted(identity: String): Boolean {
+            if (force && movies.fileFor(identity) == null) movies.reset(identity)
+            return services.artwork.effectiveRow(identity)?.manual != true &&
+                movies.fileFor(identity) == null && !movies.checkedRecently(identity) &&
+                !movies.hasReview(identity) && !movies.isRejected(identity)
+        }
+        val state = services.db.libraryState()
+        val targets = ArrayList<Target>()
+        // Original folders: the movie folders inside the folders you added (Settings > Automatic artwork > Movie posters).
+        if (force || kind == KIND_SCENE || options.movieSections.contains(SceneMetadataSettings.SECTION_ORIGINAL)) {
+            OriginalFolderPaths.movieFolders(roots, services.db.dao().allParentDirs())
+                .filter { path -> OriginalFolderPaths.inScope(path, scope) }
+                .filter { path -> wanted(ArtworkKeys.originalFolder(path)) }
+                .forEach { path ->
+                    targets += Target(ArtworkKeys.originalFolder(path), path.substringAfterLast('/'),
+                        files = {
+                            state.videoList(LibraryQueries.videos(LibraryScope(serverKey, directory = path, subtree = false)))
+                                .ifEmpty { state.videoList(LibraryQueries.videos(LibraryScope(serverKey, directory = path, subtree = true))) }
+                        },
+                        all = { state.videoList(LibraryQueries.videos(LibraryScope(serverKey, directory = path, subtree = true))) },
+                    )
+                }
+        }
+        // Virtual and Custom folders (when chosen): the folders made from file names, by their names. A run for one
+        // Original folder ("scope") leaves them alone.
+        if (scope.isEmpty() && options.movieSections.contains(SceneMetadataSettings.SECTION_VIRTUAL)) {
+            val rules = com.deepak.videolibrary.scan.GroupingPrefs.load(services.artworkContext, com.deepak.videolibrary.scan.GroupingPrefs.VIRTUAL)
+            for (set in services.virtualSets.load(serverKey)) {
+                if (set.isEmpty) continue
+                val videos = state.videoList(LibraryQueries.videos(LibraryScope(serverKey, members = set.members())))
+                com.deepak.videolibrary.data.VirtualGroups.build(set, videos, rules).forEach { group ->
+                    val identity = ArtworkKeys.virtualSub(set.id, group.identity)
+                    if (wanted(identity)) targets += Target(identity, group.title, { group.videos }, { group.videos })
+                }
             }
+        }
+        if (scope.isEmpty() && options.movieSections.contains(SceneMetadataSettings.SECTION_CUSTOM)) {
+            val rules = com.deepak.videolibrary.scan.GroupingPrefs.load(services.artworkContext, com.deepak.videolibrary.scan.GroupingPrefs.CUSTOM)
+            for (own in com.deepak.videolibrary.data.OwnFolderStore(services.artworkContext).load(serverKey)) {
+                if (own.files.isEmpty()) continue
+                val videos = own.files.chunked(500).flatMap { services.db.dao().videosByPaths(it) }
+                val ownKey = "own:${own.id}"
+                if (wanted(ownKey)) targets += Target(ownKey, own.name, { videos }, { videos })
+                com.deepak.videolibrary.data.groupByNames(videos, rules).forEach { (identity, groupVideos) ->
+                    val key = ArtworkKeys.virtualFolder(identity)
+                    if (wanted(key)) targets += Target(key, com.deepak.videolibrary.scan.VirtualNames.display(identity), { groupVideos }, { groupVideos })
+                }
+            }
+        }
         if (targets.isEmpty()) return Result.success()
 
         val done = AtomicInteger(0)
@@ -87,20 +126,20 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
                 return Result.success()
             }
             coroutineScope {
-                batch.map { path ->
+                batch.map { target ->
                     async {
                         lanes.withPermit {
                             if (stop.get() != null) return@withPermit
-                            val identity = ArtworkKeys.originalFolder(path)
+                            val identity = target.identity
                             try {
-                                when (val found = findFor(path, serverKey, providers, kind, client, services)) {
+                                when (val found = findFor(target, providers, kind, client, services)) {
                                     is Found.Sure -> {
                                         val url = found.movie.posterUrl ?: throw ProviderException(ProviderFailure.BAD_RESPONSE)
                                         val image = ArtworkHttp.downloadImage(url, POSTER_WIDTH)
                                         try { movies.save(identity, image, found.movie.id, found.movie.title) } finally { image.recycle() }
                                     }
                                     // Not certain: kept for you to choose, or reject, in the review pop-up.
-                                    is Found.Maybe -> movies.saveSuggestions(identity, path.substringAfterLast('/'), found.movies)
+                                    is Found.Maybe -> movies.saveSuggestions(identity, target.name, found.movies)
                                     Found.None -> movies.markChecked(identity, error = false)
                                 }
                             } catch (e: CancellationException) {
@@ -174,14 +213,20 @@ class MoviePosterWorker(context: Context, params: WorkerParameters) : CoroutineW
      * (or below it, if it holds none). A certain match ends the search; otherwise the next provider is tried, and what
      * looked plausible is kept for review.
      */
-    private suspend fun findFor(path: String, serverKey: String, providers: List<String>, kind: String, client: SceneMetadataClient, services: ServiceLocator): Found {
-        val folderName = path.substringAfterLast('/')
-        val state = services.db.libraryState()
-        val direct = state.videoList(LibraryQueries.videos(LibraryScope(serverKey, directory = path, subtree = false)))
-        val files = direct.ifEmpty { state.videoList(LibraryQueries.videos(LibraryScope(serverKey, directory = path, subtree = true))) }
+    /** A folder to find a movie poster for: its artwork key, its name, its own videos and everything below it. */
+    private class Target(
+        val identity: String,
+        val name: String,
+        val files: suspend () -> List<com.deepak.videolibrary.data.VideoEntity>,
+        val all: suspend () -> List<com.deepak.videolibrary.data.VideoEntity>,
+    )
+
+    private suspend fun findFor(target: Target, providers: List<String>, kind: String, client: SceneMetadataClient, services: ServiceLocator): Found {
+        val folderName = target.name
+        val files = target.files()
         // Scenes already confirmed for the videos in this folder (an exact match by the file itself) give the folder its
         // picture, the same one Change cover > Scene poster lists under "confirmed".
-        val confirmed = confirmedScenePoster(state.videoList(LibraryQueries.videos(LibraryScope(serverKey, directory = path, subtree = true))), services)
+        val confirmed = confirmedScenePoster(target.all(), services)
         if (kind == KIND_SCENE) confirmed?.let { return Found.Sure(it) }
         var maybe = emptyList<MovieCandidate>()
         var answered = false

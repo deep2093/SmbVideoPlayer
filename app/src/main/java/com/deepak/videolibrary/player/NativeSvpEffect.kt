@@ -179,7 +179,7 @@ private class NativeSvpShader(
     private var height = 0
     private var outWidth = 0
     private var outHeight = 0
-    private var firstUs = 0L
+    @Volatile private var firstUs = 0L
     @Volatile private var lastUs = 0L
     @Volatile private var requestedEndUs = Long.MAX_VALUE
     private var first: ByteBuffer? = null
@@ -299,8 +299,14 @@ private class NativeSvpShader(
                 // Phone cameras record at a varying rate: snap every frame to the nearest beat of a steady grid.
                 // A frame landing on a beat already filled is skipped; missed beats are filled by repeating this
                 // frame. A gap of more than a second is a real discontinuity, which needs a Media3 flush instead.
-                val slot = Math.round((timeUs - firstUs) * fpsNum.toDouble() / (fpsDen * 1_000_000.0)).toInt()
-                check(slot - count <= MAX_FILL) { "Gap of ${slot - count} frames in the video timeline" }
+                var slot = Math.round((timeUs - firstUs) * fpsNum.toDouble() / (fpsDen * 1_000_000.0)).toInt()
+                if (slot - count > MAX_FILL) {
+                    // A jump forward that Media3 didn't flush (frames skipped while fast-forwarding or catching up,
+                    // or a quick seek). Failing here used to restart the whole player and stall for a few seconds;
+                    // instead the steady grid carries on from this frame.
+                    firstUs = timeUs - Math.round(count * fpsDen * 1_000_000.0 / fpsNum)
+                    slot = count
+                }
                 pushed = if (slot < count) 0 else slot - count + 1
                 repeat(pushed) {
                     pixels.rewind()

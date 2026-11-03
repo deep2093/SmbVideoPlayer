@@ -631,6 +631,10 @@ fun PlayerScreen(
     var boost by remember { mutableStateOf(false) }
     var gestureMessage by remember { mutableStateOf("") }
     var lastTapTime by remember { mutableLongStateOf(0L) }
+    // Double-tap jumps add up while you keep tapping (each more tap on the same side is another 10 s), and the player
+    // jumps once at the end (4 Nov 2026): every jump restarts smoothing, and many in a row could stall playback.
+    var tapJumpTarget by remember { mutableStateOf<Long?>(null) }
+    var tapJumpJob by remember { mutableStateOf<Job?>(null) }
     var lastTapSide by remember { mutableIntStateOf(-1) }
     var seekingGesture by remember { mutableStateOf(false) }
     var seekingTarget by remember { mutableLongStateOf(0L) }
@@ -1112,17 +1116,24 @@ fun PlayerScreen(
                         showTracks = false
                     } else if (!moved && !holding) {
                         val now = System.currentTimeMillis()
-                        if (now - lastTapTime < 350L && lastTapSide == side) {
+                        val chaining = tapJumpTarget != null && now - lastTapTime < 600L && lastTapSide == side
+                        if (chaining || (now - lastTapTime < 350L && lastTapSide == side)) {
                             singleTap?.cancel()
                             val delta = if (side == 0) -10_000L else 10_000L
-                            player.seekTo(
-                                (player.currentPosition + delta).coerceIn(
-                                    0L,
-                                    player.duration.takeIf { it > 0L } ?: Long.MAX_VALUE,
-                                ),
+                            val target = ((tapJumpTarget ?: player.currentPosition) + delta).coerceIn(
+                                0L,
+                                player.duration.takeIf { it > 0L } ?: Long.MAX_VALUE,
                             )
-                            gestureMessage = if (side == 0) "−10 sec" else "+10 sec"
-                            lastTapTime = 0L
+                            tapJumpTarget = target
+                            val total = (target - player.currentPosition) / 1000
+                            gestureMessage = if (total < 0) "−${-total} sec" else "+$total sec"
+                            lastTapTime = now
+                            tapJumpJob?.cancel()
+                            tapJumpJob = gestureScope.launch {
+                                delay(600)
+                                tapJumpTarget?.let { player.seekTo(it) }
+                                tapJumpTarget = null
+                            }
                         } else {
                             lastTapTime = now
                             lastTapSide = side
@@ -1140,7 +1151,7 @@ fun PlayerScreen(
             Text(
                 "Release to seek: ${formatPlaybackTime(seekingTarget)}",
                 color = Color.White,
-                modifier = Modifier.align(Alignment.Center).background(Color(0xCC101010), RoundedCornerShape(12.dp)).padding(12.dp),
+                modifier = Modifier.align(Alignment.Center).offset(y = (-96).dp).background(Color(0xCC101010), RoundedCornerShape(12.dp)).padding(12.dp),
             )
         }
         if (boost) Text("$holdSpeed×", color = Color.White, modifier = Modifier.align(Alignment.TopCenter).padding(16.dp))
@@ -1154,7 +1165,7 @@ fun PlayerScreen(
             Text(
                 gestureMessage,
                 color = Color.White,
-                modifier = Modifier.align(Alignment.Center).background(Color(0xA6000000), RoundedCornerShape(14.dp)).padding(12.dp),
+                modifier = Modifier.align(Alignment.Center).offset(y = (-96).dp).background(Color(0xA6000000), RoundedCornerShape(14.dp)).padding(12.dp),
             )
         }
         androidx.compose.animation.AnimatedVisibility(

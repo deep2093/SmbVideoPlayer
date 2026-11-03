@@ -173,8 +173,7 @@ internal object FolderTargets {
         val out = LinkedHashMap<String, String>()
         fun consider(identity: String, label: String) {
             val scope = ArtworkKeys.scopeOf(identity)
-            if (services.sceneMetadataPreferences.settings.value.folderChoice(identity) !=
-                com.deepak.videolibrary.metadata.FolderCoverChoice.PERFORMER) return
+            if (!services.sceneMetadataPreferences.settings.value.portraitsFor(identity)) return
             if (!settings.enabled || !settings.adultConsent || !settings.portraitsOnFolders ||
                 settings.selectionFor(scope) == PortraitSelection.CUSTOM) return
             // A folder whose cover you chose, or that already has a portrait (also from earlier folders of the same

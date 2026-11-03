@@ -32,8 +32,9 @@ internal class ArtworkController(private val services: ServiceLocator) {
         var movieFellBack = false
         val placement = options.folderChoice(identity).let { choice ->
             if (choice == com.deepak.videolibrary.metadata.FolderCoverChoice.MOVIE && services.moviePosters.fileFor(identity) == null) {
-                movieFellBack = true
-                com.deepak.videolibrary.metadata.FolderCoverChoice.ORIGINAL
+                // No movie poster yet: the portrait when portraits are on for this section too, else the normal cover.
+                if (options.portraitsFor(identity)) com.deepak.videolibrary.metadata.FolderCoverChoice.PERFORMER
+                else { movieFellBack = true; com.deepak.videolibrary.metadata.FolderCoverChoice.ORIGINAL }
             } else choice
         }
         // Only the default cover can change. A hand-picked image or other manual

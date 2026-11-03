@@ -28,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.deepak.videolibrary.artwork.ArtworkMode
 import com.deepak.videolibrary.artwork.ArtworkScope
 import com.deepak.videolibrary.artwork.ArtworkSettings
 import com.deepak.videolibrary.artwork.ProviderIds
@@ -74,28 +73,6 @@ private fun SelectionPicker(label: String, current: com.deepak.videolibrary.artw
     Text(current.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-/** A button that opens a menu of modes for one kind of item. */
-@Composable
-private fun ModePicker(label: String, scope: ArtworkScope, current: ArtworkMode, enabled: Boolean, onPick: (ArtworkMode) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    androidx.compose.foundation.layout.Box {
-        OutlinedButton(onClick = { open = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-            Text("$label: ${current.label}", maxLines = 1)
-        }
-        androidx.compose.material3.DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            scope.defaultModes.forEach { mode ->
-                androidx.compose.material3.DropdownMenuItem(
-                    text = { Text(mode.label + if (mode == current) " ✓" else "") },
-                    onClick = {
-                        open = false
-                        onPick(mode)
-                    },
-                )
-            }
-        }
-    }
-}
-
 /** One flat section of an Artwork sub-page, shown only on its own page ([visible]). */
 @Composable
 private fun ArtworkGroup(visible: Boolean, title: String, content: @Composable () -> Unit) {
@@ -108,7 +85,7 @@ private fun ArtworkGroup(visible: Boolean, title: String, content: @Composable (
  * always has, and nothing touches the internet.
  */
 @Composable
-internal fun ArtworkSettingsSection(vm: LibraryViewModel, part: String = "covers") {
+internal fun ArtworkSettingsSection(vm: LibraryViewModel, part: String = "artwork") {
     val settings by vm.artworkSettings.collectAsStateWithLifecycle()
     val sceneSettings by vm.metadataSettings.collectAsStateWithLifecycle()
     val review by vm.portraitReview.collectAsStateWithLifecycle()
@@ -119,16 +96,7 @@ internal fun ArtworkSettingsSection(vm: LibraryViewModel, part: String = "covers
 
     // The old "Enable existing artwork overrides" switch is gone: cover rules are always on (the view model turns the
     // saved flag on), and anything that uses the internet still needs its own permission.
-    ArtworkGroup(part == "covers", "Default covers") {
-        ModePicker("Drive folders", ArtworkScope.SMB_FOLDER, s.smbFolderMode, true) { m -> vm.updateArtwork { it.withMode(ArtworkScope.SMB_FOLDER, m) } }
-        ModePicker("Virtual and custom folders", ArtworkScope.VIRTUAL_FOLDER, s.virtualFolderMode, true) { m -> vm.updateArtwork { it.withMode(ArtworkScope.VIRTUAL_FOLDER, m) } }
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("Collage frames: ${s.collageTiles}", Modifier.weight(1f))
-            OutlinedButton(onClick = { vm.updateArtwork { it.copy(collageTiles = (it.collageTiles - 1).coerceIn(2, 6)) } }, enabled = s.collageTiles > 2) { Text("−") }
-            OutlinedButton(onClick = { vm.updateArtwork { it.copy(collageTiles = (it.collageTiles + 1).coerceIn(2, 6)) } }, enabled = s.collageTiles < 6, modifier = Modifier.padding(start = 8.dp)) { Text("+") }
-        }
-        Hint("A cover you pick (hold an item, Change cover) always wins.")
-    }
+    // The Covers page is gone (4 Nov 2026): folders keep their saved default; a cover you pick still wins.
 
     ArtworkGroup(part == "artwork" && portraitsOn, "Portrait options") {
         SelectionPicker("Virtual folders", s.virtualFolderSelection, portraitsOn) { sel -> vm.updateArtwork { it.withSelection(ArtworkScope.VIRTUAL_FOLDER, sel) } }

@@ -55,7 +55,6 @@ internal fun MatchingFoldersScreen(
     val mixed = rememberFolderOrder("custom", shownOwn.map { "own:" + it.id } + folders.map { "match:" + it.folder.id }) { it }
     val ownById = shownOwn.associateBy { "own:" + it.id }
     val matchById = folders.associateBy { "match:" + it.folder.id }
-    var reordering by remember { mutableStateOf(false) }
     ScrollToTopOnChange(query, gridState)
     LaunchedEffect(active) {
         if (!active && search) {
@@ -67,6 +66,10 @@ internal fun MatchingFoldersScreen(
     val selection = vm.ui.selectionOn(selectPage)
     BackHandler(enabled = selection != null) { vm.ui.endSelection(selectPage) }
     LaunchedEffect(active) { if (!active) vm.ui.endSelection(selectPage) }
+    // Hold a folder and slide it to change the order (not while selecting or searching).
+    val reorder = rememberFolderReorder(gridState, "custom", mixed, enabled = selection == null && query.isBlank()) { key ->
+        (key as? String)?.takeIf { it.startsWith("own:") || it.startsWith("match:") }
+    }
     ScrollTopOnRequest(vm, gridState, active)
     Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN)) {
         HubTopBar {
@@ -104,7 +107,6 @@ internal fun MatchingFoldersScreen(
             placeholder = stringResource(R.string.ui_search_custom_folders_89257e5),
         ) {
             RefreshLibraryAction(vm)
-            if (mixed.size > 1) IconAction(Icons.Default.SwapVert, "Reorder folders", onClick = { reordering = true })
             CardShapeButton(vm, Pages.CUSTOM)
             Box {
                 IconAction(Icons.Default.Add, "Add custom folder", onClick = { addMenu = true })
@@ -138,7 +140,7 @@ internal fun MatchingFoldersScreen(
         ) {
             LibraryPullRefresh(vm, Modifier.fillMaxSize()) { LazyVerticalGrid(
                 state = gridState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().folderReorderGrid(reorder),
                 columns = GridCells.Fixed(if (vm.folderListMode) 1 else libraryColumns(vm, folders = true)),
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
@@ -153,16 +155,15 @@ internal fun MatchingFoldersScreen(
                         )
                     }
                 }
-                items(mixed, key = { it }) { id ->
+                items(mixed, key = { it }) { id -> ReorderableFolder(id, reorder) {
                     ownById[id]?.let { folder -> OwnFolderCard(vm, folder, aspect, vm.ui.tick(selectPage, id)) }
                     matchById[id]?.let { row -> MatchingFolderCard(vm, row, aspect, onOpen, onPlay, vm.ui.tick(selectPage, id)) }
-                }
+                } }
                 val total = shownOwn.size + folders.size
                 if (total > 0) item(span = { GridItemSpan(maxLineSpan) }, key = "count") { ListTotal("$total ${if (total == 1) "folder" else "folders"}") }
             } }
         }
     }
-    if (reordering) ReorderFoldersDialog("custom", mixed.map { id -> id to (ownById[id]?.name ?: matchById[id]?.folder?.name ?: id) }) { reordering = false }
     if (picking) SourceFolderPicker(vm, folders.map { it.folder }, onClose = { picking = false })
     if (naming) {
         RenameDialog(

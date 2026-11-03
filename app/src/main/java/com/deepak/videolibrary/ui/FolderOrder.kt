@@ -29,6 +29,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.zIndex
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.gestures.scrollBy
 
 /**
  * A manual folder order per list ("custom", "virtual", "original:<folder>"...). Folders you placed come first in the
@@ -123,4 +129,174 @@ fun ReorderFoldersDialog(listId: String, entries: List<Pair<String, String>>, on
             }
         },
     )
+}
+
+/*
+ * Drag to reorder (4 Nov 2026), like Pixallery's albums: hold a folder, then slide it to where you want it. The folders
+ * around make way, and the page scrolls when you hold it near the top or bottom. Holding and letting go without moving
+ * still opens the folder's options as before.
+ */
+
+/** The folder grid's drag state. One per list; the grid hands it to its cards through [LocalFolderReorder]. */
+@androidx.compose.runtime.Stable
+internal class FolderReorder(
+    private val gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    private val scope: kotlinx.coroutines.CoroutineScope,
+    private val edgePx: Float,
+) {
+    /** Off while selecting or searching (only part of the list shows then). */
+    var enabled by mutableStateOf(true)
+
+    /** The order shown now, as saved keys. Kept up to date by the page. */
+    var keys: List<String> = emptyList()
+
+    /** Saves a new order. */
+    var onPlace: (List<String>) -> Unit = {}
+
+    /** The saved key of a grid item (its LazyGrid key), or null for items that can't move (videos, totals). */
+    var keyOfItem: (Any) -> String? = { null }
+
+    /** A small tick each time the folder takes a new place. */
+    var onTick: () -> Unit = {}
+
+    /** The folder being moved, or null. */
+    var dragging by mutableStateOf<String?>(null)
+        private set
+
+    /** The grid's top-left corner on screen. */
+    var gridOrigin = androidx.compose.ui.geometry.Offset.Zero
+
+    private var finger: androidx.compose.ui.geometry.Offset? = null
+    private var scroller: kotlinx.coroutines.Job? = null
+
+    fun start(key: String) {
+        dragging = key
+    }
+
+    /** The finger moved to [root] (screen coordinates). */
+    fun move(root: androidx.compose.ui.geometry.Offset) {
+        if (dragging == null) return
+        val local = root - gridOrigin
+        finger = local
+        reorderAt(local)
+        if (scroller == null) {
+            scroller = scope.launch {
+                while (true) {
+                    val p = finger
+                    if (p != null) {
+                        val height = gridState.layoutInfo.viewportSize.height.toFloat()
+                        // Faster the closer the finger is to the edge.
+                        val step = when {
+                            p.y < edgePx -> -(1f - p.y / edgePx).coerceIn(0f, 1f) * MAX_EDGE_STEP
+                            p.y > height - edgePx -> ((p.y - (height - edgePx)) / edgePx).coerceIn(0f, 1f) * MAX_EDGE_STEP
+                            else -> 0f
+                        }
+                        if (step != 0f) {
+                            gridState.scrollBy(step)
+                            reorderAt(p)
+                        }
+                    }
+                    kotlinx.coroutines.delay(16)
+                }
+            }
+        }
+    }
+
+    fun end() {
+        scroller?.cancel()
+        scroller = null
+        finger = null
+        dragging = null
+    }
+
+    private fun reorderAt(p: androidx.compose.ui.geometry.Offset) {
+        val mine = dragging ?: return
+        val info = gridState.layoutInfo
+        val hit = info.visibleItemsInfo.firstOrNull { item ->
+            val top = item.offset.y - info.viewportStartOffset
+            p.y >= top && p.y < top + item.size.height &&
+                p.x >= item.offset.x && p.x < item.offset.x + item.size.width
+        } ?: return
+        val target = keyOfItem(hit.key) ?: return
+        if (target == mine) return
+        val from = keys.indexOf(mine)
+        val to = keys.indexOf(target)
+        if (from < 0 || to < 0) return
+        val next = FolderOrder.move(keys, from, to)
+        keys = next
+        onPlace(next)
+        onTick()
+    }
+
+    private companion object {
+        /** The most the page scrolls in one frame while a folder is held at the edge (pixels). */
+        const val MAX_EDGE_STEP = 28f
+    }
+}
+
+/** The grid's drag state, for the cards inside it. */
+internal val LocalFolderReorder = androidx.compose.runtime.compositionLocalOf<FolderReorder?> { null }
+
+/** The saved key of the card being drawn, for [FolderTile]. */
+internal val LocalReorderKey = androidx.compose.runtime.compositionLocalOf<String?> { null }
+
+/**
+ * Drag state for one folder list. [listId] is the [FolderOrder] list; [keys] the order shown now; [keyOfItem] turns a
+ * grid item key into a saved key. [enabled] is false while selecting or searching.
+ */
+@Composable
+internal fun rememberFolderReorder(
+    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
+    listId: String,
+    keys: List<String>,
+    enabled: Boolean,
+    keyOfItem: (Any) -> String?,
+): FolderReorder {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val edge = with(androidx.compose.ui.platform.LocalDensity.current) { 96.dp.toPx() }
+    val reorder = remember(gridState) { FolderReorder(gridState, scope, edge) }
+    reorder.enabled = enabled && keys.size > 1
+    if (reorder.dragging == null) reorder.keys = keys
+    reorder.keyOfItem = keyOfItem
+    reorder.onPlace = { FolderOrder.save(context, listId, it) }
+    reorder.onTick = { haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove) }
+    return reorder
+}
+
+/** Gives the grid's drag state to its cards and records where the grid sits on screen. */
+internal fun Modifier.folderReorderGrid(reorder: FolderReorder): Modifier =
+    this.then(Modifier.onGloballyPositioned { reorder.gridOrigin = it.positionInRoot() })
+
+/**
+ * One movable card in a folder grid: the folders around make way when it moves, and it is drawn lifted above them
+ * while held. [key] is its saved key.
+ */
+@Composable
+internal fun androidx.compose.foundation.lazy.grid.LazyGridItemScope.ReorderableFolder(
+    key: String,
+    reorder: FolderReorder?,
+    content: @Composable () -> Unit,
+) {
+    val lifted = reorder != null && reorder.dragging == key
+    val shape = MaterialTheme.shapes.medium
+    androidx.compose.foundation.layout.Box(
+        Modifier
+            .animateItem(fadeInSpec = null, fadeOutSpec = null)
+            .zIndex(if (lifted) 1f else 0f)
+            .graphicsLayer {
+                if (lifted) {
+                    scaleX = 1.06f
+                    scaleY = 1.06f
+                    alpha = 0.92f
+                    shadowElevation = 18.dp.toPx()
+                    this.shape = shape
+                }
+            },
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalFolderReorder provides reorder, LocalReorderKey provides key) {
+            content()
+        }
+    }
 }

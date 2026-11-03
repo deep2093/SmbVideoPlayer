@@ -37,8 +37,13 @@ data class SceneMetadataSettings(
     val allowedOnlineLookup: Boolean = false,
     val posterMode: PosterMode = PosterMode.AUTOMATIC,
     val videoPosters: Boolean = true,
-    /** Movie posters on movie folders inside Original folders (its own switch since 4 Nov 2026; on by default). */
-    val moviePosters: Boolean = true,
+    /**
+     * The folder sections ([SECTION_ORIGINAL], [SECTION_VIRTUAL], [SECTION_CUSTOM]) that get full movie posters, and
+     * those that get performer portraits (4 Nov 2026). Empty for a new install; an update keeps what the app did
+     * before (movie posters in Original folders, portraits in Virtual folders).
+     */
+    val movieSections: Set<String> = emptySet(),
+    val portraitSections: Set<String> = emptySet(),
     val folderPosters: Boolean = false,
     val originalFolderCover: FolderCoverChoice = FolderCoverChoice.ORIGINAL,
     val customFolderCover: FolderCoverChoice = FolderCoverChoice.ORIGINAL,
@@ -53,6 +58,9 @@ data class SceneMetadataSettings(
         const val STASHDB = "stashdb"
         // Separate from the removed artwork provider's legacy key, which is intentionally cleared.
         const val TPDB = "stashbox_tpdb"
+        const val SECTION_ORIGINAL = "original"
+        const val SECTION_VIRTUAL = "virtual"
+        const val SECTION_CUSTOM = "custom"
     }
 
     /** Scenes, movie posters and scene matching use ThePornDB only. StashDB is kept for performer portraits. */
@@ -61,16 +69,23 @@ data class SceneMetadataSettings(
     /** Order for performer portraits (the provider you prefer first). */
     fun providers(): List<String> = if (primary == TPDB) listOf(TPDB, STASHDB) else listOf(STASHDB, TPDB)
 
+    /** Movie posters are on for at least one section. */
+    val moviePosters: Boolean get() = movieSections.isNotEmpty()
+
+    /** Performer portraits are wanted in at least one section (they also need their own consent in Artwork). */
+    val portraitsWanted: Boolean get() = portraitSections.isNotEmpty()
+
+    fun moviesFor(identity: String) = sectionOf(identity)?.let { it in movieSections } == true
+    fun portraitsFor(identity: String) = sectionOf(identity)?.let { it in portraitSections } == true
+
     /**
-     * What a folder's automatic cover is. Movie folders inside Original folders get a full movie poster (always on:
-     * certain matches are applied, unclear ones wait in review). In Virtual folders, the name folders made from file
-     * names (before a comma or hyphen, or the first two words) get a performer portrait; the Virtual folder you
-     * named yourself does not. Custom folders get nothing automatic: poster or performer is chosen by hand in Change
-     * cover. Scene posters belong to each video.
+     * What a folder's automatic cover is, by the sections chosen in Settings > Artwork > Automatic artwork. A folder
+     * whose section has both gets its movie poster when one is found, otherwise the portrait. Folders you named
+     * yourself at the top of Virtual folders get nothing automatic. Scene posters belong to each video.
      */
     fun folderChoice(identity: String): FolderCoverChoice = when {
-        identity.startsWith("original:") -> FolderCoverChoice.MOVIE
-        identity.startsWith("vset:") && identity.removePrefix("vset:").contains(':') -> FolderCoverChoice.PERFORMER
+        moviesFor(identity) -> FolderCoverChoice.MOVIE
+        portraitsFor(identity) -> FolderCoverChoice.PERFORMER
         else -> FolderCoverChoice.ORIGINAL
     }
 
@@ -79,8 +94,26 @@ data class SceneMetadataSettings(
     fun needsMoviePosters() = moviePosters
 }
 
+/** Original, Virtual or Custom folders, by a folder's artwork key; null for keys that never get automatic covers. */
+fun sectionOf(identity: String): String? = when {
+    identity.startsWith("original:") -> SceneMetadataSettings.SECTION_ORIGINAL
+    // A Virtual folder's generated subfolders ("vset:<id>:<name>"), not the folder you named yourself.
+    identity.startsWith("vset:") -> if (identity.removePrefix("vset:").contains(':')) SceneMetadataSettings.SECTION_VIRTUAL else null
+    identity.startsWith("own:") || identity.startsWith("match:") || identity.startsWith("virtual:") -> SceneMetadataSettings.SECTION_CUSTOM
+    else -> null
+}
+
 class SceneMetadataPreferences(context: Context, libraryId: String) {
     private val prefs = context.applicationContext.getSharedPreferences("scene-metadata-$libraryId", Context.MODE_PRIVATE)
+
+    /**
+     * A new install (never updated): the automatic artwork choices start off. An app that was already installed keeps
+     * what it did before. Decided once and saved, so a later update doesn't change it.
+     */
+    private val newInstall: Boolean = runCatching {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        info.firstInstallTime == info.lastUpdateTime
+    }.getOrDefault(false)
     private val state = MutableStateFlow(read())
     val settings = state.asStateFlow()
 
@@ -95,8 +128,12 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
         allowedOnlineLookup = prefs.getBoolean("online_consent", false),
         // Confirmed scene posters are always applied automatically; there is no approval step or off switch.
         posterMode = PosterMode.AUTOMATIC,
-        videoPosters = prefs.getBoolean("video_posters", true),
-        moviePosters = prefs.getBoolean("movie_posters", true),
+        videoPosters = if (prefs.contains("video_posters")) prefs.getBoolean("video_posters", true)
+            else (!newInstall).also { prefs.edit().putBoolean("video_posters", it).apply() },
+        movieSections = sections("movie_sections") {
+            if (prefs.getBoolean("movie_posters", true)) setOf(SceneMetadataSettings.SECTION_ORIGINAL) else emptySet()
+        },
+        portraitSections = sections("portrait_sections") { setOf(SceneMetadataSettings.SECTION_VIRTUAL) },
         folderPosters = prefs.getBoolean("folder_posters", false),
         originalFolderCover = savedChoice("original_folder_cover"),
         customFolderCover = savedChoice("custom_folder_cover"),
@@ -105,6 +142,14 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
         virtualGeneratedFolderCover = savedChoice("virtual_generated_cover", FolderCoverChoice.PERFORMER),
         virtualGeneratedVideoScenes = prefs.getBoolean("virtual_generated_video_scenes", true),
     )
+
+    /** A saved set of sections; the first time, [before] (what the app did until now), or nothing on a new install. */
+    private fun sections(key: String, before: () -> Set<String>): Set<String> {
+        prefs.getStringSet(key, null)?.let { return it.toSet() }
+        val first = if (newInstall) emptySet() else before()
+        prefs.edit().putStringSet(key, first).apply()
+        return first
+    }
 
     private fun savedChoice(key: String, default: FolderCoverChoice = FolderCoverChoice.ORIGINAL): FolderCoverChoice =
         runCatching { FolderCoverChoice.valueOf(prefs.getString(key, default.name)!!) }
@@ -125,6 +170,8 @@ class SceneMetadataPreferences(context: Context, libraryId: String) {
             .putString("poster_mode", next.posterMode.name)
             .putBoolean("video_posters", next.videoPosters)
             .putBoolean("movie_posters", next.moviePosters)
+            .putStringSet("movie_sections", next.movieSections)
+            .putStringSet("portrait_sections", next.portraitSections)
             .putBoolean("folder_posters", next.folderPosters)
             .putString("original_folder_cover", next.originalFolderCover.name)
             .putString("custom_folder_cover", next.customFolderCover.name)

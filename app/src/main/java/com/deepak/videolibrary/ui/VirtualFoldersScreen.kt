@@ -122,7 +122,9 @@ private fun VirtualSetList(
     // A new folder goes straight on to choosing its drive folders.
     var fillNew by remember { mutableStateOf<String?>(null) }
     val topLevel = sets.filter { it.parentId == null }
-    val shown = if (query.isBlank()) topLevel else topLevel.filter { it.name.contains(query.trim(), ignoreCase = true) }
+    // Your own order (hold a folder and slide it), then the rest by name.
+    val ordered = rememberFolderOrder("virtual-sets", topLevel) { it.id }
+    val shown = if (query.isBlank()) ordered else ordered.filter { it.name.contains(query.trim(), ignoreCase = true) }
     val aspect = cardAspect(vm, Pages.VIRTUAL)
     ScrollToTopOnChange(query, gridState)
     LaunchedEffect(active) {
@@ -135,6 +137,9 @@ private fun VirtualSetList(
     val selection = vm.ui.selectionOn(selectPage)
     BackHandler(enabled = selection != null) { vm.ui.endSelection(selectPage) }
     LaunchedEffect(active) { if (!active) vm.ui.endSelection(selectPage) }
+    val reorder = rememberFolderReorder(gridState, "virtual-sets", shown.map { it.id }, enabled = selection == null && query.isBlank()) { key ->
+        (key as? String)?.takeIf { it.startsWith("set:") }?.removePrefix("set:")
+    }
     ScrollTopOnRequest(vm, gridState, active)
     Column(Modifier.fillMaxSize().padding(horizontal = PAGE_MARGIN)) {
         HubTopBar {
@@ -188,7 +193,7 @@ private fun VirtualSetList(
                 horizontalArrangement = Arrangement.spacedBy(GRID_GAP),
                 verticalArrangement = Arrangement.spacedBy(GRID_ROW_GAP),
                 contentPadding = PaddingValues(top = 12.dp, bottom = if (floatingPadding(vm)) 112.dp else 24.dp),
-                modifier = Modifier.fillMaxSize().testTag("virtual-folder-grid"),
+                modifier = Modifier.fillMaxSize().folderReorderGrid(reorder).testTag("virtual-folder-grid"),
             ) {
                 if (shown.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -204,9 +209,9 @@ private fun VirtualSetList(
                         }
                     }
                 }
-                items(shown, key = { "set:" + it.id }, contentType = { "set" }) { set ->
+                items(shown, key = { "set:" + it.id }, contentType = { "set" }) { set -> ReorderableFolder(set.id, reorder) {
                     VirtualSetCard(vm, set, aspect, vm.ui.tick(selectPage, set.id))
-                }
+                } }
                 if (shown.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }, key = "count") {
                     ListTotal("${shown.size} ${if (shown.size == 1) "folder" else "folders"}")
                 }

@@ -88,6 +88,7 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
 
     val artwork by vm.artworkSettings.collectAsStateWithLifecycle()
     var portraitConsent by remember { mutableStateOf(false) }
+    var pendingPortraitSection by remember { mutableStateOf<String?>(null) }
     MetadataPanel(part == "online", "Matching") {
         SwitchRow(
             "Match online",
@@ -128,17 +129,54 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
             prefs.update { it.copy(videoPosters = on) }; if (on) ScenePosterWorker.enqueue(context, service.libraryId)
         }
         SettingsDivider()
-        SwitchRow("Movie posters", "On movie folders in Original folders", options.moviePosters, enabled = online) { on ->
-            prefs.update { it.copy(moviePosters = on) }
-            if (on) com.deepak.videolibrary.artwork.MoviePosterWorker.enqueue(context, service.libraryId)
+        // Movie posters and portraits go on folders: each opens a page to choose the folder sections (4 Nov 2026).
+        val portraitsOn = artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders
+        SectionsRow("Movie posters", sectionSummary(options.movieSections), online) {
+            vm.ui.settingsSection = "Artwork/Automatic/Movies"
         }
         SettingsDivider()
-        SwitchRow("Performer portraits", "On Virtual folders",
-            artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders, enabled = online,
-        ) { on ->
-            if (on) portraitConsent = true
-            else vm.updateArtwork { it.copy(portraitsOnFolders = false) }
+        SectionsRow("Performer portraits", sectionSummary(if (portraitsOn) options.portraitSections else emptySet()), online) {
+            vm.ui.settingsSection = "Artwork/Automatic/Portraits"
         }
+    }
+
+    MetadataPanel(part == "movies", "Show movie posters in") {
+        val online = options.enabled && options.allowedOnlineLookup
+        if (!online) Text("Turn on Match online first.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FOLDER_SECTIONS.forEachIndexed { index, (section, label, note) ->
+            if (index > 0) SettingsDivider()
+            SwitchRow(label, note, section in options.movieSections, enabled = online) { on ->
+                prefs.update { it.copy(movieSections = if (on) it.movieSections + section else it.movieSections - section) }
+                if (on) com.deepak.videolibrary.artwork.MoviePosterWorker.enqueue(context, service.libraryId)
+            }
+        }
+        Text("Found by the folder's name, then its videos' names.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+
+    MetadataPanel(part == "portraits", "Show performer portraits in") {
+        val online = options.enabled && options.allowedOnlineLookup
+        val portraitsOn = artwork.enabled && artwork.adultConsent && artwork.portraitsOnFolders
+        if (!online) Text("Turn on Match online first.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FOLDER_SECTIONS.forEachIndexed { index, (section, label, note) ->
+            if (index > 0) SettingsDivider()
+            SwitchRow(label, note, portraitsOn && section in options.portraitSections, enabled = online) { on ->
+                if (on) {
+                    if (!artwork.adultConsent) {
+                        // Asked once; the section is turned on when you allow it.
+                        pendingPortraitSection = section
+                        portraitConsent = true
+                    } else {
+                        prefs.update { it.copy(portraitSections = (if (portraitsOn) it.portraitSections else emptySet()) + section) }
+                        vm.updateArtwork { it.copy(enabled = true, portraitsOnFolders = true, portraitsOnVideos = false) }
+                    }
+                } else {
+                    val left = options.portraitSections - section
+                    prefs.update { it.copy(portraitSections = left) }
+                    if (left.isEmpty()) vm.updateArtwork { it.copy(portraitsOnFolders = false) }
+                }
+            }
+        }
+        Text("Found by the folder's name, for folders named after a person.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 
     MetadataPanel(part == "advanced", "Matching methods") {
@@ -223,11 +261,14 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     }
 
     if (portraitConsent) AlertDialog(
-        onDismissRequest = { portraitConsent = false },
+        onDismissRequest = { portraitConsent = false; pendingPortraitSection = null },
         title = { Text("Allow online performer portraits?") },
         text = { Text("Only cleaned folder and performer names will be sent to the enabled providers to find pictures. SMB server details and your passwords are not shared.") },
         confirmButton = { TextButton(onClick = {
             portraitConsent = false
+            val section = pendingPortraitSection ?: com.deepak.videolibrary.metadata.SceneMetadataSettings.SECTION_VIRTUAL
+            pendingPortraitSection = null
+            prefs.update { it.copy(portraitSections = it.portraitSections + section) }
             vm.updateArtwork {
                 it.copy(enabled = true, adultConsent = true, portraitsOnFolders = true, portraitsOnVideos = false)
             }
@@ -248,6 +289,34 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
     )
     // The review window itself is shown by MatchReviewPrompt at the top of the app, so the pop-up and this button
     // open the same one.
+}
+
+/** The folder sections movie posters and portraits can go in: saved id, name, one-line note. */
+private val FOLDER_SECTIONS = listOf(
+    Triple(com.deepak.videolibrary.metadata.SceneMetadataSettings.SECTION_ORIGINAL, "Original folders", "Movie folders inside the folders you added"),
+    Triple(com.deepak.videolibrary.metadata.SceneMetadataSettings.SECTION_VIRTUAL, "Virtual folders", "Folders made from file names"),
+    Triple(com.deepak.videolibrary.metadata.SceneMetadataSettings.SECTION_CUSTOM, "Custom folders", "Your folders and their name groups"),
+)
+
+/** "Off", or the chosen sections ("Original, Virtual"). */
+private fun sectionSummary(sections: Set<String>): String =
+    FOLDER_SECTIONS.filter { it.first in sections }.joinToString(", ") { it.second.substringBefore(' ') }.ifEmpty { "Off" }
+
+/** A row that opens its own page, with what is chosen there underneath. */
+@Composable
+private fun SectionsRow(title: String, summary: String, enabled: Boolean, onOpen: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClickLabel = "Choose folders for $title", onClick = onOpen),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.ChevronRight, contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 /** One flat section of an Artwork sub-page; shown only on its own page ([visible]). */

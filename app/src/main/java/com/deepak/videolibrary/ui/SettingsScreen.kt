@@ -85,7 +85,7 @@ private class SettingsSection(val id: String, val title: String, val description
 
 /*
  * Settings, minimal (4 Nov 2026): every row opens its own page, nothing folds open in place, one short line under each.
- * Pages can have their own sub-pages ("Artwork/Covers"); Back goes up one level.
+ * Pages can have their own sub-pages ("Artwork/Automatic"); Back goes up one level.
  */
 private val SETTINGS_SECTIONS = listOf(
     SettingsSection("Connection", "Connection", "Server and remote access", "Media"),
@@ -111,7 +111,9 @@ private val SETTINGS_SUBPAGES = listOf(
     SettingsSection("Artwork/Review", "Review matches", "Waiting for your choice", "Artwork"),
     SettingsSection("Artwork/Automatic", "Automatic artwork", "Posters and portraits", "Artwork"),
     SettingsSection("Artwork/Online", "Online matching", "Providers and keys", "Artwork"),
-    SettingsSection("Artwork/Covers", "Covers", "Defaults for folders", "Artwork"),
+    // Opened from rows on the Automatic artwork page, so not listed on the Artwork page itself.
+    SettingsSection("Artwork/Automatic/Movies", "Movie posters", "Folders that get them", "Artwork/Automatic"),
+    SettingsSection("Artwork/Automatic/Portraits", "Performer portraits", "Folders that get them", "Artwork/Automatic"),
     SettingsSection("Artwork/Thumbnails", "Thumbnails", "Make, retry and reset", "Artwork"),
     SettingsSection("Artwork/Advanced", "Advanced", "Matching methods and clearing", "Artwork"),
 )
@@ -119,7 +121,7 @@ private val SETTINGS_SUBPAGES = listOf(
 private fun settingsTitle(id: String): String =
     (SETTINGS_SECTIONS + SETTINGS_SUBPAGES).firstOrNull { it.id == id }?.title ?: "Settings"
 
-/** The page Back goes to: "Artwork/Covers" -> "Artwork", a top page -> the index (null). */
+/** The page Back goes to: "Artwork/Automatic/Movies" -> "Artwork/Automatic", a top page -> the index (null). */
 private fun settingsParent(id: String): String? = id.substringBeforeLast('/', "").ifEmpty { null }
 
 /** A page's own list of sub-pages, as plain rows. */
@@ -413,7 +415,8 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                             ArtworkSettingsSection(vm, part = "artwork")
                         }
                         "Artwork/Online" -> SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo, part = "online")
-                        "Artwork/Covers" -> ArtworkSettingsSection(vm, part = "covers")
+                        "Artwork/Automatic/Movies" -> SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo, part = "movies")
+                        "Artwork/Automatic/Portraits" -> SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo, part = "portraits")
                         "Artwork/Thumbnails" -> {
                             SyncAndThumbnailsSettings(vm, scan = false, thumbnails = true)
                             ResetChoicesSetting(vm)
