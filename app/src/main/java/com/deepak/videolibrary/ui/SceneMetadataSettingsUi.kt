@@ -85,41 +85,32 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
 
     val artwork by vm.artworkSettings.collectAsStateWithLifecycle()
     var portraitConsent by remember { mutableStateOf(false) }
-    Text("Artwork & scene metadata", style = MaterialTheme.typography.titleMedium)
-    Text("Everything runs by itself once it is on. Covers you pick yourself always stay.",
-        style = MaterialTheme.typography.bodySmall)
-    Button(onClick = { vm.ui.reviewRequest++ }, modifier = Modifier.fillMaxWidth()) {
-        Text("Review all (scenes, portraits, movie posters)")
-    }
-
     MetadataPanel(vm, "setup", "Online matching & accounts",
         if (options.enabled && options.allowedOnlineLookup) "On" else "Off", initialOpen = true) {
-        SettingsStaticCard("Match scenes and posters online") {
-            SwitchRow(
-                "Online matching",
-                "Cleaned file and folder names and file fingerprints go to your providers. SMB paths and account details are never sent.",
-                options.enabled && options.allowedOnlineLookup,
-            ) { on ->
-                if (on) consentOpen = true
-                else {
-                    prefs.update { it.copy(enabled = false, allowedOnlineLookup = false) }
-                    SceneMetadataWorker.cancel(context, service.libraryId)
-                }
+        SwitchRow(
+            "Match scenes and posters online",
+            "Cleaned file and folder names and file fingerprints go to your providers. SMB paths and account details are never sent.",
+            options.enabled && options.allowedOnlineLookup,
+        ) { on ->
+            if (on) consentOpen = true
+            else {
+                prefs.update { it.copy(enabled = false, allowedOnlineLookup = false) }
+                SceneMetadataWorker.cancel(context, service.libraryId)
             }
         }
-        SettingsStaticCard("Provider preference") {
-            Text("Scenes and movie posters use ThePornDB only. This choice sets which provider performer portraits try first. Keys are shared with performer portraits.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            SettingsChoice(listOf("Search ThePornDB first", "Search StashDB first"),
-                if (options.primary == SceneMetadataSettings.TPDB) 0 else 1) { index ->
-                prefs.update { it.copy(primary = if (index == 0) SceneMetadataSettings.TPDB else SceneMetadataSettings.STASHDB) }
-            }
+        SettingsDivider()
+        SettingsLabel("Portrait provider")
+        Text("Choose which provider to try first for portraits. Scenes and movie posters use ThePornDB.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SettingsChoice(listOf("ThePornDB", "StashDB"),
+            if (options.primary == SceneMetadataSettings.TPDB) 0 else 1) { index ->
+            prefs.update { it.copy(primary = if (index == 0) SceneMetadataSettings.TPDB else SceneMetadataSettings.STASHDB) }
         }
-        SettingsStaticCard("Provider keys") {
-            SceneKeyEntry(vm, SceneMetadataSettings.STASHDB, "StashDB", keyRevision)
-            SceneKeyEntry(vm, SceneMetadataSettings.TPDB, "ThePornDB", keyRevision)
-            Text("Keys are encrypted using Android Keystore and are never embedded in the APK.", style = MaterialTheme.typography.bodySmall)
-        }
+        SettingsDivider()
+        SettingsLabel("Provider keys")
+        SceneKeyEntry(vm, SceneMetadataSettings.STASHDB, "StashDB", keyRevision)
+        SceneKeyEntry(vm, SceneMetadataSettings.TPDB, "ThePornDB", keyRevision)
+        Text("Keys are encrypted on this device.", style = MaterialTheme.typography.bodySmall)
     }
 
     MetadataPanel(vm, "videos", "Videos & Original folders",
@@ -177,6 +168,8 @@ internal fun SceneMetadataSettingsSection(vm: LibraryViewModel, onPreviewVideo: 
         }
         status?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
+
+    OutlinedButton(onClick = { vm.ui.reviewRequest++ }) { Text("Review artwork matches") }
 
     if (clearPrompt != null) {
         val selected = clearPrompt!!
@@ -261,7 +254,7 @@ private fun MetadataPanel(
     initialOpen: Boolean = false,
     body: @Composable () -> Unit,
 ) {
-    SettingsAccordion(vm, "Artwork", id, title, summary, initialOpen = initialOpen, splitContent = id == "setup") {
+    SettingsAccordion(vm, "Artwork", id, title, summary, initialOpen = initialOpen) {
         body()
     }
 }

@@ -81,24 +81,24 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.deepak.videolibrary.settings.SmbSettings
 import kotlinx.coroutines.launch
 
-private class SettingsSection(val id: String, val title: String, val description: String)
+private class SettingsSection(val id: String, val title: String, val description: String, val group: String)
 
 private val SETTINGS_SECTIONS = listOf(
     // One question per section, in the order you need them: the server first, troubleshooting last.
-    SettingsSection("Connection", "Connection", "Server, account and remote access"),
-    SettingsSection("Sync", "Sync & scanning", "Automatic rescan and library scan"),
-    SettingsSection("Artwork", "Artwork & scene metadata", "Video posters, folder portraits and matching"),
-    SettingsSection("Layout", "App layout", "Folder tabs, navigation, hidden items"),
-    SettingsSection("Appearance", "Appearance", "Theme"),
-    SettingsSection("Diagnostics", "Backup & diagnostics", "Export, restore and reports"),
-    SettingsSection("WhatsNew", "What's new", "Changes in this version"),
+    SettingsSection("Connection", "Connection", "Server, account and remote access", "Library"),
+    SettingsSection("Sync", "Library management", "Scanning, refresh and hidden items", "Library"),
+    SettingsSection("Artwork", "Artwork & scene metadata", "Video posters, folder portraits and matching", "Library"),
+    SettingsSection("Layout", "App layout", "Navigation, folder tabs and grid sizes", "Personalisation"),
+    SettingsSection("Appearance", "Appearance", "Themes and transparency", "Personalisation"),
+    SettingsSection("Diagnostics", "Backup & diagnostics", "Export, restore and reports", "Support"),
+    SettingsSection("WhatsNew", "What's new", "Changes in this version", "Support"),
 )
 
 /** Settings index row. Each group opens its own page. */
 @Composable
 private fun SettingsPageRow(entry: SettingsSection, onOpen: () -> Unit) {
-    SettingsPanel(Modifier.clickable(role = Role.Button, onClickLabel = "Open ${entry.title}", onClick = onOpen)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Open ${entry.title}", onClick = onOpen)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             SettingsIconTile(entry.title)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -186,11 +186,19 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                     Modifier.fillMaxSize().imePadding().verticalScroll(activeScroll)
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                         .padding(bottom = if (floatingPadding(vm)) 100.dp else 0.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     if (page == null) {
-                        SETTINGS_SECTIONS.forEach { entry ->
-                            SettingsPageRow(entry) { if (entry.id == "WhatsNew") vm.ui.whatsNewOpen = true else section = entry.id }
+                        SETTINGS_SECTIONS.groupBy { it.group }.forEach { (group, entries) ->
+                            SettingsLabel(group)
+                            SettingsPanel {
+                                entries.forEachIndexed { index, entry ->
+                                    if (index > 0) androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                    SettingsPageRow(entry) {
+                                        if (entry.id == "WhatsNew") vm.ui.whatsNewOpen = true else section = entry.id
+                                    }
+                                }
+                            }
                         }
                     } else {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -342,7 +350,12 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                             SettingsAccordion(vm, "Connection", "vpn", "Remote access (VPN)",
                                 "WireGuard, for reaching your server away from home", splitContent = true) { VpnSettings() }
                         }
-                        "Sync" -> SyncAndThumbnailsSettings(vm, scan = true, thumbnails = false)
+                        "Sync" -> {
+                            SyncAndThumbnailsSettings(vm, scan = true, thumbnails = false)
+                            SettingsStaticCard("Hidden files and folders") {
+                                OutlinedButton(onClick = { vm.ui.setFlag("settings.hidden", true) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
+                            }
+                        }
                         "Artwork" -> {
                             SceneMetadataSettingsSection(vm, onPreviewVideo = onPreviewVideo)
                             ArtworkSettingsSection(vm)
@@ -371,9 +384,7 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                             SettingsStaticCard("Video pages") {
                                 GridSizeSetting(vm, folders = false)
                             }
-                            SettingsStaticCard("Hidden files and folders") {
-                                OutlinedButton(onClick = { vm.ui.setFlag("settings.hidden", true) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ui_unhide_files_and_folders_64749bf)) }
-                            }
+
                         }
                         "Appearance" -> SettingsStaticCard("Themes & readability") { ThemeSettings() }
                         "Diagnostics" -> {

@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
@@ -26,7 +27,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun settingsCardBorder(emphasised: Boolean = false): BorderStroke {
     val colors = MaterialTheme.colorScheme
-    return BorderStroke(1.dp, lerp(colors.outlineVariant, colors.tertiary, if (emphasised) 0.5f else 0.22f))
+    return BorderStroke(1.dp, lerp(colors.outlineVariant, colors.tertiary, if (emphasised) 0.70f else 0.34f))
 }
 
 @Composable
@@ -36,10 +37,10 @@ internal fun SettingsPanel(modifier: Modifier = Modifier, emphasised: Boolean = 
     val base = colors.surfaceContainerHigh
     // Glass gets a subtle specular wash. Reduced transparency and solid themes stay opaque.
     val top = if (theme.glass && !theme.reduceTransparency) lerp(base, colors.onSurface, 0.07f) else base
-    Surface(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp),
+    Surface(modifier = modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp),
         color = Color.Transparent, contentColor = colors.onSurface, border = settingsCardBorder(emphasised)) {
-        Column(Modifier.background(Brush.verticalGradient(listOf(top, base))).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+        Column(Modifier.background(Brush.verticalGradient(listOf(top, base))).padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp), content = content)
     }
 }
 
@@ -62,16 +63,16 @@ internal fun settingsIcon(title: String): ImageVector = when {
 @Composable
 internal fun SettingsIconTile(title: String) {
     val colors = MaterialTheme.colorScheme
-    Surface(shape = RoundedCornerShape(12.dp), color = lerp(colors.surfaceContainerHigh, colors.tertiary, 0.22f)) {
-        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-            Icon(settingsIcon(title), contentDescription = null, tint = colors.onSurface, modifier = Modifier.size(22.dp))
+    Surface(shape = RoundedCornerShape(12.dp), color = lerp(colors.surfaceContainerHigh, colors.tertiary, 0.30f)) {
+        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+            Icon(settingsIcon(title), contentDescription = null, tint = colors.onSurface, modifier = Modifier.size(19.dp))
         }
     }
 }
 
 @Composable
 internal fun SettingsGroupHeading(title: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         SettingsIconTile(title)
         Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
     }
@@ -79,7 +80,7 @@ internal fun SettingsGroupHeading(title: String) {
 
 @Composable
 internal fun SettingsStaticCard(title: String, content: @Composable ColumnScope.() -> Unit) {
-    SettingsPanel(Modifier.padding(vertical = 5.dp)) {
+    SettingsPanel(Modifier.padding(vertical = 1.dp)) {
         SettingsGroupHeading(title)
         content()
     }
@@ -93,11 +94,11 @@ internal fun SettingsAccordion(
 ) {
     val expanded = vm.ui.accordionOpen(page, id, initialOpen)
     Column(Modifier.fillMaxWidth()) {
-        SettingsPanel(Modifier.padding(vertical = 5.dp), emphasised = expanded) {
+        SettingsPanel(Modifier.padding(vertical = 1.dp), emphasised = expanded) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
                 .clickable(enabled = enabled, role = Role.Button) { vm.ui.setAccordionOpen(page, id, !expanded) },
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 SettingsIconTile(title)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(title, style = MaterialTheme.typography.titleMedium,
@@ -124,11 +125,13 @@ internal fun SettingsChoice(options: List<String>, selected: Int, onSelect: (Int
             options.forEachIndexed { index, label ->
                 val active = selected == index
                 Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(20.dp),
-                    color = if (active) lerp(colors.surfaceContainerHigh, colors.tertiary, 0.45f) else Color.Transparent,
+                    color = if (active) colors.tertiary else Color.Transparent,
                     border = if (active) settingsCardBorder(true) else null) {
                     Box(Modifier.selectable(selected = active, role = Role.RadioButton, onClick = { onSelect(index) })
                         .heightIn(min = 48.dp).padding(horizontal = 8.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
-                        Text(label, style = MaterialTheme.typography.labelLarge, color = colors.onSurface,
+                        Text(label, style = MaterialTheme.typography.labelLarge, color = if (active) {
+                                if (colors.tertiary.luminance() > 0.179f) Color.Black else Color.White
+                            } else colors.onSurface,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     }
                 }
