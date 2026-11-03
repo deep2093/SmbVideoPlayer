@@ -519,15 +519,18 @@ fun VideoLibraryTheme(content: @Composable () -> Unit) {
         ),
         content = {
             CompositionLocalProvider(LocalLibraryTheme provides theme, LocalGlassSettings provides glassSettings) {
-                if (adaptiveStyle != null && adaptiveColors != null) {
-                    Box(Modifier.fillMaxSize().drawBehind { drawAdaptiveWallpaper(adaptiveColors.map { it.value }, adaptiveStyle) }) { content() }
-                } else if (theme.showsWallpaper) {
-                    Box(Modifier.fillMaxSize().drawBehind { drawTransparentVeil() }) { content() }
-                } else if (theme.glass) {
-                    Box(Modifier.fillMaxSize().drawBehind { drawGlassWallpaper(theme) }) { content() }
-                } else {
-                    content()
-                }
+                // One wrapper for every theme, only its painting changes. Separate wrappers per kind of theme made a
+                // switch between kinds (glass, cover colours, solid) rebuild the whole app and lose your place.
+                Box(
+                    Modifier.fillMaxSize().drawBehind {
+                        when {
+                            adaptiveStyle != null && adaptiveColors != null -> drawAdaptiveWallpaper(adaptiveColors.map { it.value }, adaptiveStyle)
+                            theme.showsWallpaper -> drawTransparentVeil()
+                            theme.glass -> drawGlassWallpaper(theme)
+                            else -> Unit
+                        }
+                    },
+                ) { content() }
             }
         },
     )
