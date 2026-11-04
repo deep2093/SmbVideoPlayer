@@ -169,7 +169,9 @@ fun PlayerScreen(
     }
     var gpuChecking by remember { mutableStateOf(false) }
     var gpuCheckStatus by remember { mutableStateOf("") }
-    val gpuAllowed = (gpuCheck?.substringBefore('|')?.toIntOrNull() ?: 2).coerceIn(0, 3)
+    // HDR experiment: HDR videos may use 1440p without the quality check (the watchdog still steps down if the
+    // phone can't keep up), to see what the phone really manages.
+    val gpuAllowed = if (hdrVideo && hdrSmoothPref) 3 else (gpuCheck?.substringBefore('|')?.toIntOrNull() ?: 2).coerceIn(0, 3)
     var sessionCap by remember { mutableIntStateOf(3) }
     // Power mode: 0 = Battery (at most 900p, lowered sooner when the phone warms), 1 = Balanced (default; also at most 900p
     // while Android's battery saver is on), 2 = Quality (lowered only when the phone is getting seriously hot).
