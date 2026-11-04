@@ -112,6 +112,14 @@ internal object NativeSvpTuning {
      * quality level's size; only the finished frame gets bigger and crisper.
      */
     @Volatile var upscaleTarget: IntArray? = null
+    /**
+     * HDR smoothing experiment (5 Nov 2026). Media3 hands HDR frames to effects as linear BT.2020 light in half-float
+     * textures. The engine still works on 8-bit pictures, so each frame is PQ-encoded (the HDR curve, which spends its
+     * steps where the eye sees them) into 8-bit YUV for the engine, and the engine's frames are decoded back to linear
+     * light for the screen. HDR stays HDR; the cost is 8 instead of 10 bits per colour (possible slight banding).
+     */
+    @Volatile var hdrAllowed: Boolean = false
+
     /** For the playback report: what the last played video was (HDR detection, codec, colour info) and the screen's HDR state. */
     @Volatile var lastVideoInfo: String = "(none yet)"
     /** The frame rate the file says it has (0 when unknown). Phone-camera videos vary from frame to frame, so the
@@ -147,9 +155,9 @@ internal object NativeSvpTuning {
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class NativeSvpEffect(private val controller: NativeSvpController, private val gpuOverride: Boolean? = null) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram {
-        check(!useHdr) { "Native interpolation currently supports SDR only" }
+        check(!useHdr || NativeSvpTuning.hdrAllowed) { "Native interpolation currently supports SDR only" }
         check(NativeSvpStream.available) { "Native interpolation libraries are unavailable" }
-        return NativeSvpShader(NativeSvpStream.libraryDirectory(context), controller, gpuOverride, context.applicationContext)
+        return NativeSvpShader(NativeSvpStream.libraryDirectory(context), controller, gpuOverride, context.applicationContext, useHdr)
     }
 }
 
@@ -159,6 +167,8 @@ private class NativeSvpShader(
     private val controller: NativeSvpController,
     private val gpuOverride: Boolean?,
     private val appContext: Context,
+    /** Frames arrive (and must leave) as linear BT.2020 light in half-float textures. */
+    private val hdr: Boolean = false,
 ) : GlShaderProgram {
     private var input: GlShaderProgram.InputListener = object : GlShaderProgram.InputListener {}
     private var output: GlShaderProgram.OutputListener = object : GlShaderProgram.OutputListener {}
@@ -246,14 +256,22 @@ private class NativeSvpShader(
                 inputConverter = GlProgram(
                     "attribute vec2 aPosition; void main(){gl_Position=vec4(aPosition,0.,1.);}",
                     "precision highp float; uniform sampler2D uRgb; uniform vec2 uSize; uniform float uPackedWidth;" +
+                        // SDR: the picture's own colours, limited-range BT.709 YUV. HDR: linear light PQ-encoded first,
+                        // then full-range BT.2020 YUV, so all 256 steps go to the picture.
+                        (if (hdr) HDR_PQ_OETF + "vec3 px(vec2 uv){return pqOetf(texture2D(uRgb,uv).rgb);}" +
+                            "const vec3 KY=vec3(.2627,.6780,.0593); const float KB=1.8814; const float KR=1.4746;" +
+                            "const float Y0=0.; const float YS=255.; const float CS=255.;"
+                        else "vec3 px(vec2 uv){return texture2D(uRgb,uv).rgb;}" +
+                            "const vec3 KY=vec3(.2126,.7152,.0722); const float KB=1.8556; const float KR=1.5748;" +
+                            "const float Y0=16.; const float YS=219.; const float CS=224.;") +
                         "float valueAt(float i){float area=uSize.x*uSize.y; if(i>=area*1.5)return 0.;" +
                         "if(i<area){vec2 xy=vec2(mod(i,uSize.x),floor(i/uSize.x));" +
-                        "vec3 c=texture2D(uRgb,(xy+.5)/uSize).rgb;return (16.+219.*dot(c,vec3(.2126,.7152,.0722)))/255.;}" +
+                        "vec3 c=px((xy+.5)/uSize);return (Y0+YS*dot(c,KY))/255.;}" +
                         "float j=mod(i-area,area*.25);vec2 xy=vec2(mod(j,uSize.x*.5),floor(j/(uSize.x*.5)))*2.;" +
-                        "vec3 c=(texture2D(uRgb,(xy+vec2(.5,.5))/uSize).rgb+texture2D(uRgb,(xy+vec2(1.5,.5))/uSize).rgb+" +
-                        "texture2D(uRgb,(xy+vec2(.5,1.5))/uSize).rgb+texture2D(uRgb,(xy+vec2(1.5,1.5))/uSize).rgb)*.25;" +
-                        "float y=dot(c,vec3(.2126,.7152,.0722));float uv=i<area*1.25?(c.b-y)/1.8556:(c.r-y)/1.5748;" +
-                        "return (128.+224.*uv)/255.;}" +
+                        "vec3 c=(px((xy+vec2(.5,.5))/uSize)+px((xy+vec2(1.5,.5))/uSize)+" +
+                        "px((xy+vec2(.5,1.5))/uSize)+px((xy+vec2(1.5,1.5))/uSize))*.25;" +
+                        "float y=dot(c,KY);float uv=i<area*1.25?(c.b-y)/KB:(c.r-y)/KR;" +
+                        "return clamp((128.+CS*uv)/255.,0.,1.);}" +
                         "void main(){float i=(floor(gl_FragCoord.y)*uPackedWidth+floor(gl_FragCoord.x))*4.;" +
                         "gl_FragColor=vec4(valueAt(i),valueAt(i+1.),valueAt(i+2.),valueAt(i+3.));}").apply {
                     setBufferAttribute("aPosition", floatArrayOf(-1f,-1f,1f,-1f,-1f,1f,1f,1f), 2)
@@ -365,10 +383,12 @@ private class NativeSvpShader(
         }
         val backend = if (useGpu) "OpenCL" else "CPU"
         NativeSvpTuning.lastStream = "${width}x$height $backend · $threads threads · $ahead ahead" +
-            if (outWidth != width) " → ${outWidth}x$outHeight sharp" else ""
+            (if (outWidth != width) " → ${outWidth}x$outHeight sharp" else "") +
+            (if (hdr) " · HDR (PQ 8-bit)" else "")
         android.util.Log.i("NativeSvp", "Stream ${width}x$height source=$fpsNum/$fpsDen output=60 analysis=half backend=$backend threads=$threads ahead=$ahead outputs=$outputs")
         repeat(outputs) {
-            val texture = checkNotNull(provider).createBuffersForTexture(GlUtil.createTexture(outWidth, outHeight, false), outWidth, outHeight)
+            // HDR frames leave as half-float linear light, as Media3 expects between HDR effects.
+            val texture = checkNotNull(provider).createBuffersForTexture(GlUtil.createTexture(outWidth, outHeight, hdr), outWidth, outHeight)
             textures.add(texture); free.add(texture)
         }
     }
@@ -420,14 +440,25 @@ private class NativeSvpShader(
                     "+texture2D(uY,vec2(a.x,b.y)).r*w0.x*w12.y+texture2D(uY,vec2(b.x,b.y)).r*w12.x*w12.y+texture2D(uY,vec2(c.x,b.y)).r*w3.x*w12.y" +
                     "+texture2D(uY,vec2(a.x,c.y)).r*w0.x*w3.y+texture2D(uY,vec2(b.x,c.y)).r*w12.x*w3.y+texture2D(uY,vec2(c.x,c.y)).r*w3.x*w3.y;" +
                     "return r;} "
+                val lumaRead = if (upscaling) "lumaAt(vTex)" else "texture2D(uY,vTex).r"
                 converter = GlProgram(
                     "attribute vec2 aPosition; varying vec2 vTex; void main(){gl_Position=vec4(aPosition,0.,1.);vTex=aPosition*.5+.5;}",
                     "precision highp float; varying vec2 vTex; uniform sampler2D uY; uniform sampler2D uU; uniform sampler2D uV; " +
                         (if (upscaling) sharpLuma else "") +
-                        "void main(){float y=((" + (if (upscaling) "lumaAt(vTex)" else "texture2D(uY,vTex).r") + ")-16./255.)*(255./219.);" +
-                        "float u=(texture2D(uU,vTex).r-128./255.)*(255./224.);" +
-                        "float v=(texture2D(uV,vTex).r-128./255.)*(255./224.);" +
-                        "gl_FragColor=vec4(y+1.5748*v,y-.187324*u-.468124*v,y+1.8556*u,1.);}")
+                        (if (hdr) {
+                            // Back from the engine's PQ-encoded full-range BT.2020 YUV to linear light for Media3.
+                            HDR_PQ_EOTF +
+                                "void main(){float y=" + lumaRead + ";" +
+                                "float u=texture2D(uU,vTex).r-128./255.;" +
+                                "float v=texture2D(uV,vTex).r-128./255.;" +
+                                "vec3 pq=clamp(vec3(y+1.4746*v,y-.164553*u-.571353*v,y+1.8814*u),0.,1.);" +
+                                "gl_FragColor=vec4(pqEotf(pq),1.);}"
+                        } else {
+                            "void main(){float y=((" + lumaRead + ")-16./255.)*(255./219.);" +
+                                "float u=(texture2D(uU,vTex).r-128./255.)*(255./224.);" +
+                                "float v=(texture2D(uV,vTex).r-128./255.)*(255./224.);" +
+                                "gl_FragColor=vec4(y+1.5748*v,y-.187324*u-.468124*v,y+1.8556*u,1.);}"
+                        }))
                 converter.setBufferAttribute("aPosition", floatArrayOf(-1f,-1f,1f,-1f,-1f,1f,1f,1f), 2)
                 if (upscaling) converter.setFloatsUniform("uYSize", floatArrayOf(width.toFloat(), height.toFloat()))
                 var index = 0
@@ -574,6 +605,16 @@ internal class NativeSvpScale(
     }
     override fun getGlMatrixArray(presentationTimeUs: Long): FloatArray = identity
 }
+
+/** BT.2100 PQ: linear light (1.0 = 10,000 nits) to the PQ curve, and back. GLSL ES 2 snippets. */
+private const val HDR_PQ_OETF =
+    "vec3 pqOetf(vec3 l){const float m1=2610./16384.;const float m2=2523./4096.*128.;const float c1=3424./4096.;" +
+        "const float c2=2413./4096.*32.;const float c3=2392./4096.*32.;" +
+        "vec3 p=pow(clamp(l,0.,1.),vec3(m1));return pow((c1+c2*p)/(1.+c3*p),vec3(m2));}"
+private const val HDR_PQ_EOTF =
+    "vec3 pqEotf(vec3 e){const float m1=2610./16384.;const float m2=2523./4096.*128.;const float c1=3424./4096.;" +
+        "const float c2=2413./4096.*32.;const float c3=2392./4096.*32.;" +
+        "vec3 t=pow(clamp(e,0.,1.),vec3(1./m2));t=max(t-c1,0.)/(c2-c3*t);return pow(t,vec3(1./m1));}"
 
 /** Longest gap (in source frames, about a second) the variable-rate snapping fills by repeating a frame. */
 private const val MAX_FILL = 30

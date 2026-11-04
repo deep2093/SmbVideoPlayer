@@ -141,7 +141,10 @@ fun PlayerScreen(
     var smoothFailedPath by remember { mutableStateOf<String?>(null) }
     var smoothRetry by remember { mutableStateOf("" to 0) }
     var playingPath by remember { mutableStateOf(video.relativePath) }
-    val smooth60 = smoothPref && !hdrVideo && !highFpsVideo && smoothFailedPath != playingPath
+    // Experiment (5 Nov 2026): smooth HDR10, HLG and Dolby Vision videos too, keeping HDR on screen. Off by default.
+    var hdrSmoothPref by remember { mutableStateOf(prefs.getBoolean("experimental_hdr_smoothing", false)) }
+    NativeSvpTuning.hdrAllowed = hdrSmoothPref
+    val smooth60 = smoothPref && (!hdrVideo || hdrSmoothPref) && !highFpsVideo && smoothFailedPath != playingPath
     val nativeAvailable = remember { NativeSvpStream.available }
     val nativeController = remember { NativeSvpController() }
     // CPU smoothing (Adreno phones) runs at 1080p only after this device passed the 1080p speed check for this app
@@ -1346,6 +1349,19 @@ fun PlayerScreen(
                     Switch(checked = pipEnabled, onCheckedChange = {
                         pipEnabled = it
                         prefs.edit().putBoolean("pip_enabled", it).apply()
+                        revealControls()
+                    })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Smooth HDR videos (test)", color = Color.White)
+                        Text("HDR10, HLG and Dolby Vision. May show slight banding.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = hdrSmoothPref, onCheckedChange = {
+                        hdrSmoothPref = it
+                        prefs.edit().putBoolean("experimental_hdr_smoothing", it).apply()
+                        // A video that failed in the other mode gets another go.
+                        smoothFailedPath = null
                         revealControls()
                     })
                 }
