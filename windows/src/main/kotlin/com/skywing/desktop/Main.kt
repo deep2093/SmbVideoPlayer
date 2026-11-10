@@ -592,7 +592,7 @@ private fun SkyWingDesktopShell(
                         canNext = queueIndex >= 0 && queueIndex + 1 < queue.size,
                         status = listOf(smoothingStatus.detail, message).filter { it.isNotBlank() }.joinToString(" · "),
                         smoothingMode = smoothingMode,
-                        smoothingActive = smoothingStatus.blendingActive,
+                        smoothingActive = smoothingStatus.blendingActive || smoothingStatus.motionActive,
                         onSmoothingToggle = { selectSmoothing(if (smoothingMode == SmoothingMode.OFF ||
                             smoothingMode == SmoothingMode.VRR) lastBlendingMode.takeIf {
                                 smoothingStatus.capabilities.unavailable(it) == null

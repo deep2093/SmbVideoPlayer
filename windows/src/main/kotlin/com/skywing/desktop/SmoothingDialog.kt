@@ -6,7 +6,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
@@ -33,11 +35,7 @@ internal fun SmoothingDialog(mode: SmoothingMode, status: SmoothingStatus,
 internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMode: (SmoothingMode) -> Unit) {
     val theme = LocalSkyTheme.current
     Text("Motion & smoothing", color = theme.ink, style = MaterialTheme.typography.titleMedium)
-    Text("Frame blending reduces timing judder. It does not generate new motion like SVP or RIFE. " +
-        "Auto follows the active display; FPS choices require a matching display refresh mode.",
-        color = theme.muted, style = MaterialTheme.typography.bodySmall)
-    Text("For G-SYNC / FreeSync, select original-motion timing below and enable VRR in your graphics driver. " +
-        "SkyWing cannot verify or enable driver VRR. Use fixed refresh for frame blending.",
+    Text("Motion creates in-between frames. This preview uses Balanced quality and a target near 120 fps. HDR motion is still being tested.",
         color = theme.muted, style = MaterialTheme.typography.bodySmall)
     SmoothingMode.entries.forEach { option ->
         val unavailable = status.capabilities.unavailable(option)
@@ -49,8 +47,11 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
         }
     }
     Text(status.detail, color = theme.ink, style = MaterialTheme.typography.bodySmall)
-    Text("Source: ${status.capabilities.resolution}. No 1080p processing limit: 1440p and 4K use the normal video renderer. " +
-        "Sustained dropped frames turn blending off for this video; toggle off/on to retry. " +
-        "HDR blending awaits validation. SVP/RIFE motion generation is not included.",
+    var copied by remember { mutableStateOf(false) }
+    SkyButton(if (copied) "Copied" else "Copy playback report", {
+        runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(status.report), null) }
+            .onSuccess { copied = true }
+    }, primary = false)
+    Text("Blend is a lighter option. G-SYNC still needs to be enabled in your graphics driver.",
         color = theme.muted, style = MaterialTheme.typography.bodySmall)
 }

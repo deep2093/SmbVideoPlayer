@@ -4,7 +4,7 @@ import java.util.prefs.Preferences
 import kotlin.math.abs
 
 enum class SmoothingMode(val label: String, val fps: Int? = null) {
-    OFF("Off"), VRR("G-SYNC / FreeSync"), AUTO("Auto"), FPS_60("60 FPS", 60), FPS_75("75 FPS", 75),
+    OFF("Off"), MOTION("Motion (preview)"), VRR("G-SYNC / FreeSync"), AUTO("Blend (light)"), FPS_60("60 FPS", 60), FPS_75("75 FPS", 75),
     FPS_90("90 FPS", 90), FPS_120("120 FPS", 120);
 
     companion object {
@@ -40,6 +40,7 @@ data class SmoothingCapabilities(
         if (mode == SmoothingMode.VRR) return SmoothingDecision(false,
             "Original motion · G-SYNC / FreeSync timing selected (driver activation not verified)")
         unavailable(mode)?.let { return SmoothingDecision(false, it) }
+        if (mode == SmoothingMode.MOTION) return SmoothingDecision(false, "Motion engine selected")
         val fps = sourceFps?.takeIf { it.isFinite() && it > 0 }
             ?: return SmoothingDecision(false, "Waiting for source frame rate")
         val hz = checkNotNull(displayHz)
@@ -53,6 +54,8 @@ data class SmoothingStatus(
     val capabilities: SmoothingCapabilities = SmoothingCapabilities(),
     val detail: String = "Smoothing off",
     val blendingActive: Boolean = false,
+    val motionActive: Boolean = false,
+    val report: String = "Play a video to collect a playback report.",
 )
 
 /** Three consecutive ~1 s intervals with >=3 drops trip a per-file fallback after warmup.
