@@ -2,6 +2,8 @@
 
 Audited 10 November 2026. This is a **source-code audit**, not a new Android device test or a claim that every hardware path succeeds.
 
+Follow-up implementation: [PC motion and fullscreen controls](PC-MOTION-AND-CONTROLS.md) records the video-toolbar toggle, 2.5-second fullscreen controls, explicit G-SYNC/FreeSync original-motion preset, full-resolution policy, PotPlayer/MVTools comparison and next engine qualification steps. These additions extend the baseline comparison below; true motion generation remains outstanding.
+
 ## Authoritative snapshots and safe Windows baseline
 
 - Android: [`claude/hdr-smoothing`, `177c110`](https://github.com/deep2093/SmbVideoPlayer/tree/177c110dce97f433686b33c7ca4096a0c8980925). Other Android experiment branches are not the specification.

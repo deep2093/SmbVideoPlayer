@@ -6,6 +6,18 @@ import kotlin.test.*
 class SmoothingTest {
     private fun caps(hz: Double = 60.0, fps: Double = 24.0) = SmoothingCapabilities(hz, fps, true, true)
 
+    @Test fun pcResolutionsHaveNoMobileLimitAndVrrNeverEnablesBlending() {
+        listOf(2560 to 1440, 3840 to 2160, 4096 to 2160).forEach { (w, h) ->
+            val pc = caps(240.0).copy(width = w, height = h)
+            assertTrue(pc.decision(SmoothingMode.AUTO).enabled)
+            assertEquals("$w × $h", pc.resolution)
+            assertFalse(pc.decision(SmoothingMode.VRR).enabled)
+            assertNull(pc.unavailable(SmoothingMode.VRR))
+        }
+        assertFalse(SmoothingCapabilities(hdrVideo = true).decision(SmoothingMode.VRR).enabled)
+        assertEquals(SmoothingMode.VRR, SmoothingMode.parse("VRR"))
+    }
+
     @Test fun fixedChoicesFollowActualDisplayRatherThanInventingAnOutputRate() {
         SmoothingMode.entries.filter { it.fps != null }.forEach { mode ->
             val hz = checkNotNull(mode.fps).toDouble()

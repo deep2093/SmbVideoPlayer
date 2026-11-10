@@ -290,22 +290,7 @@ private fun LayoutPage(organizer: Organizer) {
 @Composable
 private fun PlaybackPage(mode: SmoothingMode, status: SmoothingStatus, onMode: (SmoothingMode) -> Unit) {
     val theme = LocalSkyTheme.current
-    Text("Smoothing", color = theme.ink, style = MaterialTheme.typography.titleMedium)
-    Text("mpv temporal blending reduces uneven cadence. It does not create motion-estimated frames. " +
-        "Off keeps ordinary hardware playback. Auto follows the active display; fixed choices require its matching refresh mode.",
-        color = theme.muted, style = MaterialTheme.typography.bodySmall)
-    SmoothingMode.entries.forEach { option ->
-        val unavailable = status.capabilities.unavailable(option)
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            SkyButton((if (mode == option) "✓ " else "") + option.label,
-                { onMode(option) }, enabled = unavailable == null, primary = mode == option)
-            if (unavailable != null) Text(unavailable, color = theme.muted, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-    Text(status.detail, color = theme.muted, style = MaterialTheme.typography.bodySmall)
-    Text("Play a video, then open Settings to inspect its hardware and display support. " +
-        "Sustained frame drops bypass smoothing for that video. A fixed choice waits if you move to a different display. " +
-        "SVP/RIFE motion interpolation is not included in this preview.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
+    SmoothingOptions(mode, status, onMode)
     val shortcuts = listOf(
         "Space or K" to "Play / pause",
         "Left / Right" to "Back 5 s / forward 10 s",

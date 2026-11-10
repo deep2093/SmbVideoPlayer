@@ -180,6 +180,8 @@ class EmbeddedMpv : Closeable {
             gpuOutput = textProperty("current-vo") in setOf("gpu", "gpu-next"),
             hardwareDecode = textProperty("hwdec-current")?.let { it.isNotBlank() && it != "no" } == true,
             hdrVideo = textProperty("video-params/gamma") in setOf("pq", "hlg", "st2084"),
+            width = numberProperty("video-params/w")?.toInt(),
+            height = numberProperty("video-params/h")?.toInt(),
         )
         var decision = caps.decision(mode)
         // loadfile is asynchronous. Do not configure a new HDR/high-FPS item using the
@@ -196,10 +198,14 @@ class EmbeddedMpv : Closeable {
         if (smoothingHealth.tripped) decision = SmoothingDecision(false, "Smoothing bypassed: sustained dropped frames; reopen video to retry")
         if (smoothingRejected) decision = SmoothingDecision(false, "Smoothing unavailable: player rejected settings")
         if (!setSmoothing(decision.enabled)) return SmoothingStatus(caps, "Smoothing settings failed; choose Off or reopen video")
-        val sync = if (decision.enabled) {
-            if (flagProperty("display-sync-active") == true) " · display sync active" else " · display sync not active"
-        } else ""
-        return SmoothingStatus(caps, decision.detail + sync)
+        val active = decision.enabled && flagProperty("display-sync-active") == true
+        val detail = when {
+            active -> decision.detail + " · " + caps.resolution
+            decision.enabled -> "Smoothing waiting for display sync · ordinary playback continues"
+            else -> decision.detail
+        }
+        // This confirms settings and display sync, not optical flow or measured output FPS.
+        return SmoothingStatus(caps, detail, active)
     }
     fun isPaused(): Boolean? = flagProperty("pause")
     fun isMuted(): Boolean? = flagProperty("mute")

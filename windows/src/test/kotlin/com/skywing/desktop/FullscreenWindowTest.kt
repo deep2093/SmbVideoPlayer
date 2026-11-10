@@ -139,6 +139,32 @@ class FullscreenWindowTest {
                     assertTrue(com.skywing.desktop.playback.ThumbnailExtractor.extract(media, oneSecond, start = "1", exact = true),
                         "Frame picker could not seek to a precise second")
                 }
+                if (nativePlayback) {
+                    key(KeyEvent.VK_F)
+                    await("F did not enter fullscreen") { edt { window.bounds == window.graphicsConfiguration.bounds } }
+                    val robot = Robot()
+                    val center = edt { window.bounds.let { java.awt.Point(it.x + it.width / 2, it.y + it.height / 2) } }
+                    robot.mouseMove(center.x, center.y)
+                    await("Fullscreen controls were not shown") { edt { canvas.height < window.height - 100 } }
+                    val controlsHeight = edt { canvas.height }
+                    val captures = File("build/reports/tests/test/screenshots").apply { mkdirs() }
+                    robot.waitForIdle()
+                    ImageIO.write(robot.createScreenCapture(edt { window.bounds }), "png", File(captures, "fullscreen-controls.png"))
+                    await("Fullscreen controls did not auto-hide") { edt { canvas.height > controlsHeight + 100 } }
+                    key(KeyEvent.VK_M)
+                    await("Keyboard input did not reveal controls") { edt { canvas.height <= controlsHeight + 10 } }
+                    await("Controls did not hide again after keyboard input") { edt { canvas.height > controlsHeight + 100 } }
+                    robot.mouseMove(center.x + 20, center.y)
+                    await("Native video mouse motion did not reveal controls") { edt { canvas.height <= controlsHeight + 10 } }
+                    key(KeyEvent.VK_SPACE)
+                    await("Pause failed") { player.isPaused() == true }
+                    Thread.sleep(3000)
+                    assertTrue(edt { canvas.height <= controlsHeight + 10 }, "Paused controls must stay visible")
+                    assertEquals(canvasHwnd, edt { Native.getComponentPointer(canvas) })
+                    key(KeyEvent.VK_SPACE)
+                    key(KeyEvent.VK_ESCAPE)
+                    await("Escape did not restore after auto-hide") { edt { window.bounds == originalBounds } }
+                }
                 repeat(10) {
                     key(KeyEvent.VK_F, release = false)
                     await("F did not enter fullscreen") { edt { window.bounds == window.graphicsConfiguration.bounds } }

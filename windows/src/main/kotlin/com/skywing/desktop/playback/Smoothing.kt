@@ -4,7 +4,7 @@ import java.util.prefs.Preferences
 import kotlin.math.abs
 
 enum class SmoothingMode(val label: String, val fps: Int? = null) {
-    OFF("Off"), AUTO("Auto"), FPS_60("60 FPS", 60), FPS_75("75 FPS", 75),
+    OFF("Off"), VRR("G-SYNC / FreeSync"), AUTO("Auto"), FPS_60("60 FPS", 60), FPS_75("75 FPS", 75),
     FPS_90("90 FPS", 90), FPS_120("120 FPS", 120);
 
     companion object {
@@ -18,11 +18,15 @@ data class SmoothingCapabilities(
     val gpuOutput: Boolean = false,
     val hardwareDecode: Boolean = false,
     val hdrVideo: Boolean = false,
+    val width: Int? = null,
+    val height: Int? = null,
 ) {
+    val resolution: String get() = if (width != null && height != null && width > 0 && height > 0)
+        "${width} × ${height}" else "Resolution unavailable"
     // A GPU VO alone can be a software rasterizer. Require hardware decoding as a conservative
     // first-phase gate; this is not a benchmark or a promise of sustained 4K performance.
     fun unavailable(mode: SmoothingMode): String? = when {
-        mode == SmoothingMode.OFF -> null
+        mode == SmoothingMode.OFF || mode == SmoothingMode.VRR -> null
         hdrVideo -> "HDR smoothing awaits display validation; ordinary HDR playback is kept"
         !gpuOutput || !hardwareDecode -> "Play a hardware-decoded video with GPU output first"
         displayHz == null || !displayHz.isFinite() || displayHz < 59.0 -> "Display refresh unavailable or below 60 Hz"
@@ -33,12 +37,14 @@ data class SmoothingCapabilities(
 
     fun decision(mode: SmoothingMode): SmoothingDecision {
         if (mode == SmoothingMode.OFF) return SmoothingDecision(false, "Smoothing off")
+        if (mode == SmoothingMode.VRR) return SmoothingDecision(false,
+            "Original motion · G-SYNC / FreeSync timing selected (driver activation not verified)")
         unavailable(mode)?.let { return SmoothingDecision(false, it) }
         val fps = sourceFps?.takeIf { it.isFinite() && it > 0 }
             ?: return SmoothingDecision(false, "Waiting for source frame rate")
         val hz = checkNotNull(displayHz)
         if (fps >= hz * 0.99) return SmoothingDecision(false, "Source already meets or exceeds display cadence")
-        return SmoothingDecision(true, "mpv temporal blending requested · display %.2f Hz (not optical flow)".format(java.util.Locale.ROOT, hz))
+        return SmoothingDecision(true, "Frame blending · display %.2f Hz".format(java.util.Locale.ROOT, hz))
     }
 }
 
@@ -46,6 +52,7 @@ data class SmoothingDecision(val enabled: Boolean, val detail: String)
 data class SmoothingStatus(
     val capabilities: SmoothingCapabilities = SmoothingCapabilities(),
     val detail: String = "Smoothing off",
+    val blendingActive: Boolean = false,
 )
 
 /** Three consecutive ~1 s intervals with >=3 drops trip a per-file fallback after warmup.
