@@ -122,6 +122,14 @@ class FullscreenWindowTest {
                     assertTrue(edt { player.attach(canvas) }, player.lastError)
                     assertTrue(player.open(media))
                     await("mpv did not start playback") { (player.playbackPosition() ?: 0.0) > 0.1 }
+                    // A software-decoded GIF must bypass smoothing on every display. Exercise
+                    // real libmpv property reads (including UTF-8 allocations), not a mock GPU.
+                    com.skywing.desktop.playback.SmoothingMode.entries.forEach { mode ->
+                        val status = player.updateSmoothing(mode)
+                        assertFalse(status.capabilities.hardwareDecode)
+                        assertFalse(status.capabilities.decision(mode).enabled)
+                    }
+                    player.updateSmoothing(com.skywing.desktop.playback.SmoothingMode.OFF)
                     val thumbnail = File(mediaDir, "thumbnail.jpg")
                     val extracted = com.skywing.desktop.playback.ThumbnailExtractor.extractDetailed(media, thumbnail, start = "0")
                     assertTrue(extracted.success && thumbnail.isFile, "Unicode thumbnail failed: ${extracted.reason}")

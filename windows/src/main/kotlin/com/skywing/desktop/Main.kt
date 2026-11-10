@@ -39,6 +39,8 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.skywing.desktop.playback.EmbeddedMpv
+import com.skywing.desktop.playback.SmoothingStatus
+import com.skywing.desktop.playback.SmoothingStore
 import java.awt.Canvas
 import java.awt.AWTEvent
 import java.awt.FileDialog
@@ -235,6 +237,15 @@ private fun SkyWingDesktopShell(
     var paused by remember { mutableStateOf(false) }
     var muted by remember { mutableStateOf(false) }
     var initialFilePending by remember { mutableStateOf(initialFile) }
+    var smoothingMode by remember { mutableStateOf(SmoothingStore.load()) }
+    var smoothingStatus by remember { mutableStateOf(SmoothingStatus()) }
+    LaunchedEffect(embedded, smoothingMode, currentFile, closing) {
+        if (closing) return@LaunchedEffect
+        while (true) {
+            smoothingStatus = withContext(Dispatchers.IO) { embedded.updateSmoothing(smoothingMode) }
+            delay(1000)
+        }
+    }
 
     // What the pages show.
     val library = remember { LibraryModel(WindowsMediaIndex()) }
@@ -519,7 +530,11 @@ private fun SkyWingDesktopShell(
                             "Folders" -> FoldersScreen(library, organizer, hub, history, playOne, { renameTarget = it })
                             "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it })
                             "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
-                            else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync) { go("Files") }
+                            else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,
+                                smoothingMode, smoothingStatus, { mode ->
+                                    smoothingMode = mode
+                                    playbackScope.launch(Dispatchers.IO) { SmoothingStore.save(mode) }
+                                }) { go("Files") }
                         } }
                     }
                 }
@@ -553,7 +568,7 @@ private fun SkyWingDesktopShell(
                         muted = muted,
                         canPrevious = queueIndex > 0,
                         canNext = queueIndex >= 0 && queueIndex + 1 < queue.size,
-                        status = message,
+                        status = listOf(message, smoothingStatus.detail).filter { it.isNotBlank() }.joinToString(" · "),
                         onSeekChange = { dragging = true; seekTarget = it },
                         onSeekFinished = {
                             message = if (duration > 0 && embedded.seekAbsolute(duration * seekTarget / 100.0)) "Seeked to ${seekTarget.toInt()}%" else "Duration unavailable"

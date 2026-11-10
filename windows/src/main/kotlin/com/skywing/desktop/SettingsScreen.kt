@@ -1,6 +1,8 @@
 package com.skywing.desktop
 
 import com.skywing.desktop.artwork.PortraitLookup
+import com.skywing.desktop.playback.SmoothingMode
+import com.skywing.desktop.playback.SmoothingStatus
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.slideInHorizontally
@@ -50,7 +52,7 @@ private val PAGES = listOf(
     SettingsPage("Auto grouping", "How file names become folders", SkyIcon.Grid),
     SettingsPage("App layout", "Folder tabs, columns, list or grid", SkyIcon.Folder),
     SettingsPage("Artwork", "Covers, portraits and thumbnails", SkyIcon.Image),
-    SettingsPage("Playback", "Keyboard shortcuts", SkyIcon.Keyboard),
+    SettingsPage("Playback", "Smoothing and keyboard shortcuts", SkyIcon.Keyboard),
     SettingsPage("About", "SkyWing for Windows", SkyIcon.Info),
 )
 
@@ -66,6 +68,9 @@ internal fun SettingsScreen(
     organizer: Organizer,
     portraits: PortraitLookup,
     sync: LibrarySync,
+    smoothingMode: SmoothingMode,
+    smoothingStatus: SmoothingStatus,
+    onSmoothingMode: (SmoothingMode) -> Unit,
     onOpenFiles: () -> Unit,
 ) {
     var open by remember { mutableStateOf<String?>(null) }
@@ -107,7 +112,7 @@ internal fun SettingsScreen(
                             "App layout" -> LayoutPage(organizer)
                             "Artwork" -> ArtworkPage(library, organizer, portraits)
                             "Sync & scanning" -> SyncPage(library, sync)
-                            "Playback" -> PlaybackPage()
+                            "Playback" -> PlaybackPage(smoothingMode, smoothingStatus, onSmoothingMode)
                             else -> AboutPage()
                         }
                     }
@@ -283,8 +288,24 @@ private fun LayoutPage(organizer: Organizer) {
 }
 
 @Composable
-private fun PlaybackPage() {
+private fun PlaybackPage(mode: SmoothingMode, status: SmoothingStatus, onMode: (SmoothingMode) -> Unit) {
     val theme = LocalSkyTheme.current
+    Text("Smoothing", color = theme.ink, style = MaterialTheme.typography.titleMedium)
+    Text("mpv temporal blending reduces uneven cadence. It does not create motion-estimated frames. " +
+        "Off keeps ordinary hardware playback. Auto follows the active display; fixed choices require its matching refresh mode.",
+        color = theme.muted, style = MaterialTheme.typography.bodySmall)
+    SmoothingMode.entries.forEach { option ->
+        val unavailable = status.capabilities.unavailable(option)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            SkyButton((if (mode == option) "✓ " else "") + option.label,
+                { onMode(option) }, enabled = unavailable == null, primary = mode == option)
+            if (unavailable != null) Text(unavailable, color = theme.muted, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    Text(status.detail, color = theme.muted, style = MaterialTheme.typography.bodySmall)
+    Text("Play a video, then open Settings to inspect its hardware and display support. " +
+        "Sustained frame drops bypass smoothing for that video. A fixed choice waits if you move to a different display. " +
+        "SVP/RIFE motion interpolation is not included in this preview.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
     val shortcuts = listOf(
         "Space or K" to "Play / pause",
         "Left / Right" to "Back 5 s / forward 10 s",
