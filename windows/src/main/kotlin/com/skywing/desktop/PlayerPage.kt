@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.skywing.desktop.playback.SmoothingMode
 
 private val PLAYER_INK = Color.White
 private val PLAYER_MUTED = Color.White.copy(alpha = 0.7f)
@@ -62,9 +63,8 @@ private fun TextControl(label: String, onClick: () -> Unit, enabled: Boolean = t
 }
 
 /**
- * Controls under the video, in the Android layout: times, a slim seek bar, then one row with
- * subtitles on the left, previous / -10 / outlined play-pause / +10 / next in the middle, volume and
- * full screen on the right. (A native video window cannot be drawn over, so they sit beneath it.)
+ * Native video uses a heavyweight HWND. Keep controls beside that surface (including in
+ * fullscreen), with separate rows so playback, tracks and motion controls cannot overlap.
  */
 @Composable
 internal fun PlayerControls(
@@ -76,6 +76,10 @@ internal fun PlayerControls(
     canPrevious: Boolean,
     canNext: Boolean,
     status: String,
+    smoothingMode: SmoothingMode,
+    smoothingActive: Boolean,
+    onSmoothingToggle: () -> Unit,
+    onSmoothingOptions: () -> Unit,
     onSeekChange: (Float) -> Unit,
     onSeekFinished: () -> Unit,
     onTogglePause: () -> Unit,
@@ -121,14 +125,24 @@ internal fun PlayerControls(
             ),
             modifier = Modifier.fillMaxWidth(),
         )
-        Box(Modifier.fillMaxWidth()) {
-            Row(Modifier.align(Alignment.CenterStart), verticalAlignment = Alignment.CenterVertically) {
+        // Two rows prevent controls overlapping in a normal desktop-sized window.
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 SkyIconButton(SkyIcon.Subtitles, "Next subtitle track", onSubtitles, tint = PLAYER_INK)
                 TextControl("Off", onSubtitlesOff)
                 TextControl("Audio", onAudio)
                 SkyIconButton(SkyIcon.Folder, "Open a video from this PC", onOpenFile, tint = PLAYER_INK)
             }
-            Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextControl("Vol -", onVolumeDown)
+                SkyIconButton(if (muted) SkyIcon.VolumeOff else SkyIcon.VolumeUp, if (muted) "Unmute" else "Mute", onMute, tint = PLAYER_INK)
+                TextControl("Vol +", onVolumeUp)
+                SkyIconButton(SkyIcon.Fullscreen, "Toggle full screen (F)", onFullscreen, tint = PLAYER_INK)
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically) {
                 SkyIconButton(SkyIcon.SkipPrevious, "Previous video", onPrevious, enabled = canPrevious, tint = PLAYER_INK)
                 TextControl("-10", onBack10, enabled = hasDuration)
                 SkyIconButton(
@@ -141,13 +155,16 @@ internal fun PlayerControls(
                 TextControl("+10", onForward10, enabled = hasDuration)
                 SkyIconButton(SkyIcon.Stop, "Stop (S)", onStop, tint = PLAYER_INK)
                 SkyIconButton(SkyIcon.SkipNext, "Next video", onNext, enabled = canNext, tint = PLAYER_INK)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically) {
+            val label = when {
+                smoothingMode == SmoothingMode.OFF || smoothingMode == SmoothingMode.VRR -> "Smoothing: Off"
+                smoothingActive -> "Smoothing: ${smoothingMode.label}"
+                else -> "Smoothing: ${smoothingMode.label} (inactive)"
             }
-            Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
-                TextControl("Vol -", onVolumeDown)
-                SkyIconButton(if (muted) SkyIcon.VolumeOff else SkyIcon.VolumeUp, if (muted) "Unmute" else "Mute", onMute, tint = PLAYER_INK)
-                TextControl("Vol +", onVolumeUp)
-                SkyIconButton(SkyIcon.Fullscreen, "Full screen (F)", onFullscreen, tint = PLAYER_INK)
-            }
+            SkyButton(label, onSmoothingToggle, primary = smoothingActive)
+            SkyButton("Motion options", onSmoothingOptions, primary = false)
         }
         if (status.isNotBlank()) {
             Text(

@@ -1,6 +1,9 @@
 package com.skywing.desktop
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +42,9 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.skywing.desktop.playback.EmbeddedMpv
+import com.skywing.desktop.playback.SmoothingStatus
+import com.skywing.desktop.playback.SmoothingMode
+import com.skywing.desktop.playback.SmoothingStore
 import java.awt.Canvas
 import java.awt.AWTEvent
 import java.awt.FileDialog
@@ -235,6 +241,31 @@ private fun SkyWingDesktopShell(
     var paused by remember { mutableStateOf(false) }
     var muted by remember { mutableStateOf(false) }
     var initialFilePending by remember { mutableStateOf(initialFile) }
+    var smoothingMode by remember { mutableStateOf(SmoothingStore.load()) }
+    var smoothingStatus by remember { mutableStateOf(SmoothingStatus()) }
+    var smoothingMenu by remember { mutableStateOf(false) }
+    var lastBlendingMode by remember { mutableStateOf(smoothingMode.takeUnless {
+        it == SmoothingMode.OFF || it == SmoothingMode.VRR
+    } ?: SmoothingMode.AUTO) }
+    fun selectSmoothing(mode: SmoothingMode) {
+        smoothingMode = mode
+        if (mode != SmoothingMode.OFF && mode != SmoothingMode.VRR) lastBlendingMode = mode
+        playbackScope.launch(Dispatchers.IO) { SmoothingStore.save(mode) }
+    }
+    val topInteractions = remember { MutableInteractionSource() }
+    val bottomInteractions = remember { MutableInteractionSource() }
+    val topHovered by topInteractions.collectIsHoveredAsState()
+    val bottomHovered by bottomInteractions.collectIsHoveredAsState()
+    val (chromeVisible, showPlayerChrome) = rememberPlayerChrome(awtWindow, fullscreen,
+        paused || dragging || smoothingMenu || topHovered || bottomHovered)
+    val currentShowPlayerChrome by rememberUpdatedState(showPlayerChrome)
+    LaunchedEffect(embedded, smoothingMode, currentFile, closing) {
+        if (closing) return@LaunchedEffect
+        while (true) {
+            smoothingStatus = withContext(Dispatchers.IO) { embedded.updateSmoothing(smoothingMode) }
+            delay(1000)
+        }
+    }
 
     // What the pages show.
     val library = remember { LibraryModel(WindowsMediaIndex()) }
@@ -281,7 +312,10 @@ private fun SkyWingDesktopShell(
     fun go(section: String) {
         if (section == selected) return
         // Leaving the player pauses the video; Now playing in the sidebar brings it back.
-        if (selected == "Now Playing") embedded.pause() else previous = selected
+        if (selected == "Now Playing") {
+            embedded.pause()
+            if (fullscreen) onFullscreenChange(false)
+        } else previous = selected
         selected = section
         selection.clear()
         hub.endFolderSelection()
@@ -437,6 +471,7 @@ private fun SkyWingDesktopShell(
         val focusListener = java.beans.PropertyChangeListener { fullscreenKeyDown = false }
         manager.addPropertyChangeListener("focusedWindow", focusListener)
         val dispatcher = KeyEventDispatcher { event ->
+            if (event.id == KeyEvent.KEY_PRESSED && manager.focusedWindow === awtWindow) currentShowPlayerChrome()
             if (event.keyCode == KeyEvent.VK_F && event.id == KeyEvent.KEY_RELEASED) fullscreenKeyDown = false
             val handled = if (event.id != KeyEvent.KEY_PRESSED || manager.focusedWindow !== awtWindow || currentClosing) {
                 false
@@ -519,15 +554,17 @@ private fun SkyWingDesktopShell(
                             "Folders" -> FoldersScreen(library, organizer, hub, history, playOne, { renameTarget = it })
                             "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it })
                             "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
-                            else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync) { go("Files") }
+                            else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,
+                                smoothingMode, smoothingStatus, ::selectSmoothing) { go("Files") }
                         } }
                     }
                 }
-                if (playerShown && !fullscreen) {
+                if (playerShown && chromeVisible) {
                     PlayerTopBar(
                         title = currentFile?.nameWithoutExtension ?: "Nothing playing",
                         queueLabel = if (queueIndex >= 0 && queue.size > 1) "Queue " + (queueIndex + 1) + " / " + queue.size else null,
-                        onBack = { go(previous) },
+                        onBack = { if (fullscreen) onFullscreenChange(false); go(previous) },
+                        modifier = Modifier.hoverable(topInteractions),
                     )
                 }
                 // Keep the AWT Canvas HWND alive across navigation. Removing SwingPanel
@@ -544,7 +581,7 @@ private fun SkyWingDesktopShell(
                         }
                     },
                 )
-                if (playerShown && !fullscreen) {
+                if (playerShown && chromeVisible) {
                     PlayerControls(
                         position = playbackTime,
                         duration = duration,
@@ -553,7 +590,14 @@ private fun SkyWingDesktopShell(
                         muted = muted,
                         canPrevious = queueIndex > 0,
                         canNext = queueIndex >= 0 && queueIndex + 1 < queue.size,
-                        status = message,
+                        status = listOf(smoothingStatus.detail, message).filter { it.isNotBlank() }.joinToString(" · "),
+                        smoothingMode = smoothingMode,
+                        smoothingActive = smoothingStatus.blendingActive,
+                        onSmoothingToggle = { selectSmoothing(if (smoothingMode == SmoothingMode.OFF ||
+                            smoothingMode == SmoothingMode.VRR) lastBlendingMode.takeIf {
+                                smoothingStatus.capabilities.unavailable(it) == null
+                            } ?: SmoothingMode.AUTO else SmoothingMode.OFF) },
+                        onSmoothingOptions = { smoothingMenu = true },
                         onSeekChange = { dragging = true; seekTarget = it },
                         onSeekFinished = {
                             message = if (duration > 0 && embedded.seekAbsolute(duration * seekTarget / 100.0)) "Seeked to ${seekTarget.toInt()}%" else "Duration unavailable"
@@ -571,13 +615,15 @@ private fun SkyWingDesktopShell(
                         onVolumeDown = { message = if (embedded.volumeDown()) "Volume -5" else "Player not ready" },
                         onVolumeUp = { message = if (embedded.volumeUp()) "Volume +5" else "Player not ready" },
                         onMute = { embedded.toggleMute() },
-                        onFullscreen = { onFullscreenChange(true) },
+                        onFullscreen = { onFullscreenChange(!fullscreen) },
                         onOpenFile = { chooseLocalVideo()?.let { openVideo(it) } },
+                        modifier = Modifier.hoverable(bottomInteractions),
                     )
                 }
             }
         }
     }
+    if (smoothingMenu) SmoothingDialog(smoothingMode, smoothingStatus, ::selectSmoothing) { smoothingMenu = false }
     renameTarget?.let { file ->
         RenameVideoDialog(file, videoRenamer::rename) { renameTarget = null; historyRevision++ }
     }
