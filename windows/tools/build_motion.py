@@ -30,8 +30,13 @@ def main():
         with tarfile.open(downloads['open-svpflow-deadbad.tar.gz']) as archive:
             archive.extractall(stage/'source',filter='data')
         source=next((stage/'source').iterdir())
-        subprocess.run(['git','apply','--check',str(ROOT/MOTION['patch'])],cwd=source,check=True)
-        subprocess.run(['git','apply',str(ROOT/MOTION['patch'])],cwd=source,check=True)
+        # A Windows checkout may use CRLF; the upstream tarball uses LF.
+        patch=stage/'open-svpflow-windows.patch'
+        patch.write_text((ROOT/MOTION['patch']).read_text(encoding='utf-8'),encoding='utf-8',newline='\n')
+        subprocess.run(['git','apply','--check',str(patch)],cwd=source,check=True)
+        subprocess.run(['git','apply',str(patch)],cwd=source,check=True)
+        for name in ('crates/svpflow-host/src/opencl.rs','crates/svpflow1/src/analyse/gpu.rs','crates/svpflow2/src/gpu.rs'):
+            if 'device_matches_vendor' not in (source/name).read_text(): raise RuntimeError('Vendor patch was not applied: '+name)
         if args.plugins:
             plugins=args.plugins.resolve()
         else:
