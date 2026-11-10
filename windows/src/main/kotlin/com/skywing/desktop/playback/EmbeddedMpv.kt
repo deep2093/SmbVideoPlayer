@@ -35,6 +35,7 @@ class EmbeddedMpv : Closeable {
     private var smoothingApplied = false
     private var smoothingRejected = false
     private var smoothingMode = SmoothingMode.OFF
+    private var expectedPath: String? = null
     var lastError: String? = null
         private set
 
@@ -111,6 +112,7 @@ class EmbeddedMpv : Closeable {
         smoothingRejected = false
         val start = System.nanoTime()
         val accepted = command("loadfile", file.absolutePath, "replace")
+        expectedPath = file.absolutePath.takeIf { accepted }
         lastLoadCommandMillis = (System.nanoTime() - start) / 1_000_000
         return accepted
     }
@@ -147,6 +149,7 @@ class EmbeddedMpv : Closeable {
                 command("set", "video-sync", "display-resample") &&
                 command("set", "interpolation", "yes")) {
                 smoothingApplied = true
+                smoothingHealth.reset()
                 return true
             }
             // Roll back partial configuration; never leave a failed enable on display sync.
@@ -179,6 +182,11 @@ class EmbeddedMpv : Closeable {
             hdrVideo = textProperty("video-params/gamma") in setOf("pq", "hlg", "st2084"),
         )
         var decision = caps.decision(mode)
+        // loadfile is asynchronous. Do not configure a new HDR/high-FPS item using the
+        // previous decoder's capabilities while mpv is still switching files.
+        if (expectedPath == null || !expectedPath.equals(textProperty("path"), ignoreCase = true)) {
+            decision = SmoothingDecision(false, if (mode == SmoothingMode.OFF) "Smoothing off" else "Waiting for the selected video")
+        }
         if (smoothingApplied) {
             val drops = numberProperty("frame-drop-count")?.toLong()
             val decodingDrops = numberProperty("decoder-frame-drop-count")?.toLong()
@@ -203,7 +211,11 @@ class EmbeddedMpv : Closeable {
     fun togglePause(): Boolean = command("cycle", "pause")
     fun pause(): Boolean = command("set", "pause", "yes")
     fun seek(seconds: Int): Boolean = command("seek", seconds.toString(), "relative")
-    fun stop(): Boolean = command("stop")
+    @Synchronized
+    fun stop(): Boolean {
+        expectedPath = null
+        return command("stop")
+    }
     fun volumeUp(): Boolean = command("add", "volume", "5")
     fun volumeDown(): Boolean = command("add", "volume", "-5")
     fun toggleMute(): Boolean = command("cycle", "mute")
