@@ -56,3 +56,17 @@ Obtain the exact source bundle from the current binary producer, or build a new
 GPL libmpv from fully pinned sources in a controlled pipeline that retains all
 sources, patches, build recipes and notices. The latter changes the native binary
 and requires the normal playback/fullscreen/clean-install regression tests.
+
+## Motion preview dependencies
+
+The motion payload records pinned open-svpflow source, its Windows patch, portable
+VapourSynth R73 and Python 3.13.9 archive hashes in NATIVE-PROVENANCE.json.
+The generated motion/BUILD-MANIFEST.json records every packaged input hash, and
+motion/legal contains the native Rust dependency notices. Top-level engine,
+VapourSynth and Python licences are also preserved under legal/upstream.
+
+The complete corresponding-source and static-dependency audit remains open for
+VapourSynth and its linked libraries/compiler runtimes as well as the pre-existing
+libmpv/Skia dependencies. VapourSynth R73 upstream build scripts clone some
+dependencies at floating heads; the release tag alone does not establish their
+exact revisions. Do not label this preview a licensing-complete public release.
