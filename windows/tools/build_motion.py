@@ -43,7 +43,8 @@ def main():
             toolchain=MOTION['rustToolchain']
             subprocess.run(['rustup','toolchain','install',toolchain,'--profile','minimal'],check=True)
             env=os.environ.copy()
-            env['RUSTFLAGS']='-C target-feature=+crt-static'
+            # RUSTFLAGS replaces .cargo/config.toml flags; retain upstream's CPU target.
+            env['RUSTFLAGS']='-C target-cpu=x86-64-v3 -C target-feature=+crt-static'
             subprocess.run(['cargo','+'+toolchain,'build','--release','--locked','--target',MOTION['target'],
                 '-p','svpflow1','-p','svpflow2'],cwd=source,env=env,check=True)
             plugins=source/'target'/MOTION['target']/'release'
