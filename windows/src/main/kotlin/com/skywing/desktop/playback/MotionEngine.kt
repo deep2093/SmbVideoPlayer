@@ -46,6 +46,16 @@ internal class MotionSession(
     },
 ) {
     private var previous: Map<String, String>? = null
+    private var source: MotionRate? = null
+    private val restartedFiles = mutableSetOf<String>()
+    private var sessionStarted = 0L
+    var lastHeartbeat: MotionHeartbeat? = null
+        private set
+    var lastIncident: MotionIncident? = null
+        private set
+    var lastAction: String = "none"
+    var restarts: Int = 0
+        private set
     private var statusFile: File? = null
     private var scriptFile: File? = null
     private var started = 0L
@@ -63,7 +73,14 @@ internal class MotionSession(
     fun begin(file: String, source: MotionRate, rate: MotionRate): String? {
         failedFiles[file]?.let { failure = it; return it }
         if (active) return null
+        if (path != file) {
+            lastHeartbeat = null
+            lastIncident = null
+            sessionStarted = System.currentTimeMillis()
+            restarts = 0
+        }
         path = file
+        this.source = source
         failure = null
         target = rate
         try {
@@ -84,7 +101,7 @@ internal class MotionSession(
             generation = null
             val quoted = script.absolutePath.replace('\\', '/')
             val filter = "@skywing-motion:vapoursynth=file=%" + quoted.toByteArray(Charsets.UTF_8).size +
-                "%" + quoted + ":buffered-frames=8:concurrent-frames=2"
+                "%" + quoted + ":buffered-frames=8:concurrent-frames=auto"
             if (!command(listOf("set", "hwdec", "auto-copy")) ||
                 !command(listOf("set", "interpolation", "no")) ||
                 !command(listOf("set", "video-sync", "audio")) ||
@@ -113,6 +130,7 @@ internal class MotionSession(
             rebuilds++
             started = System.currentTimeMillis()
         }
+        lastHeartbeat = parsed
         return parsed
     }
 
@@ -122,7 +140,28 @@ internal class MotionSession(
         return active && now - maxOf(started, heartbeat?.updatedMillis ?: started) > 15_000
     }
 
+    private fun recordIncident(reason: String) {
+        val now = System.currentTimeMillis()
+        lastIncident = MotionIncident(reason, lastHeartbeat, now - sessionStarted,
+            lastHeartbeat?.let { now - it.updatedMillis },
+            if (active) get("vf")?.contains("skywing-motion") else null,
+            lastAction, listOf("frame-drop-count", "decoder-frame-drop-count", "vo-delayed-frame-count", "mistimed-frame-count")
+                .associateWith { if (active) get(it) else null })
+    }
+
+    fun restartAfterStall(): Boolean {
+        val file = path ?: return false
+        val input = source ?: return false
+        val rate = target ?: return false
+        if (!restartedFiles.add(file)) return false
+        recordIncident("Heartbeat stalled; attempting one restart")
+        if (!end()) return false
+        restarts++
+        return begin(file, input, rate) == null
+    }
+
     fun fail(reason: String) {
+        recordIncident(reason)
         path?.let { failedFiles[it] = reason }
         failure = reason
         if (!end()) failure = "Could not restore player settings; reopen this video"
@@ -149,6 +188,12 @@ internal class MotionSession(
         scriptFile = null
     }
 }
+
+internal data class MotionIncident(
+    val reason: String, val heartbeat: MotionHeartbeat?, val elapsedMillis: Long,
+    val heartbeatAgeMillis: Long?, val filterPresent: Boolean?, val action: String,
+    val counters: Map<String, String?>,
+)
 
 internal data class MotionHeartbeat(val generation: String, val completed: Long, val processingFps: Double, val updatedMillis: Long)
 
@@ -185,7 +230,7 @@ internal object SvpScript {
                 with lock:
                     last[2] += 1
                     now = time.monotonic()
-                    if last[2] == 1 or now - last[0] >= 0.25:
+                    if last[2] == 1 or now - last[0] >= 0.5:
                         fps = (last[2] - last[1]) / max(0.001, now - last[0])
                         write_status('ok\t%s\t%d\t%.3f\t%d' % (generation, last[2], fps, time.time()*1000))
                         last[0], last[1] = now, last[2]

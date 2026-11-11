@@ -10,9 +10,11 @@ This is the first playable SDR engine milestone from the PC build brief, based o
 - Balanced parameters, full source dimensions, and the largest source-rate multiple at or below 120 fps and the active display rate: 23.976 → 119.88, 24 → 120, 25 → 100. No 1080p downscale is introduced.
 - NVIDIA is preferred by vendor on hybrid laptops; enumeration order is not trusted. The report labels the preferred device, not a measured guarantee that every frame used the GPU.
 - Process-lifetime native DLL references keep Rust worker threads valid across seek-driven filter rebuilds.
-- Private local scripts; named filter ownership; restoration of decoder, interpolation and sync settings. Missing files, rejected commands and script errors are remembered per file for the app session. Stalls and sustained drops bypass motion.
+- Private local scripts; named filter ownership; restoration of decoder, interpolation and sync settings. Missing files, rejected commands and script errors are remembered per file for the app session. A heartbeat stall gets one filter restart per file; another stall or sustained drops bypass motion.
 - Copy playback report includes source/decoder/transfer, current target, filter throughput, drop/late counters with a rolling sample window, and observed graph generations. File paths and share hosts are excluded.
-- Existing blend modes remain available. The installer identity and Android sources are unchanged.
+- Automatic concurrent frame requests with buffer 8; status writes at most every 0.5 seconds.
+- Failure reports retain the last engine metrics, counters and heartbeat age, filter presence, preceding actions, and the last 20 VapourSynth warnings/errors.
+- Existing blend modes remain available until the requested simplified controls replace them. The installer identity and Android sources are unchanged.
 
 ## Evidence and limits
 
@@ -33,15 +35,15 @@ an actual generated-frame measurement. Scene cuts may legitimately repeat frames
 
 Tests include exact fractional target selection, missing-runtime and partial-start
 rollback, safe script paths, and a real JVM/libmpv/portable-Python lifecycle test:
-20 seeks, pause/resume, another filter preserved, failed plugin load with continued
+60 seeks, pause/resume, another filter preserved, failed plugin load with continued
 ordinary playback, second load, and close with motion active. Existing native
 fullscreen/Unicode/process-exit tests are retained. CI additionally builds EXE/MSI
 and checks packaged runtime hashes and legal files.
 
 ## Still to do
 
-FPS/free-rate and quality sliders; per-type memory; measured presentation meter;
-explicit VRR switch; optional installer component selection; RIFE interface;
+Four-stop exact multiplier and five-step quality sliders; per-type memory; measured
+presentation meter; VRR/automatic-lowering settings; optional installer component selection;
 10-bit HDR/Dolby Vision qualification; non-resizing fullscreen overlay; complete
 state-time reporting and driver/device-error qualification; sustained 1440p/4K/SMB
 acceptance. This preview bundles the engine but leaves it off by default; the

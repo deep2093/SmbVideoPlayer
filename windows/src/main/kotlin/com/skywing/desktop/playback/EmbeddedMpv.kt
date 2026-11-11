@@ -42,6 +42,9 @@ class EmbeddedMpv : Closeable {
     private var lastPosition = 0.0
     private val reportSamples = java.util.ArrayDeque<Pair<Long, List<Long?>>>()
     private var engineErrorCount = 0
+    private val motionWarnings = java.util.ArrayDeque<String>()
+    private val playerEvents = java.util.ArrayDeque<String>()
+    private var lastActionMillis = 0L
     var lastError: String? = null
         private set
 
@@ -102,6 +105,14 @@ class EmbeddedMpv : Closeable {
 
     @Synchronized
     private fun command(vararg args: String): Boolean {
+        val action = when {
+            args.firstOrNull() == "seek" -> "seek requested"
+            args.firstOrNull() == "loadfile" -> "file change requested"
+            args.firstOrNull() == "stop" -> "stop requested"
+            args.firstOrNull() in setOf("set", "cycle") && args.getOrNull(1) == "pause" -> "pause/resume requested"
+            else -> null
+        }
+        if (action != null) recordAction(action)
         val native = api ?: return false
         val context = instance ?: return false
         return native.mpv_command(context, (args.toList() + listOf(null)).toTypedArray()) >= 0
@@ -179,6 +190,7 @@ class EmbeddedMpv : Closeable {
      * make mpv's small A/V clock corrections; it falls back for unsupported audio outputs. */
     @Synchronized
     fun updateSmoothing(mode: SmoothingMode): SmoothingStatus {
+        motion.lastAction = playerEvents.lastOrNull()?.let { it + " (" + (System.currentTimeMillis() - lastActionMillis) + " ms ago)" } ?: "none"
         val filterFailed = drainEvents()
         if (filterFailed && motion.active) {
             engineErrorCount++
@@ -243,9 +255,17 @@ class EmbeddedMpv : Closeable {
                     if (log != null) {
                         val prefix = log.getPointer(0)?.getString(0, "UTF-8").orEmpty()
                         val level = log.getPointer(8)?.getString(0, "UTF-8").orEmpty()
-                        if (prefix.contains("vapoursynth") && level in setOf("fatal", "error")) failed = true
+                        if (prefix.contains("vapoursynth") && level in setOf("fatal", "error", "warn")) {
+                            val message = log.getPointer(16)?.getString(0, "UTF-8").orEmpty()
+                            motionWarnings.addLast("$level: " + MotionLog.redact(message))
+                            while (motionWarnings.size > 20) motionWarnings.removeFirst()
+                            if (level in setOf("fatal", "error")) failed = true
+                        }
                     }
                 }
+                8 -> recordAction("file loaded")
+                20 -> recordAction("seek started")
+                21 -> recordAction("playback resumed after reconfiguration")
                 7 -> {
                     val end = event.getPointer(16)
                     if (end != null && end.getInt(0) == 4 && end.getInt(4) < 0) failed = true
@@ -279,9 +299,16 @@ class EmbeddedMpv : Closeable {
             val decoderDrops = numberProperty("decoder-frame-drop-count")
             smoothingHealth.sample(System.nanoTime() / 1_000_000,
                 if (drops != null && decoderDrops != null) (drops + decoderDrops).toLong() else null, playing)
-            if (motion.stalled(playing, beat) || smoothingHealth.tripped) {
+            if (smoothingHealth.tripped) {
                 engineErrorCount++
-                motion.fail(if (smoothingHealth.tripped) "Too many dropped frames" else "The motion engine stopped responding")
+                motion.fail("Too many dropped frames")
+            } else if (motion.stalled(playing, beat)) {
+                engineErrorCount++
+                if (motion.restartAfterStall()) {
+                    smoothingHealth.reset()
+                    return status("Motion engine restarted")
+                }
+                motion.fail("The motion engine stopped responding after one restart")
             }
         }
         motion.failure?.let { return status("Motion smoothing unavailable: $it") }
@@ -291,6 +318,8 @@ class EmbeddedMpv : Closeable {
     }
 
     private fun playbackReport(caps: SmoothingCapabilities, state: String, beat: MotionHeartbeat? = null): String {
+        val retainedBeat = beat ?: motion.lastHeartbeat
+        val incident = motion.lastIncident
         val names = listOf("frame-drop-count", "decoder-frame-drop-count", "vo-delayed-frame-count", "mistimed-frame-count")
         val totals = names.map { numberProperty(it)?.toLong() }
         val now = System.currentTimeMillis()
@@ -312,14 +341,34 @@ class EmbeddedMpv : Closeable {
             appendLine("Selected: ${smoothingMode.label}; state: $state")
             if (smoothingMode == SmoothingMode.MOTION) {
                 appendLine("Engine: open-svpflow deadbad2; quality: Balanced; target: ${motion.target?.label ?: "none"} fps")
-                appendLine("Filter processing throughput: ${beat?.processingFps ?: "unavailable"} fps (not presented FPS)")
-                appendLine("Filter output callbacks: ${beat?.completed ?: 0}; observed graph generations: ${motion.rebuilds}")
+                appendLine("Filter processing throughput: ${retainedBeat?.processingFps ?: "unavailable"} fps (not presented FPS)")
+                appendLine("Filter output callbacks: ${retainedBeat?.completed ?: 0}; observed graph generations: ${motion.rebuilds}")
             }
             appendLine("Presented FPS: not measured (pinned mpv estimated-vf-fps can report the source rate)")
             names.forEachIndexed { i, name -> appendLine("$name: ${totals[i] ?: "unavailable"}; last ${elapsed}s: ${deltas[i]}") }
             appendLine("Engine errors: $engineErrorCount; last failure: ${motion.failure ?: "none"}")
+            appendLine("Queue: concurrent=auto; buffered=8; status interval=0.5 s")
+            appendLine("Last heartbeat age: " + (retainedBeat?.let { now - it.updatedMillis } ?: "unavailable") + " ms")
+            appendLine("Stall recovery attempts: " + motion.restarts)
+            if (incident != null) {
+                appendLine("Last incident: " + incident.reason)
+                appendLine("Time to incident: " + incident.elapsedMillis + " ms; heartbeat age then: " + incident.heartbeatAgeMillis + " ms")
+                appendLine("Motion filter present at incident: " + incident.filterPresent + "; preceding action: " + incident.action)
+                appendLine("Retained incident throughput: " + incident.heartbeat?.processingFps + " fps; output callbacks: " + incident.heartbeat?.completed)
+                incident.counters.forEach { (key, value) -> appendLine("At incident $key: " + (value ?: "unavailable")) }
+            }
+            appendLine("Recent playback actions: " + playerEvents.joinToString("; "))
+            appendLine("Last 20 VapourSynth warnings/errors:")
+            if (motionWarnings.isEmpty()) appendLine("none") else motionWarnings.forEach { appendLine(it) }
             appendLine("State-duration history: not collected in this preview")
         }
+    }
+
+    private fun recordAction(action: String) {
+        lastActionMillis = System.currentTimeMillis()
+        playerEvents.addLast(action)
+        while (playerEvents.size > 12) playerEvents.removeFirst()
+        motion.lastAction = action
     }
 
     fun isPaused(): Boolean? = flagProperty("pause")

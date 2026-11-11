@@ -18,7 +18,7 @@ class MotionNativeTest {
         fun mpv_free(p: Pointer)
         fun mpv_terminate_destroy(ctx: Pointer)
     }
-    @Test(timeout = 90000) fun portableEngineSurvivesSeekPauseDisableAndClose() {
+    @Test(timeout = 150000) fun portableEngineSurvivesSeekPauseDisableAndClose() {
         assumeTrue(System.getenv("SKYWING_TEST_MPV") == "true")
         val resources = File(System.getProperty("compose.application.resources.dir"))
         assertNotNull(MotionRuntime.directory(), "CI must bundle the portable engine before native tests")
@@ -64,7 +64,7 @@ class MotionNativeTest {
             assertTrue(command(listOf("set", "pause", "yes")))
             assertFalse(session.stalled(false, session.heartbeat()))
             assertTrue(command(listOf("set", "pause", "no")))
-            repeat(20) { n ->
+            repeat(60) { n ->
                 val generation = session.heartbeat()?.generation
                 assertTrue(command(listOf("seek", (1+n%4).toString(), "absolute+exact")))
                 waitFor("Motion did not recover after seek") { session.heartbeat()?.let { it.generation != generation && it.completed > 5 } == true }
