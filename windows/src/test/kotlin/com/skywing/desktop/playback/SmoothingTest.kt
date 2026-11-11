@@ -4,45 +4,40 @@ import org.junit.Test
 import kotlin.test.*
 
 class SmoothingTest {
-    private fun caps(hz: Double = 60.0, fps: Double = 24.0) = SmoothingCapabilities(hz, fps, true, true)
-
-    @Test fun pcResolutionsHaveNoMobileLimitAndVrrNeverEnablesBlending() {
-        listOf(2560 to 1440, 3840 to 2160, 4096 to 2160).forEach { (w, h) ->
-            val pc = caps(240.0).copy(width = w, height = h)
-            assertTrue(pc.decision(SmoothingMode.AUTO).enabled)
-            assertEquals("$w × $h", pc.resolution)
-            assertFalse(pc.decision(SmoothingMode.VRR).enabled)
-            assertNull(pc.unavailable(SmoothingMode.VRR))
+    @Test fun retiredModesMigrateToOff() {
+        assertEquals(SmoothingMode.MOTION, SmoothingMode.parse("MOTION"))
+        listOf(null, "OFF", "AUTO", "VRR", "FPS_60", "FPS_75", "FPS_90", "FPS_120", "unknown").forEach {
+            assertEquals(SmoothingMode.OFF, SmoothingMode.parse(it))
         }
-        assertFalse(SmoothingCapabilities(hdrVideo = true).decision(SmoothingMode.VRR).enabled)
-        assertEquals(SmoothingMode.VRR, SmoothingMode.parse("VRR"))
     }
-
-    @Test fun fixedChoicesFollowActualDisplayRatherThanInventingAnOutputRate() {
-        SmoothingMode.entries.filter { it.fps != null }.forEach { mode ->
-            val hz = checkNotNull(mode.fps).toDouble()
-            assertTrue(caps(hz).decision(mode).enabled)
-            assertTrue(caps(hz * 1000 / 1001).decision(mode).enabled)
-            assertFalse(caps(hz + 10).decision(mode).enabled)
-        }
-        assertFalse(caps(144.0).decision(SmoothingMode.FPS_120).enabled)
-        assertTrue(caps(144.0).decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps(60.0).decision(SmoothingMode.FPS_120).enabled)
+    @Test fun exactStopsDefaultsAndDisplayLimits() {
+        val film = MotionRate(24000, 1001)
+        assertEquals(MotionRate(60000, 1001), MotionStops.rate(film, 1))
+        assertEquals(MotionRate(125, 2), MotionStops.rate(MotionRate(25), 1))
+        assertEquals(listOf(0, 1), MotionStops.allowed(film, 60.0))
+        assertEquals(listOf(0), MotionStops.allowed(MotionRate(25), 60.0))
+        assertEquals(1, MotionStops.default(MotionRate(24)))
+        assertEquals(1, MotionStops.default(MotionRate(25)))
+        listOf(30, 50, 60).forEach { assertEquals(0, MotionStops.default(MotionRate(it))) }
+        assertEquals(MotionRate(240), MotionRate.target(MotionRate(60), 240.0, 3))
+        assertNull(MotionRate.target(MotionRate(120), 240.0))
     }
-
-    @Test fun unknownSoftwareAndHighFpsPlaybackBypassSafely() {
-        assertFalse(SmoothingCapabilities().decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps().copy(gpuOutput = false).decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps().copy(hardwareDecode = false).decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps().copy(hdrVideo = true).decision(SmoothingMode.AUTO).enabled)
-        listOf(Double.NaN, Double.POSITIVE_INFINITY, 0.0, 50.0).forEach {
-            assertFalse(caps(it).decision(SmoothingMode.AUTO).enabled)
-        }
-        assertFalse(caps().copy(sourceFps = null).decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps(60.0, 120.0).decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps(59.94, 60.0).decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps().decision(SmoothingMode.OFF).enabled)
-        assertEquals(SmoothingMode.OFF, SmoothingMode.parse("future-unknown-mode"))
+    @Test fun videoTypesKeepIndependentSettings() {
+        val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
+        try {
+            val store = MotionPreferences(node)
+            assertFalse(store.lowerAutomatically)
+            val keys = mutableSetOf<String>()
+            for ((w,h) in listOf(1920 to 1080, 2560 to 1440, 3840 to 2160)) for (hdr in listOf(false, true)) {
+                val key = MotionStops.type(SmoothingCapabilities(width=w, height=h, hdrVideo=hdr))
+                keys += key
+                val setting = MotionSettings(keys.size % 4, MotionQuality.entries[keys.size % 5])
+                store.save(key, setting)
+                assertEquals(setting, store.load(key, 0))
+            }
+            assertEquals(6, keys.size)
+            assertEquals(MotionSettings(1), store.load("new", 1))
+        } finally { node.removeNode() }
     }
 
     @Test fun sustainedDropsTripAndStayBypassedUntilReset() {

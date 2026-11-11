@@ -72,6 +72,15 @@ class MotionNativeTest {
                 assertTrue(command(listOf("seek", (1+n%4).toString(), "absolute+exact")))
                 waitFor("Motion did not recover after seek") { session.heartbeat()?.let { it.generation != generation && it.completed > 5 } == true }
             }
+            for (quality in MotionQuality.entries) {
+                assertTrue(session.end())
+                assertNull(session.begin(source.path, MotionRate(24), MotionRate(48), quality))
+                waitFor("No output for quality " + quality.label) {
+                    val beat = session.heartbeat()
+                    assertNull(session.failure, "Preset failed: " + quality.label)
+                    (beat?.completed ?: 0) > 5
+                }
+            }
             assertTrue(session.end())
             original.forEach { (k,v) -> assertEquals(v,get(k), "Did not restore $k") }
             assertTrue(get("vf").orEmpty().contains("keep"))

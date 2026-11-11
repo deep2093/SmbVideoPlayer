@@ -1,6 +1,11 @@
 package com.skywing.desktop
 
 import androidx.compose.ui.awt.ComposeWindow
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
 import com.skywing.desktop.playback.EmbeddedMpv
 import com.sun.jna.Native
 import com.sun.jna.Pointer
@@ -206,6 +211,37 @@ class FullscreenWindowTest {
             player.close()
             try { assertFalse(edt { player.attach(Canvas()) }) }
             finally { edt { window.dispose() } }
+        }
+    }
+
+    @Test fun motionPanelRendersOnAndOffWithoutLegacyChoices() {
+        assumeTrue(System.getProperty("os.name").startsWith("Windows"))
+        assumeTrue(!GraphicsEnvironment.isHeadless())
+        val folder = File("build/reports/tests/test/screenshots").apply { mkdirs() }
+        for (mode in com.skywing.desktop.playback.SmoothingMode.entries) {
+            val window = edt { ComposeWindow().apply {
+                title = "Motion controls regression"
+                setBounds(100, 100, 620, 600)
+                setContent {
+                    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize().background(LocalSkyTheme.current.background).padding(24.dp),
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)) {
+                        SmoothingOptions(mode, com.skywing.desktop.playback.SmoothingStatus(
+                            capabilities = com.skywing.desktop.playback.SmoothingCapabilities(240.0, 24000.0/1001, true, true, false, 1920, 1080),
+                            detail = "Holding 59.94 fps · 0 drops",
+                            settings = com.skywing.desktop.playback.MotionSettings(1)), {})
+                        SkyButton("Done", {})
+                    }
+                }
+                isVisible = true
+                toFront()
+            } }
+            try {
+                val robot = Robot()
+                robot.waitForIdle()
+                Thread.sleep(600)
+                assertTrue(edt { window.isShowing })
+                ImageIO.write(robot.createScreenCapture(edt { window.bounds }), "png", File(folder, "motion-panel-" + mode.name + ".png"))
+            } finally { edt { window.dispose() } }
         }
     }
 

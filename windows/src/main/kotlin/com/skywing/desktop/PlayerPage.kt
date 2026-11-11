@@ -159,7 +159,7 @@ internal fun PlayerControls(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically) {
             val label = when {
-                smoothingMode == SmoothingMode.OFF || smoothingMode == SmoothingMode.VRR -> "Smoothing: Off"
+                smoothingMode == SmoothingMode.OFF -> "Smoothing: Off"
                 smoothingActive -> "Smoothing: ${smoothingMode.label}"
                 else -> "Smoothing: ${smoothingMode.label} (inactive)"
             }

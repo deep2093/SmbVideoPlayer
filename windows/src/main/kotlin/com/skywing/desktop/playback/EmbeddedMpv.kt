@@ -36,12 +36,14 @@ class EmbeddedMpv : Closeable {
     private var rendererPreference = "Automatic"
     private var rendererDevice = "Not yet reported by mpv"
     private val smoothingHealth = SmoothingHealth()
-    private var smoothingApplied = false
-    private var smoothingRejected = false
     private var smoothingMode = SmoothingMode.OFF
     private var expectedPath: String? = null
     private val motion = MotionSession(::textProperty, { command(*it.toTypedArray()) })
     private var lastPosition = 0.0
+    private var appliedMotionSettings: MotionSettings? = null
+    private var appliedVrr: Boolean? = null
+    private var motionNotice = ""
+    private var motionNoticeUntil = 0L
     private val reportSamples = java.util.ArrayDeque<Pair<Long, List<Long?>>>()
     private var engineErrorCount = 0
     private val motionWarnings = java.util.ArrayDeque<String>()
@@ -136,11 +138,11 @@ class EmbeddedMpv : Closeable {
     fun open(file: File): Boolean {
         if (!file.isFile) return false
         if (!motion.end()) { lastError = "Could not stop motion smoothing"; return false }
-        setSmoothing(false)
+        appliedMotionSettings = null
+        motionNoticeUntil = 0L
         reportSamples.clear()
         lastPosition = 0.0
         smoothingHealth.reset()
-        smoothingRejected = false
         val start = System.nanoTime()
         val accepted = command("loadfile", file.absolutePath, "replace")
         expectedPath = file.absolutePath.takeIf { accepted }
@@ -173,28 +175,6 @@ class EmbeddedMpv : Closeable {
         return try { value.getString(0, "UTF-8") } finally { native.mpv_free(value) }
     }
 
-    private fun setSmoothing(enabled: Boolean): Boolean {
-        if (enabled == smoothingApplied) return true
-        if (enabled) {
-            if (command("set", "tscale", "oversample") &&
-                command("set", "video-sync", "display-resample") &&
-                command("set", "interpolation", "yes")) {
-                smoothingApplied = true
-                smoothingHealth.reset()
-                return true
-            }
-            // Roll back partial configuration; never leave a failed enable on display sync.
-            command("set", "interpolation", "no")
-            command("set", "video-sync", "audio")
-            smoothingRejected = true
-            return false
-        }
-        val interpolationOff = command("set", "interpolation", "no")
-        val audioSync = command("set", "video-sync", "audio")
-        if (interpolationOff && audioSync) smoothingApplied = false
-        return interpolationOff && audioSync
-    }
-
     /** Call off the UI thread about once a second. Never overrides display mode, speed,
      * container FPS, HDR transforms, the Canvas peer, or the renderer. display-resample may
      * make mpv's small A/V clock corrections; it falls back for unsupported audio outputs. */
@@ -213,7 +193,6 @@ class EmbeddedMpv : Closeable {
         if (mode != smoothingMode) {
             smoothingMode = mode
             smoothingHealth.reset()
-            smoothingRejected = false
         }
         val caps = SmoothingCapabilities(
             displayHz = numberProperty("display-fps"),
@@ -226,29 +205,7 @@ class EmbeddedMpv : Closeable {
         )
         if (mode == SmoothingMode.MOTION) return updateMotion(caps)
         if (!motion.end()) return SmoothingStatus(caps, "Could not stop motion smoothing; reopen video")
-        var decision = caps.decision(mode)
-        // loadfile is asynchronous. Do not configure a new HDR/high-FPS item using the
-        // previous decoder's capabilities while mpv is still switching files.
-        if (expectedPath == null || !expectedPath.equals(textProperty("path"), ignoreCase = true)) {
-            decision = SmoothingDecision(false, if (mode == SmoothingMode.OFF) "Smoothing off" else "Waiting for the selected video")
-        }
-        if (smoothingApplied) {
-            val drops = numberProperty("frame-drop-count")?.toLong()
-            val decodingDrops = numberProperty("decoder-frame-drop-count")?.toLong()
-            val playing = isPaused() == false && flagProperty("seeking") == false && flagProperty("paused-for-cache") == false
-            smoothingHealth.sample(System.nanoTime() / 1_000_000, if (drops != null && decodingDrops != null) drops + decodingDrops else null, playing)
-        }
-        if (smoothingHealth.tripped) decision = SmoothingDecision(false, "Smoothing bypassed: sustained dropped frames; reopen video to retry")
-        if (smoothingRejected) decision = SmoothingDecision(false, "Smoothing unavailable: player rejected settings")
-        if (!setSmoothing(decision.enabled)) return SmoothingStatus(caps, "Smoothing settings failed; choose Off or reopen video")
-        val active = decision.enabled && flagProperty("display-sync-active") == true
-        val detail = when {
-            active -> decision.detail + " · " + caps.resolution
-            decision.enabled -> "Smoothing waiting for display sync · ordinary playback continues"
-            else -> decision.detail
-        }
-        // This confirms settings and display sync, not optical flow or measured output FPS.
-        return SmoothingStatus(caps, detail, active, report = playbackReport(caps, detail))
+        return SmoothingStatus(caps, "Smoothing off", report = playbackReport(caps, "Smoothing off"))
     }
 
     /** Drain events before enabling a filter so stale errors cannot reject a new session. */
@@ -279,8 +236,8 @@ class EmbeddedMpv : Closeable {
                     }
                 }
                 8 -> recordAction("file loaded")
-                20 -> recordAction("seek started")
-                21 -> recordAction("playback resumed after reconfiguration")
+                20 -> { recordAction("seek started"); smoothingHealth.reset() }
+                21 -> { recordAction("playback resumed after reconfiguration"); smoothingHealth.reset() }
                 7 -> {
                     val end = event.getPointer(16)
                     if (end != null && end.getInt(0) == 4 && end.getInt(4) < 0) failed = true
@@ -291,45 +248,75 @@ class EmbeddedMpv : Closeable {
     }
 
     private fun updateMotion(caps: SmoothingCapabilities): SmoothingStatus {
-        fun status(detail: String, active: Boolean = false, beat: MotionHeartbeat? = null) =
-            SmoothingStatus(caps, detail, motionActive = active, report = playbackReport(caps, detail, beat))
-        if (!setSmoothing(false)) return status("Could not stop frame blending; reopen video")
+        val source = caps.sourceFps?.let(MotionRate::source)
+        val key = MotionStops.type(caps)
+        val stored = source?.let { MotionSettingsStore.values.load(key, MotionStops.default(it)) }
+        val allowed = source?.let { MotionStops.allowed(it, caps.displayHz) }.orEmpty()
+        val settings = stored?.copy(stop = allowed.lastOrNull { it <= stored.stop } ?: allowed.firstOrNull() ?: stored.stop)
+        fun status(detail: String, active: Boolean = false, beat: MotionHeartbeat? = null, lower: Int? = null) =
+            SmoothingStatus(caps, detail, motionActive = active, report = playbackReport(caps, detail, beat), settings = settings, nextLowerStop = lower)
         val file = expectedPath
         if (file == null || !file.equals(textProperty("path"), true)) return status("Waiting for the selected video")
-        val unavailable = caps.unavailable(SmoothingMode.MOTION)
-        if (unavailable != null) {
+        caps.unavailable(SmoothingMode.MOTION)?.let {
             if (!motion.end()) return status("Could not restore player settings; reopen video")
-            return status(unavailable)
+            return status(it)
         }
-        val source = caps.sourceFps?.let(MotionRate::source)
-            ?: return status("Motion smoothing unavailable: source frame rate is uncertain")
-        val target = MotionRate.target(source, caps.displayHz)
-            ?: return status("Already at the target frame rate")
-        motion.begin(file, source, target)?.let { return status("Motion smoothing unavailable: $it") }
+        if (source == null || settings == null) return status("Waiting for source frame rate")
+        val target = MotionRate.target(source, caps.displayHz, settings.stop)
+            ?: return status("No smoothing rate fits this display")
+        val vrr = MotionSettingsStore.values.vrr
+        val changed = motion.active && (appliedMotionSettings != settings || appliedVrr != vrr)
+        val position = if (changed) numberProperty("time-pos") else null
+        if (changed && !motion.end()) return status("Could not change motion settings; reopen video")
+        val starting = !motion.active
+        motion.begin(file, source, target, settings.quality)?.let { return status("Motion smoothing unavailable: $it") }
+        if (starting || appliedMotionSettings != settings || appliedVrr != vrr) {
+            smoothingHealth.reset()
+            appliedMotionSettings = settings
+            appliedVrr = vrr
+            val matchingDisplay = caps.displayHz?.let { kotlin.math.abs(it-target.fps) / target.fps < 0.01 } == true
+            command("set", "video-sync", if (!vrr && matchingDisplay) "display-resample" else "audio")
+            if (position != null) command("seek", position.toString(), "absolute+exact")
+        }
         val beat = motion.heartbeat()
         val playing = isPaused() == false && flagProperty("seeking") == false &&
             flagProperty("paused-for-cache") == false && flagProperty("eof-reached") == false
+        val drops = numberProperty("frame-drop-count")
+        val decoderDrops = numberProperty("decoder-frame-drop-count")
         if (motion.active) {
-            val drops = numberProperty("frame-drop-count")
-            val decoderDrops = numberProperty("decoder-frame-drop-count")
             smoothingHealth.sample(System.nanoTime() / 1_000_000,
-                if (drops != null && decoderDrops != null) (drops + decoderDrops).toLong() else null, playing)
-            if (smoothingHealth.tripped) {
-                engineErrorCount++
-                motion.fail("Too many dropped frames")
-            } else if (motion.stalled(playing, beat)) {
+                if (drops != null && decoderDrops != null) (drops + decoderDrops).toLong() else null, playing,
+                beat?.processingFps, target.fps)
+            if (motion.stalled(playing, beat)) {
                 engineErrorCount++
                 if (motion.restartAfterStall()) {
                     smoothingHealth.reset()
+                    val match = caps.displayHz?.let { kotlin.math.abs(it-target.fps) / target.fps < 0.01 } == true
+                    command("set", "video-sync", if (!vrr && match) "display-resample" else "audio")
                     return status("Motion engine restarted")
                 }
                 motion.fail("The motion engine stopped responding after one restart")
+            } else if (playing && smoothingHealth.tripped) {
+                val lower = allowed.lastOrNull { it < settings.stop }
+                if (lower == null) {
+                    motion.fail("Cannot keep up at 2×; smoothing stopped")
+                    return status("Cannot keep up at 2×; smoothing stopped").copy(requestOff = true)
+                } else if (MotionSettingsStore.values.lowerAutomatically) {
+                    MotionSettingsStore.values.save(key, settings.copy(stop = lower))
+                    motionNotice = "Lowered to " + MotionStops.rate(source, lower).label + " fps (" + MotionStops.labels[lower] + ") to keep up"
+                    motionNoticeUntil = System.currentTimeMillis() + 8000
+                    return status(motionNotice, true, beat)
+                } else {
+                    return status("Can’t keep up at " + target.label, true, beat, lower)
+                }
             }
         }
         motion.failure?.let { return status("Motion smoothing unavailable: $it") }
-        return if (beat != null && motion.active)
-            status("Motion smoothing · ${target.label} fps target · ${caps.resolution}", true, beat)
-        else status("Starting motion smoothing…")
+        return if (beat != null && motion.active) {
+            val detail = if (System.currentTimeMillis() < motionNoticeUntil) motionNotice else
+                "Holding " + target.label + " fps · " + ((drops ?: 0.0) + (decoderDrops ?: 0.0)).toLong() + " drops"
+            status(detail, true, beat)
+        } else status("Starting motion smoothing…")
     }
 
     private fun playbackReport(caps: SmoothingCapabilities, state: String, beat: MotionHeartbeat? = null): String {
@@ -356,10 +343,11 @@ class EmbeddedMpv : Closeable {
             appendLine("Transfer: ${textProperty("video-params/gamma") ?: "unavailable"}; decoder: ${textProperty("hwdec-current") ?: "unavailable"}")
             appendLine("Selected: ${smoothingMode.label}; state: $state")
             if (smoothingMode == SmoothingMode.MOTION) {
-                appendLine("Engine: open-svpflow deadbad2; quality: Balanced; target: ${motion.target?.label ?: "none"} fps")
+                appendLine("Engine: open-svpflow deadbad2; quality: ${appliedMotionSettings?.quality?.label ?: "Balanced"}; target: ${motion.target?.label ?: "none"} fps")
                 appendLine("Filter processing throughput: ${retainedBeat?.processingFps ?: "unavailable"} fps (not presented FPS)")
                 appendLine("Filter output callbacks: ${retainedBeat?.completed ?: 0}; observed graph generations: ${motion.rebuilds}")
             }
+            appendLine("Multiplier: " + (appliedMotionSettings?.let { MotionStops.labels[it.stop] } ?: "none") + "; G-SYNC / FreeSync: " + MotionSettingsStore.values.vrr + "; lower automatically: " + MotionSettingsStore.values.lowerAutomatically)
             appendLine("Presented FPS: not measured (pinned mpv estimated-vf-fps can report the source rate)")
             names.forEachIndexed { i, name -> appendLine("$name: ${totals[i] ?: "unavailable"}; last ${elapsed}s: ${deltas[i]}") }
             appendLine("Engine errors: $engineErrorCount; last failure: ${motion.failure ?: "none"}")

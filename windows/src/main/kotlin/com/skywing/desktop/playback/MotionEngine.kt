@@ -11,7 +11,6 @@ import java.io.File
 import java.nio.file.Files
 import java.util.Locale
 import kotlin.math.abs
-import kotlin.math.floor
 import kotlin.math.roundToInt
 
 internal data class MotionRate(val numerator: Int, val denominator: Int = 1) {
@@ -27,10 +26,9 @@ internal data class MotionRate(val numerator: Int, val denominator: Int = 1) {
             if (abs(fps - fps.roundToInt()) < 0.005) return MotionRate(fps.roundToInt())
             return null // Do not silently retime unknown/VFR material in this preview.
         }
-        fun target(source: MotionRate, displayHz: Double?): MotionRate? {
-            val limit = minOf(120.0, displayHz?.takeIf { it.isFinite() && it > 0 } ?: 120.0)
-            val multiple = floor((limit + 0.01) / source.fps).toInt()
-            return if (multiple >= 2) source.times(multiple) else null
+        fun target(source: MotionRate, displayHz: Double?, stop: Int = MotionStops.default(source)): MotionRate? {
+            if (source.fps > 60.001) return null
+            return MotionStops.rate(source, stop).takeIf { stop in MotionStops.allowed(source, displayHz) }
         }
     }
 }
@@ -47,6 +45,7 @@ internal class MotionSession(
 ) {
     private var previous: Map<String, String>? = null
     private var source: MotionRate? = null
+    private var quality = MotionQuality.BALANCED
     private val restartedFiles = mutableSetOf<String>()
     private var sessionStarted = 0L
     var lastHeartbeat: MotionHeartbeat? = null
@@ -70,7 +69,7 @@ internal class MotionSession(
         private set
     val active: Boolean get() = previous != null
 
-    fun begin(file: String, source: MotionRate, rate: MotionRate): String? {
+    fun begin(file: String, source: MotionRate, rate: MotionRate, quality: MotionQuality = MotionQuality.BALANCED): String? {
         failedFiles[file]?.let { failure = it; return it }
         if (active) return null
         if (path != file) {
@@ -81,6 +80,7 @@ internal class MotionSession(
         }
         path = file
         this.source = source
+        this.quality = quality
         failure = null
         target = rate
         try {
@@ -95,7 +95,7 @@ internal class MotionSession(
             scriptFile = script
             val status = File(script.path + ".status")
             statusFile = status
-            script.writeText(SvpScript.create(runtime, status, source, rate), Charsets.UTF_8)
+            script.writeText(SvpScript.create(runtime, status, source, rate, quality), Charsets.UTF_8)
             previous = saved
             started = System.currentTimeMillis()
             generation = null
@@ -157,7 +157,7 @@ internal class MotionSession(
         recordIncident("Heartbeat stalled; attempting one restart")
         if (!end()) return false
         restarts++
-        return begin(file, input, rate) == null
+        return begin(file, input, rate, quality) == null
     }
 
     fun fail(reason: String) {
@@ -200,7 +200,7 @@ internal data class MotionHeartbeat(val generation: String, val completed: Long,
 internal object SvpScript {
     private fun literal(value: String): String = "'" + value.replace("\\", "\\\\").replace("'", "\\'")
         .replace("\r", "\\r").replace("\n", "\\n") + "'"
-    fun create(runtime: File, status: File, source: MotionRate, target: MotionRate): String = """
+    fun create(runtime: File, status: File, source: MotionRate, target: MotionRate, quality: MotionQuality = MotionQuality.BALANCED): String = """
         import os, time, threading
         import vapoursynth as vs
         core = vs.core
@@ -217,10 +217,10 @@ internal object SvpScript {
             core.std.LoadPlugin(${literal(File(runtime, "svpflow1_vs.dll").absolutePath)})
             core.std.LoadPlugin(${literal(File(runtime, "svpflow2_vs.dll").absolutePath)})
             clip = core.std.AssumeFPS(video_in, fpsnum=${source.numerator}, fpsden=${source.denominator})
-            sup = core.svp1.Super(clip, '{gpu:1,pel:2}')
-            vec = core.svp1.Analyse(sup['clip'], sup['data'], clip, '{block:{w:16,overlap:2}}')
+            sup = core.svp1.Super(clip, '${quality.superOptions}')
+            vec = core.svp1.Analyse(sup['clip'], sup['data'], clip, '${quality.analyse}')
             out = core.svp2.SmoothFps(clip, sup['clip'], sup['data'], vec['clip'], vec['data'],
-                '{rate:{abs:true,num:${target.numerator},den:${target.denominator}},algo:13,scene:{mode:0},mask:{cover:80,area:30}}',
+                '{rate:{abs:true,num:${target.numerator},den:${target.denominator}},${quality.smooth},scene:{mode:0}}',
                 src=clip, fps=${source.numerator}/${source.denominator})
             out = core.std.AssumeFPS(out, fpsnum=${target.numerator}, fpsden=${target.denominator})
             generation = str(time.time_ns())
