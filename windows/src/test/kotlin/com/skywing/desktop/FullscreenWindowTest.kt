@@ -129,7 +129,10 @@ class FullscreenWindowTest {
                         assertFalse(status.capabilities.hardwareDecode)
                         assertFalse(status.capabilities.decision(mode).enabled)
                     }
-                    player.updateSmoothing(com.skywing.desktop.playback.SmoothingMode.OFF)
+                    val rendererReport = player.updateSmoothing(com.skywing.desktop.playback.SmoothingMode.OFF).report
+                    if (rendererReport.contains("preference: NVIDIA D3D11")) {
+                        assertTrue(rendererReport.contains("Renderer: NVIDIA"), rendererReport)
+                    }
                     val thumbnail = File(mediaDir, "thumbnail.jpg")
                     val extracted = com.skywing.desktop.playback.ThumbnailExtractor.extractDetailed(media, thumbnail, start = "0")
                     assertTrue(extracted.success && thumbnail.isFile, "Unicode thumbnail failed: ${extracted.reason}")

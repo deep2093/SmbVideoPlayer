@@ -33,6 +33,8 @@ class EmbeddedMpv : Closeable {
     private var instance: Pointer? = null
     private var surface: Long? = null
     private var closed = false
+    private var rendererPreference = "Automatic"
+    private var rendererDevice = "Not yet reported by mpv"
     private val smoothingHealth = SmoothingHealth()
     private var smoothingApplied = false
     private var smoothingRejected = false
@@ -84,6 +86,14 @@ class EmbeddedMpv : Closeable {
                 set("force-window", "yes")
                 set("keep-open", "yes")
                 set("hwdec", "auto-safe")
+                // The pinned mpv validates this name against installed DXGI adapters.
+                // A rejected preference leaves the default adapter available on other PCs.
+                if (native.mpv_set_option_string(context, "d3d11-adapter", "NVIDIA") >= 0) {
+                    set("gpu-api", "d3d11")
+                    rendererPreference = "NVIDIA D3D11"
+                } else {
+                    set("d3d11-adapter", "")
+                }
                 // Reserve decoder surfaces before loading a file for runtime temporal smoothing.
                 set("hwdec-extra-frames", "8")
                 check(native.mpv_initialize(context) >= 0) { "mpv_initialize failed" }
@@ -91,7 +101,7 @@ class EmbeddedMpv : Closeable {
                 native.mpv_terminate_destroy(context)
                 throw failure
             }
-            native.mpv_request_log_messages(context, "warn")
+            native.mpv_request_log_messages(context, "v")
             api = native
             instance = context
             surface = hwnd
@@ -255,6 +265,11 @@ class EmbeddedMpv : Closeable {
                     if (log != null) {
                         val prefix = log.getPointer(0)?.getString(0, "UTF-8").orEmpty()
                         val level = log.getPointer(8)?.getString(0, "UTF-8").orEmpty()
+                        val rendererMessage = log.getPointer(16)?.getString(0, "UTF-8").orEmpty()
+                        if (prefix.startsWith("vo/") && rendererMessage.trim().startsWith("Device Name:")) {
+                            rendererDevice = MotionLog.redact(rendererMessage.substringAfter("Device Name:").trim())
+                            native.mpv_request_log_messages(context, "warn")
+                        }
                         if (prefix.contains("vapoursynth") && level in setOf("fatal", "error", "warn")) {
                             val message = log.getPointer(16)?.getString(0, "UTF-8").orEmpty()
                             motionWarnings.addLast("$level: " + MotionLog.redact(message))
@@ -334,6 +349,7 @@ class EmbeddedMpv : Closeable {
             appendLine("SkyWing $version · Windows x64 motion preview")
             appendLine("OS: ${System.getProperty("os.name")} ${System.getProperty("os.version")}")
             appendLine("Preferred motion GPU: ${MotionRuntime.preferredGpu}; driver: ${MotionRuntime.driver}")
+            appendLine("Renderer: $rendererDevice; preference: $rendererPreference; output: ${textProperty("current-vo") ?: "unavailable"}")
             appendLine("Display: ${caps.displayHz ?: "unavailable"} Hz; VRR activation: not measured")
             appendLine("File: $fileKind; ${caps.resolution}; source ${caps.sourceFps ?: "unavailable"} fps")
             appendLine("Codec: ${textProperty("video-codec") ?: "unavailable"}; pixel format: ${textProperty("video-params/pixelformat") ?: "unavailable"}")

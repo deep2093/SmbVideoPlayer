@@ -43,6 +43,9 @@ class MotionNativeTest {
             listOf("config" to "no", "vo" to "null", "audio" to "no", "keep-open" to "yes",
                 "hwdec" to "no", "pause" to "yes").forEach { (k,v) -> assertTrue(api.mpv_set_option_string(ctx,k,v) >= 0) }
             assertTrue(api.mpv_set_option_string(ctx, "log-file", log.path) >= 0)
+            // A missing vendor must be rejected without preventing default playback.
+            assertTrue(api.mpv_set_option_string(ctx, "d3d11-adapter", "SkyWing-nonexistent-adapter") < 0)
+            assertTrue(api.mpv_set_option_string(ctx, "d3d11-adapter", "") >= 0)
             assertTrue(api.mpv_initialize(ctx) >= 0)
             // Locally generated 8-bit YUV source: no network or user media access.
             val source = File(folder, "sample-é.y4m")
