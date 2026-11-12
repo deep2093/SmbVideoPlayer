@@ -66,7 +66,11 @@ quality ratings. Best subsequently changed to half-block overlap so its refined
 vectors also work on the CPU fallback; its timing above is not for that revision.
 Preset speed/artefacts depend on the video; Best is expensive.
 
-Next: transparent non-resizing fullscreen overlay, proper 10-bit HDR/Dolby Vision,
+Fullscreen title and controls now use transparent, non-focus-stealing owned windows.
+Showing/hiding them does not resize or recreate the video surface. Native tests
+cover mouse clicks, keyboard shortcuts, auto-hide, stable bounds and exit cleanup.
+
+Next: proper 10-bit HDR/Dolby Vision,
 then artwork and library/player parity. HDR motion remains bypassed. Physical HDR
 colour/audio-sync/G-SYNC and in-place MSI acceptance remain laptop checks. Optional
 installer component selection, full state-duration/presentation measurements and

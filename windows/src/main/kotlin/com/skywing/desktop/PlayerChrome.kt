@@ -35,7 +35,7 @@ internal fun rememberPlayerChrome(window: Window, fullscreen: Boolean, heldOpen:
             // Canvas. Only physical pointer changes (polled below) should wake it.
             val intentional = input is KeyEvent || input.id == MouseEvent.MOUSE_PRESSED ||
                 input.id == MouseEvent.MOUSE_RELEASED || input.id == MouseEvent.MOUSE_WHEEL
-            if (intentional && SwingUtilities.getWindowAncestor(input.component) === window) activity()
+            if (intentional && belongsToPlayer(SwingUtilities.getWindowAncestor(input.component), window)) activity()
         }
         val toolkit = Toolkit.getDefaultToolkit()
         toolkit.addAWTEventListener(listener, AWTEvent.KEY_EVENT_MASK or AWTEvent.MOUSE_EVENT_MASK or AWTEvent.MOUSE_WHEEL_EVENT_MASK)

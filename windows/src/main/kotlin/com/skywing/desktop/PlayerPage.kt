@@ -63,8 +63,7 @@ private fun TextControl(label: String, onClick: () -> Unit, enabled: Boolean = t
 }
 
 /**
- * Native video uses a heavyweight HWND. Keep controls beside that surface (including in
- * fullscreen), with separate rows so playback, tracks and motion controls cannot overlap.
+ * Native video uses a heavyweight HWND. Use owned transparent windows above it in fullscreen, with separate rows so playback, tracks and motion controls cannot overlap.
  */
 @Composable
 internal fun PlayerControls(

@@ -153,25 +153,34 @@ class FullscreenWindowTest {
                     val robot = Robot()
                     val center = edt { window.bounds.let { java.awt.Point(it.x + it.width / 2, it.y + it.height / 2) } }
                     robot.mouseMove(center.x, center.y)
-                    await("Fullscreen controls were not shown") { edt { canvas.height < window.height - 100 } }
-                    val controlsHeight = edt { canvas.height }
+                    fun overlaysVisible() = edt { window.ownedWindows.count { it.name?.startsWith("skywing-") == true && it.isVisible } == 2 }
+                    await("Fullscreen controls were not shown") { overlaysVisible() }
+                    // Fractional Windows DPI can round the Swing surface up by one logical pixel.
+                    await("Video must fill fullscreen") { edt { kotlin.math.abs(canvas.height - window.height) <= 1 && kotlin.math.abs(canvas.width - window.width) <= 1 } }
+                    val videoBounds = edt { Rectangle(canvas.bounds) }
                     val captures = File("build/reports/tests/test/screenshots").apply { mkdirs() }
                     robot.waitForIdle()
                     ImageIO.write(robot.createScreenCapture(edt { window.bounds }), "png", File(captures, "fullscreen-controls.png"))
-                    await("Fullscreen controls did not auto-hide") { edt { canvas.height > controlsHeight + 100 } }
+                    await("Fullscreen controls did not auto-hide") { !overlaysVisible() }
+                    assertEquals(videoBounds, edt { Rectangle(canvas.bounds) }, "Auto-hide resized the video")
                     key(KeyEvent.VK_M)
-                    await("Keyboard input did not reveal controls") { edt { canvas.height <= controlsHeight + 10 } }
-                    await("Controls did not hide again after keyboard input") { edt { canvas.height > controlsHeight + 100 } }
+                    await("Keyboard input did not reveal controls") { overlaysVisible() }
+                    await("Controls did not hide again after keyboard input") { !overlaysVisible() }
                     robot.mouseMove(center.x + 20, center.y)
-                    await("Native video mouse motion did not reveal controls") { edt { canvas.height <= controlsHeight + 10 } }
-                    key(KeyEvent.VK_SPACE)
-                    await("Pause failed") { player.isPaused() == true }
+                    await("Native video mouse motion did not reveal controls") { overlaysVisible() }
+                    val overlayBounds = edt { Rectangle(window.ownedWindows.single { it.name == "skywing-controls-overlay" }.bounds) }
+                    robot.mouseMove(overlayBounds.x + overlayBounds.width / 2 - 20, overlayBounds.y + overlayBounds.height - 96)
+                    robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK)
+                    robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK)
+                    await("Overlay pause click failed") { player.isPaused() == true }
                     Thread.sleep(3000)
-                    assertTrue(edt { canvas.height <= controlsHeight + 10 }, "Paused controls must stay visible")
+                    assertTrue(overlaysVisible(), "Paused controls must stay visible")
+                    assertEquals(videoBounds, edt { Rectangle(canvas.bounds) }, "Showing controls resized the video")
                     assertEquals(canvasHwnd, edt { Native.getComponentPointer(canvas) })
                     key(KeyEvent.VK_SPACE)
                     key(KeyEvent.VK_ESCAPE)
                     await("Escape did not restore after auto-hide") { edt { window.bounds == originalBounds } }
+                    await("Fullscreen overlays survived exit") { edt { window.ownedWindows.none { it.name?.startsWith("skywing-") == true && it.isDisplayable } } }
                 }
                 repeat(10) {
                     key(KeyEvent.VK_F, release = false)

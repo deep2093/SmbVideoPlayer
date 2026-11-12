@@ -556,7 +556,7 @@ private fun SkyWingDesktopShell(
                         } }
                     }
                 }
-                if (playerShown && chromeVisible) {
+                FullscreenChrome(awtWindow, fullscreen, playerShown && chromeVisible, bottom = false) {
                     PlayerTopBar(
                         title = currentFile?.nameWithoutExtension ?: "Nothing playing",
                         queueLabel = if (queueIndex >= 0 && queue.size > 1) "Queue " + (queueIndex + 1) + " / " + queue.size else null,
@@ -578,7 +578,7 @@ private fun SkyWingDesktopShell(
                         }
                     },
                 )
-                if (playerShown && chromeVisible) {
+                FullscreenChrome(awtWindow, fullscreen, playerShown && chromeVisible, bottom = true) {
                     PlayerControls(
                         position = playbackTime,
                         duration = duration,
