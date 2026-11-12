@@ -9,7 +9,8 @@ enum class MotionQuality(val label: String, val superOptions: String, val analys
     FAST("Fast", "{gpu:1,pel:1}", "{block:{w:32,h:32,overlap:1}}", "algo:13,mask:{area:30}"),
     BALANCED("Balanced", "{gpu:1,pel:2}", "{block:{w:16,h:16,overlap:2}}", "algo:13,mask:{cover:80,area:30}"),
     BETTER("Better", "{gpu:1,pel:2}", "{block:{w:16,h:16,overlap:2},refine:[{thsad:200}]}", "algo:23,mask:{cover:80,area:30}"),
-    BEST("Best", "{gpu:1,pel:4}", "{block:{w:8,h:8,overlap:2},refine:[{thsad:200}]}", "algo:23,mask:{cover:100,area:50}");
+    // Half-block overlap stays even after refinement, including on the CPU renderer.
+    BEST("Best", "{gpu:1,pel:4}", "{block:{w:8,h:8,overlap:3},refine:[{thsad:200}]}", "algo:23,mask:{cover:100,area:50}");
 }
 
 data class MotionSettings(val stop: Int, val quality: MotionQuality = MotionQuality.BALANCED)

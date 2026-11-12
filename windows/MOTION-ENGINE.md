@@ -60,9 +60,11 @@ a fullscreen report retained 43 drops amid seeks/reconfiguration, so steady
 fullscreen presentation still needs a clean measurement.
 
 All five presets executed the same generated 12-second 1080p25 sample at target
-100: Fastest 3.48 s, Fast 3.22 s, Balanced 3.33 s, Better 4.48 s, Best 12.13 s.
+100 with the initial presets: Fastest 3.48 s, Fast 3.22 s, Balanced 3.33 s, Better 4.48 s, Best 12.13 s.
 These single unpaced runs include startup, not sustained presentation or visual
-quality ratings. Preset speed/artefacts depend on the video; Best is expensive.
+quality ratings. Best subsequently changed to half-block overlap so its refined
+vectors also work on the CPU fallback; its timing above is not for that revision.
+Preset speed/artefacts depend on the video; Best is expensive.
 
 Next: transparent non-resizing fullscreen overlay, proper 10-bit HDR/Dolby Vision,
 then artwork and library/player parity. HDR motion remains bypassed. Physical HDR
