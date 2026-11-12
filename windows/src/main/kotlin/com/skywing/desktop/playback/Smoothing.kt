@@ -42,22 +42,26 @@ internal class SmoothingHealth {
     private var previous: Long? = null
     private var warmUntil = 0L
     private var strikes = 0
+    private var healthy = 0
     var tripped = false
         private set
 
-    fun reset() { previous = null; warmUntil = 0; strikes = 0; tripped = false }
+    fun reset() { previous = null; warmUntil = 0; strikes = 0; healthy = 0; tripped = false }
 
     fun sample(nowMillis: Long, drops: Long?, playing: Boolean, processingFps: Double? = null, targetFps: Double? = null): Boolean {
-        if (tripped) return true
         val before = previous
         previous = drops
         if (!playing || drops == null || before == null || drops < before) {
             warmUntil = nowMillis + 8000
             strikes = 0
+            healthy = 0
+            tripped = false
         } else if (nowMillis >= warmUntil) {
-            val slow = processingFps != null && targetFps != null && processingFps < targetFps * 0.95
-            strikes = if (drops - before >= 3 || slow) strikes + 1 else 0
+            val dropping = drops - before >= 3
+            strikes = if (dropping) strikes + 1 else 0
+            healthy = if (dropping) 0 else healthy + 1
             if (strikes >= 3) tripped = true
+            if (healthy >= 3) tripped = false
         }
         return tripped
     }

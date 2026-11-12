@@ -40,7 +40,7 @@ class SmoothingTest {
         } finally { node.removeNode() }
     }
 
-    @Test fun sustainedDropsTripAndStayBypassedUntilReset() {
+    @Test fun sustainedRecentDropsTripAndRecover() {
         val health = SmoothingHealth()
         assertFalse(health.sample(0, 0, true))
         assertFalse(health.sample(7000, 30, true)) // warmup is not a strike
@@ -48,8 +48,10 @@ class SmoothingTest {
         assertFalse(health.sample(9000, 36, true))
         assertTrue(health.sample(10000, 39, true))
         assertTrue(health.sample(11000, 39, true))
+        assertTrue(health.sample(12000, 39, true))
+        assertFalse(health.sample(13000, 39, true))
         health.reset()
-        assertFalse(health.sample(12000, 0, true))
+        assertFalse(health.sample(14000, 0, true))
     }
 
     @Test fun seeksCacheWaitsPausesAndCounterResetsDoNotTrip() {
@@ -63,5 +65,22 @@ class SmoothingTest {
         assertFalse(health.sample(19000, 20, true))
         assertFalse(health.sample(20000, null, true))
         assertFalse(health.sample(30000, 50, true))
+    }
+    @Test fun rollingDropsExpireAndSurviveIndependentCounterResets() {
+        val recent = RecentDrops()
+        assertEquals(0L, recent.sample(0, listOf(100L, 20L)))
+        assertEquals(5L, recent.sample(1000, listOf(103L, 22L)))
+        assertEquals(7L, recent.sample(2000, listOf(1L, 23L)))
+        assertEquals(2L, recent.sample(61000, listOf(1L, 23L)))
+        assertEquals(0L, recent.sample(62000, listOf(1L, 23L)))
+        assertNull(recent.sample(63000, listOf(null, 23L)))
+        assertNull(recent.sample(64000, listOf(1L, 23L)))
+        assertEquals(0L, recent.sample(124000, listOf(1L, 23L)))
+        recent.reset()
+        assertEquals(0L, recent.sample(125000, listOf(500L, 50L)))
+    }
+    @Test fun oldDropTotalsAndSlowTelemetryAloneDoNotTrip() {
+        val health = SmoothingHealth()
+        for (second in 0..20) assertFalse(health.sample(second * 1000L, 10000, true, 55.0, 100.0))
     }
 }

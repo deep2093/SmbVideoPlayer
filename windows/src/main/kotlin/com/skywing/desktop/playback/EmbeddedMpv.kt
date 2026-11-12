@@ -44,6 +44,8 @@ class EmbeddedMpv : Closeable {
     private var appliedVrr: Boolean? = null
     private var motionNotice = ""
     private var motionNoticeUntil = 0L
+    private val recentDrops = RecentDrops()
+    private var lastMinuteDrops: Long? = null
     private val reportSamples = java.util.ArrayDeque<Pair<Long, List<Long?>>>()
     private var engineErrorCount = 0
     private val motionWarnings = java.util.ArrayDeque<String>()
@@ -141,6 +143,8 @@ class EmbeddedMpv : Closeable {
         appliedMotionSettings = null
         motionNoticeUntil = 0L
         reportSamples.clear()
+        recentDrops.reset()
+        lastMinuteDrops = null
         lastPosition = 0.0
         smoothingHealth.reset()
         val start = System.nanoTime()
@@ -182,6 +186,8 @@ class EmbeddedMpv : Closeable {
     fun updateSmoothing(mode: SmoothingMode): SmoothingStatus {
         motion.lastAction = playerEvents.lastOrNull()?.let { it + " (" + (System.currentTimeMillis() - lastActionMillis) + " ms ago)" } ?: "none"
         val filterFailed = drainEvents()
+        lastMinuteDrops = recentDrops.sample(System.nanoTime() / 1_000_000, listOf(
+            numberProperty("frame-drop-count")?.toLong(), numberProperty("decoder-frame-drop-count")?.toLong()))
         if (filterFailed && motion.active) {
             engineErrorCount++
             motion.fail("The motion filter failed")
@@ -314,7 +320,7 @@ class EmbeddedMpv : Closeable {
         motion.failure?.let { return status("Motion smoothing unavailable: $it") }
         return if (beat != null && motion.active) {
             val detail = if (System.currentTimeMillis() < motionNoticeUntil) motionNotice else
-                "Holding " + target.label + " fps · " + ((drops ?: 0.0) + (decoderDrops ?: 0.0)).toLong() + " drops"
+                "Holding " + target.label + " fps · " + (lastMinuteDrops?.let { "$it drops in last minute" } ?: "recent drops unavailable")
             status(detail, true, beat)
         } else status("Starting motion smoothing…")
     }
@@ -348,6 +354,7 @@ class EmbeddedMpv : Closeable {
                 appendLine("Filter output callbacks: ${retainedBeat?.completed ?: 0}; observed graph generations: ${motion.rebuilds}")
             }
             appendLine("Multiplier: " + (appliedMotionSettings?.let { MotionStops.labels[it.stop] } ?: "none") + "; G-SYNC / FreeSync: " + MotionSettingsStore.values.vrr + "; lower automatically: " + MotionSettingsStore.values.lowerAutomatically)
+            appendLine("Drops in last 60 seconds (video + decoder): " + (lastMinuteDrops ?: "unavailable"))
             appendLine("Presented FPS: not measured (pinned mpv estimated-vf-fps can report the source rate)")
             names.forEachIndexed { i, name -> appendLine("$name: ${totals[i] ?: "unavailable"}; last ${elapsed}s: ${deltas[i]}") }
             appendLine("Engine errors: $engineErrorCount; last failure: ${motion.failure ?: "none"}")

@@ -26,7 +26,10 @@ Multiplier and quality are stored independently for six resolution/HDR classes
 Settings → Playback contains G-SYNC/FreeSync and Lower automatically when needed
 (default off). VRR uses audio sync; a fixed display with a matching target can use
 display-resample. The switch does not verify driver-level VRR activation.
-Sustained drops or processing below 95% of target offer the next lower stop.
+Three consecutive recent drop intervals offer the next lower stop; three clean
+intervals clear the warning. Low throughput telemetry alone does not trigger it.
+The live status reports video plus decoder drops within the last 60 seconds,
+tracking increments across counter resets; missing measurements remain unavailable.
 Automatic lowering only happens when enabled; overload stops motion at 2×.
 Seeks, pauses, cache waits and reconfiguration restart the warmup period.
 
