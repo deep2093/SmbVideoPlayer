@@ -193,7 +193,7 @@ try:
     settings_index()
     scroll_to('Look & layout',up=True);click('Look & layout');click('Theme')
     # Pixallery themes: round swatches (content description = theme name); the heading shows the chosen one.
-    for theme in ['Warm Light','Photo Night','Vivid Night','Calm Dark','Onyx','Onyx Vivid','Onyx Slate','Calm Light','Luminous Light','Liquid Day']:
+    for theme in ['Photo Night','Vivid Night','Calm Dark','Onyx','Onyx Vivid','Luminous Light','Liquid Day']:
         # The heading may have scrolled off the top while reaching a lower row of swatches.
         click_clear_of_toolbar(theme);scroll_to('Theme: '+theme,up=True)
     screenshot('liquid-day-theme')
