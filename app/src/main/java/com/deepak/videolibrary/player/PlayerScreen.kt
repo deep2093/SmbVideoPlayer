@@ -757,6 +757,13 @@ fun PlayerScreen(
                 isPlaying = player.playWhenReady
             }
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // A headset button must not start the video while the app is in the background (not picture in picture).
+                if (playWhenReady && !lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
+                    activity?.isInPictureInPictureMode != true
+                ) {
+                    player.pause()
+                    return
+                }
                 isPlaying = playWhenReady
                 updateKeepAwake()
                 if (!playWhenReady &&
@@ -926,6 +933,12 @@ fun PlayerScreen(
             singleTap?.cancel()
             player.release()
         }
+    }
+    // Bluetooth and wired headset buttons (play, pause, next, previous) control this player while it is open.
+    // Declared after the effect that releases the player, so the session is let go first.
+    DisposableEffect(player) {
+        val session = runCatching { androidx.media3.session.MediaSession.Builder(context, player).build() }.getOrNull()
+        onDispose { runCatching { session?.release() } }
     }
     DisposableEffect(lifecycleOwner, activity, pipEnabled, player) {
         val main = activity as? com.deepak.videolibrary.MainActivity
