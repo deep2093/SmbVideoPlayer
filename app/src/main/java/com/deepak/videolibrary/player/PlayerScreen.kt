@@ -993,7 +993,11 @@ fun PlayerScreen(
                 },
             )
         } else {
-            androidx.compose.runtime.key(hdrVideo || highFpsVideo) { AndroidView(
+            // Every video now uses the direct (SurfaceView) output that HDR and high-frame-rate videos already used
+            // (14 Nov 2026): Android can hand the picture straight to the screen, which costs less battery and drops
+            // fewer frames at 4K than the earlier TextureView. To go back for normal videos, inflate playback_view
+            // for them again and key this view on (hdrVideo || highFpsVideo).
+            androidx.compose.runtime.key(true) { AndroidView(
                 onReset = null,
                 onRelease = {
                     it.player = null
@@ -1001,7 +1005,7 @@ fun PlayerScreen(
                 factory = {
                     android.view.LayoutInflater
                         .from(it)
-                        .inflate(if (hdrVideo || highFpsVideo) com.deepak.videolibrary.R.layout.playback_view_hdr else com.deepak.videolibrary.R.layout.playback_view, null) as PlayerView
+                        .inflate(com.deepak.videolibrary.R.layout.playback_view_hdr, null) as PlayerView
                 },
                 update = { view ->
                     view.player = player
