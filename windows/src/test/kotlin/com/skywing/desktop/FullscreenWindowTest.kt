@@ -42,7 +42,41 @@ class FullscreenWindowTest {
         fun GetWindowThreadProcessId(hwnd: Pointer, pid: IntByReference): Int
         fun PostMessageW(hwnd: Pointer, message: Int, wparam: Pointer?, lparam: Pointer?): Boolean
         fun IsWindowVisible(hwnd: Pointer): Boolean
+        fun GetCursorInfo(info: Pointer): Boolean
+        fun DrawIconEx(dc: Pointer, x: Int, y: Int, icon: Pointer, width: Int, height: Int, step: Int, brush: Pointer?, flags: Int): Boolean
         fun GetWindowLongW(hwnd: Pointer, index: Int): Int
+    }
+    private interface Gdi32 : StdCallLibrary {
+        fun CreateCompatibleDC(dc: Pointer?): Pointer?
+        fun CreateDIBSection(dc: Pointer, info: Pointer, usage: Int, bits: com.sun.jna.ptr.PointerByReference, section: Pointer?, offset: Int): Pointer?
+        fun SelectObject(dc: Pointer, obj: Pointer): Pointer?
+        fun DeleteObject(obj: Pointer): Boolean
+        fun DeleteDC(dc: Pointer): Boolean
+        fun GdiFlush(): Boolean
+    }
+    private val gdi by lazy { Native.load("gdi32", Gdi32::class.java) }
+    /** Transparent custom cursors can have CURSOR_SHOWING set; inspect the actual pixels. */
+    private fun cursorHasPixels(): Boolean = com.sun.jna.Memory(24).use { info ->
+        info.clear(); info.setInt(0, 24)
+        check(user32.GetCursorInfo(info))
+        if (info.getInt(4) and 1 == 0) return@use false
+        val icon = info.getPointer(8) ?: return@use false
+        val dc = checkNotNull(gdi.CreateCompatibleDC(null))
+        try {
+            com.sun.jna.Memory(40).use { bitmapInfo ->
+                bitmapInfo.clear(); bitmapInfo.setInt(0, 40); bitmapInfo.setInt(4, 64); bitmapInfo.setInt(8, -64)
+                bitmapInfo.setShort(12, 1); bitmapInfo.setShort(14, 32)
+                val bits = com.sun.jna.ptr.PointerByReference()
+                val bitmap = checkNotNull(gdi.CreateDIBSection(dc, bitmapInfo, 0, bits, null, 0))
+                val old = checkNotNull(gdi.SelectObject(dc, bitmap))
+                try {
+                    repeat(4096) { bits.value.setInt(it * 4L, 0x00123456) }
+                    check(user32.DrawIconEx(dc, 0, 0, icon, 64, 64, 0, null, 3))
+                    gdi.GdiFlush()
+                    bits.value.getIntArray(0, 4096).any { it and 0x00ffffff != 0x00123456 }
+                } finally { gdi.SelectObject(dc, old); gdi.DeleteObject(bitmap) }
+            }
+        } finally { gdi.DeleteDC(dc) }
     }
     private val user32 by lazy { Native.load("user32", User32::class.java) }
 
@@ -151,6 +185,7 @@ class FullscreenWindowTest {
                     key(KeyEvent.VK_F)
                     await("F did not enter fullscreen") { edt { window.bounds == window.graphicsConfiguration.bounds } }
                     val robot = Robot()
+                    fun cursorShowing(): Boolean = cursorHasPixels()
                     val center = edt { window.bounds.let { java.awt.Point(it.x + it.width / 2, it.y + it.height / 2) } }
                     robot.mouseMove(center.x, center.y)
                     fun overlaysVisible() = edt { window.ownedWindows.count { it.name?.startsWith("skywing-") == true && it.isVisible } == 2 }
@@ -162,12 +197,23 @@ class FullscreenWindowTest {
                     robot.waitForIdle()
                     ImageIO.write(robot.createScreenCapture(edt { window.bounds }), "png", File(captures, "fullscreen-controls.png"))
                     await("Fullscreen controls did not auto-hide") { !overlaysVisible() }
+                    await("Fullscreen cursor did not hide with controls") { !cursorShowing() }
+                    val otherWindow = edt { Frame("Cursor focus regression").apply {
+                        setBounds(center.x - 100, center.y - 100, 200, 200); isVisible = true; toFront(); requestFocus()
+                    } }
+                    try {
+                        await("Other window did not gain focus") { edt { otherWindow.isFocused } }
+                        await("Cursor remained hidden after focus loss") { cursorShowing() }
+                    } finally { edt { otherWindow.dispose(); window.toFront(); canvas.requestFocusInWindow() } }
+                    await("Player did not regain focus") { edt { window.isFocused } }
                     assertEquals(videoBounds, edt { Rectangle(canvas.bounds) }, "Auto-hide resized the video")
                     key(KeyEvent.VK_M)
                     await("Keyboard input did not reveal controls") { overlaysVisible() }
+                    await("Keyboard input did not restore cursor") { cursorShowing() }
                     await("Controls did not hide again after keyboard input") { !overlaysVisible() }
                     robot.mouseMove(center.x + 20, center.y)
                     await("Native video mouse motion did not reveal controls") { overlaysVisible() }
+                    await("Mouse motion did not restore cursor") { cursorShowing() }
                     val overlayBounds = edt { Rectangle(window.ownedWindows.single { it.name == "skywing-controls-overlay" }.bounds) }
                     robot.mouseMove(overlayBounds.x + overlayBounds.width / 2 - 20, overlayBounds.y + overlayBounds.height - 96)
                     robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK)
@@ -180,6 +226,8 @@ class FullscreenWindowTest {
                     key(KeyEvent.VK_SPACE)
                     key(KeyEvent.VK_ESCAPE)
                     await("Escape did not restore after auto-hide") { edt { window.bounds == originalBounds } }
+                    robot.mouseMove(originalBounds.x + originalBounds.width / 2, originalBounds.y + originalBounds.height / 2)
+                    await("Cursor remained hidden after fullscreen exit") { cursorShowing() }
                     await("Fullscreen overlays survived exit") { edt { window.ownedWindows.none { it.name?.startsWith("skywing-") == true && it.isDisplayable } } }
                 }
                 repeat(10) {

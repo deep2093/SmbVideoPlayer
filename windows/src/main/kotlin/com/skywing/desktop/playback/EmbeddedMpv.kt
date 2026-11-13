@@ -85,6 +85,8 @@ class EmbeddedMpv : Closeable {
                 // not independently fullscreen or close its embedded child window.
                 set("config", "no")
                 set("input-default-bindings", "no")
+                set("cursor-autohide", "no")
+                set("cursor-autohide-fs-only", "no")
                 set("input-vo-keyboard", "no")
                 set("wid", java.lang.Long.toUnsignedString(Pointer.nativeValue(handle)))
                 set("force-window", "yes")
@@ -186,6 +188,7 @@ class EmbeddedMpv : Closeable {
     fun updateSmoothing(mode: SmoothingMode): SmoothingStatus {
         motion.lastAction = playerEvents.lastOrNull()?.let { it + " (" + (System.currentTimeMillis() - lastActionMillis) + " ms ago)" } ?: "none"
         val filterFailed = drainEvents()
+        DisplayVrr.refresh(textProperty("display-names/0"))
         lastMinuteDrops = recentDrops.sample(System.nanoTime() / 1_000_000, listOf(
             numberProperty("frame-drop-count")?.toLong(), numberProperty("decoder-frame-drop-count")?.toLong()))
         if (filterFailed && motion.active) {
@@ -344,6 +347,7 @@ class EmbeddedMpv : Closeable {
             appendLine("Preferred motion GPU: ${MotionRuntime.preferredGpu}; driver: ${MotionRuntime.driver}")
             appendLine("Renderer: $rendererDevice; preference: $rendererPreference; output: ${textProperty("current-vo") ?: "unavailable"}")
             appendLine("Display: ${caps.displayHz ?: "unavailable"} Hz; VRR activation: not measured")
+            appendLine("VRR capability: " + (DisplayVrr.current.supported?.toString() ?: "unknown") + "; " + DisplayVrr.current.detail + "; choice: " + if (MotionSettingsStore.values.vrrOverride == null) "automatic" else "manual")
             appendLine("File: $fileKind; ${caps.resolution}; source ${caps.sourceFps ?: "unavailable"} fps")
             appendLine("Codec: ${textProperty("video-codec") ?: "unavailable"}; pixel format: ${textProperty("video-params/pixelformat") ?: "unavailable"}")
             appendLine("Transfer: ${textProperty("video-params/gamma") ?: "unavailable"}; decoder: ${textProperty("hwdec-current") ?: "unavailable"}")
@@ -381,6 +385,9 @@ class EmbeddedMpv : Closeable {
         while (playerEvents.size > 12) playerEvents.removeFirst()
         motion.lastAction = action
     }
+
+    /** SkyWing owns fullscreen and its shared chrome/cursor inactivity deadline. */
+    fun setCursorHidden(hidden: Boolean): Boolean = command("set", "cursor-autohide", if (hidden) "always" else "no")
 
     fun isPaused(): Boolean? = flagProperty("pause")
     fun isMuted(): Boolean? = flagProperty("mute")

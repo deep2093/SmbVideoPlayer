@@ -253,7 +253,7 @@ private fun SkyWingDesktopShell(
     val topHovered by topInteractions.collectIsHoveredAsState()
     val bottomHovered by bottomInteractions.collectIsHoveredAsState()
     val (chromeVisible, showPlayerChrome) = rememberPlayerChrome(awtWindow, fullscreen,
-        paused || dragging || smoothingMenu || topHovered || bottomHovered)
+        paused || dragging || smoothingMenu || topHovered || bottomHovered) { visible -> embedded.setCursorHidden(!visible) }
     val currentShowPlayerChrome by rememberUpdatedState(showPlayerChrome)
     LaunchedEffect(embedded, smoothingMode, currentFile, closing) {
         if (closing) return@LaunchedEffect

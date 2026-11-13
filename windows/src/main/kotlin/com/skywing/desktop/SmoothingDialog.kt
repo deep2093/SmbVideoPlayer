@@ -87,13 +87,20 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
 
 @Composable
 internal fun MotionPlaybackSettings() {
-    var vrr by remember { mutableStateOf(MotionSettingsStore.values.vrr) }
+    var vrrChoice by remember { mutableStateOf(MotionSettingsStore.values.vrrOverride) }
+    val capability = DisplayVrr.current
+    val vrr = vrrChoice ?: (capability.supported == true)
     var lower by remember { mutableStateOf(MotionSettingsStore.values.lowerAutomatically) }
     val theme = LocalSkyTheme.current
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Text("My screen uses G-SYNC / FreeSync", color = theme.ink)
-        Switch(vrr, { vrr = it; MotionSettingsStore.values.vrr = it })
+        Switch(vrr, { vrrChoice = it; MotionSettingsStore.values.vrr = it })
     }
+    Text(if (vrrChoice != null) "Your saved choice takes priority." else when (capability.supported) {
+        true -> "On by default: the display reports VRR support."
+        false -> "Off by default: the display reports no VRR support."
+        null -> "VRR capability unavailable. Turn this on if your screen uses G-SYNC / FreeSync."
+    }, color = theme.muted, style = MaterialTheme.typography.bodySmall)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Lower automatically when needed", color = theme.ink)
         Switch(lower, { lower = it; MotionSettingsStore.values.lowerAutomatically = it })

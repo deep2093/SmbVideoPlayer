@@ -25,7 +25,12 @@ Multiplier and quality are stored independently for six resolution/HDR classes
 
 Settings → Playback contains G-SYNC/FreeSync and Lower automatically when needed
 (default off). VRR uses audio sync; a fixed display with a matching target can use
-display-resample. The switch does not verify driver-level VRR activation.
+display-resample. The switch does not verify driver-level VRR activation. Its default follows a
+read-only per-display NVIDIA VRR capability query when available; unknown/unsupported
+displays default off. Saved manual choices always win, including existing choices.
+Hybrid Intel/AMD-owned outputs and missing NVIDIA APIs can report unknown; users
+can still enable the switch manually. Settings and reports distinguish unknown
+capability from a negative result.
 Three consecutive recent drop intervals offer the next lower stop; three clean
 intervals clear the warning. Low throughput telemetry alone does not trigger it.
 The live status reports video plus decoder drops within the last 60 seconds,
@@ -70,7 +75,10 @@ vectors also work on the CPU fallback; its timing above is not for that revision
 Preset speed/artefacts depend on the video; Best is expensive.
 
 Fullscreen title and controls now use transparent, non-focus-stealing owned windows.
-Showing/hiding them does not resize or recreate the video surface. Native tests
+Showing/hiding them does not resize or recreate the video surface. The same
+2.5-second inactivity timer hides the AWT and native video cursors. Input, pause,
+fullscreen exit and focus loss restore the pointer without changing the system
+cursor visibility counter. Native tests
 cover mouse clicks, keyboard shortcuts, auto-hide, stable bounds and exit cleanup.
 
 Next: proper 10-bit HDR/Dolby Vision,

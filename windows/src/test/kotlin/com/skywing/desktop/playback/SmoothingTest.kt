@@ -83,4 +83,25 @@ class SmoothingTest {
         val health = SmoothingHealth()
         for (second in 0..20) assertFalse(health.sample(second * 1000L, 10000, true, 55.0, 100.0))
     }
+    @Test fun vrrCapabilityDefaultNeverOverridesManualChoice() {
+        val node = java.util.prefs.Preferences.userRoot().node("skywing-vrr-test-" + java.util.UUID.randomUUID())
+        try {
+            var supported: Boolean? = null
+            val prefs = MotionPreferences(node) { supported }
+            assertFalse(prefs.vrr)
+            assertNull(prefs.vrrOverride)
+            supported = true
+            assertTrue(prefs.vrr)
+            assertNull(prefs.vrrOverride) // Detection must never persist a manual preference.
+            prefs.vrr = false
+            assertFalse(prefs.vrr)
+            assertEquals(false, prefs.vrrOverride)
+            supported = null
+            prefs.vrr = true
+            assertTrue(prefs.vrr)
+            supported = false
+            assertTrue(prefs.vrr)
+            assertTrue(MotionPreferences(node) { false }.vrr) // Survives app restart.
+        } finally { node.removeNode() }
+    }
 }

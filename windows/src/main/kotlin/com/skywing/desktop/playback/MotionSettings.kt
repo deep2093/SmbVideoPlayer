@@ -38,7 +38,7 @@ internal object MotionStops {
     }
 }
 
-internal class MotionPreferences(private val prefs: Preferences) {
+internal class MotionPreferences(private val prefs: Preferences, private val detectedVrr: () -> Boolean? = { null }) {
     fun load(key: String, defaultStop: Int): MotionSettings = MotionSettings(
         prefs.getInt("motion.$key.stop", defaultStop).coerceIn(0, 3),
         MotionQuality.entries.firstOrNull { it.name == prefs.get("motion.$key.quality", "BALANCED") } ?: MotionQuality.BALANCED)
@@ -46,8 +46,9 @@ internal class MotionPreferences(private val prefs: Preferences) {
         prefs.putInt("motion.$key.stop", settings.stop.coerceIn(0, 3))
         prefs.put("motion.$key.quality", settings.quality.name)
     }
+    val vrrOverride: Boolean? get() = prefs.get("motion.vrr", null)?.toBooleanStrictOrNull()
     var vrr: Boolean
-        get() = prefs.getBoolean("motion.vrr", false)
+        get() = vrrOverride ?: (detectedVrr() == true)
         set(value) { prefs.putBoolean("motion.vrr", value) }
     var lowerAutomatically: Boolean
         get() = prefs.getBoolean("motion.lowerAutomatically", false)
@@ -55,5 +56,5 @@ internal class MotionPreferences(private val prefs: Preferences) {
 }
 
 internal object MotionSettingsStore {
-    val values by lazy { MotionPreferences(Preferences.userRoot().node("com/skywing/desktop/playback")) }
+    val values by lazy { MotionPreferences(Preferences.userRoot().node("com/skywing/desktop/playback")) { DisplayVrr.current.supported } }
 }
