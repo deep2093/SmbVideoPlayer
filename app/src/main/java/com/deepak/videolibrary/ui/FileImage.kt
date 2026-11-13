@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import com.deepak.videolibrary.thumbs.ImageMemoryCache
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -49,6 +50,28 @@ fun FileImage(file: File?, modifier: Modifier = Modifier) {
         return
     }
     StillFileImage(file, modifier)
+}
+
+/**
+ * Decodes cover pictures for the grids, a few at a time. A fast scroll used to start a decode for every card that
+ * flew past, all at once, competing with the scroll itself; now at most four run together and the ones for cards
+ * that have already left the screen are skipped before they start.
+ */
+internal object CoverDecoder {
+    /** Pictures much larger than any card are decoded smaller, so one huge image cannot fill the picture memory. */
+    private const val LARGE_SIDE = 1600
+
+    val dispatcher: kotlinx.coroutines.CoroutineDispatcher = java.util.concurrent.Executors
+        .newFixedThreadPool(4) { task -> Thread(task, "cover-decode").apply { isDaemon = true } }
+        .asCoroutineDispatcher()
+
+    fun decode(path: String): android.graphics.Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        var sample = 1
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= LARGE_SIDE) sample *= 2
+        return BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
+    }
 }
 
 /** "name.strip8.jpg": eight frames stacked top to bottom. */
@@ -92,7 +115,7 @@ private fun AnimatedGifImage(file: File, modifier: Modifier) {
 @Composable
 private fun FlipbookImage(file: File, frames: Int, modifier: Modifier) {
     val image by produceState(ImageMemoryCache.get(file.path), file) {
-        value = ImageMemoryCache.get(file.path) ?: withContext(Dispatchers.IO) {
+        value = ImageMemoryCache.get(file.path) ?: withContext(CoverDecoder.dispatcher) {
             BitmapFactory.decodeFile(file.path)?.asImageBitmap()?.also { ImageMemoryCache.put(file.path, it) }
         }
     }
@@ -133,8 +156,8 @@ private fun StillFileImage(file: File?, modifier: Modifier = Modifier) {
         value = if (file == null) {
             null
         } else {
-            ImageMemoryCache.get(file.path) ?: withContext(Dispatchers.IO) {
-                BitmapFactory.decodeFile(file.path)?.asImageBitmap()?.also {
+            ImageMemoryCache.get(file.path) ?: withContext(CoverDecoder.dispatcher) {
+                CoverDecoder.decode(file.path)?.asImageBitmap()?.also {
                     ImageMemoryCache.put(file.path, it)
                 }
             }

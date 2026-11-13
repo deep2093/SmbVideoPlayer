@@ -45,13 +45,17 @@ object ThumbStore {
     }
 }
 
-/** Small in-memory cache of decoded images, capped by size so it cannot grow with the library. */
+/**
+ * In-memory cache of decoded images, capped by size so it cannot grow with the library. A quarter of the app's
+ * memory limit, at most 128 MB: full posters are about 6 MB each, and with the earlier 64 MB cap a page of them
+ * did not fit, so scrolling back decoded them again. Android's low-memory signals still trim or empty it.
+ */
 object ImageMemoryCache {
     private val cache = object : LruCache<String, ImageBitmap>(
-        (Runtime.getRuntime().maxMemory() / 8)
+        (Runtime.getRuntime().maxMemory() / 4)
             .coerceIn(
                 16L * 1024 * 1024,
-                64L * 1024 * 1024,
+                128L * 1024 * 1024,
             ).toInt(),
     ) {
         override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4

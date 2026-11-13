@@ -425,7 +425,11 @@ fun PlayerScreen(
     LaunchedEffect(player, smooth60, nativeAvailable) {
         if (!(smooth60 && nativeAvailable)) return@LaunchedEffect
         val stallLog = NativeSvpTuning.stallLog(context)
-        fun stallCount() = runCatching { stallLog.readText() }.getOrDefault("").split("=== OpenCL stall").size
+        // Reading and writing the log files happens off the main thread, so it can never hold up a frame.
+        suspend fun stallCount() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { stallLog.readText() }.getOrDefault("").split("=== OpenCL stall").size
+        }
+        val clock = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
         var stallsBefore = stallCount()
         var lastOutputs = NativeSvpTuning.outputs.get()
         var lastPictures = NativeSvpTuning.newPictures.get()
@@ -452,23 +456,22 @@ fun PlayerScreen(
             val outputsNow = NativeSvpTuning.outputs.get()
             val picturesNow = NativeSvpTuning.newPictures.get()
             val inputsNow = NativeSvpTuning.inputs.get()
-            GpuPlaybackReport.log(
-                context,
-                String.format(
-                    java.util.Locale.ROOT,
-                    "%s state=%d playing=%b pos=%.1fs shown=%.0ffps engineOut=%d newPictures=%d inputs=%d slowest=%.0fms cap=%d %s",
-                    java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date()),
-                    player.playbackState, player.isPlaying, player.currentPosition / 1000.0, fps,
-                    outputsNow - lastOutputs, picturesNow - lastPictures, inputsNow - lastInputs,
-                    NativeSvpTuning.takeSlowest() / 1e6, sessionCap, stream ?: "-",
-                ),
+            val logLine = String.format(
+                java.util.Locale.ROOT,
+                "%s state=%d playing=%b pos=%.1fs shown=%.0ffps engineOut=%d newPictures=%d inputs=%d slowest=%.0fms cap=%d %s",
+                clock.format(java.util.Date()),
+                player.playbackState, player.isPlaying, player.currentPosition / 1000.0, fps,
+                outputsNow - lastOutputs, picturesNow - lastPictures, inputsNow - lastInputs,
+                NativeSvpTuning.takeSlowest() / 1e6, sessionCap, stream ?: "-",
             )
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { GpuPlaybackReport.log(context, logLine) }
             val fed = inputsNow - lastInputs > 0
             lastOutputs = outputsNow
             lastPictures = picturesNow
             lastInputs = inputsNow
-            if (onAdrenoGpu && stallCount() > stallsBefore) {
-                stallsBefore = stallCount()
+            val stallsNow = if (onAdrenoGpu) stallCount() else stallsBefore
+            if (onAdrenoGpu && stallsNow > stallsBefore) {
+                stallsBefore = stallsNow
                 // One stall can be a passing driver hiccup: use the CPU engine for now, and give up on the GPU for
                 // good only after the third stall.
                 val stalls = prefs.getInt("native_gpu_stalls_$versionCode", 0) + 1
@@ -644,6 +647,12 @@ fun PlayerScreen(
     var seekingGesture by remember { mutableStateOf(false) }
     var seekingTarget by remember { mutableLongStateOf(0L) }
 
+    /** Jumps the player and moves the seek bar with it straight away, so the bar never snaps back for a moment. */
+    fun seekPlayer(target: Long) {
+        position = target.coerceAtLeast(0L)
+        player.seekTo(target)
+    }
+
     LaunchedEffect(player) {
         val restart = restartAt
         if (restart != null) {
@@ -668,7 +677,8 @@ fun PlayerScreen(
             isPlaying = player.playWhenReady
             currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
             playingPath = queue.getOrNull(currentIndex)?.relativePath ?: playingPath
-            if (++saves >= 5) {
+            // The seek bar is refreshed twice a second; the resume position is saved every 5 seconds.
+            if (++saves >= 10) {
                 saves = 0
                 if (player.playbackState != Player.STATE_IDLE && (position != lastSavedPosition || duration != lastSavedDuration)) {
                     vm.saveProgress(queue.getOrElse(currentIndex) { video }.relativePath, position, duration)
@@ -676,7 +686,7 @@ fun PlayerScreen(
                     lastSavedDuration = duration
                 }
             }
-            delay(1_000)
+            delay(500)
         }
     }
     LaunchedEffect(transitionSerial) {
@@ -835,13 +845,28 @@ fun PlayerScreen(
                     android.widget.Toast.makeText(context, "Smoothing unavailable for this video; using normal playback", android.widget.Toast.LENGTH_LONG).show()
                     return
                 }
-                message = "Playback interruption: ${error.errorCodeName}"
+                // Say what went wrong in plain words; the technical name stays at the end for reports.
+                val reason = when (error.errorCode) {
+                    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "This video is no longer on the drive. Refresh the library."
+                    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+                    PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+                    PlaybackException.ERROR_CODE_DECODING_FAILED,
+                    PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+                    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+                    -> "This device could not play this video's format."
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+                    -> "This file is damaged or in a format the player cannot open."
+                    else -> "Playback stopped."
+                }
+                message = "$reason (${error.errorCodeName})"
                 retryPending =
                     error.errorCode in
                     setOf(
                         PlaybackException.ERROR_CODE_IO_UNSPECIFIED,
                         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
                         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+                        PlaybackException.ERROR_CODE_TIMEOUT,
                     )
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -1113,7 +1138,7 @@ fun PlayerScreen(
                         if (holding) player.setPlaybackSpeed(previousSpeed)
                         boost = false
                     }
-                    if (mode == 1 && seekingGesture) player.seekTo(seekingTarget)
+                    if (mode == 1 && seekingGesture) seekPlayer(seekingTarget)
                     seekingGesture = false
                     if (!moved && !holding && (showSettings || showTracks)) {
                         // A tap on the video only closes an open menu.
@@ -1136,7 +1161,7 @@ fun PlayerScreen(
                             tapJumpJob?.cancel()
                             tapJumpJob = gestureScope.launch {
                                 delay(600)
-                                tapJumpTarget?.let { player.seekTo(it) }
+                                tapJumpTarget?.let { seekPlayer(it) }
                                 tapJumpTarget = null
                             }
                         } else {
@@ -1191,7 +1216,7 @@ fun PlayerScreen(
                 onRotate = { orientation.rotate() },
                 onBack = onClose,
                 onTogglePlayback = { if (player.playWhenReady) player.pause() else player.play() },
-                onSeek = { player.seekTo(it); revealControls() },
+                onSeek = { seekPlayer(it); revealControls() },
                 onPrevious = { player.seekToPreviousMediaItem(); revealControls() },
                 onNext = {
                     if (player.hasNextMediaItem()) player.seekToNextMediaItem() else onQueueEnded()

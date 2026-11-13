@@ -26,6 +26,8 @@ import java.util.Date
 object AppDiagnostics {
     private const val PREFS = "diagnostics"
     private const val LIMIT = 250
+    private val UNSAFE_CATEGORY = Regex("[^a-zA-Z0-9_-]")
+    private val UNSAFE_DETAIL = Regex("[^a-zA-Z0-9 _.,:=-]")
     private val events = ArrayDeque<String>()
     private val lock = Any()
 
@@ -63,9 +65,9 @@ object AppDiagnostics {
 
     fun record(context: Context, category: String, detail: String) {
         if (!enabled(context)) return
-        val safeCategory = category.replace(Regex("[^a-zA-Z0-9_-]"), "").take(32)
+        val safeCategory = category.replace(UNSAFE_CATEGORY, "").take(32)
         // Callers must supply only safe, non-identifying status strings.
-        val safeDetail = detail.replace(Regex("[^a-zA-Z0-9 _.,:=-]"), "").take(160)
+        val safeDetail = detail.replace(UNSAFE_DETAIL, "").take(160)
         synchronized(lock) {
             if (events.size >= LIMIT) events.removeFirst()
             events.addLast("${SystemClock.elapsedRealtime()}ms | $safeCategory | $safeDetail")
