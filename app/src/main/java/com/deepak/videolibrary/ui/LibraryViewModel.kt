@@ -2452,6 +2452,8 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
                     }
                 }
                 TestState.Success("Connected. Found $count items in the starting folder.")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 TestState.Failure(SmbErrors.describe(e))
             }

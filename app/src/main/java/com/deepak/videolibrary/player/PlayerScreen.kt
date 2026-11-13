@@ -309,7 +309,9 @@ fun PlayerScreen(
         // allowing a useful buffer for Wi-Fi jitter; do not force software decoding.
         val loadControl = DefaultLoadControl
             .Builder()
-            .setBufferDurationsMs(15_000, 30_000, 2_500, 5_000)
+            // Playback starts (and carries on after a jump) once 1.5 s is ready instead of 2.5 s, so opening a video
+            // and seeking feel quicker; after a real stall it still waits for 5 s so it does not stall again at once.
+            .setBufferDurationsMs(15_000, 30_000, 1_500, 5_000)
             .setTargetBufferBytes(bufferBytes)
             .setPrioritizeTimeOverSizeThresholds(false)
             .build()

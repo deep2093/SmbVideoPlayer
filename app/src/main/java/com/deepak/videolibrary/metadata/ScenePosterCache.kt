@@ -14,6 +14,8 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
+private val POSTER_NAME = Regex("[a-z0-9-]+[.]jpg")
+
 /** Optional scene posters kept separately from thumbnails and existing artwork overrides. */
 class ScenePosterCache(context: Context, private val libraryId: String) {
     private val root = File(context.filesDir, "libraries-scene-posters/$libraryId").apply { mkdirs() }
@@ -22,9 +24,12 @@ class ScenePosterCache(context: Context, private val libraryId: String) {
     private val signals = MutableStateFlow(0)
     val revision = signals.asStateFlow()
 
-    private fun digest(value: String): String =
-        MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
-            .take(16).joinToString("") { "%02x".format(it) }
+    /** Video cards ask for their poster while scrolling, so the hash of each path is worked out once and kept. */
+    private val digests = android.util.LruCache<String, String>(4096)
+
+    private fun digest(value: String): String = digests.get(value)
+        ?: MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+            .take(16).joinToString("") { "%02x".format(it) }.also { digests.put(value, it) }
 
     private fun key(video: VideoEntity) = digest(video.relativePath) + "-${video.size}-${video.modified}"
     private fun cacheKey(video: VideoEntity) = "poster:" + key(video)
@@ -34,7 +39,7 @@ class ScenePosterCache(context: Context, private val libraryId: String) {
         known[k]?.let { if (it.isFile) return it else known.remove(k) }
         val name = preferences.getString(k, null) ?: return null
         // Only image names created by this app may be loaded.
-        if (!name.matches(Regex("[a-z0-9-]+[.]jpg"))) return null
+        if (!name.matches(POSTER_NAME)) return null
         return File(root, name).takeIf { it.isFile }?.also { known[k] = it }
     }
 
