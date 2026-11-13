@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -323,14 +324,7 @@ fun PlayerScreen(
                 effectsUsed[0] = true
             }
             setVideoFrameMetadataListener { _, _, _, _ -> nativeFrames.incrementAndGet() }
-            setAudioAttributes(
-                AudioAttributes
-                    .Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .build(),
-                true,
-            )
+            // Audio attributes and how calls are handled are set by the effect further down (playDuringCalls).
             setHandleAudioBecomingNoisy(true)
             setWakeMode(C.WAKE_MODE_NETWORK)
             val factory = ProgressiveMediaSource.Factory(
@@ -631,6 +625,15 @@ fun PlayerScreen(
     var zoom by remember { mutableFloatStateOf(1f) }
     var holdSpeed by remember { mutableFloatStateOf(prefs.getFloat("hold_speed", 1.5f)) }
     var pipEnabled by remember { mutableStateOf(prefs.getBoolean("pip_enabled", false)) }
+    // Playback speed for this visit to the player (the speed button steps through SPEED_STEPS).
+    var speed by remember { mutableFloatStateOf(1f) }
+    LaunchedEffect(player, speed) { player.setPlaybackSpeed(speed) }
+    // Screen lock: touches do nothing until Unlock is tapped (or Back is pressed).
+    var locked by remember { mutableStateOf(false) }
+    var unlockHint by remember { mutableIntStateOf(0) }
+    // Keep playing during phone calls (on by default, 14 Nov 2026). Android normally makes a video pause for a call
+    // and refuses to start one during a call; with this on, only another app starting its own music or video pauses it.
+    var playDuringCalls by remember { mutableStateOf(prefs.getBoolean("play_during_calls", true)) }
     var trackRefresh by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
     var isPlaying by remember { mutableStateOf(player.playWhenReady) }
@@ -934,6 +937,39 @@ fun PlayerScreen(
             player.release()
         }
     }
+    DisposableEffect(player, playDuringCalls) {
+        val attributes = AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build()
+        if (!playDuringCalls) {
+            // The standard behaviour: Media3 pauses for calls and other sounds, and resumes after short ones.
+            player.setAudioAttributes(attributes, true)
+            onDispose { }
+        } else {
+            player.setAudioAttributes(attributes, false)
+            // Ask for the sound ourselves, so music from another app still stops when a video starts; then only a
+            // lasting loss (another app playing) pauses the video. A call is a passing loss and is ignored.
+            val request = android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MOVIE)
+                        .build(),
+                )
+                .setOnAudioFocusChangeListener { change -> if (change == AudioManager.AUDIOFOCUS_LOSS) player.pause() }
+                .build()
+            val focusListener = object : Player.Listener {
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    // The answer is not checked: during a call the request is refused, and the video plays anyway.
+                    if (playWhenReady) runCatching { audio.requestAudioFocus(request) }
+                }
+            }
+            player.addListener(focusListener)
+            if (player.playWhenReady) runCatching { audio.requestAudioFocus(request) }
+            onDispose {
+                player.removeListener(focusListener)
+                runCatching { audio.abandonAudioFocusRequest(request) }
+            }
+        }
+    }
     // Bluetooth and wired headset buttons (play, pause, next, previous) control this player while it is open.
     // Declared after the effect that releases the player, so the session is let go first.
     DisposableEffect(player) {
@@ -980,7 +1016,9 @@ fun PlayerScreen(
         }
     }
     BackHandler {
-        if (showTracks) {
+        if (locked) {
+            locked = false
+        } else if (showTracks) {
             showTracks = false
         } else if (showSettings) {
             showSettings = false
@@ -1218,7 +1256,7 @@ fun PlayerScreen(
             )
         }
         androidx.compose.animation.AnimatedVisibility(
-            visible = controlsVisible && (activity as? com.deepak.videolibrary.MainActivity)?.playbackInPip != true,
+            visible = controlsVisible && !locked && (activity as? com.deepak.videolibrary.MainActivity)?.playbackInPip != true,
             modifier = Modifier.fillMaxSize(),
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)),
@@ -1257,10 +1295,51 @@ fun PlayerScreen(
                         .setAspectRatio(Rational((ratio.coerceIn(0.42f, 2.39f) * 1000).roundToInt(), 1000)).build()) }
                 }) else null,
                 onQueue = { showQueue = true; revealControls() },
+                speedLabel = speedText(speed),
+                onSpeed = {
+                    speed = SPEED_STEPS[(SPEED_STEPS.indexOfFirst { it == speed } + 1) % SPEED_STEPS.size]
+                    gestureMessage = "Speed ${speedText(speed)}"
+                    revealControls()
+                },
+                onLock = {
+                    locked = true
+                    showSettings = false
+                    showTracks = false
+                    unlockHint++
+                },
                 onInteraction = ::revealControls,
             )
         }
-        if (showFps) {
+        if (locked) {
+            // Swallows every touch; a tap shows the Unlock button for a few seconds.
+            var hintVisible by remember { mutableStateOf(true) }
+            LaunchedEffect(unlockHint) {
+                hintVisible = true
+                delay(3_000)
+                hintVisible = false
+            }
+            Box(
+                Modifier.fillMaxSize().pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        unlockHint++
+                    }
+                },
+            )
+            androidx.compose.animation.AnimatedVisibility(
+                visible = hintVisible,
+                modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(bottom = 28.dp),
+                enter = androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.fadeOut(),
+            ) {
+                FilledTonalButton(onClick = { locked = false; revealControls() }) {
+                    Icon(Icons.Filled.LockOpen, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Unlock")
+                }
+            }
+        }
+        if (showFps && !locked) {
             val stats = smoothStats
             val hz = if (displayHz > 0f) " · display ${"%.0f".format(displayHz)} Hz" else ""
             val line1 = if (nativeInUse) {
@@ -1362,12 +1441,12 @@ fun PlayerScreen(
         }
         if (showSettings && controlsVisible) {
             var showAdvanced by remember { mutableStateOf(false) }
-            // Opens just above the bottom-right three-dot button, within thumb reach in every layout.
+            // Opens just under the top-right three-dot button.
             BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             Column(
                 Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 8.dp, bottom = 56.dp)
+                    .align(Alignment.TopEnd)
+                    .padding(end = 8.dp, top = 56.dp)
                     .widthIn(max = 320.dp)
                     .fillMaxWidth(0.9f)
                     .heightIn(max = (maxHeight - 64.dp).coerceIn(160.dp, 380.dp))
@@ -1395,6 +1474,17 @@ fun PlayerScreen(
                     Switch(checked = pipEnabled, onCheckedChange = {
                         pipEnabled = it
                         prefs.edit().putBoolean("pip_enabled", it).apply()
+                        revealControls()
+                    })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Keep playing during calls", color = Color.White)
+                        Text("Off: the video pauses when a call starts.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Switch(checked = playDuringCalls, onCheckedChange = {
+                        playDuringCalls = it
+                        prefs.edit().putBoolean("play_during_calls", it).apply()
                         revealControls()
                     })
                 }
@@ -1528,6 +1618,12 @@ fun PlayerScreen(
         }
     }
 }
+
+/** The speeds the speed button steps through, starting from normal. */
+private val SPEED_STEPS = listOf(1f, 1.25f, 1.5f, 2f, 0.5f, 0.75f)
+
+private fun speedText(speed: Float): String =
+    (if (speed == speed.toInt().toFloat()) speed.toInt().toString() else speed.toString()) + "×"
 
 private fun formatPlaybackTime(milliseconds: Long): String {
     val seconds = milliseconds.coerceAtLeast(0) / 1_000

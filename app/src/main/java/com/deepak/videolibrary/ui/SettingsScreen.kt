@@ -140,14 +140,16 @@ private fun SettingsSubpageList(parent: String, open: (String) -> Unit) {
 @Composable
 private fun SettingsPageRow(entry: SettingsSection, onOpen: () -> Unit) {
     Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "Open ${entry.title}", onClick = onOpen)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Roomier rows (14 Nov 2026): 60 dp tall, a calmer medium-weight title, a lighter chevron.
+        Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(vertical = 6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             SettingsIconTile(entry.title)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(entry.title, style = MaterialTheme.typography.titleMedium)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(entry.title, style = MaterialTheme.typography.bodyLarge.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Medium))
                 Text(entry.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(Icons.Filled.ChevronRight, contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -229,7 +231,7 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                     Modifier.fillMaxSize().imePadding().verticalScroll(activeScroll)
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                         .padding(bottom = if (floatingPadding(vm)) 100.dp else 0.dp),
-                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     if (page == null) {
                         SETTINGS_SECTIONS.groupBy { it.group }.forEach { (group, entries) ->

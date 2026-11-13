@@ -30,8 +30,7 @@ class LibraryPlayerControlsTest {
             }
         }
         rule.onNodeWithContentDescription("Pause").performClick()
-        rule.onNodeWithContentDescription("Pause video").performClick()
-        rule.runOnIdle { assertEquals(2, toggles) }
+        rule.runOnIdle { assertEquals(1, toggles) }
         // Quick -10 / +10 taps add up and the player jumps once, shortly after the last tap.
         rule.onNodeWithContentDescription("Forward 10 seconds").performClick()
         rule.waitUntil(3_000) { seek == 30_000L }
@@ -63,7 +62,6 @@ class LibraryPlayerControlsTest {
             }
         }
         rule.onNodeWithContentDescription("Play").assertIsNotEnabled()
-        rule.onNodeWithContentDescription("Play video").assertIsNotEnabled()
         rule.onNodeWithContentDescription("Forward 10 seconds").assertIsNotEnabled()
         rule.onNodeWithContentDescription("Rewind 10 seconds").assertIsNotEnabled()
         rule.onNodeWithContentDescription("Picture in picture").performClick()
