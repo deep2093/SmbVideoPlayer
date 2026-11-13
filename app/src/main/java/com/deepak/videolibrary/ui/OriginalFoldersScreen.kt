@@ -121,8 +121,8 @@ fun OriginalFoldersScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<Video
             onQueryChange = { vm.originalQuery = it },
             placeholder = stringResource(R.string.ui_search_folder_and_video_names_b2eeabc),
         ) {
-            if (!inside) IconAction(Icons.Filled.CreateNewFolder, "Add folders", onClick = { adding = true })
-            IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0 || listing.totalCount > 0, onClick = { vm.playLibrary("originals", onPlay = onPlay) })
+            if (!inside) IconAction(Icons.Filled.CreateNewFolder, "Add folders", primary = true, onClick = { adding = true })
+            IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), primary = true, enabled = count > 0 || listing.totalCount > 0, onClick = { vm.playLibrary("originals", onPlay = onPlay) })
             CardShapeButton(vm, Pages.original(path))
             RefreshLibraryAction(vm)
         }

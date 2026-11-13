@@ -226,10 +226,9 @@ fun FoldersScreen(
             if (shownGroups.size > 1) IconAction(Icons.Filled.SwapVert, "Reorder folders", onClick = { reordering = true })
             CardShapeButton(vm, Pages.VIRTUAL)
             // Sort and list/grid live in this one menu so the top line keeps room for the app name.
-            Box {
-                var folderMenu by remember { mutableStateOf(false) }
-                IconButton(onClick = { folderMenu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Folder options") }
-                DropdownMenu(expanded = folderMenu, onDismissRequest = { folderMenu = false }) {
+            ToolbarMenuButton(Icons.Filled.Sort, "Sort and folder options") { dismissMenu ->
+                val folderMenuClose = dismissMenu
+                run {
                     Text("Sort by", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
                     listOf(
                         "NAME" to "Name",
@@ -242,7 +241,7 @@ fun FoldersScreen(
                             leadingIcon = { Icon(Icons.Filled.Sort, contentDescription = null) },
                             onClick = {
                                 vm.selectFolderSort(sort)
-                                folderMenu = false
+                                folderMenuClose()
                             },
                         )
                     }
@@ -251,15 +250,15 @@ fun FoldersScreen(
                         text = { Text(if (editFolders) "Finish organizing" else "Organize folders") },
                         onClick = {
                             editFolders = !editFolders
-                            folderMenu = false
+                            folderMenuClose()
                         },
                     )
                     DropdownMenuItem(text = { Text(stringResource(R.string.ui_refresh_library_564fe5e)) }, onClick = {
                         vm.startScan(ScanMode.REFRESH)
-                        folderMenu = false
+                        folderMenuClose()
                     })
                     DropdownMenuItem(text = { Text(stringResource(R.string.ui_settings_c7f73bb)) }, onClick = {
-                        folderMenu = false
+                        folderMenuClose()
                         onOpenSettings()
                     })
                 }

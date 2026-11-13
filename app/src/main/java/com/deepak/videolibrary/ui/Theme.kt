@@ -161,16 +161,6 @@ private fun pale(deep: LibraryTheme, wallpaper: List<Long>, glows: List<Wallpape
 val libraryThemes: List<LibraryTheme> = listOf(
     // ---- Light ----
     glassTheme(
-        "PEARL_MIST", "Warm Light", "Warm peach glass on a pale page",
-        wallpaper = listOf(0xFF4E2824, 0xFF6A3830, 0xFF7C4A3C),
-        glows = listOf(WallpaperGlow(0.9f, 0.05f, 0.7f, Color(0x59FF9A7A)), WallpaperGlow(0.05f, 0.6f, 0.7f, Color(0x40FFC48A)), WallpaperGlow(0.6f, 1.0f, 0.8f, Color(0x40F4B9C1))),
-        rim = 0xFFFFD9C8, milky = false,
-    ).let { deep ->
-        pale(deep, listOf(0xFFFFF8F1, 0xFFFBEDE6, 0xFFF4E0D6),
-            listOf(WallpaperGlow(0.9f, 0.05f, 0.7f, Color(0x40F4B9C1)), WallpaperGlow(0.05f, 0.6f, 0.7f, Color(0x33E8B48A)), WallpaperGlow(0.6f, 1.0f, 0.8f, Color(0x33F6C9C9))),
-            ink = 0xFF000000)
-    },
-    glassTheme(
         "AURORA_GLASS_LIGHT", "Luminous Light", "Bright blue, cyan and violet glow",
         wallpaper = listOf(0xFF182F66, 0xFF243F7C, 0xFF2E4A90),
         glows = listOf(WallpaperGlow(0.9f, 0.05f, 0.7f, Color(0x805AC8FA)), WallpaperGlow(0.05f, 0.7f, 0.75f, Color(0x667C78FF)), WallpaperGlow(0.5f, 0.35f, 0.4f, Color(0x33FFFFFF))),
@@ -230,12 +220,6 @@ val calmThemes: List<LibraryTheme> = listOf(
         menu = Color(0xFF1C1F23), light = false,
         rim = Color(0xFF3A4048), ink = Color(0xFFE3E5E8), inkSecondary = Color(0xFF9CA3AB), flat = true,
     ),
-    LibraryTheme(
-        id = "CALM_LIGHT", label = "Calm Light", description = "Minimal warm paper, gentle on the eyes",
-        background = Color(0xFFF3F2EE), surface = Color(0xFFFBFAF7), card = Color(0xFFEAE8E2), accent = Color(0xFF4A6A80),
-        menu = Color(0xFFFBFAF7), light = true,
-        rim = Color(0xFFD6D3CB), ink = Color(0xFF2A2C30), inkSecondary = Color(0xFF63666C), flat = true,
-    ),
 )
 
 /**
@@ -245,16 +229,11 @@ val calmThemes: List<LibraryTheme> = listOf(
 val onyxThemes: List<LibraryTheme> = listOf(
     LibraryTheme(
         id = "ONYX", label = "Onyx", description = "Black, with raised groups and colourful icons",
-        background = Color(0xFF000000), surface = Color(0xFF15171E), card = Color(0xFF15171E), accent = Color(0xFF5E9BFF),
-        menu = Color(0xFF15171E), light = false,
-        rim = Color(0xFF2A2E38), ink = Color(0xFFF2F3F5), inkSecondary = Color(0xFFA2A6B0), grouped = true,
-    ),
-    // In between: a mid slate page (neither black nor light) with lighter raised groups, white text, colourful icons.
-    LibraryTheme(
-        id = "ONYX_SLATE", label = "Onyx Slate", description = "Mid-tone slate, raised groups and colourful icons",
-        background = Color(0xFF3A3F4A), surface = Color(0xFF484E5A), card = Color(0xFF484E5A), accent = Color(0xFF9CC3FF),
-        menu = Color(0xFF484E5A), light = false,
-        rim = Color(0xFF5A606C), ink = Color(0xFFF3F4F7), inkSecondary = Color(0xFFC6CBD4), grouped = true,
+        // Groups lifted from the black page a little more (was 0xFF15171E, which read as nearly black), with a
+        // faint cool tint so they feel alive without glowing.
+        background = Color(0xFF000000), surface = Color(0xFF1E212B), card = Color(0xFF1E212B), accent = Color(0xFF5E9BFF),
+        menu = Color(0xFF1E212B), light = false,
+        rim = Color(0xFF323744), ink = Color(0xFFF2F3F5), inkSecondary = Color(0xFFA9AEBA), grouped = true,
     ),
     LibraryTheme(
         id = "ONYX_VIVID", label = "Onyx Vivid", description = "Onyx over vivid colours from your covers",
@@ -269,17 +248,21 @@ val onyxThemes: List<LibraryTheme> = listOf(
         ),
         rim = Color(0xFF3A3F4C), glassFallback = Color(0xE614161C), blurRadius = 16.dp,
         // Raised groups stay fairly solid so text reads over bright covers.
-        panelFill = Color(0xD9121419),
+        // A little lighter and more see-through, so the cover colours show through the groups.
+        panelFill = Color(0xC71C1F29),
         ink = Color(0xFFF2F3F5), inkSecondary = Color(0xFFB0B4BE), grouped = true,
     ),
 )
+
+/** Removed themes and where a saved choice of them goes. */
+private val RETIRED_THEMES = mapOf("PEARL_MIST" to "LIQUID_DAY", "CALM_LIGHT" to "CALM_DARK", "ONYX_SLATE" to "ONYX")
 
 /** Every theme, for saved choices: the Pixallery glass themes, Calm, then Onyx. */
 private val allThemes: List<LibraryTheme> get() = libraryThemes + calmThemes + onyxThemes
 
 /** Settings sections: Calm first (minimal), then the glass themes as in Pixallery. */
-val lightThemes: List<LibraryTheme> get() = libraryThemes.take(4)
-val darkThemes: List<LibraryTheme> get() = libraryThemes.drop(4)
+val lightThemes: List<LibraryTheme> get() = libraryThemes.take(3)
+val darkThemes: List<LibraryTheme> get() = libraryThemes.drop(3)
 
 /** Liquid Day for everyone who hasn't picked one of the new themes (Pixallery's default). */
 const val DEFAULT_THEME = "LIQUID_DAY"
@@ -333,7 +316,10 @@ fun Modifier.themedOutline(shape: Shape, emphasised: Boolean = false): Modifier 
 private fun rememberThemeChoice(): State<String> {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("appearance", Context.MODE_PRIVATE) }
-    fun read() = prefs.getString("theme", DEFAULT_THEME)?.takeIf { name -> allThemes.any { it.id == name } } ?: DEFAULT_THEME
+    // Themes removed on 14 Nov 2026 move to their nearest remaining one.
+    fun read() = prefs.getString("theme", DEFAULT_THEME)
+        ?.let { RETIRED_THEMES[it] ?: it }
+        ?.takeIf { name -> allThemes.any { it.id == name } } ?: DEFAULT_THEME
     val selected = remember { mutableStateOf(read()) }
     DisposableEffect(prefs) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key -> if (key == "theme")selected.value = read() }

@@ -2,6 +2,7 @@ package com.deepak.videolibrary.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
@@ -46,12 +47,19 @@ internal fun SettingsPanel(modifier: Modifier = Modifier, emphasised: Boolean = 
     val colors = MaterialTheme.colorScheme
     val theme = LocalLibraryTheme.current
     if (theme.grouped) {
-        // One UI style: a raised rounded group, no outline (a slightly stronger fill when expanded/emphasised).
+        // One UI style: a raised rounded group (a slightly stronger fill when expanded/emphasised). Since 14 Nov 2026
+        // the group catches a little light: a touch brighter at the top than the bottom, and a faint rim, so it
+        // reads as a raised surface instead of a flat dark block.
         val shape = RoundedCornerShape(26.dp)
-        val fill = theme.panelFill ?: theme.surface
+        val base = theme.panelFill ?: theme.surface
+        val fill = if (emphasised) lerp(base, Color.White, 0.04f) else base
+        val top = lerp(fill, Color.White, 0.045f).copy(alpha = fill.alpha)
+        val rim = Color.White.copy(alpha = 0.07f)
         CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
             Column(
-                modifier.fillMaxWidth().clip(shape).background(if (emphasised) lerp(fill, Color.White, 0.04f) else fill)
+                modifier.fillMaxWidth().clip(shape)
+                    .background(Brush.verticalGradient(listOf(top, fill)))
+                    .border(BorderStroke(1.dp, rim), shape)
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp), content = content,
             )
@@ -140,9 +148,24 @@ internal fun settingsIcon(title: String): ImageVector = when {
     else -> Icons.Outlined.Settings
 }
 
+/**
+ * The colour of a setting's icon in the current theme: the full colour on Onyx's round tiles; softened towards the
+ * text colour on Calm; a little deeper on light glass and a little lighter on dark glass, so it reads on either.
+ */
+@Composable
+internal fun settingsIconTint(title: String): Color {
+    val theme = LocalLibraryTheme.current
+    val color = settingsIconColor(title)
+    return when {
+        theme.grouped -> color
+        theme.flat -> lerp(color, theme.inkSecondary, 0.35f)
+        theme.light -> lerp(color, Color.Black, 0.22f)
+        else -> lerp(color, Color.White, 0.18f)
+    }
+}
+
 @Composable
 internal fun SettingsIconTile(title: String) {
-    val colors = MaterialTheme.colorScheme
     if (LocalLibraryTheme.current.grouped) {
         // One UI style: a colourful circle with a white symbol, a colour per kind of setting.
         Box(Modifier.size(36.dp).clip(CircleShape).background(settingsIconColor(title)), contentAlignment = Alignment.Center) {
@@ -151,16 +174,20 @@ internal fun SettingsIconTile(title: String) {
         return
     }
     if (LocalLibraryTheme.current.flat) {
-        // Calm: a plain line icon, no tile.
+        // Calm: a plain line icon, no tile, in a soft version of the setting's colour.
         Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-            Icon(settingsIcon(title), contentDescription = null, tint = colors.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            Icon(settingsIcon(title), contentDescription = null, tint = settingsIconTint(title), modifier = Modifier.size(20.dp))
         }
         return
     }
-    Surface(shape = RoundedCornerShape(12.dp), color = lerp(colors.surfaceContainerHigh, colors.tertiary, 0.30f)) {
-        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-            Icon(settingsIcon(title), contentDescription = null, tint = colors.onSurface, modifier = Modifier.size(19.dp))
-        }
+    // Glass themes: a see-through tile tinted with the setting's colour, the symbol in that colour.
+    val light = LocalLibraryTheme.current.light
+    Box(
+        Modifier.size(34.dp).clip(RoundedCornerShape(11.dp))
+            .background(settingsIconColor(title).copy(alpha = if (light) 0.16f else 0.26f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(settingsIcon(title), contentDescription = null, tint = settingsIconTint(title), modifier = Modifier.size(19.dp))
     }
 }
 
@@ -173,7 +200,7 @@ internal fun SettingsHeader(content: @Composable () -> Unit) {
 internal fun SettingsGroupHeading(title: String) {
     SettingsHeader {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(settingsIcon(title), contentDescription = null, modifier = Modifier.size(20.dp))
+            Icon(settingsIcon(title), contentDescription = null, tint = settingsIconTint(title), modifier = Modifier.size(20.dp))
             Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
         }
     }
@@ -201,7 +228,7 @@ internal fun SettingsAccordion(
                     .semantics { stateDescription = if (expanded) "Expanded" else "Collapsed" }
                     .clickable(enabled = enabled, role = Role.Button) { vm.ui.setAccordionOpen(page, id, !expanded) },
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(settingsIcon(title), contentDescription = null, modifier = Modifier.size(20.dp))
+                    Icon(settingsIcon(title), contentDescription = null, tint = settingsIconTint(title), modifier = Modifier.size(20.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text(title, style = MaterialTheme.typography.titleMedium,
                             color = LocalContentColor.current)

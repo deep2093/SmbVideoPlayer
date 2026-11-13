@@ -136,14 +136,14 @@ fun VideosScreen(
             },
         ) {
             if (selectedGroup != null && matchFolder == null) {
-                IconAction(Icons.Filled.Add, "Add videos to this folder", onClick = {
+                IconAction(Icons.Filled.Add, "Add videos to this folder", primary = true, onClick = {
                     videoSearch = ""
                     vm.findVideosToAdd(selectedGroup, "")
                     addDialog = true
                 })
             }
             RefreshLibraryAction(vm)
-            IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0, onClick = { vm.playLibrary("videos", onPlay = onPlay) })
+            IconAction(Icons.Filled.PlayArrow, stringResource(R.string.ui_play_all_ebb2ffd), enabled = count > 0, primary = true, onClick = { vm.playLibrary("videos", onPlay = onPlay) })
             CardShapeButton(vm, page)
             LibraryDisplayMenu(vm)
         }
@@ -440,10 +440,7 @@ internal fun VideoCard(
 
 @Composable
 internal fun LibraryDisplayMenu(vm: LibraryViewModel) {
-    Box {
-        var expanded by remember { mutableStateOf(false) }
-        IconButton(onClick = { expanded = true }) { Icon(Icons.Filled.Sort, contentDescription = "Sort videos") }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+    ToolbarMenuButton(Icons.Filled.Sort, "Sort videos") { dismiss ->
             VideoSort.entries.forEach { sort ->
                 DropdownMenuItem(text = {
                     Text(
@@ -455,10 +452,9 @@ internal fun LibraryDisplayMenu(vm: LibraryViewModel) {
                     )
                 }, onClick = {
                     vm.selectVideoSort(sort)
-                    expanded = false
+                    dismiss()
                 })
             }
-        }
     }
 }
 

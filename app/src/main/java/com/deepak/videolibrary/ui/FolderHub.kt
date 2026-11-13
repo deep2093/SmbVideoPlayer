@@ -83,7 +83,7 @@ internal fun HubBarLine(bars: Map<Int, @Composable () -> Unit>, page: Int, title
                 Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
                     AppIconMark(modifier = Modifier.padding(end = 10.dp))
                     Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f), maxLines = 1)
-                    LocalTopBarEnd.current()
+                    AdaptiveToolbarActions { LocalTopBarEnd.current() }
                 }
             }
         }

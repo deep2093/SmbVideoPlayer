@@ -132,12 +132,8 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
             onQueryChange = { vm.explorerQuery = it },
             placeholder = stringResource(R.string.ui_search_names_anywhere_in_this_folder_and_s_7fe98c1),
         ) {
-            Box {
-                var sortExpanded by remember { mutableStateOf(false) }
-                IconButton(onClick = { sortExpanded = true }) {
-                    Icon(Icons.Filled.Sort, contentDescription = "Sort files")
-                }
-                DropdownMenu(expanded = sortExpanded, onDismissRequest = { sortExpanded = false }) {
+            ToolbarMenuButton(Icons.Filled.Sort, "Sort files") { dismissSort ->
+                run {
                     listOf(
                         "NAME" to "Name",
                         "DATE" to "Date modified",
@@ -156,19 +152,18 @@ fun ExplorerScreen(vm: LibraryViewModel, onPlay: (VideoEntity, List<VideoEntity>
                             },
                             onClick = {
                                 vm.selectExplorerSort(sort)
-                                sortExpanded = false
+                                dismissSort()
                             },
                         )
                     }
                 }
             }
             if (vm.explorerGridMode) CardShapeButton(vm, Pages.explorer(vm.explorerPath))
-            IconButton(onClick = vm::toggleExplorerLayout) {
-                Icon(
-                    if (vm.explorerGridMode) Icons.Filled.ViewList else Icons.Filled.GridView,
-                    contentDescription = if (vm.explorerGridMode) "Show file list" else "Show file grid",
-                )
-            }
+            IconAction(
+                if (vm.explorerGridMode) Icons.Filled.ViewList else Icons.Filled.GridView,
+                if (vm.explorerGridMode) "Show file list" else "Show file grid",
+                onClick = vm::toggleExplorerLayout,
+            )
         }
         BreadcrumbBar(
             crumbs = breadcrumbs(vm.explorerPath),

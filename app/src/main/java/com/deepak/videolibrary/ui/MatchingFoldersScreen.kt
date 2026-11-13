@@ -109,7 +109,7 @@ internal fun MatchingFoldersScreen(
             RefreshLibraryAction(vm)
             CardShapeButton(vm, Pages.CUSTOM)
             Box {
-                IconAction(Icons.Default.Add, "Add custom folder", onClick = { addMenu = true })
+                IconAction(Icons.Default.Add, "Add custom folder", primary = true, onClick = { addMenu = true })
                 DropdownMenu(addMenu, { addMenu = false }) {
                     DropdownMenuItem(
                         text = { Text("New folder") },
@@ -374,9 +374,10 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                AdaptiveToolbarActions {
                 RefreshLibraryAction(vm)
                 if (openGroup == null) {
-                    IconAction(Icons.Default.CreateNewFolder, "New folder inside ${folder.name}", onClick = { naming = true })
+                    IconAction(Icons.Default.CreateNewFolder, "New folder inside ${folder.name}", menuLabel = "New folder inside", onClick = { naming = true })
                     IconAction(Icons.Default.Edit, "Choose folders and files", onClick = { edit = true })
                     if (files.isNotEmpty()) {
                         IconAction(
@@ -385,13 +386,14 @@ private fun OwnFolderPage(vm: LibraryViewModel, folder: OwnFolder, allOwn: List<
                             onClick = { vm.setOwnFolderGroupsFiles(folder.id, !grouped) },
                         )
                     }
-                    IconAction(Icons.Default.PlayArrow, "Play all", enabled = !folder.isEmpty, onClick = { vm.playLibrary("own:${folder.id}", onPlay = onPlay) })
+                    IconAction(Icons.Default.PlayArrow, "Play all", enabled = !folder.isEmpty, primary = true, onClick = { vm.playLibrary("own:${folder.id}", onPlay = onPlay) })
                 } else {
-                    IconAction(Icons.Default.PlayArrow, "Play all", enabled = shownFiles.isNotEmpty(), onClick = { shownFiles.firstOrNull()?.let { onPlay(it, shownFiles) } })
+                    IconAction(Icons.Default.PlayArrow, "Play all", enabled = shownFiles.isNotEmpty(), primary = true, onClick = { shownFiles.firstOrNull()?.let { onPlay(it, shownFiles) } })
                 }
                 CardShapeButton(vm, page)
                 // On phones the download button is already on the app-name line above.
                 if (LocalHubBarSlot.current == null) LocalTopBarEnd.current()
+                }
             }
         }
         if (selection == null) FolderLevelSearch(folderQuery, { folderQuery = it })

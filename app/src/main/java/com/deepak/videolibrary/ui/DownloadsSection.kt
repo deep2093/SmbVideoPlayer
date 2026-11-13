@@ -81,7 +81,8 @@ private fun activeProgress(items: List<DownloadItem>): Float? {
 internal fun DownloadsButton(vm: LibraryViewModel) {
     val items by vm.downloads.collectAsStateWithLifecycle()
     val progress = activeProgress(items)
-    IconAction(Icons.Filled.Download, if (progress != null) "Downloads, ${(progress * 100).toInt()}% done" else "Downloads", onClick = vm::openDownloads) {
+    // On a phone the button stays on the bar only while something is downloading; otherwise it is in the ⋮ menu.
+    IconAction(Icons.Filled.Download, if (progress != null) "Downloads, ${(progress * 100).toInt()}% done" else "Downloads", primary = progress != null, onClick = vm::openDownloads) {
         if (progress != null) {
             LinearProgressIndicator(
                 progress = { progress },
@@ -101,9 +102,17 @@ internal fun IconAction(
     icon: ImageVector,
     label: String,
     enabled: Boolean = true,
+    /** Main buttons stay on a phone's toolbar; the rest go into its ⋮ menu (see CompactToolbar.kt). */
+    primary: Boolean = false,
+    /** Name in the ⋮ menu, when [label] is too long for a menu line. */
+    menuLabel: String = label,
     onClick: () -> Unit,
     overlay: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit = {},
 ) {
+    if (!primary && LocalToolbarOverflow.current != null) {
+        RegisterOverflowEntry(menuLabel, icon, menuLabel, enabled, onClick)
+        return
+    }
     TooltipBox(
         positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
         tooltip = { PlainTooltip { Text(label) } },

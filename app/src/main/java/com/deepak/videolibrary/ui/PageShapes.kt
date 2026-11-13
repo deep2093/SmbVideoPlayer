@@ -50,6 +50,7 @@ internal fun CardShapeButton(vm: LibraryViewModel, page: String) {
     IconAction(
         if (tall) Icons.Filled.CropPortrait else Icons.Filled.Crop169,
         if (tall) "Cards on this page: taller (3:4). Tap for landscape" else "Cards on this page: landscape. Tap for taller (3:4)",
+        menuLabel = if (tall) "Card shape: switch to landscape" else "Card shape: switch to taller (3:4)",
         onClick = { vm.setTallPage(page, !tall) },
     )
 }

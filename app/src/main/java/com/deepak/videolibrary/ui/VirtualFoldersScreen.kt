@@ -171,7 +171,7 @@ private fun VirtualSetList(
                     modifier = if (LocalHubTitle.current == null) Modifier.padding(top = 8.dp) else Modifier,
                 ) {
                     RefreshLibraryAction(vm)
-                    IconAction(Icons.Default.Add, "New virtual folder", onClick = { naming = true })
+                    IconAction(Icons.Default.Add, "New virtual folder", primary = true, onClick = { naming = true })
                     CardShapeButton(vm, Pages.VIRTUAL)
                     VirtualMenu(vm, showSort = false) { dismiss ->
                         DropdownMenuItem(text = { Text("Scan now") }, onClick = { dismiss(); vm.rescanVirtual() })
@@ -235,10 +235,7 @@ private fun VirtualSetList(
 /** Sort and list/grid in one menu, like the other folder pages; [extra] adds this page's own entries. */
 @Composable
 private fun VirtualMenu(vm: LibraryViewModel, showSort: Boolean, extra: @Composable (dismiss: () -> Unit) -> Unit) {
-    Box {
-        var open by remember { mutableStateOf(false) }
-        IconButton(onClick = { open = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Folder options") }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+    ToolbarMenuButton(if (showSort) Icons.Filled.Sort else Icons.Filled.MoreVert, if (showSort) "Sort and folder options" else "Folder options") { dismiss ->
             if (showSort) {
                 Text(
                     "Sort by",
@@ -250,13 +247,12 @@ private fun VirtualMenu(vm: LibraryViewModel, showSort: Boolean, extra: @Composa
                     DropdownMenuItem(
                         text = { Text(label + if (vm.folderSort == sort) { if (vm.folderSortDescending) " ↓" else " ↑" } else "") },
                         leadingIcon = { Icon(Icons.Filled.Sort, contentDescription = null) },
-                        onClick = { vm.selectFolderSort(sort); open = false },
+                        onClick = { vm.selectFolderSort(sort); dismiss() },
                     )
                 }
                 HorizontalDivider()
             }
-            extra { open = false }
-        }
+            extra(dismiss)
     }
 }
 
@@ -445,20 +441,21 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                AdaptiveToolbarActions {
                 RefreshLibraryAction(vm)
                 if (current == null) {
-                    IconAction(Icons.Default.CreateNewFolder, "New folder inside ${set.name}", onClick = { naming = true })
+                    IconAction(Icons.Default.CreateNewFolder, "New folder inside ${set.name}", menuLabel = "New folder inside", onClick = { naming = true })
                     IconAction(Icons.Default.Edit, "Choose folders and files", onClick = { edit = true })
                     if (set.hidden.isNotEmpty()) {
                         IconAction(Icons.Default.Visibility, "Show folders you took out", onClick = { vm.restoreVirtualSubfolders(set.id) })
                     }
                     IconAction(
-                        Icons.Default.PlayArrow, "Play all", enabled = videos.isNotEmpty(),
+                        Icons.Default.PlayArrow, "Play all", enabled = videos.isNotEmpty(), primary = true,
                         onClick = { videos.firstOrNull()?.let { onPlay(it, videos) } },
                     )
                 } else {
                     IconAction(
-                        Icons.Default.PlayArrow, "Play all", enabled = shownVideos.isNotEmpty(),
+                        Icons.Default.PlayArrow, "Play all", enabled = shownVideos.isNotEmpty(), primary = true,
                         onClick = { shownVideos.firstOrNull()?.let { onPlay(it, shownVideos) } },
                     )
                 }
@@ -466,6 +463,7 @@ private fun VirtualSetPage(vm: LibraryViewModel, set: VirtualSet, allSets: List<
                 VirtualMenu(vm, showSort = current == null) { }
                 // On phones the download button is already on the app-name line above.
                 if (LocalHubBarSlot.current == null) LocalTopBarEnd.current()
+                }
             }
         }
         if (selection == null) FolderLevelSearch(folderQuery, { folderQuery = it })

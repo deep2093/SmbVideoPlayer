@@ -369,10 +369,8 @@ internal fun PhoneVideosScreen(
             ) {
                 if (granted) IconAction(Icons.Filled.Refresh, "Refresh phone videos", onClick = { refresh++ })
                 CardShapeButton(vm, if (open == null) PHONE_PAGE else PHONE_VIDEOS_PAGE)
-                Box {
-                    var menu by remember { mutableStateOf(false) }
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Filled.Sort, "Sort and layout") }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                ToolbarMenuButton(Icons.Filled.Sort, "Sort and layout") { dismissMenu ->
+                    run {
                         val options = if (open == null) {
                             listOf("NAME" to "Name", "COUNT" to "Number of videos", "DATE" to "Latest by date", "SIZE" to "Total size")
                         } else {
@@ -386,23 +384,23 @@ internal fun PhoneVideosScreen(
                                 onClick = {
                                     if (current == key) PhoneUi.descending = !PhoneUi.descending
                                     else { if (open == null) PhoneUi.folderSort = key else PhoneUi.videoSort = key; PhoneUi.descending = false }
-                                    menu = false
+                                    dismissMenu()
                                 },
                             )
                         }
                         HorizontalDivider()
                         if (open == null) DropdownMenuItem(
                             text = { Text(if (PhoneUi.showHidden) "Don't show hidden folders" else "Show hidden folders") },
-                            onClick = { PhoneUi.showHidden = !PhoneUi.showHidden; menu = false },
+                            onClick = { PhoneUi.showHidden = !PhoneUi.showHidden; dismissMenu() },
                         )
                         if (open != null) DropdownMenuItem(
                             text = { Text("Select videos") },
-                            onClick = { shownVideos.firstOrNull()?.let { PhoneUi.selected.add(it.uri) }; menu = false },
+                            onClick = { shownVideos.firstOrNull()?.let { PhoneUi.selected.add(it.uri) }; dismissMenu() },
                         )
                         val listMode = if (open == null) vm.folderListMode else vm.videoListMode
                         DropdownMenuItem(
                             text = { Text(if (listMode) "Grid view" else "List view") },
-                            onClick = { if (open == null) vm.toggleFolderLayout() else vm.toggleVideoLayout(); menu = false },
+                            onClick = { if (open == null) vm.toggleFolderLayout() else vm.toggleVideoLayout(); dismissMenu() },
                         )
                     }
                 }
