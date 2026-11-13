@@ -48,6 +48,19 @@ jobs:
           New-Item -ItemType Directory -Force $target | Out-Null
           Copy-Item $dll.FullName "$target/libmpv-2.dll"
           Write-Host "Bundled libmpv: $($dll.Length) bytes"
+      - name: Configure Python for motion packaging
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.9"
+      - name: Configure MSVC x64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Build pinned portable motion engine
+        shell: pwsh
+        run: |
+          python windows/tools/build_motion.py --cache "$env:RUNNER_TEMP/motion-downloads" --output windows/build/native-resources/windows/motion
+          if ($LASTEXITCODE -ne 0) { throw 'Motion engine build failed' }
       - name: Provision Vulkan loader for native tests on the hosted runner
         shell: pwsh
         run: |
@@ -109,7 +122,9 @@ jobs:
             'upstream/mpv-Copyright.txt', 'upstream/FFmpeg-LICENSE.md',
             'upstream/skiko-NOTICE.txt', 'upstream/Skia-LICENSE.txt',
             'JVM-RUNTIME-INVENTORY.tsv', 'NATIVE-PROVENANCE.json',
-            'SOURCE-STATUS.md', 'SKYWING-SOURCE.txt', 'java-runtime/BUILD-RELEASE.txt')
+            'SOURCE-STATUS.md', 'SKYWING-SOURCE.txt', 'java-runtime/BUILD-RELEASE.txt',
+            'upstream/Python-LICENSE.txt', 'upstream/VapourSynth-COPYING.LESSER',
+            'upstream/open-svpflow-LICENSE.txt', 'upstream/VapourSynth-font-OFL.txt')
           foreach ($relative in $required) {
             $path = Join-Path $legal $relative
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Packaged legal file missing: $relative" }
@@ -124,6 +139,18 @@ jobs:
           if (-not (Get-ChildItem (Join-Path $legal 'jvm') -Recurse -File |
             Where-Object { $_.Name -match 'LICENSE|NOTICE|COPYING' })) {
             throw 'No embedded JVM notices were preserved'
+          }
+      - name: Verify packaged motion payload
+        shell: pwsh
+        run: |
+          $image = 'windows/build/compose/binaries/main/app'
+          $manifest = Get-ChildItem $image -Recurse -Filter 'BUILD-MANIFEST.json' -File | Where-Object { $_.Directory.Name -eq 'motion' } | Select-Object -First 1
+          if (-not $manifest) { throw 'Packaged motion manifest missing' }
+          $data = Get-Content -LiteralPath $manifest.FullName -Raw | ConvertFrom-Json
+          if ($data.localPluginOverride) { throw 'CI must build its own native plugins' }
+          foreach ($entry in $data.files.PSObject.Properties) {
+            $file = Join-Path $manifest.Directory.FullName $entry.Name
+            if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.Value) { throw "Motion payload mismatch: $($entry.Name)" }
           }
       - name: Archive matching Windows application source
         shell: pwsh

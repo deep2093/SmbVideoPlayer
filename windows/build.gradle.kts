@@ -156,3 +156,13 @@ val generateWindowsLegal by tasks.registering {
 tasks.matching { it.name in setOf("prepareAppResources", "createDistributable", "packageExe", "packageMsi") }.configureEach {
     dependsOn(generateWindowsLegal)
 }
+
+val generateBuildInfo by tasks.registering {
+    val destination = layout.buildDirectory.dir("generated/build-info")
+    outputs.dir(destination)
+    inputs.property("previewVersion", previewVersion)
+    doLast {
+        destination.get().asFile.apply { mkdirs() }.resolve("skywing-build.txt").writeText(previewVersion)
+    }
+}
+sourceSets.main { resources.srcDir(generateBuildInfo) }

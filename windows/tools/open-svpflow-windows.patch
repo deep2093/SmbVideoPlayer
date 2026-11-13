@@ -1,0 +1,39 @@
+--- a/crates/svpflow-host/src/opencl.rs
++++ b/crates/svpflow-host/src/opencl.rs
+@@ -235,3 +235,16 @@
+         Ok(me)
+     }
+ }
++
++/// Optional process-local vendor filter for hybrid Windows laptops.
++/// An explicit selection never silently switches to another vendor.
++pub unsafe fn device_matches_vendor(cl: &OpenCl, device: Handle) -> bool {
++    let wanted = std::env::var("SKYWING_OPENCL_VENDOR").unwrap_or_default();
++    let wanted = wanted.trim().to_ascii_lowercase();
++    if wanted.is_empty() { return true; }
++    let mut bytes = [0u8; 256];
++    let rc = unsafe { (cl.GetDeviceInfo)(device, 0x102C, bytes.len(), bytes.as_mut_ptr().cast(), std::ptr::null_mut()) };
++    if rc != CL_SUCCESS { return false; }
++    let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
++    String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase().contains(&wanted)
++}
+--- a/crates/svpflow1/src/analyse/gpu.rs
++++ b/crates/svpflow1/src/analyse/gpu.rs
+@@ -342,6 +342,7 @@
+             {
+                 continue;
+             }
++            if !unsafe { svpflow_host::opencl::device_matches_vendor(&cl, device) } { continue; }
+             let mut err = 0;
+             let context = svpflow_host::context::shared(device, || {
+                 let context = unsafe {
+--- a/crates/svpflow2/src/gpu.rs
++++ b/crates/svpflow2/src/gpu.rs
+@@ -497,6 +497,7 @@
+                 0
+             };
+             let device = devs[idx];
++            if !unsafe { svpflow_host::opencl::device_matches_vendor(&cl, device) } { continue; }
+             let Some(&Shared {
+                 context,
+                 program,
