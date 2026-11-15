@@ -96,7 +96,15 @@ class EmbeddedMpv : Closeable {
                 // A rejected preference leaves the default adapter available on other PCs.
                 if (native.mpv_set_option_string(context, "d3d11-adapter", "NVIDIA") >= 0) {
                     set("gpu-api", "d3d11")
-                    rendererPreference = "NVIDIA D3D11"
+                    if (System.getenv("SKYWING_D3D11_COMPAT") == "1") {
+                        // Trial for dedicated-GPU displays that drop frames on the default swap chain.
+                        set("vo", "gpu")
+                        set("d3d11-flip", "no")
+                        set("d3d11-sync-interval", "0")
+                        rendererPreference = "NVIDIA D3D11 compatibility"
+                    } else {
+                        rendererPreference = "NVIDIA D3D11"
+                    }
                 } else {
                     set("d3d11-adapter", "")
                 }
