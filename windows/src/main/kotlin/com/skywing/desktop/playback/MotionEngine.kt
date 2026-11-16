@@ -38,7 +38,7 @@ internal class MotionSession(
     private val get: (String) -> String?,
     private val command: (List<String>) -> Boolean,
     private val runtimeDirectory: () -> File? = MotionRuntime::directory,
-    private val prepare: (File) -> String? = MotionRuntime::prepare,
+    private val prepare: (File) -> String? = { MotionRuntime.prepare(it) },
     private val scriptDirectory: () -> File = {
         File(System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home"), "SkyWing/motion-scripts")
     },
@@ -263,11 +263,17 @@ internal object MotionRuntime {
     fun directory(): File? = System.getProperty("compose.application.resources.dir")?.let {
         File(it, "motion").takeIf { dir -> listOf("VSScript.dll", "python313.dll", "portable.vs", "svpflow1_vs.dll", "svpflow2_vs.dll").all { name -> File(dir, name).isFile } }
     }
-    @Synchronized fun prepare(dir: File): String? {
+    @Synchronized fun prepare(dir: File, vendor: String? = null): String? {
         if (loaded == dir) return null
         return runCatching {
             val kernel = Native.load("kernel32", Win32::class.java)
-            // Select by vendor, not OpenCL platform ordering, which changes on hybrid laptops.
+            val wanted = vendor ?: "NVIDIA"
+            // The patched plugins honor this process-local filter across VapourSynth rebuilds.
+            // Pin an explicit display vendor even when its OpenCL device cannot be enumerated.
+            if (vendor != null) {
+                check(kernel.SetEnvironmentVariableW(WString("SKYWING_OPENCL_VENDOR"), WString(vendor)))
+                preferredGpu = vendor
+            }
             runCatching {
                 val cl = Native.load("OpenCL", OpenCl::class.java)
                 val count = IntByReference()
@@ -284,8 +290,10 @@ internal object MotionRuntime {
                                 bytes.clear()
                                 return if (cl.clGetDeviceInfo(device, key, 512, bytes, null) == 0) bytes.getString(0) else ""
                             }
-                            if (info(0x102C).contains("NVIDIA", true)) {
-                                check(kernel.SetEnvironmentVariableW(WString("SKYWING_OPENCL_VENDOR"), WString("NVIDIA")))
+                            if (info(0x102C).contains(wanted, true)) {
+                                if (vendor == null) {
+                                    check(kernel.SetEnvironmentVariableW(WString("SKYWING_OPENCL_VENDOR"), WString(wanted)))
+                                }
                                 preferredGpu = info(0x102B)
                                 driver = info(0x102D)
                                 break

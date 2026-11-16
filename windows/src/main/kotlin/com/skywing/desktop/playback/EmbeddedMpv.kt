@@ -34,11 +34,13 @@ class EmbeddedMpv : Closeable {
     private var surface: Long? = null
     private var closed = false
     private var rendererPreference = "Automatic"
+    private var motionAdapter: String? = null
     private var rendererDevice = "Not yet reported by mpv"
     private val smoothingHealth = SmoothingHealth()
     private var smoothingMode = SmoothingMode.OFF
     private var expectedPath: String? = null
-    private val motion = MotionSession(::textProperty, { command(*it.toTypedArray()) })
+    private val motion = MotionSession(::textProperty, { command(*it.toTypedArray()) },
+        prepare = { MotionRuntime.prepare(it, motionAdapter) })
     private var lastPosition = 0.0
     private var appliedMotionSettings: MotionSettings? = null
     private var appliedVrr: Boolean? = null
@@ -92,21 +94,26 @@ class EmbeddedMpv : Closeable {
                 set("force-window", "yes")
                 set("keep-open", "yes")
                 set("hwdec", "auto-safe")
-                // The pinned mpv validates this name against installed DXGI adapters.
-                // A rejected preference leaves the default adapter available on other PCs.
-                if (native.mpv_set_option_string(context, "d3d11-adapter", "NVIDIA") >= 0) {
+                // Prefer the adapter that drives this monitor, so Intel-connected playback can
+                // keep decoding, interpolation and presentation on Intel. Preserve the previous
+                // preference when Windows does not identify a supported display adapter.
+                val displayAdapter = WindowsDisplayAdapter.vendor(handle)
+                val adapter = displayAdapter ?: "NVIDIA"
+                if (native.mpv_set_option_string(context, "d3d11-adapter", adapter) >= 0) {
                     set("gpu-api", "d3d11")
-                    if (System.getenv("SKYWING_D3D11_COMPAT") == "1") {
+                    motionAdapter = displayAdapter
+                    if (adapter == "NVIDIA" && System.getenv("SKYWING_D3D11_COMPAT") == "1") {
                         // Trial for dedicated-GPU displays that drop frames on the default swap chain.
                         set("vo", "gpu")
                         set("d3d11-flip", "no")
                         set("d3d11-sync-interval", "0")
                         rendererPreference = "NVIDIA D3D11 compatibility"
                     } else {
-                        rendererPreference = "NVIDIA D3D11"
+                        rendererPreference = "$adapter D3D11"
                     }
                 } else {
                     set("d3d11-adapter", "")
+                    motionAdapter = null
                 }
                 // Reserve decoder surfaces before loading a file for runtime temporal smoothing.
                 set("hwdec-extra-frames", "8")
@@ -196,7 +203,7 @@ class EmbeddedMpv : Closeable {
     fun updateSmoothing(mode: SmoothingMode): SmoothingStatus {
         motion.lastAction = playerEvents.lastOrNull()?.let { it + " (" + (System.currentTimeMillis() - lastActionMillis) + " ms ago)" } ?: "none"
         val filterFailed = drainEvents()
-        DisplayVrr.refresh(textProperty("display-names/0"))
+        DisplayVrr.refresh(if (motionAdapter == "Intel") null else textProperty("display-names/0"))
         lastMinuteDrops = recentDrops.sample(System.nanoTime() / 1_000_000, listOf(
             numberProperty("frame-drop-count")?.toLong(), numberProperty("decoder-frame-drop-count")?.toLong()))
         if (filterFailed && motion.active) {
