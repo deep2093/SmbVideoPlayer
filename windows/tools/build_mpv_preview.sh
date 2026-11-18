@@ -37,6 +37,6 @@ git -C "$source" apply --check "$work/output.patch"
 git -C "$source" apply "$work/output.patch"
 
 meson setup "$work/build" "$source" --buildtype=release \
-    -Dlibmpv=true -Dcplayer=false -Dvapoursynth=enabled -Dd3d11=enabled
+    -Dlibmpv=true -Dcplayer=false -Dvapoursynth=enabled -Dd3d11=enabled -Dlua=enabled
 meson compile -C "$work/build"
 python "$repo/windows/tools/stage_mpv_preview.py" "$work/build/libmpv-2.dll" /ucrt64/bin "$output" "$revision"
