@@ -64,6 +64,11 @@ class MotionNativeTest {
             assertNull(session.begin(source.path, MotionRate(24), MotionRate(48)))
             assertTrue(command(listOf("set", "pause", "no")))
             waitFor("No output from portable motion runtime: " + session.failure) { (session.heartbeat()?.completed ?: 0) >= 24 }
+            if (File(resources, "MPV-PREVIEW-MANIFEST.json").isFile) {
+                waitFor("Experimental mpv did not enable VapourSynth output sharing") {
+                    log.readText().contains("Using experimental read-only VapourSynth output planes")
+                }
+            }
             assertTrue(command(listOf("set", "pause", "yes")))
             assertFalse(session.stalled(false, session.heartbeat()))
             assertTrue(command(listOf("set", "pause", "no")))

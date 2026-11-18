@@ -18,7 +18,7 @@ dependency audit. Android is outside this change.
 - Upstream run 39518569492 restores cached dependency sources; its log does not
   enumerate all resolved dependency commits. Its published artifacts contain
   binaries/debug symbols, not a complete corresponding-source bundle.
-- SkyWing does not modify the downloaded native binary.
+- The default preview uses the downloaded native binary as supplied.
 - CI's Vulkan loader is test-only. It is not copied into SkyWing's app resources
   or Windows installer; do not list it as an installed SkyWing dependency.
 - The JVM inventory/extracted notices and build JDK legal directory are generated
@@ -56,6 +56,20 @@ Obtain the exact source bundle from the current binary producer, or build a new
 GPL libmpv from fully pinned sources in a controlled pipeline that retains all
 sources, patches, build recipes and notices. The latter changes the native binary
 and requires the normal playback/fullscreen/clean-install regression tests.
+
+## Experimental frame-sharing preview
+
+Push builds on `feature/windows-motion-engine` and manual Windows CI runs with
+`experimental_mpv` build mpv from the pinned revision with
+`windows/tools/mpv-vapoursynth-output-preview.patch`. The separate
+`MPV-PREVIEW-MANIFEST.json` records the actual bundled DLLs and MSYS2 package
+versions. The adjacent package inventory and available notices come from the
+installed UCRT64 packages. CI also archives the mpv source inputs. The installed
+package inventory and source inputs do not establish complete corresponding
+source for every linked MSYS2 dependency.
+
+Frame sharing is enabled by default in this preview. Launching SkyWing with
+`SKYWING_VS_SHARE_FRAMES=0` uses the original output copy in the same build.
 
 ## Motion preview dependencies
 
