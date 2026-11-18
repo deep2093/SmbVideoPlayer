@@ -97,6 +97,31 @@ class MotionEngineTest {
         } finally { root.deleteRecursively() }
     }
 
+    @Test fun missedStatusReadDoesNotStallARecentlyActiveGraph() {
+        val root = Files.createTempDirectory("motion-heartbeat-").toFile()
+        try {
+            var now = 1_000_000L
+            val props = mapOf("hwdec" to "auto-safe", "video-sync" to "audio", "interpolation" to "no")
+            val session = MotionSession(props::get, { true }, { root }, { null }, { root }, { now })
+            assertNull(session.begin("video", MotionRate(25), MotionRate(50)))
+            val script = root.listFiles()!!.single { it.extension == "vpy" }
+            val status = File(script.path + ".status")
+            status.writeText("ok\tgraph\t30\t50.0\t$now")
+            assertNotNull(session.heartbeat())
+            now += 400_000
+            status.writeText("ok\tgraph\t20000\t50.0\t$now")
+            assertNotNull(session.heartbeat())
+            assertTrue(status.delete())
+            now += 1_040
+            assertNull(session.heartbeat())
+            assertFalse(session.stalled(true))
+            now += 14_000
+            assertTrue(session.stalled(true))
+            assertTrue(session.restartAfterStall())
+            assertEquals(1, session.restarts)
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun diagnosticsRedactLocalAndNetworkPaths() {
         listOf("C:\\Users\\Someone\\Private file.mp4", "\\\\192.168.1.2\\share\\private file.mp4",
             "https://host/private?key=secret").forEach { path ->

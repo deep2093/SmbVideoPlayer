@@ -70,7 +70,7 @@ class MotionNativeTest {
                 }
             }
             assertTrue(command(listOf("set", "pause", "yes")))
-            assertFalse(session.stalled(false, session.heartbeat()))
+            assertFalse(session.stalled(false))
             assertTrue(command(listOf("set", "pause", "no")))
             repeat(60) { n ->
                 val generation = session.heartbeat()?.generation

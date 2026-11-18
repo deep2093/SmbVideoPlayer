@@ -311,7 +311,7 @@ class EmbeddedMpv : Closeable {
             smoothingHealth.sample(System.nanoTime() / 1_000_000,
                 if (drops != null && decoderDrops != null) (drops + decoderDrops).toLong() else null, playing,
                 beat?.processingFps, target.fps)
-            if (motion.stalled(playing, beat)) {
+            if (motion.stalled(playing)) {
                 engineErrorCount++
                 if (motion.restartAfterStall()) {
                     smoothingHealth.reset()

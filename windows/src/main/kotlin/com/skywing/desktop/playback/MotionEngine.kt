@@ -42,6 +42,7 @@ internal class MotionSession(
     private val scriptDirectory: () -> File = {
         File(System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home"), "SkyWing/motion-scripts")
     },
+    private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
     private var previous: Map<String, String>? = null
     private var source: MotionRate? = null
@@ -75,7 +76,7 @@ internal class MotionSession(
         if (path != file) {
             lastHeartbeat = null
             lastIncident = null
-            sessionStarted = System.currentTimeMillis()
+            sessionStarted = nowMillis()
             restarts = 0
         }
         path = file
@@ -97,7 +98,7 @@ internal class MotionSession(
             statusFile = status
             script.writeText(SvpScript.create(runtime, status, source, rate, quality), Charsets.UTF_8)
             previous = saved
-            started = System.currentTimeMillis()
+            started = nowMillis()
             generation = null
             val quoted = script.absolutePath.replace('\\', '/')
             val filter = "@skywing-motion:vapoursynth=file=%" + quoted.toByteArray(Charsets.UTF_8).size +
@@ -128,20 +129,22 @@ internal class MotionSession(
         if (generation != parsed.generation) {
             generation = parsed.generation
             rebuilds++
-            started = System.currentTimeMillis()
+            started = nowMillis()
         }
         lastHeartbeat = parsed
         return parsed
     }
 
-    fun stalled(playing: Boolean, heartbeat: MotionHeartbeat?): Boolean {
-        val now = System.currentTimeMillis()
+    fun stalled(playing: Boolean): Boolean {
+        val now = nowMillis()
         if (!playing) { started = now; return false }
-        return active && now - maxOf(started, heartbeat?.updatedMillis ?: started) > 15_000
+        // A missed status read does not reset the last heartbeat for this graph.
+        val lastUpdate = lastHeartbeat?.updatedMillis.takeIf { generation != null } ?: started
+        return active && now - maxOf(started, lastUpdate) > 15_000
     }
 
     private fun recordIncident(reason: String) {
-        val now = System.currentTimeMillis()
+        val now = nowMillis()
         lastIncident = MotionIncident(reason, lastHeartbeat, now - sessionStarted,
             lastHeartbeat?.let { now - it.updatedMillis },
             if (active) get("vf")?.contains("skywing-motion") else null,
