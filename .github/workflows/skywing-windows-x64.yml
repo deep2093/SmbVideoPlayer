@@ -2,9 +2,15 @@ name: SkyWing Windows x64
 
 on:
   workflow_dispatch:
+    inputs:
+      experimental_mpv:
+        description: Build the preview with VapourSynth output frame sharing
+        type: boolean
+        default: false
   push:
     branches:
       - feature/windows-x64-foundation
+      - feature/windows-motion-engine
     paths:
       - "windows/**"
       - ".github/workflows/skywing-windows-x64.yml"
@@ -20,6 +26,8 @@ jobs:
   windows-x64:
     runs-on: windows-2022
     timeout-minutes: 45
+    env:
+      SKYWING_EXPERIMENTAL_MPV: ${{ inputs.experimental_mpv || (github.event_name == 'push' && github.ref_name == 'feature/windows-motion-engine') }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,6 +39,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Fetch pinned Windows x64 libmpv and validate archive
+        if: env.SKYWING_EXPERIMENTAL_MPV != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -48,7 +57,36 @@ jobs:
           New-Item -ItemType Directory -Force $target | Out-Null
           Copy-Item $dll.FullName "$target/libmpv-2.dll"
           Write-Host "Bundled libmpv: $($dll.Length) bytes"
+      - name: Set up UCRT64 for the experimental mpv preview
+        if: env.SKYWING_EXPERIMENTAL_MPV == 'true'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-ffmpeg mingw-w64-ucrt-x86_64-libplacebo
+            mingw-w64-ucrt-x86_64-libass mingw-w64-ucrt-x86_64-luajit
+      - name: Build and stage experimental mpv
+        if: env.SKYWING_EXPERIMENTAL_MPV == 'true'
+        shell: msys2 {0}
+        run: bash windows/tools/build_mpv_preview.sh "$RUNNER_TEMP/mpv-preview" "$GITHUB_WORKSPACE/windows/build/native-resources/windows"
+      - name: Configure Python for motion packaging
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.9"
+      - name: Configure MSVC x64
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Build pinned portable motion engine
+        shell: pwsh
+        run: |
+          python windows/tools/build_motion.py --cache "$env:RUNNER_TEMP/motion-downloads" --output windows/build/native-resources/windows/motion
+          if ($LASTEXITCODE -ne 0) { throw 'Motion engine build failed' }
       - name: Provision Vulkan loader for native tests on the hosted runner
+        if: env.SKYWING_EXPERIMENTAL_MPV != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -109,14 +147,31 @@ jobs:
             'upstream/mpv-Copyright.txt', 'upstream/FFmpeg-LICENSE.md',
             'upstream/skiko-NOTICE.txt', 'upstream/Skia-LICENSE.txt',
             'JVM-RUNTIME-INVENTORY.tsv', 'NATIVE-PROVENANCE.json',
-            'SOURCE-STATUS.md', 'SKYWING-SOURCE.txt', 'java-runtime/BUILD-RELEASE.txt')
+            'SOURCE-STATUS.md', 'SKYWING-SOURCE.txt', 'java-runtime/BUILD-RELEASE.txt',
+            'upstream/Python-LICENSE.txt', 'upstream/VapourSynth-COPYING.LESSER',
+            'upstream/open-svpflow-LICENSE.txt', 'upstream/VapourSynth-font-OFL.txt')
           foreach ($relative in $required) {
             $path = Join-Path $legal $relative
             if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Packaged legal file missing: $relative" }
             if ((Get-Item -LiteralPath $path).Length -eq 0) { throw "Packaged legal file empty: $relative" }
           }
           $native = Get-Content (Join-Path $legal 'NATIVE-PROVENANCE.json') -Raw | ConvertFrom-Json
-          if ((Get-FileHash $dll.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -ne $native.dllSha256) {
+          if ($env:SKYWING_EXPERIMENTAL_MPV -eq 'true') {
+            $manifestPath = Join-Path $dll.Directory.FullName 'MPV-PREVIEW-MANIFEST.json'
+            $preview = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            if ($preview.mpvRevision -ne $native.mpvRevision -or !$preview.files.'libmpv-2.dll') {
+              throw 'Experimental mpv manifest does not identify the pinned source and DLL'
+            }
+            if (!(Test-Path (Join-Path $dll.Directory.FullName 'mpv-preview-notices') -PathType Container)) {
+              throw 'Experimental mpv package notices are missing'
+            }
+            foreach ($entry in $preview.files.PSObject.Properties) {
+              $file = Join-Path $dll.Directory.FullName $entry.Name
+              if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.Value) {
+                throw "Experimental mpv payload mismatch: $($entry.Name)"
+              }
+            }
+          } elseif ((Get-FileHash $dll.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -ne $native.dllSha256) {
             throw 'Packaged libmpv does not match its legal provenance'
           }
           $inventory = Import-Csv (Join-Path $legal 'JVM-RUNTIME-INVENTORY.tsv') -Delimiter "	"
@@ -124,6 +179,18 @@ jobs:
           if (-not (Get-ChildItem (Join-Path $legal 'jvm') -Recurse -File |
             Where-Object { $_.Name -match 'LICENSE|NOTICE|COPYING' })) {
             throw 'No embedded JVM notices were preserved'
+          }
+      - name: Verify packaged motion payload
+        shell: pwsh
+        run: |
+          $image = 'windows/build/compose/binaries/main/app'
+          $manifest = Get-ChildItem $image -Recurse -Filter 'BUILD-MANIFEST.json' -File | Where-Object { $_.Directory.Name -eq 'motion' } | Select-Object -First 1
+          if (-not $manifest) { throw 'Packaged motion manifest missing' }
+          $data = Get-Content -LiteralPath $manifest.FullName -Raw | ConvertFrom-Json
+          if ($data.localPluginOverride) { throw 'CI must build its own native plugins' }
+          foreach ($entry in $data.files.PSObject.Properties) {
+            $file = Join-Path $manifest.Directory.FullName $entry.Name
+            if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.Value) { throw "Motion payload mismatch: $($entry.Name)" }
           }
       - name: Archive matching Windows application source
         shell: pwsh
@@ -134,10 +201,21 @@ jobs:
       - name: Upload Windows installers
         uses: actions/upload-artifact@v4
         with:
-          name: skywing-windows-x64-preview
+          name: ${{ env.SKYWING_EXPERIMENTAL_MPV == 'true' && 'skywing-windows-x64-frame-sharing-preview' || 'skywing-windows-x64-preview' }}
           path: |
             windows/build/compose/binaries/main/exe/*.exe
             windows/build/compose/binaries/main/msi/*.msi
             windows/build/legal/skywing-windows-source.zip
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload the experimental mpv source inputs
+        if: env.SKYWING_EXPERIMENTAL_MPV == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: skywing-frame-sharing-mpv-source
+          path: |
+            ${{ runner.temp }}/mpv-preview/mpv.tar.gz
+            ${{ runner.temp }}/mpv-preview/headers/*.h
+            ${{ runner.temp }}/mpv-preview/output.patch
           if-no-files-found: error
           retention-days: 7

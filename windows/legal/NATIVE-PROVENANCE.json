@@ -36,5 +36,32 @@
       "path": "windows/legal/upstream/FFmpeg-LICENSE.md",
       "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/9a861e968/LICENSE.md"
     }
-  ]
+  ],
+  "motion": {
+    "sourceRevision": "deadbad2201d77056173c05c2380758d88612019",
+    "rustToolchain": "1.98.1",
+    "target": "x86_64-pc-windows-msvc",
+    "patch": "windows/tools/open-svpflow-windows.patch",
+    "downloads": [
+      {
+        "name": "open-svpflow-deadbad.tar.gz",
+        "url": "https://codeload.github.com/Z1xus/open-svpflow/tar.gz/deadbad2201d77056173c05c2380758d88612019",
+        "sha256": "caf80df1ff7df5e31db7da6a0452c66053e8bdc5d1f92d2021c785314c9f65c8",
+        "license": "Apache-2.0"
+      },
+      {
+        "name": "VapourSynth64-Portable-R73.zip",
+        "url": "https://github.com/vapoursynth/vapoursynth/releases/download/R73/VapourSynth64-Portable-R73.zip",
+        "sha256": "3326f10d0fdcdec45649a474cbc9810795ab3da422634d0f134bca6089afbb91",
+        "license": "LGPL-2.1-or-later"
+      },
+      {
+        "name": "python-3.13.9-embed-amd64.zip",
+        "url": "https://www.python.org/ftp/python/3.13.9/python-3.13.9-embed-amd64.zip",
+        "sha256": "91d828c2da3a029b41699e918674a0cb379c02cf20dab9c501306885f837402a",
+        "license": "PSF-2.0 and bundled notices"
+      }
+    ],
+    "payloadInventory": "motion/BUILD-MANIFEST.json"
+  }
 }

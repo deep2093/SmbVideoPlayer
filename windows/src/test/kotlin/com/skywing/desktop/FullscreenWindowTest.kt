@@ -1,6 +1,11 @@
 package com.skywing.desktop
 
 import androidx.compose.ui.awt.ComposeWindow
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.background
 import com.skywing.desktop.playback.EmbeddedMpv
 import com.sun.jna.Native
 import com.sun.jna.Pointer
@@ -37,7 +42,41 @@ class FullscreenWindowTest {
         fun GetWindowThreadProcessId(hwnd: Pointer, pid: IntByReference): Int
         fun PostMessageW(hwnd: Pointer, message: Int, wparam: Pointer?, lparam: Pointer?): Boolean
         fun IsWindowVisible(hwnd: Pointer): Boolean
+        fun GetCursorInfo(info: Pointer): Boolean
+        fun DrawIconEx(dc: Pointer, x: Int, y: Int, icon: Pointer, width: Int, height: Int, step: Int, brush: Pointer?, flags: Int): Boolean
         fun GetWindowLongW(hwnd: Pointer, index: Int): Int
+    }
+    private interface Gdi32 : StdCallLibrary {
+        fun CreateCompatibleDC(dc: Pointer?): Pointer?
+        fun CreateDIBSection(dc: Pointer, info: Pointer, usage: Int, bits: com.sun.jna.ptr.PointerByReference, section: Pointer?, offset: Int): Pointer?
+        fun SelectObject(dc: Pointer, obj: Pointer): Pointer?
+        fun DeleteObject(obj: Pointer): Boolean
+        fun DeleteDC(dc: Pointer): Boolean
+        fun GdiFlush(): Boolean
+    }
+    private val gdi by lazy { Native.load("gdi32", Gdi32::class.java) }
+    /** Transparent custom cursors can have CURSOR_SHOWING set; inspect the actual pixels. */
+    private fun cursorHasPixels(): Boolean = com.sun.jna.Memory(24).use { info ->
+        info.clear(); info.setInt(0, 24)
+        check(user32.GetCursorInfo(info))
+        if (info.getInt(4) and 1 == 0) return@use false
+        val icon = info.getPointer(8) ?: return@use false
+        val dc = checkNotNull(gdi.CreateCompatibleDC(null))
+        try {
+            com.sun.jna.Memory(40).use { bitmapInfo ->
+                bitmapInfo.clear(); bitmapInfo.setInt(0, 40); bitmapInfo.setInt(4, 64); bitmapInfo.setInt(8, -64)
+                bitmapInfo.setShort(12, 1); bitmapInfo.setShort(14, 32)
+                val bits = com.sun.jna.ptr.PointerByReference()
+                val bitmap = checkNotNull(gdi.CreateDIBSection(dc, bitmapInfo, 0, bits, null, 0))
+                val old = checkNotNull(gdi.SelectObject(dc, bitmap))
+                try {
+                    repeat(4096) { bits.value.setInt(it * 4L, 0x00123456) }
+                    check(user32.DrawIconEx(dc, 0, 0, icon, 64, 64, 0, null, 3))
+                    gdi.GdiFlush()
+                    bits.value.getIntArray(0, 4096).any { it and 0x00ffffff != 0x00123456 }
+                } finally { gdi.SelectObject(dc, old); gdi.DeleteObject(bitmap) }
+            }
+        } finally { gdi.DeleteDC(dc) }
     }
     private val user32 by lazy { Native.load("user32", User32::class.java) }
 
@@ -129,7 +168,10 @@ class FullscreenWindowTest {
                         assertFalse(status.capabilities.hardwareDecode)
                         assertFalse(status.capabilities.decision(mode).enabled)
                     }
-                    player.updateSmoothing(com.skywing.desktop.playback.SmoothingMode.OFF)
+                    val rendererReport = player.updateSmoothing(com.skywing.desktop.playback.SmoothingMode.OFF).report
+                    if (rendererReport.contains("preference: NVIDIA D3D11")) {
+                        assertTrue(rendererReport.contains("Renderer: NVIDIA"), rendererReport)
+                    }
                     val thumbnail = File(mediaDir, "thumbnail.jpg")
                     val extracted = com.skywing.desktop.playback.ThumbnailExtractor.extractDetailed(media, thumbnail, start = "0")
                     assertTrue(extracted.success && thumbnail.isFile, "Unicode thumbnail failed: ${extracted.reason}")
@@ -143,27 +185,50 @@ class FullscreenWindowTest {
                     key(KeyEvent.VK_F)
                     await("F did not enter fullscreen") { edt { window.bounds == window.graphicsConfiguration.bounds } }
                     val robot = Robot()
+                    fun cursorShowing(): Boolean = cursorHasPixels()
                     val center = edt { window.bounds.let { java.awt.Point(it.x + it.width / 2, it.y + it.height / 2) } }
                     robot.mouseMove(center.x, center.y)
-                    await("Fullscreen controls were not shown") { edt { canvas.height < window.height - 100 } }
-                    val controlsHeight = edt { canvas.height }
+                    fun overlaysVisible() = edt { window.ownedWindows.count { it.name?.startsWith("skywing-") == true && it.isVisible } == 2 }
+                    await("Fullscreen controls were not shown") { overlaysVisible() }
+                    // Fractional Windows DPI can round the Swing surface up by one logical pixel.
+                    await("Video must fill fullscreen") { edt { kotlin.math.abs(canvas.height - window.height) <= 1 && kotlin.math.abs(canvas.width - window.width) <= 1 } }
+                    val videoBounds = edt { Rectangle(canvas.bounds) }
                     val captures = File("build/reports/tests/test/screenshots").apply { mkdirs() }
                     robot.waitForIdle()
                     ImageIO.write(robot.createScreenCapture(edt { window.bounds }), "png", File(captures, "fullscreen-controls.png"))
-                    await("Fullscreen controls did not auto-hide") { edt { canvas.height > controlsHeight + 100 } }
+                    await("Fullscreen controls did not auto-hide") { !overlaysVisible() }
+                    await("Fullscreen cursor did not hide with controls") { !cursorShowing() }
+                    val otherWindow = edt { Frame("Cursor focus regression").apply {
+                        setBounds(center.x - 100, center.y - 100, 200, 200); isVisible = true; toFront(); requestFocus()
+                    } }
+                    try {
+                        await("Other window did not gain focus") { edt { otherWindow.isFocused } }
+                        await("Cursor remained hidden after focus loss") { cursorShowing() }
+                    } finally { edt { otherWindow.dispose(); window.toFront(); canvas.requestFocusInWindow() } }
+                    await("Player did not regain focus") { edt { window.isFocused } }
+                    assertEquals(videoBounds, edt { Rectangle(canvas.bounds) }, "Auto-hide resized the video")
                     key(KeyEvent.VK_M)
-                    await("Keyboard input did not reveal controls") { edt { canvas.height <= controlsHeight + 10 } }
-                    await("Controls did not hide again after keyboard input") { edt { canvas.height > controlsHeight + 100 } }
+                    await("Keyboard input did not reveal controls") { overlaysVisible() }
+                    await("Keyboard input did not restore cursor") { cursorShowing() }
+                    await("Controls did not hide again after keyboard input") { !overlaysVisible() }
                     robot.mouseMove(center.x + 20, center.y)
-                    await("Native video mouse motion did not reveal controls") { edt { canvas.height <= controlsHeight + 10 } }
-                    key(KeyEvent.VK_SPACE)
-                    await("Pause failed") { player.isPaused() == true }
+                    await("Native video mouse motion did not reveal controls") { overlaysVisible() }
+                    await("Mouse motion did not restore cursor") { cursorShowing() }
+                    val overlayBounds = edt { Rectangle(window.ownedWindows.single { it.name == "skywing-controls-overlay" }.bounds) }
+                    robot.mouseMove(overlayBounds.x + overlayBounds.width / 2 - 20, overlayBounds.y + overlayBounds.height - 96)
+                    robot.mousePress(java.awt.event.InputEvent.BUTTON1_DOWN_MASK)
+                    robot.mouseRelease(java.awt.event.InputEvent.BUTTON1_DOWN_MASK)
+                    await("Overlay pause click failed") { player.isPaused() == true }
                     Thread.sleep(3000)
-                    assertTrue(edt { canvas.height <= controlsHeight + 10 }, "Paused controls must stay visible")
+                    assertTrue(overlaysVisible(), "Paused controls must stay visible")
+                    assertEquals(videoBounds, edt { Rectangle(canvas.bounds) }, "Showing controls resized the video")
                     assertEquals(canvasHwnd, edt { Native.getComponentPointer(canvas) })
                     key(KeyEvent.VK_SPACE)
                     key(KeyEvent.VK_ESCAPE)
                     await("Escape did not restore after auto-hide") { edt { window.bounds == originalBounds } }
+                    robot.mouseMove(originalBounds.x + originalBounds.width / 2, originalBounds.y + originalBounds.height / 2)
+                    await("Cursor remained hidden after fullscreen exit") { cursorShowing() }
+                    await("Fullscreen overlays survived exit") { edt { window.ownedWindows.none { it.name?.startsWith("skywing-") == true && it.isDisplayable } } }
                 }
                 repeat(10) {
                     key(KeyEvent.VK_F, release = false)
@@ -203,6 +268,37 @@ class FullscreenWindowTest {
             player.close()
             try { assertFalse(edt { player.attach(Canvas()) }) }
             finally { edt { window.dispose() } }
+        }
+    }
+
+    @Test fun motionPanelRendersOnAndOffWithoutLegacyChoices() {
+        assumeTrue(System.getProperty("os.name").startsWith("Windows"))
+        assumeTrue(!GraphicsEnvironment.isHeadless())
+        val folder = File("build/reports/tests/test/screenshots").apply { mkdirs() }
+        for (mode in com.skywing.desktop.playback.SmoothingMode.entries) {
+            val window = edt { ComposeWindow().apply {
+                title = "Motion controls regression"
+                setBounds(100, 100, 620, 600)
+                setContent {
+                    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize().background(LocalSkyTheme.current.background).padding(24.dp),
+                        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)) {
+                        SmoothingOptions(mode, com.skywing.desktop.playback.SmoothingStatus(
+                            capabilities = com.skywing.desktop.playback.SmoothingCapabilities(240.0, 24000.0/1001, true, true, false, 1920, 1080),
+                            detail = "Holding 59.94 fps · 0 drops",
+                            settings = com.skywing.desktop.playback.MotionSettings(1)), {})
+                        SkyButton("Done", {})
+                    }
+                }
+                isVisible = true
+                toFront()
+            } }
+            try {
+                val robot = Robot()
+                robot.waitForIdle()
+                Thread.sleep(600)
+                assertTrue(edt { window.isShowing })
+                ImageIO.write(robot.createScreenCapture(edt { window.bounds }), "png", File(folder, "motion-panel-" + mode.name + ".png"))
+            } finally { edt { window.dispose() } }
         }
     }
 

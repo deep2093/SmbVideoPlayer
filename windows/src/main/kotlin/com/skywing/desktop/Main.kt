@@ -244,12 +244,8 @@ private fun SkyWingDesktopShell(
     var smoothingMode by remember { mutableStateOf(SmoothingStore.load()) }
     var smoothingStatus by remember { mutableStateOf(SmoothingStatus()) }
     var smoothingMenu by remember { mutableStateOf(false) }
-    var lastBlendingMode by remember { mutableStateOf(smoothingMode.takeUnless {
-        it == SmoothingMode.OFF || it == SmoothingMode.VRR
-    } ?: SmoothingMode.AUTO) }
     fun selectSmoothing(mode: SmoothingMode) {
         smoothingMode = mode
-        if (mode != SmoothingMode.OFF && mode != SmoothingMode.VRR) lastBlendingMode = mode
         playbackScope.launch(Dispatchers.IO) { SmoothingStore.save(mode) }
     }
     val topInteractions = remember { MutableInteractionSource() }
@@ -257,12 +253,13 @@ private fun SkyWingDesktopShell(
     val topHovered by topInteractions.collectIsHoveredAsState()
     val bottomHovered by bottomInteractions.collectIsHoveredAsState()
     val (chromeVisible, showPlayerChrome) = rememberPlayerChrome(awtWindow, fullscreen,
-        paused || dragging || smoothingMenu || topHovered || bottomHovered)
+        paused || dragging || smoothingMenu || topHovered || bottomHovered) { visible -> embedded.setCursorHidden(!visible) }
     val currentShowPlayerChrome by rememberUpdatedState(showPlayerChrome)
     LaunchedEffect(embedded, smoothingMode, currentFile, closing) {
         if (closing) return@LaunchedEffect
         while (true) {
             smoothingStatus = withContext(Dispatchers.IO) { embedded.updateSmoothing(smoothingMode) }
+            if (smoothingStatus.requestOff) selectSmoothing(SmoothingMode.OFF)
             delay(1000)
         }
     }
@@ -559,7 +556,7 @@ private fun SkyWingDesktopShell(
                         } }
                     }
                 }
-                if (playerShown && chromeVisible) {
+                FullscreenChrome(awtWindow, fullscreen, playerShown && chromeVisible, bottom = false) {
                     PlayerTopBar(
                         title = currentFile?.nameWithoutExtension ?: "Nothing playing",
                         queueLabel = if (queueIndex >= 0 && queue.size > 1) "Queue " + (queueIndex + 1) + " / " + queue.size else null,
@@ -581,7 +578,7 @@ private fun SkyWingDesktopShell(
                         }
                     },
                 )
-                if (playerShown && chromeVisible) {
+                FullscreenChrome(awtWindow, fullscreen, playerShown && chromeVisible, bottom = true) {
                     PlayerControls(
                         position = playbackTime,
                         duration = duration,
@@ -592,11 +589,8 @@ private fun SkyWingDesktopShell(
                         canNext = queueIndex >= 0 && queueIndex + 1 < queue.size,
                         status = listOf(smoothingStatus.detail, message).filter { it.isNotBlank() }.joinToString(" · "),
                         smoothingMode = smoothingMode,
-                        smoothingActive = smoothingStatus.blendingActive,
-                        onSmoothingToggle = { selectSmoothing(if (smoothingMode == SmoothingMode.OFF ||
-                            smoothingMode == SmoothingMode.VRR) lastBlendingMode.takeIf {
-                                smoothingStatus.capabilities.unavailable(it) == null
-                            } ?: SmoothingMode.AUTO else SmoothingMode.OFF) },
+                        smoothingActive = smoothingStatus.motionActive,
+                        onSmoothingToggle = { selectSmoothing(if (smoothingMode == SmoothingMode.OFF) SmoothingMode.MOTION else SmoothingMode.OFF) },
                         onSmoothingOptions = { smoothingMenu = true },
                         onSeekChange = { dragging = true; seekTarget = it },
                         onSeekFinished = {

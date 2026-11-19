@@ -291,6 +291,7 @@ private fun LayoutPage(organizer: Organizer) {
 private fun PlaybackPage(mode: SmoothingMode, status: SmoothingStatus, onMode: (SmoothingMode) -> Unit) {
     val theme = LocalSkyTheme.current
     SmoothingOptions(mode, status, onMode)
+    MotionPlaybackSettings()
     val shortcuts = listOf(
         "Space or K" to "Play / pause",
         "Left / Right" to "Back 5 s / forward 10 s",
