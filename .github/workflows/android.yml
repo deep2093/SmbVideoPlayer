@@ -51,6 +51,9 @@ jobs:
     needs: select-build
     if: needs['select-build'].outputs.source_run == ''
     runs-on: ubuntu-latest
+    env:
+      # 'true' once the private preview key is added as a repository secret (see .ci/KEY-ROTATION.md).
+      HAS_PREVIEW_V2_KEY: ${{ secrets.PREVIEW_V2_KEYSTORE != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -162,6 +165,14 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs optimized/update.apk > optimized/signing.txt
           grep 'Signer #1 certificate SHA-256 digest:' optimized/signing.txt > optimized/cert.txt
           diff -u preview/update-cert.txt optimized/cert.txt
+      - name: Sign with the private preview key (key rotation)
+        if: env.HAS_PREVIEW_V2_KEY == 'true'
+        env:
+          PREVIEW_V2_KEYSTORE: ${{ secrets.PREVIEW_V2_KEYSTORE }}
+          PREVIEW_V2_PASSWORD: ${{ secrets.PREVIEW_V2_PASSWORD }}
+        # Phones with the old (public) preview key accept this update through the rotation record, and from then on
+        # refuse anything signed with the old key. The emulator update test installs it over the old-key build.
+        run: bash tools/rotate_preview_signing.sh optimized/SkyWing-arm64.apk optimized/update.apk
       - name: Report APK size by part
         run: |
           total=$(stat -c %s optimized/SkyWing-arm64.apk)

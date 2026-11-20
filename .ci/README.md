@@ -16,3 +16,6 @@ a second APK at the next code, verifies both signing identities, then checks wit
 an emulator that installing the second APK using `adb install -r` preserves the
 thumbnail file, database and saved preference test data. The delivered APK is the
 second, higher-version build. The default upgraded library keeps its database and artwork paths. Room migrations preserve its data; additional connection/account/root combinations use isolated databases and artwork directories.
+
+**Moving to a private key:** this key is public. `KEY-ROTATION.md` explains how release-style preview builds move to a
+private key with Android key rotation, keeping all installed data.
