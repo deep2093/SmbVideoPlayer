@@ -98,7 +98,8 @@ interface ArtworkDao {
     fun observeReview(): kotlinx.coroutines.flow.Flow<List<ArtworkRow>>
 }
 
-@Database(entities = [ArtworkRow::class, ArtworkCandidateRow::class], version = 1, exportSchema = false)
+// The schema is exported (app/schemas) so a future change can ship a tested migration instead of crashing on update.
+@Database(entities = [ArtworkRow::class, ArtworkCandidateRow::class], version = 1, exportSchema = true)
 abstract class ArtworkDatabase : RoomDatabase() {
     abstract fun dao(): ArtworkDao
 }

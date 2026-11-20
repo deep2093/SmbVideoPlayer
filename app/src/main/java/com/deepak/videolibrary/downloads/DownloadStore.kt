@@ -102,7 +102,8 @@ interface DownloadDao {
     suspend fun clearCompleted()
 }
 
-@Database(entities = [DownloadItem::class], version = 1, exportSchema = false)
+// The schema is exported (app/schemas) so a future change can ship a tested migration instead of crashing on update.
+@Database(entities = [DownloadItem::class], version = 1, exportSchema = true)
 abstract class DownloadDatabase : RoomDatabase() {
     abstract fun dao(): DownloadDao
 }

@@ -54,7 +54,11 @@ class WireGuardConfigStore(context: Context) {
         val encrypted = cipher.iv + cipher.doFinal(text.toByteArray(Charsets.UTF_8))
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("Could not create storage folder")
         val tmp = File(dir, "tunnel.conf.enc.tmp")
-        tmp.writeBytes(encrypted)
+        // Synced to storage before the rename, so a power cut cannot leave an empty or partial configuration.
+        java.io.FileOutputStream(tmp).use { out ->
+            out.write(encrypted)
+            out.fd.sync()
+        }
         if (!tmp.renameTo(file)) {
             tmp.delete()
             throw IOException("Could not save configuration")

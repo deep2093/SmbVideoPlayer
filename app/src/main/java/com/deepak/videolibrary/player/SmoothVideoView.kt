@@ -129,7 +129,10 @@ internal class SmoothVideoView(context: Context) : FrameLayout(context) {
         }
         val appContext = context.applicationContext
         val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
-        val saver = java.util.concurrent.Executors.newSingleThreadExecutor()
+        // One background thread that ends by itself 5 s after the last picture, even if the capture stops early.
+        val saver = java.util.concurrent.ThreadPoolExecutor(
+            0, 1, 5, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.LinkedBlockingQueue(),
+        ) { task -> Thread(task, "smooth-frame-saver").apply { isDaemon = true } }
         var failure: String? = null
         current.requestCapture(5) { index, total, label, strip ->
             saver.execute {

@@ -218,8 +218,9 @@ internal fun ChangeCoverDialog(vm: LibraryViewModel, target: CoverTarget, onPick
             // A GIF from the phone is kept as it is, so it moves on the card.
             val gif = withContext(Dispatchers.IO) {
                 if (context.contentResolver.getType(uri) == "image/gif") {
+                    // Read at most one byte past the limit: a huge file is refused without filling the memory.
                     context.contentResolver.openInputStream(uri)?.use { input ->
-                        input.readBytes().takeIf { it.size <= com.deepak.videolibrary.artwork.ArtworkRepository.MAX_ANIMATED_BYTES }
+                        readAtMost(input, com.deepak.videolibrary.artwork.ArtworkRepository.MAX_ANIMATED_BYTES.toLong())
                     }
                 } else {
                     null
@@ -851,8 +852,9 @@ private fun decodePhoneImage(context: android.content.Context, uri: Uri): Bitmap
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
         null
     } else {
+        // Shrink by the longer side, so a very tall picture is reduced as well as a very wide one.
         var sample = 1
-        while (bounds.outWidth / (sample * 2) >= 1600) sample *= 2
+        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 1600) sample *= 2
         val options = BitmapFactory.Options().apply { inSampleSize = sample }
         resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
     }

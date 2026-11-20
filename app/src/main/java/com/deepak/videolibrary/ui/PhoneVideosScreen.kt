@@ -202,7 +202,15 @@ private suspend fun phoneThumbFile(context: Context, uri: String): File? = withC
     if (file.length() > 0) return@withContext file
     runCatching {
         val bitmap = context.contentResolver.loadThumbnail(android.net.Uri.parse(uri), Size(640, 360), null)
-        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+        // Written under a temporary name and then renamed, so a half-written picture is never kept as the thumbnail.
+        val temporary = File.createTempFile("thumb-", ".tmp", dir)
+        try {
+            temporary.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it)) }
+            if (!temporary.renameTo(file)) error("rename failed")
+        } finally {
+            temporary.delete()
+            bitmap.recycle()
+        }
         file
     }.getOrNull()
 }
