@@ -16,6 +16,9 @@ object KeptArtwork {
     /** Videos no longer in the library whose choices are kept; the oldest go first beyond this. */
     private const val MAX_KEPT = 3000
 
+    /** Downloaded scene posters of videos no longer in the library are deleted once they are this old. */
+    private val ORPHAN_POSTER_AGE_MS = java.util.concurrent.TimeUnit.DAYS.toMillis(30)
+
     private fun prefs(context: Context, libraryId: String) =
         context.applicationContext.getSharedPreferences("kept_artwork-$libraryId", Context.MODE_PRIVATE)
 
@@ -67,6 +70,11 @@ object KeptArtwork {
         val keep = next.keys.filterTo(HashSet()) { it !in liveIds }
         CustomThumbs.prune(storage, liveIds, keep)
         services.artwork.pruneVideos(liveIds, keep)
+
+        // Automatic thumbnails and downloaded scene posters of videos that are gone used to stay on the phone
+        // forever. Automatic thumbnails can be made again; posters are kept for 30 days in case the video comes back.
+        ThumbStore.pruneAutomatic(storage, liveIds)
+        services.scenePosters.pruneOrphans(services.db.dao().allStamps(), ORPHAN_POSTER_AGE_MS)
     }
 
     /** Forgets every kept path (after the user resets all thumbnails and artwork). */

@@ -23,6 +23,10 @@ interface LibraryDao {
     @Query("SELECT id, relativePath FROM videos")
     suspend fun allIdPaths(): List<VideoIdPath>
 
+    /** Path, size and date of every video: enough to tell which saved posters still belong to a video. */
+    @Query("SELECT relativePath, size, modified FROM videos")
+    suspend fun allStamps(): List<VideoStamp>
+
     /** Indexed rows for a set of exact paths (used to show thumbnails in File Explorer's grid). */
     @Query("SELECT * FROM videos WHERE relativePath IN (:paths)")
     suspend fun videosByPaths(paths: List<String>): List<VideoEntity>
@@ -49,6 +53,10 @@ interface LibraryDao {
 
     @Query("DELETE FROM videos WHERE lastSeenSession != :sessionId")
     suspend fun deleteNotSeen(sessionId: Long): Int
+
+    /** Custom folders of the videos [deleteNotSeen] is about to remove, so they can be given back if the file returns. */
+    @Query("SELECT relativePath, name, size, customGroup FROM videos WHERE lastSeenSession != :sessionId AND customGroup IS NOT NULL AND customGroup != ''")
+    suspend fun notSeenAssignments(sessionId: Long): List<AssignmentRow>
 
     @Query(
         "SELECT * FROM videos " +

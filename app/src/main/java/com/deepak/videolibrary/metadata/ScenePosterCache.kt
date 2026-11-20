@@ -31,7 +31,8 @@ class ScenePosterCache(context: Context, private val libraryId: String) {
         ?: MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
             .take(16).joinToString("") { "%02x".format(it) }.also { digests.put(value, it) }
 
-    private fun key(video: VideoEntity) = digest(video.relativePath) + "-${video.size}-${video.modified}"
+    private fun key(video: VideoEntity) = keyOf(video.relativePath, video.size, video.modified)
+    private fun keyOf(path: String, size: Long, modified: Long) = digest(path) + "-$size-$modified"
     private fun cacheKey(video: VideoEntity) = "poster:" + key(video)
 
     fun fileFor(video: VideoEntity): File? {
@@ -64,6 +65,34 @@ class ScenePosterCache(context: Context, private val libraryId: String) {
         preferences.edit().clear().apply()
         known.clear()
         signals.update { it + 1 }
+        return removed
+    }
+
+    /**
+     * Deletes downloaded posters whose video is no longer in the library (removed, or changed so it is really a
+     * different file) and that are older than [minAgeMs], so a video that is only briefly missing keeps its poster.
+     * [live] must be the whole library; an empty list deletes nothing. Returns how many files were removed.
+     */
+    @Synchronized
+    fun pruneOrphans(live: List<com.deepak.videolibrary.data.VideoStamp>, minAgeMs: Long, now: Long = System.currentTimeMillis()): Int {
+        if (live.isEmpty()) return 0
+        val liveKeys = live.mapTo(HashSet(live.size * 2)) { keyOf(it.relativePath, it.size, it.modified) }
+        var removed = 0
+        val edit = preferences.edit()
+        for (file in root.listFiles().orEmpty()) {
+            if (!file.isFile || !file.name.matches(POSTER_NAME)) continue
+            val owner = file.name.removeSuffix(".jpg").substringBeforeLast('-')
+            if (owner in liveKeys || now - file.lastModified() < minAgeMs) continue
+            if (file.delete()) {
+                removed++
+                edit.remove("poster:$owner").remove("failed:" + file.name)
+                known.remove("poster:$owner")
+            }
+        }
+        if (removed > 0) {
+            edit.apply()
+            signals.update { it + 1 }
+        }
         return removed
     }
 

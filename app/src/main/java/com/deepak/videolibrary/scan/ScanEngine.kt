@@ -71,6 +71,8 @@ class ScanRepository(
     private val owners: android.content.SharedPreferences? = null,
     /** Drive folders chosen for Virtual folders (given the server key); they are scanned even outside the library root. */
     private val extraRoots: (String) -> List<String> = { emptyList() },
+    /** Custom folders of removed videos, given back when the same file is found again. */
+    private val kept: com.deepak.videolibrary.data.KeptAssignments? = null,
 ) {
     val scanMutex = kotlinx.coroutines.sync.Mutex()
 
@@ -92,20 +94,21 @@ class ScanRepository(
             owners.all.entries.sortedBy { (it.value as? Long) ?: 0L }.dropLast(63).forEach { if(it.key!=owner)editor.remove(it.key) }
             check(editor.commit()) { "Could not persist scan request" }
         }
-        ScanEngine(db,profile,session).run()
+        ScanEngine(db,profile,session,kept).run()
     }
 
     suspend fun runPeriodic(profile: SmbProfile): Boolean = scanMutex.withLock {
         dao.markRunningInterrupted()
         val mode = if (dao.latestResumableSession() != null && dao.pendingCountNow() > 0) ScanMode.RESUME else ScanMode.REFRESH
         val session = prepare(mode, profile) ?: return@withLock false
-        ScanEngine(db, profile, session).run()
+        ScanEngine(db, profile, session, kept).run()
     }
 
     suspend fun confirmEmpty(sessionId: Long): Boolean = scanMutex.withLock {
         db.withTransaction {
             val latest=dao.latestSession()
             if(latest?.id!=sessionId || latest.status!=ScanStatus.EMPTY_SOURCE || dao.pendingCountNow()!=0) return@withTransaction false
+            kept?.remember(dao.notSeenAssignments(sessionId))
             dao.deleteNotSeen(sessionId)
             dao.setSessionStatus(sessionId,ScanStatus.COMPLETED,System.currentTimeMillis())
             true
@@ -152,6 +155,7 @@ class ScanEngine(
     private val db: LibraryDatabase,
     private val profile: SmbProfile,
     private val session: ScanSessionEntity,
+    private val kept: com.deepak.videolibrary.data.KeptAssignments? = null,
 ) {
     private val dao = db.dao()
     private val sid = session.id
@@ -187,7 +191,10 @@ class ScanEngine(
             }
             throw e
         } finally {
-            withContext(NonCancellable) { runCatching { conn.close() } }
+            withContext(NonCancellable) {
+                runCatching { conn.close() }
+                runCatching { kept?.flush() }
+            }
         }
     }
 
@@ -262,6 +269,7 @@ class ScanEngine(
                     size = entry.size,
                     modified = entry.modified,
                     groupKey = GroupKey.fromFileName(entry.name, profile.groupingRule),
+                    customGroup = kept?.claim(relativePath, entry.name, entry.size),
                     lastSeenSession = sid,
                     addedAt = System.currentTimeMillis(),
                 ),
@@ -297,7 +305,10 @@ class ScanEngine(
             val errors = s?.errorCount ?: 0
             val found = s?.videosFound ?: 0
             val emptySource=errors==0 && found==0 && dao.countNotSeen(sid)>0
-            if(errors==0 && !emptySource)dao.deleteNotSeen(sid)
+            if(errors==0 && !emptySource) {
+                kept?.remember(dao.notSeenAssignments(sid))
+                dao.deleteNotSeen(sid)
+            }
             val status=when { emptySource -> ScanStatus.EMPTY_SOURCE; errors==0 -> ScanStatus.COMPLETED; else -> ScanStatus.COMPLETED_WITH_ERRORS }
             dao.setSessionStatus(sid, status, System.currentTimeMillis())
         }

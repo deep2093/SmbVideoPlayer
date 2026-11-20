@@ -20,7 +20,14 @@ class ServiceLocator internal constructor(context: Context, val libraryId: Strin
         if (legacy) "library.db" else "library-$libraryId.db")
         .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
     val virtualSets = VirtualSetStore(context)
-    val scanRepository = ScanRepository(db, context.getSharedPreferences("scan-owners-$libraryId", Context.MODE_PRIVATE)) { key -> virtualSets.load(key).flatMap { set -> set.folders + set.files.map { it.substringBeforeLast('/', "") } }.distinct() }
+    /** Custom folders of videos a scan removed, given back when the file returns (renamed, moved back, re-cased). */
+    val keptAssignments = KeptAssignments(File(artworkContext.filesDir, "kept-assignments.json"))
+    val scanRepository = ScanRepository(
+        db,
+        context.getSharedPreferences("scan-owners-$libraryId", Context.MODE_PRIVATE),
+        { key -> virtualSets.load(key).flatMap { set -> set.folders + set.files.map { it.substringBeforeLast('/', "") } }.distinct() },
+        keptAssignments,
+    )
     val thumbnails = ThumbnailGenerator(artworkContext, db)
     val lengthBackfill = com.deepak.videolibrary.thumbs.VideoLengthBackfill(artworkContext, db)
     val covers = CoverBuilder(artworkContext, db)

@@ -23,6 +23,23 @@ object ThumbStore {
     fun coverSourceFile(context: Context, videoId: Long): File =
         CustomThumbs.fileFor(context, videoId) ?: thumbFile(context, videoId)
 
+    private val AUTOMATIC_THUMB = Regex("(\\d+)\\.jpg")
+
+    /**
+     * Deletes automatic thumbnails ("<id>.jpg") of videos that are no longer in the library. They are made from the
+     * video and can always be made again; the thumbnails you picked yourself live elsewhere and are not touched.
+     * [liveIds] must be every video id in the library; an empty set deletes nothing. Blocking. Returns the count.
+     */
+    fun pruneAutomatic(context: Context, liveIds: Set<Long>): Int {
+        if (liveIds.isEmpty()) return 0
+        var removed = 0
+        for (file in thumbDir(context).listFiles().orEmpty()) {
+            val id = AUTOMATIC_THUMB.matchEntire(file.name)?.groupValues?.get(1)?.toLongOrNull() ?: continue
+            if (id !in liveIds && file.delete()) removed++
+        }
+        return removed
+    }
+
     /** Private disk cache is persistent; it is not a video-stream buffer. */
     fun artworkBytes(context: Context): Long =
         listOf(thumbDir(context), coverDir(context)).sumOf { dir ->
