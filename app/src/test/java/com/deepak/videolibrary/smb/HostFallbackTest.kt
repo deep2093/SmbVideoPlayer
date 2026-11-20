@@ -16,4 +16,12 @@ class HostFallbackTest {
         HostFallback.remember("192.168.71.250", "192.168.71.249")
         assertEquals("192.168.71.249", HostFallback.lastAnswered("192.168.71.250"))
     }
+
+    @Test fun splitsHostAndPort() {
+        assertEquals("nas" to null, HostFallback.split("nas"))
+        assertEquals("192.168.71.250" to 4450, HostFallback.split(" 192.168.71.250:4450 "))
+        assertEquals("nas" to null, HostFallback.split("nas:99999"))
+        assertEquals("fe80::1" to null, HostFallback.split("fe80::1"))
+        assertEquals("fe80::1" to 445, HostFallback.split("[fe80::1]:445"))
+    }
 }

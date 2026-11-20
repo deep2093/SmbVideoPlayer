@@ -35,10 +35,28 @@ object HostFallback {
         answered[main.trim().lowercase()] = address
     }
 
+    /**
+     * "nas" -> (nas, null), "nas:4450" -> (nas, 4450), "[fe80::1]:445" -> (fe80::1, 445). A bare IPv6 address has no
+     * port. A port outside 1..65535 is ignored.
+     */
+    fun split(address: String): Pair<String, Int?> {
+        val a = address.trim()
+        if (a.startsWith("[")) {
+            val end = a.indexOf(']')
+            if (end > 0) {
+                val port = a.substring(end + 1).removePrefix(":").toIntOrNull()?.takeIf { it in 1..65535 }
+                return a.substring(1, end) to port
+            }
+        }
+        if (a.count { it == ':' } != 1) return a to null
+        val port = a.substringAfter(':').toIntOrNull()?.takeIf { it in 1..65535 }
+        return a.substringBefore(':') to port
+    }
+
     /** True when something accepts a connection on the SMB port of [address] within 2.5 seconds. Blocking. */
     fun answers(address: String): Boolean = try {
-        val host = address.substringBefore(':')
-        val port = address.substringAfter(':', "").toIntOrNull() ?: SMB_PORT
+        val (host, explicitPort) = split(address)
+        val port = explicitPort ?: SMB_PORT
         Socket().use { it.connect(InetSocketAddress(host, port), PROBE_TIMEOUT_MS) }
         true
     } catch (_: Exception) {

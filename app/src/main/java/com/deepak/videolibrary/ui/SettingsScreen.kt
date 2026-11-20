@@ -324,6 +324,14 @@ fun SettingsScreen(vm: LibraryViewModel, onPreviewVideo: (com.deepak.videolibrar
                                         },
                                 )
                             }
+                            if (vm.savedPasswordUnreadable && password.isEmpty()) {
+                                Text(
+                                    "The saved password can't be read on this phone any more. Type it again and save.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                )
+                            }
                             Text(
                                 "Leave the username blank for guest access.",
                                 style = MaterialTheme.typography.labelSmall,

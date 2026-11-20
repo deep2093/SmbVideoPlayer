@@ -2236,6 +2236,15 @@ class LibraryViewModel @JvmOverloads constructor(app: Application, private val s
     var notice by mutableStateOf<String?>(null)
         private set
 
+    /** A saved password that this phone can no longer read (see [SettingsStore.savedPasswordUnreadable]). */
+    val savedPasswordUnreadable: Boolean get() = settingsStore.savedPasswordUnreadable
+
+    init {
+        if (settingsStore.savedPasswordUnreadable) {
+            notice = "Your saved password couldn't be read on this phone (this can happen after a restore or a lock screen change). Enter it again in Settings > Connection."
+        }
+    }
+
     /** Pull down: look for missing scenes, posters and portraits again, without scanning the drive. */
     fun lookUpMissing() {
         viewModelScope.launch {

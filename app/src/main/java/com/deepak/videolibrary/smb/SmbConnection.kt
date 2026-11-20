@@ -34,7 +34,12 @@ data class SmbProfile(
     val groupingRule: com.deepak.videolibrary.scan.GroupingRule = com.deepak.videolibrary.scan.GroupingRule.COMMA_OR_HYPHEN,
     /** Other addresses of the same server, tried in order when [host] does not answer. */
     val alternateHosts: List<String> = emptyList(),
-)
+) {
+    /** Never prints the password. */
+    override fun toString(): String =
+        "SmbProfile(host=$host, share=$share, rootPath=$rootPath, username=$username, password=${if (password.isEmpty()) "" else "***"}, " +
+            "domain=$domain, requireSigning=$requireSigning, requireEncryption=$requireEncryption, groupingRule=$groupingRule, alternateHosts=$alternateHosts)"
+}
 
 data class SmbEntry(
     val name: String,
@@ -59,15 +64,28 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
      * at the SMB port, starting with the one that answered last time, so a changed router address costs a moment
      * rather than a long timeout. Wrong passwords and other server answers are never retried on another address.
      */
-    private fun connectToAnswering(client: SMBClient): com.hierynomus.smbj.connection.Connection {
+    private fun connectToAnswering(client: SMBClient): Pair<com.hierynomus.smbj.connection.Connection, String> {
         val candidates = HostFallback.order(profile.host, profile.alternateHosts, HostFallback.lastAnswered(profile.host))
-        if (candidates.size <= 1) return client.connect(profile.host.trim())
+        if (candidates.size <= 1) return connectTo(client, profile.host.trim()) to profile.host.trim()
         val answering = candidates.firstOrNull { HostFallback.answers(it) }
         // Nobody answered the quick check: try the main address normally so the usual error explains why.
         val target = answering ?: profile.host.trim()
-        val connection = client.connect(target)
+        val connection = connectTo(client, target)
+        try {
+            // The server's ID is known after the first exchange and before any login is sent.
+            ServerIdentity.check(profile.host, target, runCatching { connection.connectionContext.serverGuid }.getOrNull())
+        } catch (e: SmbIdentityException) {
+            runCatching { connection.close() }
+            throw e
+        }
         HostFallback.remember(profile.host, target)
-        return connection
+        return connection to target
+    }
+
+    /** Connects to "host" or "host:port" (the same forms the quick address check accepts). */
+    private fun connectTo(client: SMBClient, address: String): com.hierynomus.smbj.connection.Connection {
+        val (host, port) = HostFallback.split(address)
+        return if (port == null) client.connect(host) else client.connect(host, port)
     }
 
     fun open() {
@@ -81,7 +99,7 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
             .build()
         val newClient = SMBClient(config)
         try {
-            val connection = connectToAnswering(newClient)
+            val (connection, target) = connectToAnswering(newClient)
             val auth = if (profile.username.isBlank()) {
                 AuthenticationContext.anonymous()
             } else {
@@ -90,6 +108,7 @@ class SmbConnection(private val profile: SmbProfile) : Closeable {
             val newSession = connection.authenticate(auth)
             if (profile.requireEncryption && !newSession.shouldEncryptData()) throw SmbSecurityException()
             val newShare = newSession.connectShare(profile.share.trim()) as DiskShare
+            ServerIdentity.learn(profile.host, target, runCatching { connection.connectionContext.serverGuid }.getOrNull())
             client = newClient
             session = newSession
             share = newShare
@@ -356,6 +375,7 @@ object SmbErrors {
         while (cause != null) {
             when (cause) {
                 is SmbSecurityException -> return "This server did not negotiate the required SMB encryption. Check its SMB3 security settings."
+                is SmbIdentityException -> return "Another device answered on an alternate address, so SkyWing did not send your login to it. Check the alternate addresses in Settings."
                 is IllegalArgumentException -> safeValidationMessage(cause.message)?.let { return it }
                 is SMBApiException -> return describeStatus(cause)
                 is java.io.FileNotFoundException -> return "File or folder no longer exists. Refresh the library."
@@ -396,7 +416,7 @@ object SmbErrors {
         var cause: Throwable? = e
         val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable, Boolean>())
         while (cause != null && seen.add(cause)) {
-            if (cause is SMBApiException || cause is SmbSecurityException || cause is IllegalArgumentException || cause is java.io.FileNotFoundException) return false
+            if (cause is SMBApiException || cause is SmbSecurityException || cause is SmbIdentityException || cause is IllegalArgumentException || cause is java.io.FileNotFoundException) return false
             if (cause is InterruptedException || cause is java.io.InterruptedIOException && cause !is SocketTimeoutException) return false
             cause = cause.cause
         }

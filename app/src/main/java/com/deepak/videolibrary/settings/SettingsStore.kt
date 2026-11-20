@@ -27,7 +27,12 @@ data class SmbSettings(
      * They are not part of the library's identity, so the same library is used whichever address answers.
      */
     val alternateHosts: String = "",
-)
+) {
+    /** Never prints the password, so a stray log line or crash report cannot leak it. */
+    override fun toString(): String =
+        "SmbSettings(host=$host, share=$share, rootPath=$rootPath, username=$username, password=${if (password.isEmpty()) "" else "***"}, " +
+            "savePassword=$savePassword, domain=$domain, requireSigning=$requireSigning, requireEncryption=$requireEncryption, alternateHosts=$alternateHosts)"
+}
 
 /**
  * Connection settings. The password is only written to disk when "Save password" is on,
@@ -44,15 +49,31 @@ class SettingsStore(context: Context) {
 
     @Volatile private var cached: SmbSettings? = null
     private val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> cached = null }
-    init { prefs.registerOnSharedPreferenceChangeListener(preferenceListener) }
+    init {
+        prefs.registerOnSharedPreferenceChangeListener(preferenceListener)
+        // Every SMB profile comes from here, so this is the one place that prepares the server check.
+        com.deepak.videolibrary.smb.ServerIdentity.init(app)
+    }
+
+    /**
+     * True when a password was saved but can no longer be read on this phone (after a backup restore, a new phone, or
+     * a change to the lock screen security). The connection then has no password, so the screens can ask for it
+     * again instead of reporting a wrong password.
+     */
+    @Volatile var savedPasswordUnreadable: Boolean = false
+        private set
 
     @Synchronized
     fun load(): SmbSettings {
         cached?.let { return it }
         val save = prefs.getBoolean(KEY_SAVE, false)
         val password = if (save) {
-            prefs.getString(KEY_PASSWORD, null)?.let { decrypt(it) } ?: ""
+            val stored = prefs.getString(KEY_PASSWORD, null)
+            val plain = stored?.let { decrypt(it) }
+            savedPasswordUnreadable = stored != null && plain == null
+            plain ?: ""
         } else {
+            savedPasswordUnreadable = false
             sessionPassword
         }
         return SmbSettings(
@@ -84,6 +105,7 @@ class SettingsStore(context: Context) {
             .putBoolean("require_signing", settings.requireSigning)
             .putBoolean("require_encryption", settings.requireEncryption)
             .putString(KEY_ALTERNATE_HOSTS, com.deepak.videolibrary.smb.HostFallback.parse(settings.alternateHosts).joinToString(", "))
+        savedPasswordUnreadable = false
         if (settings.savePassword) {
             editor.putString(KEY_PASSWORD, encrypted)
             sessionPassword = ""
