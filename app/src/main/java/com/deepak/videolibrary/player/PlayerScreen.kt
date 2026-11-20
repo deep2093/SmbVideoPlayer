@@ -844,7 +844,7 @@ fun PlayerScreen(
                     // smoothing still on, up to three times per video, before giving up on smoothing for that video.
                     val detail = generateSequence(error as Throwable?) { it.cause }.mapNotNull { it.message }.joinToString(" | ")
                     // Errors that will happen again whatever we do: no retry.
-                    val permanent = listOf("SDR only", "libraries are unavailable", "Unsupported source frame rate", "requires two decoded frames")
+                    val permanent = listOf("SDR only", "libraries are unavailable", "Unsupported source frame rate", "requires two decoded frames", com.deepak.videolibrary.player.STUCK_MESSAGE)
                         .any { detail.contains(it) }
                     val tries = if (smoothRetry.first == playingPath) smoothRetry.second else 0
                     if (!permanent && tries < 3) {
@@ -1311,33 +1311,7 @@ fun PlayerScreen(
             )
         }
         if (locked) {
-            // Swallows every touch; a tap shows the Unlock button for a few seconds.
-            var hintVisible by remember { mutableStateOf(true) }
-            LaunchedEffect(unlockHint) {
-                hintVisible = true
-                delay(3_000)
-                hintVisible = false
-            }
-            Box(
-                Modifier.fillMaxSize().pointerInput(Unit) {
-                    awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false)
-                        unlockHint++
-                    }
-                },
-            )
-            androidx.compose.animation.AnimatedVisibility(
-                visible = hintVisible,
-                modifier = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.safeDrawing).padding(bottom = 28.dp),
-                enter = androidx.compose.animation.fadeIn(),
-                exit = androidx.compose.animation.fadeOut(),
-            ) {
-                FilledTonalButton(onClick = { locked = false; revealControls() }) {
-                    Icon(Icons.Filled.LockOpen, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Unlock")
-                }
-            }
+            PlayerLockOverlay(hint = unlockHint, onTap = { unlockHint++ }, onUnlock = { locked = false; revealControls() })
         }
         if (showFps && !locked) {
             val stats = smoothStats

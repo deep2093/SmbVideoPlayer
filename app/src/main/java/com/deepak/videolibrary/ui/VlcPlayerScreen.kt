@@ -90,6 +90,10 @@ internal fun VlcPlayerScreen(
     var pip by remember { mutableStateOf(prefs.getBoolean("pip_enabled", false)) }
     val audio = remember { context.getSystemService(AudioManager::class.java) }
     var resumeFocus by remember { mutableStateOf(false) }
+    // The same "Play during calls" choice as the main player: a call or a short sound does not pause the video.
+    val playDuringCalls = remember { prefs.getBoolean("play_during_calls", true) }
+    var locked by remember { mutableStateOf(false) }
+    var unlockHint by remember { mutableIntStateOf(0) }
     fun debugStatus(message: String) {
         if ((context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) !=
             0
@@ -119,6 +123,8 @@ internal fun VlcPlayerScreen(
                         player.play()
                     }
                 } else {
+                    val passing = change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
+                    if (playDuringCalls && passing) return@setOnAudioFocusChangeListener
                     resumeFocus = change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT && player.isPlaying
                     player.pause()
                     wantsPlay = false
@@ -128,8 +134,9 @@ internal fun VlcPlayerScreen(
     }
     fun play() {
         resumeFocus = false
+        // During a call the request is refused; with "Play during calls" on, the video plays anyway.
         if (audio.requestAudioFocus(focus) ==
-            AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            AudioManager.AUDIOFOCUS_REQUEST_GRANTED || playDuringCalls
         ) {
             wantsPlay = true
             player.play()
@@ -143,6 +150,39 @@ internal fun VlcPlayerScreen(
         wantsPlay = false
         player.pause()
         save()
+    }
+    // Bluetooth and wired headset buttons (play, pause, next, previous), as in the main player.
+    val onHeadsetPlay by rememberUpdatedState<() -> Unit> { play() }
+    val onHeadsetPause by rememberUpdatedState<() -> Unit> { pause() }
+    val onHeadsetNext by rememberUpdatedState<() -> Unit> { save(); if (index < queue.lastIndex) index++ else onQueueEnded() }
+    val onHeadsetPrevious by rememberUpdatedState<() -> Unit> { if (index > 0) { save(); index-- } }
+    val mediaSession = remember { android.media.session.MediaSession(context, "SkyWingVlcPlayer") }
+    DisposableEffect(mediaSession) {
+        mediaSession.setCallback(object : android.media.session.MediaSession.Callback() {
+            override fun onPlay() = onHeadsetPlay()
+            override fun onPause() = onHeadsetPause()
+            override fun onSkipToNext() = onHeadsetNext()
+            override fun onSkipToPrevious() = onHeadsetPrevious()
+        })
+        mediaSession.isActive = true
+        onDispose {
+            mediaSession.isActive = false
+            mediaSession.release()
+        }
+    }
+    LaunchedEffect(mediaSession, playing) {
+        mediaSession.setPlaybackState(
+            android.media.session.PlaybackState.Builder()
+                .setActions(
+                    android.media.session.PlaybackState.ACTION_PLAY or android.media.session.PlaybackState.ACTION_PAUSE or
+                        android.media.session.PlaybackState.ACTION_PLAY_PAUSE or android.media.session.PlaybackState.ACTION_SKIP_TO_NEXT or
+                        android.media.session.PlaybackState.ACTION_SKIP_TO_PREVIOUS,
+                ).setState(
+                    if (playing) android.media.session.PlaybackState.STATE_PLAYING else android.media.session.PlaybackState.STATE_PAUSED,
+                    android.media.session.PlaybackState.PLAYBACK_POSITION_UNKNOWN,
+                    if (playing) 1f else 0f,
+                ).build(),
+        )
     }
     LaunchedEffect(index, attempt) {
         ready = false
@@ -399,7 +439,9 @@ internal fun VlcPlayerScreen(
         }
     }
     BackHandler {
-        if (showQueue) {
+        if (locked) {
+            locked = false
+        } else if (showQueue) {
             showQueue = false
         } else if (tracks) {
             tracks = false
@@ -479,7 +521,7 @@ internal fun VlcPlayerScreen(
                 },
         )
         androidx.compose.animation.AnimatedVisibility(
-            visible = (controls || !playing) && (activity as? MainActivity)?.playbackInPip != true,
+            visible = (controls || !playing) && !locked && (activity as? MainActivity)?.playbackInPip != true,
             modifier = Modifier.fillMaxSize(),
             enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
             exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)),
@@ -507,8 +549,18 @@ internal fun VlcPlayerScreen(
                     runCatching { activity.enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()) }
                 }) else null,
                 onQueue = { showQueue = true },
+                onLock = {
+                    locked = true
+                    showQueue = false
+                    tracks = false
+                    options = false
+                    unlockHint++
+                },
                 onInteraction = { controls = true; controlsInteraction++ },
             )
+        }
+        if (locked) {
+            PlayerLockOverlay(hint = unlockHint, onTap = { unlockHint++ }, onUnlock = { locked = false; controls = true; controlsInteraction++ })
         }
         error?.let { message ->
             Column(

@@ -558,7 +558,7 @@ private class NativeSvpShader(
             if (worker == null) startWorker()
         } catch (e: Throwable) { fail(e) }
     }
-    private fun stop() {
+    private fun stop(reportStuck: Boolean = false) {
         active = false
         if (handle != 0L) NativeSvpStream.cancel(handle)
         synchronized(lock) { lock.notifyAll() }
@@ -569,6 +569,10 @@ private class NativeSvpShader(
         val stuck = running?.isAlive == true
         worker = null
         if (handle != 0L) { if (!stuck) NativeSvpStream.close(handle); handle = 0 }
+        // A worker that did not stop within 1.5 s is stuck in the graphics driver, and every later seek would wait the
+        // same 1.5 s on Media3's video thread. Report it once as a lasting failure so the player turns smoothing off
+        // for this video instead of retrying.
+        if (stuck && reportStuck) errorExecutor.execute { errors.onError(VideoFrameProcessingException(IllegalStateException(STUCK_MESSAGE))) }
         textures.forEach { it.release() }; textures.clear(); free.clear()
         if (readFbo != 0) GL.glDeleteFramebuffers(1, intArrayOf(readFbo), 0)
         if (packedTexture != 0) GL.glDeleteTextures(1, intArrayOf(packedTexture), 0)
@@ -576,7 +580,7 @@ private class NativeSvpShader(
         readFbo = 0; first = null; readback = null
     }
     override fun flush() {
-        stop()
+        stop(reportStuck = true)
         count = 0; consumed = 0; credit = false; ended = false; active = true; finished = false; requestedEndUs = Long.MAX_VALUE
         input.onFlush(); offerInput()
     }
@@ -618,3 +622,6 @@ private const val HDR_PQ_EOTF =
 
 /** Longest gap (in source frames, about a second) the variable-rate snapping fills by repeating a frame. */
 private const val MAX_FILL = 30
+
+/** Message of the lasting failure raised when the smoothing worker is stuck in the graphics driver. */
+internal const val STUCK_MESSAGE = "smoothing worker stuck in the graphics driver"
