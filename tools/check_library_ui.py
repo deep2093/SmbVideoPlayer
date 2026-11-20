@@ -238,8 +238,13 @@ try:
     assert target.read_bytes()==(Path('/tmp/videolibrary-fixtures/Movies')/NAME).read_bytes()
     print('PASS: Select all in Videos -> shared Copy -> Paste from Original folders')
     click('Videos');click(NAME,long=True);click('Remove / Hide')
-    click('Files');click('Movies');screenshot('hidden-in-explorer')
-    assert gone(NAME), 'A hidden video must not be listed in Files'
+    click('Files');click('Movies')
+    # Hiding is saved in the background; on a slow emulator the folder can list once more before it applies.
+    end = time.monotonic() + 10
+    while not gone(NAME, wait=1) and time.monotonic() < end:
+        pass
+    screenshot('hidden-in-explorer')
+    assert gone(NAME, wait=0), 'A hidden video must not be listed in Files'
     click('Settings');open_section('Library>Hidden items','Unhide files and folders');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
     find('No hidden items.');screenshot('unhide')
     adb('shell','input','keyevent','4')  # Back from Hidden items to the Library page.
