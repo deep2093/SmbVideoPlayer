@@ -238,13 +238,23 @@ try:
     assert target.read_bytes()==(Path('/tmp/videolibrary-fixtures/Movies')/NAME).read_bytes()
     print('PASS: Select all in Videos -> shared Copy -> Paste from Original folders')
     click('Videos');click(NAME,long=True);click('Remove / Hide')
+    # Videos now lists two copies of NAME (Movies and the one pasted into Destination), and the long press can land on
+    # either, so the hidden one must be missing from one of the two folders. Hiding is saved in the background, so
+    # each folder gets up to 10 s.
+    def hidden_here():
+        end = time.monotonic() + 10
+        while time.monotonic() < end:
+            if gone(NAME, wait=1):
+                return True
+        return False
     click('Files');click('Movies')
-    # Hiding is saved in the background; on a slow emulator the folder can list once more before it applies.
-    end = time.monotonic() + 10
-    while not gone(NAME, wait=1) and time.monotonic() < end:
-        pass
+    hidden = hidden_here()
+    if not hidden:
+        adb('shell','input','keyevent','4')  # Back to the share's top folder.
+        click('Destination')
+        hidden = hidden_here()
     screenshot('hidden-in-explorer')
-    assert gone(NAME, wait=0), 'A hidden video must not be listed in Files'
+    assert hidden, 'A hidden video must not be listed in Files'
     click('Settings');open_section('Library>Hidden items','Unhide files and folders');click('Unhide files and folders');find('Hidden files and folders');click('Unhide all (1)')
     find('No hidden items.');screenshot('unhide')
     adb('shell','input','keyevent','4')  # Back from Hidden items to the Library page.
