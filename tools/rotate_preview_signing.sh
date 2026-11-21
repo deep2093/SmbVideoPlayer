@@ -5,14 +5,17 @@
 set -euo pipefail
 : "${PREVIEW_V2_KEYSTORE:?missing}" "${PREVIEW_V2_PASSWORD:?missing}"
 signer="$ANDROID_HOME/build-tools/35.0.0/apksigner"
-lineage=.ci/preview-lineage.bin
-if [ ! -s "$lineage" ]; then
-  echo "::error::$lineage is missing. Run the 'Create preview key lineage' workflow and commit its output (see .ci/KEY-ROTATION.md)."
-  exit 1
-fi
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 printf '%s' "$PREVIEW_V2_KEYSTORE" | base64 -d > "$work/new.p12"
+# The rotation record (lineage) says "the new key replaces the old one", signed by the old key. It holds no private key.
+# It is made here from the old key in this repository and the new key from the secret, so nothing has to be committed.
+# The old key may hand over installed data and permissions, but may never be used to roll back.
+lineage="$work/preview-lineage.bin"
+"$signer" rotate --out "$lineage" \
+  --old-signer --ks .ci/preview-signing.p12 --ks-type PKCS12 --ks-pass pass:android \
+    --set-installed-data true --set-shared-uid true --set-permission true --set-rollback false --set-auth true \
+  --new-signer --ks "$work/new.p12" --ks-type PKCS12 --ks-pass env:PREVIEW_V2_PASSWORD
 for apk in "$@"; do
   "$signer" sign --ks "$work/new.p12" --ks-type PKCS12 --ks-pass env:PREVIEW_V2_PASSWORD \
     --lineage "$lineage" --out "$work/signed.apk" "$apk"

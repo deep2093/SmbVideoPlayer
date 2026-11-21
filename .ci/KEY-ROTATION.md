@@ -36,14 +36,11 @@ Until the new key is configured, nothing changes: CI keeps signing with the old 
      ```
    - `PREVIEW_V2_PASSWORD`: the password from step 1.
 
-4. **Make the lineage.** Actions > "Create preview key lineage" > Run workflow. When it finishes, download the
-   `preview-lineage` artifact, unzip it, and put `preview-lineage.bin` in this `.ci` folder. Commit it (it holds only
-   certificates and a signature, no private key). Or send it to Claude to commit.
+4. **Build as usual** (or ask Claude to start a build). CI makes the rotation record from the old key in this
+   repository and the new key from the secret, re-signs `SkyWing-arm64.apk` with the new key, and the emulator update
+   test installs it over the old-key build to prove that data is kept. Nothing has to be committed.
 
-5. **Build as usual.** CI now re-signs `SkyWing-arm64.apk` with the new key and the lineage. The emulator update test
-   installs it over the old-key build to prove that data is kept.
-
-6. **Install `SkyWing-arm64.apk` over your current SkyWing Preview** on each device. Everything stays as it was.
+5. **Install `SkyWing-arm64.apk` over your current SkyWing Preview** on each device. Everything stays as it was.
 
 ## After the move
 
