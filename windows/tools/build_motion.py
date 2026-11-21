@@ -2,13 +2,33 @@
 --plugins permits local validation with DLLs built from the same patched source.
 No downloaded executable or installer is launched. Extraction stays in dedicated build directories.
 """
-import argparse, hashlib, json, os, pathlib, shutil, subprocess, tarfile, tempfile, urllib.request, zipfile
+import argparse, hashlib, json, os, pathlib, platform, shutil, subprocess, sys, tarfile, urllib.request, zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MOTION = json.loads((ROOT/'windows/legal/NATIVE-PROVENANCE.json').read_text())['motion']
 
 def sha(p):
     with p.open('rb') as f: return hashlib.file_digest(f, 'sha256').hexdigest()
+
+def tool_version(command, env=None):
+    """First output line of a version command, or None when the tool is not on PATH."""
+    try: result=subprocess.run(command,capture_output=True,text=True,env=env,check=False)
+    except FileNotFoundError: return None
+    lines=(result.stdout or result.stderr).strip().splitlines()
+    return lines[0].strip() if lines else None
+
+def toolchain_info(toolchain_name, plugins):
+    """Versions that produced this payload, so two builds can be compared and rebuilt."""
+    info={'python':sys.version.split()[0],'platform':platform.platform()}
+    if plugins: info['plugins']='supplied with --plugins; compiler versions unknown'
+    else:
+        info['rustc']=subprocess.run(['rustc','+'+toolchain_name,'-vV'],capture_output=True,text=True,check=True).stdout.strip().splitlines()
+        info['cargo']=tool_version(['cargo','+'+toolchain_name,'-V'])
+        # Set by the MSVC developer environment (ilammy/msvc-dev-cmd in CI).
+        for name in ('VCToolsVersion','WindowsSDKVersion','VSCMD_VER'):
+            info[name]=os.environ.get(name,'').strip('\\') or None
+        info['link']=tool_version(['link','/?'])
+    return info
 
 def main():
     parser=argparse.ArgumentParser()
@@ -24,9 +44,16 @@ def main():
         if not archive.exists(): urllib.request.urlretrieve(item['url'],archive)
         if sha(archive)!=item['sha256']: raise RuntimeError('Checksum mismatch: '+item['name'])
         downloads[item['name']]=archive
-    # Always stage into a fresh subdirectory; never recursively erase a supplied path.
-    with tempfile.TemporaryDirectory(prefix='skywing-motion-',dir=args.cache) as temporary:
-        stage=pathlib.Path(temporary)
+    # Stage at a fixed path: Cargo derives crate metadata hashes from the source path, so a random
+    # folder can change the plugin binaries. Only a folder this script created (marker file) is erased.
+    stage=args.cache/'skywing-motion-stage'
+    marker=stage/'.skywing-motion-stage'
+    if stage.exists():
+        if not marker.is_file(): raise RuntimeError('Refusing to erase a folder this script did not create: '+str(stage))
+        shutil.rmtree(stage)
+    stage.mkdir()
+    marker.write_text('Created by windows/tools/build_motion.py; erased on the next run.\n',encoding='utf-8')
+    try:
         with tarfile.open(downloads['open-svpflow-deadbad.tar.gz']) as archive:
             archive.extractall(stage/'source',filter='data')
         source=next((stage/'source').iterdir())
@@ -78,12 +105,15 @@ def main():
             if not files: raise RuntimeError('Missing crate licence: '+key)
             for item in files: notices.append(key+'/'+item.name+'\n\n'+item.read_text(encoding='utf-8')+'\n')
         (legal/'RUST-CRATES.txt').write_text('\n'.join(notices),encoding='utf-8')
-        manifest={'motion':MOTION,'patchSha256':sha(ROOT/MOTION['patch']),
+        # Hash the LF patch that was applied, not the checkout copy, whose line endings vary.
+        manifest={'motion':MOTION,'patchSha256':sha(patch),'toolchain':toolchain_info(MOTION['rustToolchain'],args.plugins),
             'localPluginOverride':bool(args.plugins),'files':{p.relative_to(payload).as_posix():sha(p) for p in sorted(payload.rglob('*')) if p.is_file()}}
         (payload/'BUILD-MANIFEST.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
         args.output.mkdir(parents=True,exist_ok=True)
         if any(args.output.iterdir()): raise RuntimeError('Output must be empty: '+str(args.output))
         shutil.copytree(payload,args.output,dirs_exist_ok=True)
         print('Motion component:',sum(p.stat().st_size for p in args.output.rglob('*') if p.is_file()),'bytes')
+    finally:
+        shutil.rmtree(stage)
 
 if __name__=='__main__': main()

@@ -10,7 +10,13 @@
   "builderRun": "https://github.com/shinchiro/mpv-winbuild-cmake/actions/runs/39518569492",
   "builderRecipe": "https://github.com/shinchiro/mpv-winbuild-cmake/blob/1f8d2e76255abc48f0456d9be99b4cab9c6566e6/packages/ffmpeg.cmake",
   "sameReleaseFfmpegRevision": "9a861e9687d30e657d59521817cad18405995983",
-  "sameReleaseFfmpegRevisionVerifiedInsideDll": false,
+  "sameReleaseFfmpegRevisionVerifiedInsideDll": true,
+  "dllEmbeddedVersions": {
+    "ffmpeg": "N-127893-g9a861e968",
+    "mpv": "mpv v0.41.0-1227-ge471496c5",
+    "ffmpegConfigure": "GPL-enabled configure line in the DLL; the builder recipe sets --enable-gpl --enable-version3 and no --enable-nonfree",
+    "evidence": "Version strings read from the dllSha256 binary on 2026-11-22; they match sameReleaseFfmpegRevision and mpvRevision."
+  },
   "licenceTextSources": [
     {
       "path": "windows/legal/licenses/GPL-3.0.txt",
@@ -63,5 +69,18 @@
       }
     ],
     "payloadInventory": "motion/BUILD-MANIFEST.json"
+  },
+  "javaRuntime": {
+    "vendor": "Eclipse Adoptium",
+    "release": "jdk-17.0.20.1+1",
+    "implementorVersion": "Temurin-17.0.20.1+1",
+    "setupJavaVersion": "17.0.20+101",
+    "sourceTag": "jdk-17.0.20.1+1_adopt",
+    "sourceCommit": "79597447bd94ff9f8216e2e3a573d5261ee49f2e",
+    "sourceRepository": "https://github.com/adoptium/jdk17u",
+    "sourceArchive": "OpenJDK17U-jdk-sources_17.0.20.1_1.tar.gz",
+    "sourceArchiveUrl": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk-sources_17.0.20.1_1.tar.gz",
+    "sourceArchiveSha256": "21e2a065d244ab048e737f21af5d1fc74daaeb6707de36477ead8db1dca71214",
+    "license": "GPL-2.0-only WITH Classpath-exception-2.0"
   }
 }

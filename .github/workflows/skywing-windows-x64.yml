@@ -35,7 +35,9 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          # Exact release bundled as the app runtime: Temurin jdk-17.0.20.1+1 (Adoptium semver 17.0.20+101).
+          # Keep in step with javaRuntime in windows/legal/NATIVE-PROVENANCE.json; a later step checks it.
+          java-version: "17.0.20+101"
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Fetch pinned Windows x64 libmpv and validate archive
@@ -85,6 +87,16 @@ jobs:
         run: |
           python windows/tools/build_motion.py --cache "$env:RUNNER_TEMP/motion-downloads" --output windows/build/native-resources/windows/motion
           if ($LASTEXITCODE -ne 0) { throw 'Motion engine build failed' }
+          Get-Content windows/build/native-resources/windows/motion/BUILD-MANIFEST.json -Raw | Write-Host
+      - name: Check the motion build is reproducible
+        shell: pwsh
+        run: |
+          # Second build from the same source and toolchain. build_motion.py removes its staging folder (and
+          # the Cargo target folder inside it) after each run, so this rebuild starts clean.
+          python windows/tools/build_motion.py --cache "$env:RUNNER_TEMP/motion-downloads" --output "$env:RUNNER_TEMP/motion-rebuild"
+          if ($LASTEXITCODE -ne 0) { throw 'Motion engine rebuild failed' }
+          python windows/tools/compare_builds.py --kind motion windows/build/native-resources/windows/motion "$env:RUNNER_TEMP/motion-rebuild"
+          if ($LASTEXITCODE -ne 0) { throw 'Motion engine build is not reproducible' }
       - name: Provision Vulkan loader for native tests on the hosted runner
         if: env.SKYWING_EXPERIMENTAL_MPV != 'true'
         shell: pwsh
@@ -174,6 +186,10 @@ jobs:
           } elseif ((Get-FileHash $dll.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -ne $native.dllSha256) {
             throw 'Packaged libmpv does not match its legal provenance'
           }
+          $runtime = Get-Content (Join-Path $legal 'java-runtime/BUILD-RELEASE.txt') -Raw
+          if ($runtime -notmatch ('IMPLEMENTOR_VERSION="' + [regex]::Escape($native.javaRuntime.implementorVersion) + '"')) {
+            throw "Bundled Java runtime is not $($native.javaRuntime.implementorVersion)"
+          }
           $inventory = Import-Csv (Join-Path $legal 'JVM-RUNTIME-INVENTORY.tsv') -Delimiter "	"
           if ($inventory.Count -lt 10) { throw 'Runtime licence inventory is unexpectedly incomplete' }
           if (-not (Get-ChildItem (Join-Path $legal 'jvm') -Recurse -File |
@@ -192,12 +208,33 @@ jobs:
             $file = Join-Path $manifest.Directory.FullName $entry.Name
             if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.Value) { throw "Motion payload mismatch: $($entry.Name)" }
           }
+      - name: Check the app image is reproducible
+        shell: pwsh
+        run: |
+          # Rebuild every task from the same checkout and compare. Regenerated jars with identical entries and
+          # SkyWing.cfg jar-name hashes are expected metadata; any other difference fails the build.
+          $image = 'windows/build/compose/binaries/main/app/SkyWing'
+          $first = "$env:RUNNER_TEMP/app-image-first"
+          Copy-Item -Recurse $image $first
+          .\gradlew.bat -p windows createDistributable --rerun-tasks --no-daemon --stacktrace
+          if ($LASTEXITCODE -ne 0) { throw 'Second createDistributable failed' }
+          python windows/tools/compare_builds.py --kind image $first $image
+          if ($LASTEXITCODE -ne 0) { throw 'The app image differs between two builds of the same source' }
       - name: Archive matching Windows application source
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force 'windows/build/legal' | Out-Null
           git archive --format=zip --output=windows/build/legal/skywing-windows-source.zip HEAD windows gradle/wrapper gradlew gradlew.bat .github/workflows/skywing-windows-x64.yml
           if ($LASTEXITCODE -ne 0) { throw 'Windows source archive failed' }
+      - name: Archive the matching Java runtime source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $java = (Get-Content windows/legal/NATIVE-PROVENANCE.json -Raw | ConvertFrom-Json).javaRuntime
+          $target = "windows/build/legal/$($java.sourceArchive)"
+          Invoke-WebRequest -Uri $java.sourceArchiveUrl -OutFile $target
+          $actual = (Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $java.sourceArchiveSha256) { throw "Java source archive checksum mismatch: $actual" }
       - name: Upload Windows installers
         uses: actions/upload-artifact@v4
         with:
@@ -206,6 +243,7 @@ jobs:
             windows/build/compose/binaries/main/exe/*.exe
             windows/build/compose/binaries/main/msi/*.msi
             windows/build/legal/skywing-windows-source.zip
+            windows/build/legal/OpenJDK17U-jdk-sources_*.tar.gz
           if-no-files-found: error
           retention-days: 7
       - name: Upload the experimental mpv source inputs

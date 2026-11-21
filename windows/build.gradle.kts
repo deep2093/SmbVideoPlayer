@@ -1,3 +1,6 @@
+import java.io.BufferedInputStream
+import java.io.InputStream
+import java.util.zip.GZIPInputStream
 import java.util.zip.ZipFile
 import java.security.MessageDigest
 
@@ -92,6 +95,58 @@ compose.desktop {
     }
 }
 
+/** Licence, notice and copyright files, matched by file name (for example LICENSE, NOTICE.txt, jogl.LICENSE.txt). */
+fun isLegalFileName(path: String): Boolean {
+    val leaf = path.substringAfterLast('/').lowercase()
+    val words = listOf("license", "licence", "notice", "copying", "copyright", "authors")
+    return words.any { leaf == it || leaf.startsWith("$it.") || leaf.startsWith("$it-") || leaf.startsWith("${it}_") } ||
+        Regex("""[._-](license|licence|notice|copying)([._-]|$)""").containsMatchIn(leaf)
+}
+
+/**
+ * Copies the legal files of a .tar.gz archive nested in a runtime jar (JCEF ships its Chromium bundle this way)
+ * into [target]. Reads plain ustar and GNU tar headers; returns the number of files copied.
+ */
+fun extractLegalFilesFromTarGz(archive: InputStream, target: File): Int {
+    val tar = BufferedInputStream(GZIPInputStream(archive), 65536)
+    val header = ByteArray(512)
+    val root = target.canonicalFile.toPath()
+    var copied = 0
+    var longName: String? = null
+    while (tar.readNBytes(header, 0, header.size) == header.size && header.any { it != 0.toByte() }) {
+        fun field(from: Int, to: Int) = String(header, from, to - from, Charsets.UTF_8).substringBefore('\u0000')
+        val size = field(124, 136).trim().ifEmpty { "0" }.toLong(8)
+        val padding = (512 - size % 512) % 512
+        val type = header[156].toInt().toChar()
+        // Only POSIX ustar headers use the prefix field; GNU headers keep other data there.
+        val ustar = String(header, 257, 6, Charsets.US_ASCII) == "ustar\u0000"
+        val name = longName ?: listOf(if (ustar) field(345, 500) else "", field(0, 100)).filter { it.isNotEmpty() }.joinToString("/")
+        longName = null
+        when {
+            type == 'L' -> longName = String(tar.readNBytes(size.toInt()), Charsets.UTF_8).trimEnd('\u0000')
+            (type == '0' || type == '\u0000') && isLegalFileName(name) -> {
+                val file = target.resolve(name.removePrefix("./")).canonicalFile
+                check(file.toPath().startsWith(root)) { "Invalid archive path: $name" }
+                file.parentFile.mkdirs()
+                file.outputStream().use { out ->
+                    var left = size
+                    val buffer = ByteArray(65536)
+                    while (left > 0) {
+                        val read = tar.read(buffer, 0, minOf(buffer.size.toLong(), left).toInt())
+                        check(read > 0) { "Truncated archive entry: $name" }
+                        out.write(buffer, 0, read)
+                        left -= read
+                    }
+                }
+                copied++
+            }
+            else -> tar.skipNBytes(size)
+        }
+        tar.skipNBytes(padding)
+    }
+    return copied
+}
+
 /**
  * Preserve notices with the exact runtime artifacts. This collects evidence;
  * legal/SOURCE-STATUS.md tracks the remaining native-source release gate.
@@ -126,8 +181,39 @@ val generateWindowsLegal by tasks.registering {
             "The CI source ZIP contains SkyWing's Windows sources and build scripts.\n" +
             "See SOURCE-STATUS.md for dependency-source gaps; this is not a complete corresponding-source bundle.\n"
         )
-        val inventory = StringBuilder("Artifact\tFile\tSHA-256\tExtracted notice files\n")
+        // Licences declared in each artifact's Maven POM (or its parent POMs): evidence for jars that embed none.
+        fun declaredLicences(group: String, name: String, version: String): String {
+            var coordinates = Triple(group, name, version)
+            repeat(5) {
+                val (g, n, v) = coordinates
+                val pom = runCatching {
+                    configurations.detachedConfiguration(dependencies.create("$g:$n:$v@pom")).singleFile
+                }.getOrNull() ?: return "POM not resolved"
+                val document = javax.xml.parsers.DocumentBuilderFactory.newInstance().apply {
+                    setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                }.newDocumentBuilder().parse(pom)
+                val project = document.documentElement
+                fun org.w3c.dom.Element.child(tag: String) = (0 until childNodes.length).map { childNodes.item(it) }
+                    .filterIsInstance<org.w3c.dom.Element>().firstOrNull { it.tagName == tag }
+                val licences = project.child("licenses")?.getElementsByTagName("license")?.let { list ->
+                    (0 until list.length).map { list.item(it) as org.w3c.dom.Element }.map { licence ->
+                        listOfNotNull(licence.child("name")?.textContent?.trim(), licence.child("url")?.textContent?.trim())
+                            .joinToString(" ")
+                    }
+                }.orEmpty()
+                if (licences.isNotEmpty()) return licences.joinToString("; ")
+                val parent = project.child("parent") ?: return "none declared"
+                coordinates = Triple(
+                    parent.child("groupId")?.textContent?.trim().orEmpty(),
+                    parent.child("artifactId")?.textContent?.trim().orEmpty(),
+                    parent.child("version")?.textContent?.trim().orEmpty(),
+                )
+            }
+            return "none declared"
+        }
+        val inventory = StringBuilder("Artifact\tFile\tSHA-256\tExtracted notice files\tDeclared licences (POM)\n")
         val artifacts = configurations.getByName("runtimeClasspath").resolvedConfiguration.resolvedArtifacts
+        var withoutEvidence = 0
         for (artifact in artifacts.sortedBy { it.moduleVersion.id.toString() + ":" + it.file.name }) {
             val jar = artifact.file
             check(jar.extension == "jar") { "Review non-JAR runtime artifact: ${jar.name}" }
@@ -141,11 +227,12 @@ val generateWindowsLegal by tasks.registering {
             var noticeCount = 0
             ZipFile(jar).use { zip ->
                 for (entry in zip.entries().asSequence().filter { !it.isDirectory }.sortedBy { it.name }) {
-                    val leaf = entry.name.substringAfterLast('/').lowercase()
-                    val legalFile = listOf("license", "licence", "notice", "copying", "copyright", "authors").any {
-                        leaf == it || leaf.startsWith("$it.") || leaf.startsWith("$it-") || leaf.startsWith("${it}_")
+                    if (entry.name.endsWith(".tar.gz")) {
+                        // A native bundle inside the jar; its notices live inside the archive.
+                        zip.getInputStream(entry).use { noticeCount += extractLegalFilesFromTarGz(it, artifactDir.resolve("nested")) }
+                        continue
                     }
-                    if (!legalFile) continue
+                    if (!isLegalFileName(entry.name)) continue
                     val target = artifactDir.resolve(entry.name).canonicalFile
                     check(target.toPath().startsWith(artifactDir.canonicalFile.toPath())) { "Invalid archive path" }
                     target.parentFile.mkdirs()
@@ -159,9 +246,12 @@ val generateWindowsLegal by tasks.registering {
                 while (true) { val count = input.read(buffer); if (count < 0) break; hash.update(buffer, 0, count) }
             }
             val digest = hash.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
-            inventory.append("$id\t${jar.name}\t$digest\t$noticeCount\n")
+            val declared = declaredLicences(id.group, id.name, id.version)
+            if (noticeCount == 0 && declared in setOf("none declared", "POM not resolved")) withoutEvidence++
+            inventory.append("$id\t${jar.name}\t$digest\t$noticeCount\t$declared\n")
         }
         out.resolve("JVM-RUNTIME-INVENTORY.tsv").writeText(inventory.toString())
+        if (withoutEvidence > 0) logger.warn("$withoutEvidence runtime artifacts have neither an embedded notice nor a declared licence.")
         check(out.resolve("upstream/mpv-Copyright.txt").isFile)
         check(out.resolve("licenses/GPL-3.0.txt").length() > 30000)
         logger.lifecycle("Bundled Windows legal files for ${artifacts.size} runtime artifacts. Native-source audit remains tracked in SOURCE-STATUS.md.")
@@ -170,6 +260,18 @@ val generateWindowsLegal by tasks.registering {
 
 tasks.matching { it.name in setOf("prepareAppResources", "createDistributable", "packageExe", "packageMsi") }.configureEach {
     dependsOn(generateWindowsLegal)
+}
+
+// Compose 1.8.2 does not count the prepared app resources as a createDistributable input: after only libmpv,
+// motion or legal files change, it reports UP-TO-DATE and keeps the old files in the app image.
+tasks.matching { it.name == "createDistributable" }.configureEach {
+    inputs.files(tasks.named("prepareAppResources")).withPropertyName("preparedAppResources")
+}
+
+// Same source, same jar bytes: no file timestamps, fixed entry order.
+tasks.withType<AbstractArchiveTask>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
 }
 
 val generateBuildInfo by tasks.registering {
