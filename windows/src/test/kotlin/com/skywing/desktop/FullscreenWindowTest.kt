@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.background
 import com.skywing.desktop.playback.EmbeddedMpv
+import com.skywing.testsupport.IsolatedPreferencesFactory
 import com.sun.jna.Native
 import com.sun.jna.Pointer
 import com.sun.jna.win32.StdCallLibrary
@@ -19,6 +20,7 @@ import java.awt.Container
 import java.awt.Frame
 import java.awt.GraphicsEnvironment
 import java.awt.KeyboardFocusManager
+import java.awt.Point
 import java.awt.Rectangle
 import java.awt.Robot
 import java.awt.event.KeyEvent
@@ -91,11 +93,106 @@ class FullscreenWindowTest {
             if (condition()) return
             Thread.sleep(50)
         }
-        fail(message)
+        val context = edt {
+            java.awt.Window.getWindows().filter { it is Frame && it.title == "SkyWing fullscreen regression" }
+                .joinToString { "focused=${it.isFocused}, bounds=${it.bounds}, cursor=${it.cursor}, overlays=" +
+                    it.ownedWindows.joinToString { child -> "${child.name}:${child.isVisible}:${child.bounds}" } }
+        }
+        fail("$message; pointer=${java.awt.MouseInfo.getPointerInfo()?.location}; $context")
     }
     private fun canvases(component: Component): List<Canvas> =
         (if (component.javaClass == Canvas::class.java) listOf(component as Canvas) else emptyList()) +
             (if (component is Container) component.components.flatMap(::canvases) else emptyList())
+
+    private fun prepareInactivity(window: java.awt.Window, canvas: Canvas, robot: Robot): java.awt.Point {
+        // Native setup and other test windows can change focus after the initial
+        // request. Inactivity requires a focused player and no control hover.
+        edt { window.toFront(); window.requestFocus(); canvas.requestFocusInWindow() }
+        await("Inactivity target did not gain focus") { edt { window.isFocused } }
+        robot.waitForIdle()
+        val (point, approach) = edt {
+            val video = Rectangle(canvas.locationOnScreen, canvas.size)
+            // Include hidden overlays: moving the pointer can reveal them again.
+            val overlays = window.ownedWindows.filter {
+                it.isDisplayable && it.name?.startsWith("skywing-") == true
+            }.map { Rectangle(it.bounds) }
+            val cuts = (listOf(video.y, video.y + video.height) + overlays.flatMap {
+                listOf(it.y, it.y + it.height)
+            }).map { it.coerceIn(video.y, video.y + video.height) }.distinct().sorted()
+            val x = video.x + video.width / 2
+            val band = checkNotNull(cuts.zipWithNext().filter { (top, bottom) ->
+                bottom > top && overlays.none { it.contains(x, top + (bottom - top) / 2) }
+            }.maxByOrNull { (top, bottom) -> bottom - top }) { "No video area outside the player controls" }
+            val y = band.first + (band.second - band.first) / 2
+            Point(x, y) to Point(x - 12, y)
+        }
+        // Establish real movement before testing a stationary cursor. A move to
+        // the current position may leave native mouse tracking uninitialized.
+        robot.mouseMove(approach.x, approach.y)
+        await("Inactivity setup pointer did not reach the approach point") {
+            java.awt.MouseInfo.getPointerInfo()?.location == approach
+        }
+        robot.waitForIdle()
+        robot.mouseMove(point.x, point.y)
+        robot.waitForIdle()
+        await("Inactivity pointer did not reach the video") {
+            java.awt.MouseInfo.getPointerInfo()?.location == point && edt { window.isFocused }
+        }
+        return point
+    }
+
+    private fun awaitInactivity(window: java.awt.Window, point: java.awt.Point,
+                                message: String, condition: () -> Boolean) {
+        await(message) {
+            assertTrue(edt { window.isFocused }, "Desktop focus changed during inactivity assertion: $message")
+            assertEquals(point, java.awt.MouseInfo.getPointerInfo()?.location,
+                "Desktop pointer moved during inactivity assertion: $message")
+            condition()
+        }
+    }
+
+    private fun inactivityFixture(): Pair<Frame, Canvas> = edt {
+        val canvas = Canvas()
+        val frame = Frame("SkyWing inactivity setup regression").apply {
+            setBounds(80, 80, 800, 600)
+            add(canvas)
+            isVisible = true
+            toFront()
+        }
+        frame to canvas
+    }
+
+    @Test fun inactivitySetupRecoversFocusFromAnotherWindow() {
+        assumeTrue(System.getProperty("os.name").startsWith("Windows"))
+        assumeTrue(!GraphicsEnvironment.isHeadless())
+        val (window, canvas) = inactivityFixture()
+        val other = edt { Frame("SkyWing test focus competitor").apply {
+            setBounds(1000, 80, 160, 120); isVisible = true; toFront(); requestFocus()
+        } }
+        try {
+            await("Competitor did not gain focus") { edt { other.isFocused } }
+            prepareInactivity(window, canvas, Robot())
+            assertTrue(edt { window.isFocused }, "Inactivity checks require the target to own focus")
+        } finally { edt { other.dispose(); window.dispose() } }
+    }
+
+    @Test fun inactivitySetupPlacesPointerOutsideOwnedControls() {
+        assumeTrue(System.getProperty("os.name").startsWith("Windows"))
+        assumeTrue(!GraphicsEnvironment.isHeadless())
+        val (window, canvas) = inactivityFixture()
+        val overlay = edt { java.awt.Window(window).apply {
+            name = "skywing-controls-overlay"
+            focusableWindowState = false
+            setBounds(window.x, window.y + window.height / 3, window.width, window.height * 2 / 3)
+            isVisible = true
+        } }
+        try {
+            val point = prepareInactivity(window, canvas, Robot())
+            assertFalse(edt { overlay.bounds.contains(point) }, "The window center can be inside its controls")
+            assertTrue(edt { Rectangle(canvas.locationOnScreen, canvas.size).contains(point) })
+            assertEquals(point, java.awt.MouseInfo.getPointerInfo()?.location)
+        } finally { edt { overlay.dispose(); window.dispose() } }
+    }
 
     @Test fun composeEscapeRestoresSameVisibleFrameAndCanvas() {
         assumeTrue(System.getProperty("os.name").startsWith("Windows"))
@@ -186,9 +283,8 @@ class FullscreenWindowTest {
                     await("F did not enter fullscreen") { edt { window.bounds == window.graphicsConfiguration.bounds } }
                     val robot = Robot()
                     fun cursorShowing(): Boolean = cursorHasPixels()
-                    val center = edt { window.bounds.let { java.awt.Point(it.x + it.width / 2, it.y + it.height / 2) } }
-                    robot.mouseMove(center.x, center.y)
                     fun overlaysVisible() = edt { window.ownedWindows.count { it.name?.startsWith("skywing-") == true && it.isVisible } == 2 }
+                    fun overlaysHidden() = edt { window.ownedWindows.none { it.name?.startsWith("skywing-") == true && it.isVisible } }
                     await("Fullscreen controls were not shown") { overlaysVisible() }
                     // Fractional Windows DPI can round the Swing surface up by one logical pixel.
                     await("Video must fill fullscreen") { edt { kotlin.math.abs(canvas.height - window.height) <= 1 && kotlin.math.abs(canvas.width - window.width) <= 1 } }
@@ -196,8 +292,9 @@ class FullscreenWindowTest {
                     val captures = File("build/reports/tests/test/screenshots").apply { mkdirs() }
                     robot.waitForIdle()
                     ImageIO.write(robot.createScreenCapture(edt { window.bounds }), "png", File(captures, "fullscreen-controls.png"))
-                    await("Fullscreen controls did not auto-hide") { !overlaysVisible() }
-                    await("Fullscreen cursor did not hide with controls") { !cursorShowing() }
+                    val center = prepareInactivity(window, canvas, robot)
+                    awaitInactivity(window, center, "Fullscreen controls did not auto-hide") { overlaysHidden() }
+                    awaitInactivity(window, center, "Fullscreen cursor did not hide with controls") { !cursorShowing() }
                     val otherWindow = edt { Frame("Cursor focus regression").apply {
                         setBounds(center.x - 100, center.y - 100, 200, 200); isVisible = true; toFront(); requestFocus()
                     } }
@@ -206,12 +303,13 @@ class FullscreenWindowTest {
                         await("Cursor remained hidden after focus loss") { cursorShowing() }
                     } finally { edt { otherWindow.dispose(); window.toFront(); canvas.requestFocusInWindow() } }
                     await("Player did not regain focus") { edt { window.isFocused } }
+                    val keyboardIdlePoint = prepareInactivity(window, canvas, robot)
                     assertEquals(videoBounds, edt { Rectangle(canvas.bounds) }, "Auto-hide resized the video")
                     key(KeyEvent.VK_M)
                     await("Keyboard input did not reveal controls") { overlaysVisible() }
                     await("Keyboard input did not restore cursor") { cursorShowing() }
-                    await("Controls did not hide again after keyboard input") { !overlaysVisible() }
-                    robot.mouseMove(center.x + 20, center.y)
+                    awaitInactivity(window, keyboardIdlePoint, "Controls did not hide again after keyboard input") { overlaysHidden() }
+                    robot.mouseMove(keyboardIdlePoint.x + 20, keyboardIdlePoint.y)
                     await("Native video mouse motion did not reveal controls") { overlaysVisible() }
                     await("Mouse motion did not restore cursor") { cursorShowing() }
                     val overlayBounds = edt { Rectangle(window.ownedWindows.single { it.name == "skywing-controls-overlay" }.bounds) }
@@ -340,12 +438,26 @@ class FullscreenWindowTest {
     @Test(timeout = 40000) fun closingProductionApplicationLeavesNoBackgroundProcess() {
         assumeTrue(System.getProperty("os.name").startsWith("Windows"))
         assumeTrue(!GraphicsEnvironment.isHeadless())
-        val log = File.createTempFile("skywing-close-", ".log")
+        // The app runs with its own preferences and data folders: its startup library sync must not scan the user's
+        // folders and shares or write their sync status.
+        val data = java.nio.file.Files.createTempDirectory("skywing-close-").toFile()
+        val log = File(data, "app-output.txt")
+        val preferences = File(data, "preferences.properties")
+        val home = File(data, "home").apply { mkdirs() }
+        val support = File(IsolatedPreferencesFactory::class.java.protectionDomain.codeSource.location.toURI())
         val process = ProcessBuilder(
             File(System.getProperty("java.home"), "bin/java.exe").absolutePath,
+            "-Xbootclasspath/a:${support.absolutePath}",
+            "-Djava.util.prefs.PreferencesFactory=${IsolatedPreferencesFactory::class.java.name}",
+            "-D${IsolatedPreferencesFactory.FILE_PROPERTY}=${preferences.absolutePath}",
+            "-Duser.home=${home.absolutePath}",
             "-Dcompose.application.resources.dir=${System.getProperty("compose.application.resources.dir", "")}",
             "-cp", System.getProperty("skywing.test.runtimeClasspath"), "com.skywing.desktop.MainKt"
-        ).redirectErrorStream(true).redirectOutput(log).start()
+        ).redirectErrorStream(true).redirectOutput(log).apply {
+            environment()["LOCALAPPDATA"] = File(data, "LocalAppData").apply { mkdirs() }.absolutePath
+            environment()["APPDATA"] = File(data, "AppData").apply { mkdirs() }.absolutePath
+            environment()["USERPROFILE"] = home.absolutePath
+        }.start()
         try {
             var frame: Pointer? = null
             await("Production window did not appear: ${log.readText()}") {
@@ -365,9 +477,11 @@ class FullscreenWindowTest {
             assertTrue(process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS),
                 "SkyWing remained alive after close: ${log.readText()}")
             assertEquals(0, process.exitValue(), log.readText())
+            assertTrue(preferences.isFile && preferences.readText().contains("sync"),
+                "The app did not use its isolated preferences file: ${log.readText()}")
         } finally {
             if (process.isAlive) process.destroyForcibly().waitFor()
-            log.delete()
+            data.deleteRecursively()
         }
     }
 }
