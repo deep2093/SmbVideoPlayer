@@ -17,7 +17,10 @@ lineage="$work/preview-lineage.bin"
     --set-installed-data true --set-shared-uid true --set-permission true --set-rollback false --set-auth true \
   --new-signer --ks "$work/new.p12" --ks-type PKCS12 --ks-pass env:PREVIEW_V2_PASSWORD
 for apk in "$@"; do
-  "$signer" sign --ks "$work/new.p12" --ks-type PKCS12 --ks-pass env:PREVIEW_V2_PASSWORD \
+  # Standard rotation: the old key signs the older signature formats, the new key signs v3 with the lineage. Android
+  # 9 and newer (all SkyWing devices) check v3 first, so the new key is the one that counts.
+  "$signer" sign --ks .ci/preview-signing.p12 --ks-type PKCS12 --ks-pass pass:android \
+    --next-signer --ks "$work/new.p12" --ks-type PKCS12 --ks-pass env:PREVIEW_V2_PASSWORD \
     --lineage "$lineage" --out "$work/signed.apk" "$apk"
   "$signer" verify --verbose --print-certs "$work/signed.apk" > "$work/verify.txt"
   grep -q 'Verified using v3 scheme (APK Signature Scheme v3): true' "$work/verify.txt"
