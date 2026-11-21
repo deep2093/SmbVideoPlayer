@@ -31,6 +31,17 @@ dependencies {
 
 tasks.test {
     systemProperty("skywing.test.runtimeClasspath", sourceSets.main.get().runtimeClasspath.asPath)
+    // Tests never touch the user's SkyWing data. App code running inside the test JVM (for example the window content
+    // in FullscreenWindowTest) gets file-backed preferences and its own LOCALAPPDATA and APPDATA, so its startup
+    // library sync cannot scan the user's folders and shares or write their status. Tests that prove the real data is
+    // untouched read the real folder from skywing.test.realLocalAppData.
+    val userData = layout.buildDirectory.dir("test-user-data").get().asFile
+    doFirst { userData.deleteRecursively(); userData.mkdirs() }
+    systemProperty("java.util.prefs.PreferencesFactory", "com.skywing.testsupport.IsolatedPreferencesFactory")
+    systemProperty("skywing.test.preferencesFile", userData.resolve("preferences.properties").absolutePath)
+    systemProperty("skywing.test.realLocalAppData", System.getenv("LOCALAPPDATA").orEmpty())
+    environment("LOCALAPPDATA", userData.resolve("LocalAppData").absolutePath)
+    environment("APPDATA", userData.resolve("AppData").absolutePath)
     if (System.getenv("SKYWING_TEST_MPV") == "true") {
         val nativeDir = requireNotNull(System.getenv("SKYWING_TEST_MPV_DIR")) {
             "Set SKYWING_TEST_MPV_DIR to the directory containing the pinned libmpv-2.dll"
