@@ -231,6 +231,8 @@ private fun SkyWingDesktopShell(
     var selected by remember { mutableStateOf(initialSection) }
     var previous by remember { mutableStateOf("Folders") }
     var message by remember { mutableStateOf("") }
+    var playbackProblem by remember { mutableStateOf<PlaybackProblem?>(null) }
+    var reportedFailure by remember { mutableStateOf<String?>(null) }
     var currentFile by remember { mutableStateOf<File?>(null) }
     var queue by remember { mutableStateOf<List<File>>(emptyList()) }
     var queueIndex by remember { mutableStateOf(-1) }
@@ -263,6 +265,11 @@ private fun SkyWingDesktopShell(
         if (closing) return@LaunchedEffect
         while (true) {
             smoothingStatus = withContext(Dispatchers.IO) { embedded.updateSmoothing(smoothingMode) }
+            embedded.playbackFailure?.takeIf { it != reportedFailure }?.let { failure ->
+                reportedFailure = failure
+                message = failure
+                playbackProblem = PlaybackProblem("Can’t play this video", failure)
+            }
             if (smoothingStatus.requestOff) selectSmoothing(SmoothingMode.OFF)
             delay(1000)
         }
@@ -349,6 +356,8 @@ private fun SkyWingDesktopShell(
         if (closing) return
         if (!file.isFile) {
             message = "File not available: " + file.name
+            playbackProblem = PlaybackProblem("Video not available", file.name + " can’t be found. It may have been moved " +
+                "or renamed, or the drive or network share it is on is offline.")
             return
         }
         currentFile?.let { earlier ->
@@ -364,6 +373,7 @@ private fun SkyWingDesktopShell(
         selected = "Now Playing"
         selection.clear()
         currentFile = file
+        reportedFailure = null
         val canvas = videoCanvas
         val accepted = canvas != null && embedded.attach(canvas) && embedded.open(file)
         message = if (accepted) {
@@ -621,6 +631,7 @@ private fun SkyWingDesktopShell(
             }
         }
     }
+    playbackProblem?.let { PlaybackProblemDialog(it) { playbackProblem = null } }
     if (smoothingMenu) SmoothingDialog(smoothingMode, smoothingStatus, ::selectSmoothing) { smoothingMenu = false }
     renameTarget?.let { file ->
         RenameVideoDialog(file, videoRenamer::rename) { renameTarget = null; historyRevision++ }

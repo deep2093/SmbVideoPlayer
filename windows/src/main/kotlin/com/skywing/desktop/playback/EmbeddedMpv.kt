@@ -39,6 +39,7 @@ class EmbeddedMpv : Closeable {
     private val smoothingHealth = SmoothingHealth()
     private var smoothingMode = SmoothingMode.OFF
     private var expectedPath: String? = null
+    private var loadEndedWithError = false
     private val motion = MotionSession(::textProperty, { command(*it.toTypedArray()) },
         prepare = { MotionRuntime.prepare(it, motionAdapter) })
     private var lastPosition = 0.0
@@ -54,6 +55,9 @@ class EmbeddedMpv : Closeable {
     private val playerEvents = java.util.ArrayDeque<String>()
     private var lastActionMillis = 0L
     var lastError: String? = null
+        private set
+    /** A user-facing reason the video that was opened could not be played, or null. */
+    var playbackFailure: String? = null
         private set
 
     /** Invoke only once the AWT Canvas has a native peer (isDisplayable). */
@@ -164,6 +168,13 @@ class EmbeddedMpv : Closeable {
         lastMinuteDrops = null
         lastPosition = 0.0
         smoothingHealth.reset()
+        // Events still queued belong to the previous video; its failure must not be reported for this one.
+        drainEvents()
+        loadEndedWithError = false
+        playbackFailure = null
+        // mpv keeps "pause" across loadfile: a video paused earlier (or by leaving the player) would leave the next one
+        // stuck at 0:00. Opening a video means playing it.
+        command("set", "pause", "no")
         val start = System.nanoTime()
         val accepted = command("loadfile", file.absolutePath, "replace")
         expectedPath = file.absolutePath.takeIf { accepted }
@@ -202,6 +213,7 @@ class EmbeddedMpv : Closeable {
     @Synchronized
     fun updateSmoothing(mode: SmoothingMode): SmoothingStatus {
         motion.lastAction = playerEvents.lastOrNull()?.let { it + " (" + (System.currentTimeMillis() - lastActionMillis) + " ms ago)" } ?: "none"
+        val motionWasActive = motion.active
         val filterFailed = drainEvents()
         DisplayVrr.refresh(if (motionAdapter == "Intel") null else textProperty("display-names/0"))
         lastMinuteDrops = recentDrops.sample(System.nanoTime() / 1_000_000, listOf(
@@ -212,6 +224,9 @@ class EmbeddedMpv : Closeable {
             if (flagProperty("idle-active") == true) expectedPath?.let {
                 command("loadfile", it, "replace", "-1", "start=$lastPosition")
             }
+        } else if (loadEndedWithError && !motionWasActive && playbackFailure == null) {
+            // mpv accepted the file but could not open or decode it (damaged, truncated or unsupported).
+            expectedPath?.let { playbackFailure = "SkyWing can’t play " + File(it).name + ". The file may be damaged or in a format SkyWing can’t read." }
         }
         numberProperty("time-pos")?.let { lastPosition = it }
         if (mode != smoothingMode) {
@@ -264,7 +279,7 @@ class EmbeddedMpv : Closeable {
                 21 -> { recordAction("playback resumed after reconfiguration"); smoothingHealth.reset() }
                 7 -> {
                     val end = event.getPointer(16)
-                    if (end != null && end.getInt(0) == 4 && end.getInt(4) < 0) failed = true
+                    if (end != null && end.getInt(0) == 4 && end.getInt(4) < 0) { failed = true; loadEndedWithError = true }
                 }
             }
         }
@@ -404,6 +419,9 @@ class EmbeddedMpv : Closeable {
     /** SkyWing owns fullscreen and its shared chrome/cursor inactivity deadline. */
     fun setCursorHidden(hidden: Boolean): Boolean = command("set", "cursor-autohide", if (hidden) "always" else "no")
 
+    /** Read-only mpv property as text, for diagnostics and tests (for example "aid", "sid", "video-codec"). */
+    internal fun diagnosticProperty(name: String): String? = textProperty(name)
+
     fun isPaused(): Boolean? = flagProperty("pause")
     fun isMuted(): Boolean? = flagProperty("mute")
     fun playbackPosition(): Double? = numberProperty("time-pos")
@@ -417,6 +435,8 @@ class EmbeddedMpv : Closeable {
     @Synchronized
     fun stop(): Boolean {
         expectedPath = null
+        loadEndedWithError = false
+        playbackFailure = null
         val restored = motion.end()
         return command("stop") && restored
     }
