@@ -32,6 +32,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.awt.SwingPanel
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -156,13 +159,14 @@ private val TOP_NAV = listOf(
 )
 
 @Composable
-private fun NavRow(label: String, icon: SkyIcon, selected: Boolean, onClick: () -> Unit) {
+internal fun NavRow(label: String, icon: SkyIcon, selected: Boolean, onClick: () -> Unit) {
     val theme = LocalSkyTheme.current
     val ink = if (selected) theme.ink else theme.muted
     Row(
         Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(RoundedCornerShape(50))
             .background(if (selected) theme.card else Color.Transparent)
-            .skyClickable(onClick)
+            .skyClickable(onClick, role = Role.Tab)
+            .semantics { this.selected = selected }
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),

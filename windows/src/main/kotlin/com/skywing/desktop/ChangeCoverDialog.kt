@@ -47,6 +47,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.awtTransferable
@@ -647,11 +649,15 @@ private fun FramePicker(video: WindowsMediaEntry, busy: Boolean, run: (suspend (
             if (loading) CircularProgressIndicator(Modifier.size(28.dp), color = theme.accent)
             else if (bitmap == null) Text("No frame could be read here. Try another moment.", color = theme.muted)
         }
-        Text("Moment: " + (seconds?.let { formatClock(it) } ?: "${position.toInt()}%") +
-            (duration?.let { " / ${formatClock(it)}" } ?: " of the video"), color = theme.muted, style = MaterialTheme.typography.labelMedium)
+        val moment = (seconds?.let { formatClock(it) } ?: "${position.toInt()}%") +
+            (duration?.let { " / ${formatClock(it)}" } ?: " of the video")
+        Text("Moment: $moment", color = theme.muted, style = MaterialTheme.typography.labelMedium)
         Slider(
             value = position, onValueChange = { position = it }, valueRange = 0f..99f,
             onValueChangeFinished = { seconds = null; shown = position },
+            modifier = Modifier.accessibleName("Video moment").semantics {
+                stateDescription = moment
+            },
             colors = SliderDefaults.colors(thumbColor = theme.accent, activeTrackColor = theme.accent),
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -873,7 +879,7 @@ private fun VideoChooser(title: String, videos: List<WindowsMediaEntry>, max: In
  * Position the picture: both card shapes side by side, with up/down, left/right and zoom, before anything is saved.
  */
 @Composable
-private fun PositionStep(image: SkiaImage, saving: Boolean, onCancel: () -> Unit, onApply: (Float, Float, Float) -> Unit) {
+internal fun PositionStep(image: SkiaImage, saving: Boolean, onCancel: () -> Unit, onApply: (Float, Float, Float) -> Unit) {
     val theme = LocalSkyTheme.current
     val bitmap = remember(image) { image.toComposeImageBitmap() }
     var fx by remember(image) { mutableFloatStateOf(0.5f) }
@@ -894,15 +900,15 @@ private fun PositionStep(image: SkiaImage, saving: Boolean, onCancel: () -> Unit
     val colors = SliderDefaults.colors(thumbColor = theme.accent, activeTrackColor = theme.accent)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Up / down", modifier = Modifier.width(100.dp), color = theme.ink, style = MaterialTheme.typography.labelMedium)
-        Slider(fy, { fy = it }, modifier = Modifier.weight(1f), colors = colors)
+        Slider(fy, { fy = it }, modifier = Modifier.weight(1f).accessibleName("Up / down"), colors = colors)
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Left / right", modifier = Modifier.width(100.dp), color = theme.ink, style = MaterialTheme.typography.labelMedium)
-        Slider(fx, { fx = it }, modifier = Modifier.weight(1f), colors = colors)
+        Slider(fx, { fx = it }, modifier = Modifier.weight(1f).accessibleName("Left / right"), colors = colors)
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Zoom", modifier = Modifier.width(100.dp), color = theme.ink, style = MaterialTheme.typography.labelMedium)
-        Slider(slider, { slider = it }, modifier = Modifier.weight(1f), colors = colors)
+        Slider(slider, { slider = it }, modifier = Modifier.weight(1f).accessibleName("Zoom"), colors = colors)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         SkyButton("Back", onCancel, enabled = !saving, primary = false)

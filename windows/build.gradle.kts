@@ -27,6 +27,8 @@ dependencies {
     runtimeOnly("me.friwi:jcef-natives-windows-amd64:jcef-d3de827+cef-146.0.10+g8219561+chromium-146.0.7680.179")
     testImplementation(kotlin("test-junit"))
     testImplementation("junit:junit:4.13.2")
+    // Compose semantics tests for accessible names, roles and states.
+    testImplementation(compose.desktop.uiTestJUnit4)
 }
 
 tasks.test {
@@ -55,6 +57,8 @@ compose.desktop {
     application {
         mainClass = "com.skywing.desktop.MainKt"
         nativeDistributions {
+            // Compose Desktop uses Java Access Bridge for Windows accessibility.
+            modules("jdk.accessibility")
             appResourcesRootDir.set(layout.buildDirectory.dir("native-resources"))
             // Build these packages on Windows x64. ARM/32-bit variants are intentionally excluded.
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)

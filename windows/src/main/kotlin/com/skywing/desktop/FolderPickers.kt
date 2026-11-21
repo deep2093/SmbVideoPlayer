@@ -17,7 +17,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -126,9 +125,10 @@ internal fun DrivePicker(
                     )
                     if (subfolderChoice) {
                         Text("Include sub folders", color = theme.ink, style = MaterialTheme.typography.bodySmall)
-                        Switch(
+                        SkySwitch(
                             checked = includeSubfolders,
                             onCheckedChange = { includeSubfolders = it },
+                            name = "Include sub folders",
                             colors = SwitchDefaults.colors(checkedTrackColor = theme.accent, checkedThumbColor = theme.onAccent),
                         )
                     }
@@ -146,7 +146,7 @@ internal fun DrivePicker(
 }
 
 @Composable
-private fun PickRow(icon: SkyIcon, name: String, checked: Boolean, enabled: Boolean, onCheck: (Boolean) -> Unit, onOpen: (() -> Unit)?) {
+internal fun PickRow(icon: SkyIcon, name: String, checked: Boolean, enabled: Boolean, onCheck: (Boolean) -> Unit, onOpen: (() -> Unit)?) {
     val theme = LocalSkyTheme.current
     Row(
         Modifier.fillMaxWidth().padding(vertical = 1.dp),
@@ -156,6 +156,7 @@ private fun PickRow(icon: SkyIcon, name: String, checked: Boolean, enabled: Bool
         Checkbox(
             checked = checked,
             onCheckedChange = onCheck,
+            modifier = Modifier.accessibleDescription(name),
             enabled = enabled,
             colors = CheckboxDefaults.colors(checkedColor = theme.accent, checkmarkColor = theme.onAccent, uncheckedColor = theme.muted),
         )

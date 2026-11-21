@@ -8,6 +8,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.rememberDialogState
@@ -38,8 +40,9 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Motion smoothing", color = theme.ink, style = MaterialTheme.typography.titleMedium)
-        Switch(checked = mode == SmoothingMode.MOTION && !alreadySmooth,
-            onCheckedChange = { onMode(if (it) SmoothingMode.MOTION else SmoothingMode.OFF) }, enabled = !alreadySmooth)
+        SkySwitch(checked = mode == SmoothingMode.MOTION && !alreadySmooth,
+            onCheckedChange = { onMode(if (it) SmoothingMode.MOTION else SmoothingMode.OFF) }, enabled = !alreadySmooth,
+            name = "Motion smoothing")
     }
     if (alreadySmooth) { Text("Already smooth", color = theme.muted); return }
     if (mode == SmoothingMode.OFF) return
@@ -54,6 +57,10 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
         Slider(value = rate, onValueChange = { value ->
             allowed.minByOrNull { kotlin.math.abs(it-value) }?.let { rate = it.toFloat() }
         }, valueRange = 0f..3f, steps = 2, enabled = allowed.isNotEmpty(),
+            modifier = Modifier.accessibleName("Frame rate").semantics {
+                val stop = rate.roundToInt()
+                stateDescription = MotionStops.rate(source, stop).label + " fps (" + MotionStops.labels[stop] + ")"
+            },
             onValueChangeFinished = { MotionSettingsStore.values.save(key, MotionSettingsStore.values.load(key, settings.stop).copy(stop = rate.roundToInt())) })
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             (0..3).forEach { stop ->
@@ -64,6 +71,9 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
         }
         Text("Quality · " + MotionQuality.entries[quality.roundToInt()].label, color = theme.ink)
         Slider(value = quality, onValueChange = { quality = it }, valueRange = 0f..4f, steps = 3,
+            modifier = Modifier.accessibleName("Quality").semantics {
+                stateDescription = MotionQuality.entries[quality.roundToInt()].label
+            },
             onValueChangeFinished = { MotionSettingsStore.values.save(key,
                 MotionSettingsStore.values.load(key, settings.stop).copy(quality = MotionQuality.entries[quality.roundToInt()])) })
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -94,7 +104,7 @@ internal fun MotionPlaybackSettings() {
     val theme = LocalSkyTheme.current
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Text("My screen uses G-SYNC / FreeSync", color = theme.ink)
-        Switch(vrr, { vrrChoice = it; MotionSettingsStore.values.vrr = it })
+        SkySwitch(vrr, { vrrChoice = it; MotionSettingsStore.values.vrr = it }, "My screen uses G-SYNC / FreeSync")
     }
     Text(if (vrrChoice != null) "Your saved choice takes priority." else when (capability.supported) {
         true -> "On by default: the display reports VRR support."
@@ -103,6 +113,6 @@ internal fun MotionPlaybackSettings() {
     }, color = theme.muted, style = MaterialTheme.typography.bodySmall)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Lower automatically when needed", color = theme.ink)
-        Switch(lower, { lower = it; MotionSettingsStore.values.lowerAutomatically = it })
+        SkySwitch(lower, { lower = it; MotionSettingsStore.values.lowerAutomatically = it }, "Lower automatically when needed")
     }
 }
