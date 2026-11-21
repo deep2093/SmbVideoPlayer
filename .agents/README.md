@@ -8,7 +8,11 @@ Codex detects the project-scoped skills in `.agents/skills/` when launched anywh
 - `skywing-video-performance`: playback, libmpv, smoothing, GPU and HDR measurement.
 - `skywing-release-qa`: tests, installers, upgrade identity, packaging and licensing.
 
-`AGENTS.md` carries always-on repository instructions. **No global skills or plugins are installed by merging these files.** After checking out the changed branch on your PC, restart Codex if the skills do not appear in `/skills`.
+`AGENTS.md` carries always-on repository instructions. Claude Code reads the same file through the root `CLAUDE.md`
+(`@AGENTS.md`) and the same skills from `.claude/skills/`, an exact copy of this folder: edit here, then copy over.
+Both assistants verify Windows changes with the same command, `windows\tools\verify.ps1`, under the single policy
+`windows/TESTING-POLICY.md`. The script blocks if the copies differ or the `CLAUDE.md` import is missing.
+**No global skills or plugins are installed by merging these files.** After checking out the changed branch on your PC, restart Codex if the skills do not appear in `/skills`.
 
 ## Optional tools installed locally on your Windows PC
 

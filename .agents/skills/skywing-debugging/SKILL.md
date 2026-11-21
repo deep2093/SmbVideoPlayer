@@ -11,5 +11,5 @@ description: Investigate and fix SkyWing Windows crashes, hangs, black video, lo
 4. For hangs, capture wait chains/threads when available. For native crashes, use Windows event logs, dump files and WinDbg if installed. Never claim WinDbg analysis without obtaining evidence.
 5. Write a regression test that fails on the bug when feasible, then implement a focused fix. Avoid changing unrelated player behaviour or silencing errors with broad catch blocks.
 6. Always recheck the reported path and adjacent invariants: playback/seek/pause, repeated F/Esc, Alt-Tab, navigation during playback, close/Alt-F4, no orphaned process or audio, stable video HWND, and no lost focus.
-7. Run `.\gradlew.bat -p windows test --no-daemon` on Windows if available. Consult `windows/FULLSCREEN-REGRESSION.md` for pinned native player tests. Note whether tests were actually executed and what remains machine-specific.
+7. Verify as `windows/TESTING-POLICY.md` requires: `windows\tools\verify.ps1 -Mode focused` first, then full mode when the policy says so. Tell the user before tests that take the desktop. Note whether tests were actually executed, any that were blocked or skipped, and what remains machine-specific.
 8. End with root cause, evidence, specific fix, regression coverage, remaining risks and a manual reproduction checklist.

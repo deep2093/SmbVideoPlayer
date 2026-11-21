@@ -12,4 +12,5 @@ description: Benchmark or improve SkyWing Windows video playback, motion interpo
 5. Measure CPU/GPU load, memory growth, dropped-frame windows, startup cost and recovery after errors. Test local and SMB sources separately; never hide a network bottleneck behind a renderer claim.
 6. Preserve fallback and shutdown paths if native functions or GPU adapters are unavailable. Prefer explicit 'unavailable' over invented metrics; do not auto-assert hardware HDR, Dolby Vision, VRR or GPU correctness from CI.
 7. For HDR/10-bit/Dolby Vision, demand hardware display verification of colour, tone mapping and metadata handling. Do not remove a protective bypass solely to show a higher FPS.
-8. Finish with reproducible commands, raw measured numbers, interpretation, tradeoffs, and any Windows-host or display acceptance still required.
+8. Run the playback and motion regression tests as `windows/TESTING-POLICY.md` requires: `windows\tools\verify.ps1 -Mode focused`, then full mode when the policy says so. Tell the user first: these tests take the desktop. Measurements are not a substitute for that run.
+9. Finish with reproducible commands, raw measured numbers, interpretation, tradeoffs, and any Windows-host or display acceptance still required.
