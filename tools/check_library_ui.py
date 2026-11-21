@@ -159,6 +159,18 @@ try:
             break
         else:
             time.sleep(1)
+    # The release notes can open a moment after the tabs appear (on slower emulators), covering them.
+    for _ in range(5):
+        nodes=list(tree().iter('node'))
+        if not any(n.get('text')=="What's new" for n in nodes):
+            break
+        got=next((n for n in nodes if n.get('text')=='Got it'),None)
+        if got is not None:
+            x1,y1,x2,y2=map(int,re.findall(r'\d+',got.attrib['bounds']))
+            adb('shell','input','tap',(x1+x2)//2,(y1+y2)//2)
+        else:
+            adb('shell','input','keyevent','4')  # Back closes the notes like Got it.
+        time.sleep(1)
     find('Virtual folders');find('Original folders')
     click('Virtual folders');find('New virtual folder')
     labels=[n.get('text','') for n in tree().iter('node')]
