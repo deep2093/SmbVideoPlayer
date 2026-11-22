@@ -13,6 +13,7 @@ import com.skywing.desktop.automation.PowerStatus
 import com.skywing.desktop.automation.batteryRefusal
 import com.skywing.desktop.automation.finishedRun
 import com.skywing.desktop.automation.handheldTable
+import com.skywing.desktop.automation.logOutput
 import com.skywing.desktop.automation.machineFolder
 import com.skywing.desktop.automation.registryString
 import com.skywing.desktop.automation.registryValue
@@ -21,10 +22,14 @@ import com.skywing.desktop.automation.runnerFolderRefusal
 import com.skywing.desktop.automation.tableRow
 import com.skywing.desktop.playback.MotionQuality
 
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.createFile
+import kotlin.io.path.readText
+import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -220,6 +225,31 @@ class M0HandheldTest {
         assertContains(table, "| 1080p clip frame rate | 23.976 fps |")
         assertContains(table, "| 1080p | Fast | Plugged in | finished |")
         assertContains(table, "| 4K | Balanced | Battery | | | | | | | not run yet |")
+    }
+
+    @Test
+    fun whatTheRunnerPrintsAlsoGoesToTheEndOfItsLog() {
+        val log = temp.resolve("runner-log.txt")
+        log.writeText("An earlier start.\r\n")
+        val console = ByteArrayOutputStream()
+        val original = System.out
+        try {
+            System.setOut(PrintStream(console, true, Charsets.UTF_8))
+            logOutput(log)
+            println("Run 1 of 8: 1080p Fast, plugged in. Don't touch the device.")
+            println("SkyWing didn't play at 2× (Multiplier: 1.5×).")
+        } finally {
+            System.setOut(original)
+        }
+        val shown = console.toString(Charsets.UTF_8)
+        val kept = log.readText()
+        for (line in listOf("Run 1 of 8: 1080p Fast, plugged in.", "SkyWing didn't play at 2× (Multiplier: 1.5×).")) {
+            assertContains(shown, line)
+            assertContains(kept, line)
+        }
+        assertTrue(kept.startsWith("An earlier start."), "the log keeps what earlier starts wrote")
+        assertContains(kept, "===", message = "the log marks where this start begins")
+        assertFalse("===" in shown, "the start mark goes only into the log")
     }
 
     private fun outcome(

@@ -10,7 +10,12 @@ import com.sun.jna.Structure
 import com.sun.jna.WString
 import com.sun.jna.ptr.IntByReference
 import com.sun.jna.win32.StdCallLibrary
+import java.io.FileOutputStream
+import java.io.OutputStream
+import java.io.PrintStream
 import java.nio.file.Path
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.createDirectories
@@ -46,6 +51,7 @@ import kotlin.system.exitProcess
  * - checks report B of each run: the video's size and SDR range fit its folder, and SkyWing played at 2× in the run's
  *   quality. A run that another program covered, or that left full screen, doesn't count.
  * - writes `results\<device>\M0-table.md` (section 4's rows) after each run, and beeps when it is done
+ * - copies what it prints to `results\<device>\runner-log.txt`, so the results folder says why it stopped
  *
  * Started again, it does only the runs that have no row yet (`row.md` in the run's folder). The results folder is
  * named after the device, so one copy of the runner folder can visit both handhelds. SKYWING_M0_CLIP_1080P and
@@ -295,6 +301,34 @@ internal fun handheldTable(device: String, plan: List<HandheldRun>, finished: Ma
     for (run in plan) appendLine(finished[run]?.row ?: "| ${run.clip.folder} | ${run.quality.label} | ${run.power} | | | | | | | not run yet |")
 }
 
+/**
+ * From now until the runner exits, copies what it prints to the end of [log] as well, after a line that marks this
+ * start. The results folder then says why a run or the runner stopped, without anyone copying the console window.
+ */
+internal fun logOutput(log: Path) {
+    val console = System.out
+    val file = FileOutputStream(log.toFile(), true)
+    val started = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT))
+    file.write("${System.lineSeparator()}=== Started $started${System.lineSeparator()}".toByteArray(Charsets.UTF_8))
+    val both = object : OutputStream() {
+        override fun write(b: Int) {
+            console.write(b)
+            file.write(b)
+        }
+
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            console.write(b, off, len)
+            file.write(b, off, len)
+        }
+
+        override fun flush() {
+            console.flush()
+            file.flush()
+        }
+    }
+    System.setOut(PrintStream(both, true, Charsets.UTF_8))
+}
+
 /** One start of the runner on one device. */
 private class HandheldRunner(private val trial: Boolean, private val environment: Map<String, String>, private val runner: Path) {
     private val plan = HandheldPlan.runs(trial)
@@ -309,11 +343,13 @@ private class HandheldRunner(private val trial: Boolean, private val environment
     /** Does every run without a row and returns the exit code: 0 when all count, 1 when some must be done again. */
     fun runAll(): Int {
         runnerFolderRefusal(runner, environment, HandheldSystem::removable)?.let { throw IllegalArgumentException(it) }
+        results.createDirectories()
+        // The results folder is what comes back from the device, so it gets what the console window shows as well.
+        logOutput(results.resolve("runner-log.txt"))
         checkInstalled()
         val clips = ClipSize.entries.associateWith { it.clip(runner, environment) }
         for ((size, clip) in clips) require(!HandheldSystem.removable(clip)) { "The ${size.folder} clip is on a USB stick or memory card. Copy it to the device's own drive." }
         val (vrr, vrrSource) = vrrChoice()
-        results.createDirectories()
         // The accessibility trees SkyWingTestApp saves when a run fails go with the results.
         System.setProperty(SkyWingTestApp.REPORTS_PROPERTY, results.resolve("diagnostics").toString())
         val todo = plan.filter { finishedRun(results, it.label) == null }

@@ -30,11 +30,13 @@ Run
    Plug the charger back in and press a key to close the window.
 
 Bring back the results folder. results\<handheld name>\M0-table.md has the rows for
-section 4; the run folders next to it have the playback reports and the details.
+section 4, runner-log.txt has everything the black window showed, and the run folders
+have the playback reports and the details.
 
 If it stops
 The black window says why and what to fix. Fix it and double-click Run M0.cmd again:
-it keeps the finished runs and does only the rest.
+it keeps the finished runs and does only the rest. If the fix isn't clear, bring back
+the results folder: runner-log.txt has the same text.
 
 The second handheld
 Copy the folder, results included, to the second handheld and do the same there. Each
