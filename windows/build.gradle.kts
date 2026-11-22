@@ -1,5 +1,6 @@
 import java.io.BufferedInputStream
 import java.io.InputStream
+import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 import java.util.zip.ZipFile
 import java.security.MessageDigest
@@ -283,3 +284,93 @@ val generateBuildInfo by tasks.registering {
     }
 }
 sourceSets.main { resources.srcDir(generateBuildInfo) }
+
+// SkyWing's installer will not replace a newer installed SkyWing, and a local build has no CI run number, so it packages
+// 0.1.1. Packaging therefore stops when this PC already has a newer SkyWing (0.1.1 was once built next to 0.1.98).
+
+/** Windows Installer compares the first three version fields as numbers, so 0.1.10 is newer than 0.1.9. */
+fun compareMsiVersions(a: String, b: String): Int {
+    fun fields(version: String) = version.split('.').take(3).map { it.toInt() }
+    val (left, right) = fields(a) to fields(b)
+    for (i in 0 until 3) {
+        val difference = left.getOrElse(i) { 0 }.compareTo(right.getOrElse(i) { 0 })
+        if (difference != 0) return difference
+    }
+    return 0
+}
+
+/** Explains why a package numbered [packaged] would be older than the newest [installed] SkyWing, or returns null. */
+fun olderThanInstalled(packaged: String, installed: List<String>): String? {
+    val newest = installed.maxWithOrNull(::compareMsiVersions) ?: return null
+    return if (compareMsiVersions(packaged, newest) < 0) "SkyWing $newest is installed on this PC and this package would be $packaged." else null
+}
+
+val testPackageVersionGuard by tasks.registering {
+    group = "verification"
+    description = "Checks the rule that stops packaging a SkyWing older than the installed one"
+    doLast {
+        // Packaged version, installed versions, and whether packaging must stop.
+        val cases = listOf(
+            Triple("0.1.1", listOf("0.1.98"), true),
+            Triple("0.1.99", listOf("0.1.98"), false),
+            Triple("0.1.98", listOf("0.1.98"), false),
+            Triple("0.1.1", emptyList(), false),
+            Triple("0.1.10", listOf("0.1.9"), false),
+            Triple("0.1.9", listOf("0.1.10"), true),
+            Triple("0.2.1", listOf("0.1.98"), false),
+            Triple("0.1.99", listOf("0.1.98", "0.1.120"), true),
+        )
+        val wrong = cases.filter { (packaged, installed, stop) -> (olderThanInstalled(packaged, installed) != null) != stop }
+        check(wrong.isEmpty()) {
+            "Package version rule is wrong for: " +
+                wrong.joinToString { (packaged, installed, stop) -> "$packaged with $installed installed should ${if (stop) "stop" else "proceed"}" }
+        }
+        logger.lifecycle("Package version rule: all ${cases.size} cases pass.")
+    }
+}
+tasks.test { dependsOn(testPackageVersionGuard) }
+
+/** Versions of the SkyWing installs on this PC with [upgradeCode], read from Windows Installer without changing anything. */
+fun installedSkyWingVersions(upgradeCode: String): List<String> {
+    val powershell = File(System.getenv("SystemRoot").orEmpty(), "System32/WindowsPowerShell/v1.0/powershell.exe")
+    check(powershell.isFile) { "Windows PowerShell not found" }
+    val script = "\$installer = New-Object -ComObject WindowsInstaller.Installer; " +
+        "foreach (\$product in \$installer.RelatedProducts('{${upgradeCode.uppercase()}}')) { \$installer.ProductInfo(\$product, 'VersionString') }"
+    val process = ProcessBuilder(powershell.path, "-NoProfile", "-NonInteractive", "-Command", script).redirectErrorStream(true).start()
+    if (!process.waitFor(60, TimeUnit.SECONDS)) {
+        process.destroyForcibly()
+        error("Windows Installer query timed out")
+    }
+    val output = process.inputStream.bufferedReader().readText().trim()
+    check(process.exitValue() == 0) { output.ifEmpty { "Windows Installer query failed" } }
+    return output.lines().map(String::trim).filter(String::isNotEmpty).onEach {
+        check(Regex("""\d+(\.\d+){1,3}""").matches(it)) { "unexpected installed version '$it'" }
+    }
+}
+
+val checkPackageVersion by tasks.registering {
+    group = "distribution"
+    description = "Stops packaging a SkyWing older than the one installed on this PC"
+    val upgradeCode = requireNotNull(compose.desktop.application.nativeDistributions.windows.upgradeUuid)
+    val allowLower = providers.gradleProperty("skywing.allowLowerVersion").map { it.toBoolean() }.orElse(false)
+    onlyIf("packaging on Windows") { System.getProperty("os.name").startsWith("Windows") }
+    doLast {
+        val installed = runCatching { installedSkyWingVersions(upgradeCode) }.getOrElse {
+            logger.warn("Could not read the installed SkyWing version (${it.message}), so this package ($previewVersion) was not checked against it.")
+            return@doLast
+        }
+        val problem = olderThanInstalled(previewVersion, installed) ?: return@doLast
+        if (allowLower.get()) {
+            logger.warn("$problem Packaging it anyway (-Pskywing.allowLowerVersion=true): it cannot be installed over the newer SkyWing.")
+        } else {
+            throw GradleException(
+                "$problem Windows Installer will not install it over the newer SkyWing. Set GITHUB_RUN_NUMBER so that " +
+                    "0.1.<number> is above the installed version, as CI numbers its builds, or pass " +
+                    "-Pskywing.allowLowerVersion=true for a package you will not install on this PC."
+            )
+        }
+    }
+}
+tasks.matching { it.name in setOf("packageExe", "packageMsi", "packageReleaseExe", "packageReleaseMsi") }.configureEach {
+    dependsOn(checkPackageVersion)
+}

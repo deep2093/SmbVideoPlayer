@@ -8,6 +8,8 @@ It starts from `feature/skywing-brand-and-glass` and **does not change** the And
 2. In the repo root: `gradlew.bat -p windows run` (or inside `windows`: `..\gradlew.bat -p . run`).
 3. For an EXE: `gradlew.bat -p windows packageExe`.
 4. For an MSI: `gradlew.bat -p windows packageMsi`.
+   A local package is numbered 0.1.1 (CI uses 0.1.<run number>). Packaging stops if this PC has a newer SkyWing
+   installed; see `TESTING-POLICY.md`, section 4, for `GITHUB_RUN_NUMBER` and `-Pskywing.allowLowerVersion=true`.
 
 Windows packaging requires a Windows host and suitable system tooling. No pre-built Windows executable has been produced or tested yet. 
 ## What the Windows app looks like now

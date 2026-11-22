@@ -144,6 +144,12 @@ it is not shipped, so libmpv relies on the one a GPU driver installs. The script
 installs the packages it builds. `packageExe` and `packageMsi` empty their output folders first, so copy any earlier
 EXE or MSI you still need out of `windows/build/compose/binaries/main/` before a release run.
 
+Packaging refuses a version below the SkyWing installed on the PC (`checkPackageVersion` reads it from Windows
+Installer): a local build is 0.1.1 and cannot replace a newer install. To package one you will install, set
+`GITHUB_RUN_NUMBER` so that 0.1.<number> is above the installed version, as CI does. Release mode passes
+`-Pskywing.allowLowerVersion=true` because it never installs its packages; the version check above still reports
+a 0.1.1 package. `testPackageVersionGuard` (run with `test`) checks the comparison rule.
+
 ## 5. What automation cannot verify
 
 Report these as not verified unless they were checked by hand on suitable hardware:

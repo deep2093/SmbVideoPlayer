@@ -460,7 +460,9 @@ if (-not $ListOnly -and $verdict -ne 'BLOCKED' -and ($Mode -ne 'focused' -or $te
         }
         if ($Mode -eq 'release' -and $verdict -eq 'PASS') {
             # --rerun: build fresh packages from the tested image every time, never reuse up-to-date ones from an earlier run.
-            $code = Invoke-Gradle @('packageExe', '--rerun', 'packageMsi', '--rerun', '--no-daemon')
+            # allowLowerVersion: this run checks its packages and never installs them, so a local 0.1.1 below the installed
+            # SkyWing may be built here. The version gate below still reports it.
+            $code = Invoke-Gradle @('packageExe', '--rerun', 'packageMsi', '--rerun', '-Pskywing.allowLowerVersion=true', '--no-daemon')
             if ($code -ne 0) { $verdict = 'FAIL'; $reasons += 'packageExe/packageMsi failed' }
             else {
                 Test-ReleasePayload
