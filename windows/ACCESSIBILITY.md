@@ -192,7 +192,8 @@ $env:SKYWING_TEST_AUTOMATION='true'; .\gradlew.bat -p windows test --tests 'com.
 ```
 
 Without `SKYWING_TEST_AUTOMATION=true`, the end-to-end tests are skipped. With it, a missing image is an error.
-`-Dskywing.test.image=<dir>` picks another image. The test windows may take foreground focus while they run.
+`SKYWING_TEST_IMAGE=<dir>` picks another app image (`verify.ps1 -Image` sets it). The test windows may take
+foreground focus while they run.
 
 ## Newer Compose versions (reviewed, not adopted)
 

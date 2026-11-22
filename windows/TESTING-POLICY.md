@@ -48,11 +48,12 @@ The runner is `windows/tools/verify.ps1`. Its change-to-test table must match th
 | Vulkan loader `vulkan-1.dll` | native and UI tests | System32 or the libmpv folder. The pinned libmpv imports it; GPU drivers install it. A PC without it cannot load libmpv |
 | `ffmpeg` on `PATH` | `MotionAutomationTest`, `EmbeddedPlaybackNativeTest` | `Get-Command ffmpeg`. Builds the multi-track MKV and 24 fps fixtures |
 | `\\localhost\C$` readable | `NetworkAndStabilityAutomationTest` | `Test-Path`. Plays a fixture over SMB loopback, read-only |
-| Packaged app image | UI automation tests | `verify.ps1` runs `createDistributable` first |
+| Packaged app image | UI automation tests | `verify.ps1` runs `createDistributable` first, or tests the existing build that `-Image` names (section 4) |
 | `.claude/skills` identical to `.agents/skills` | always | file hashes. Copy `.agents/skills` over `.claude/skills` after editing a skill |
 
 Environment variables used by the tests (set by `verify.ps1`):
-`SKYWING_TEST_MPV=true`, `SKYWING_TEST_MPV_DIR=<folder with libmpv-2.dll>`, `SKYWING_TEST_AUTOMATION=true`.
+`SKYWING_TEST_MPV=true`, `SKYWING_TEST_MPV_DIR=<folder with libmpv-2.dll>`, `SKYWING_TEST_AUTOMATION=true`, and
+with `-Image`, `SKYWING_TEST_IMAGE=<app image folder>`.
 
 ## 3. What a change must run
 
@@ -99,12 +100,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\verify.ps1 -Mo
 # The whole suite with native libmpv and UI automation (takes the desktop).
 powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\verify.ps1 -Mode full -AllowDesktopFocus
 
+# The whole suite against an existing build, such as a CI artifact's MSI (unpacked read-only, never installed).
+powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\verify.ps1 -Mode full -Image <folder>\SkyWing-<version>.msi -AllowDesktopFocus
+
 # Full suite, then packageExe/packageMsi and the release gates (builds installers, installs nothing).
 powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\verify.ps1 -Mode release -AllowDesktopFocus
 ```
 
 Options: `-Paths` (explicit changed files), `-Base <ref>` (add committed changes since a ref), `-MpvDir <folder>`
-(libmpv folder; default `SKYWING_TEST_MPV_DIR`, then `windows/build/native-resources/windows`).
+(libmpv folder; default the `-Image` build's `app\resources`, then `SKYWING_TEST_MPV_DIR`, then
+`windows/build/native-resources/windows`), `-Image <folder or .msi>` (below).
+
+`-Image` tests an existing build instead of this checkout's `createDistributable` image, in focused or full mode
+(not release). Give it an app image folder (the one holding `SkyWing.exe`) or an MSI. An MSI is unpacked read-only
+with WiX `dark` into `windows/build/verify-image`, also with `-ListOnly`, and is never installed. The installed
+SkyWing folder is refused: pass its MSI or a copy instead. The UI automation tests launch that build and the native
+tests load its `app\resources`. The off-screen and in-process tests still run this checkout's code, so the report
+names the build's version, commit and runtime and says whether this checkout's `windows/src/main` matches that
+commit. With or without `-Image`, every run records each `SkyWing.exe` the tests start and fails if one came from
+another image.
 
 Verdicts and exit codes:
 
@@ -113,7 +127,7 @@ Verdicts and exit codes:
 | 0 | PASS | every selected test ran and passed, isolation held, no broader mode is required |
 | 0 | NO-TESTS | only documentation or instructions changed |
 | 0 | PLAN | `-ListOnly`; nothing was built or run |
-| 1 | FAIL | a build, a test, an isolation check or a release check failed, a selected class did not run, or a test was skipped |
+| 1 | FAIL | a build, a test, an isolation check or a release check failed, a selected class did not run, a test was skipped, or the tests started SkyWing from an image other than the one under test |
 | 2 | BLOCKED | a required prerequisite is missing, or desktop focus was not allowed |
 | 3 | INCOMPLETE | the selected tests passed, but the policy requires a broader mode, or public-release gates are open |
 
@@ -168,7 +182,8 @@ Installing or uninstalling an MSI needs the user's approval and a UAC prompt tha
 
 Every verification ends with this, in the chat and in any written report:
 
-1. **Tests executed:** mode, command, classes or suite, and the report path.
+1. **Tests executed:** mode, command, classes or suite, and the report path. With `-Image`, the build tested and
+   whether this checkout's app code matches it.
 2. **Results:** totals for tests, passed, failed and skipped, with the name and first line of each failure.
 3. **Not run or skipped:** what, and why (missing prerequisite, desktop focus not allowed, out of scope).
 4. **Limitations:** what this machine and these tests cannot show (section 5).

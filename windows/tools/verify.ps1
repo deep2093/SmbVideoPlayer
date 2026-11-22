@@ -7,8 +7,12 @@
   full     Builds the packaged test image and runs the whole suite with native libmpv and UI automation.
   release  full, then packageExe/packageMsi and the payload, legal-notice, upgrade-identity and signature checks.
 
+  -Image runs focused or full mode against an existing build, for example a CI artifact, instead of this checkout's
+  createDistributable image: an app image folder, or an MSI that is unpacked read-only and never installed.
+
   Never reports PASS when a required prerequisite is missing, a selected test class did not run, any selected test
-  was skipped, a test left temporary data or processes behind, or the user's real SkyWing data changed.
+  was skipped, a test left temporary data or processes behind, the user's real SkyWing data changed, or the UI tests
+  started SkyWing from an image other than the one under test.
 
   Verdicts and exit codes:
     0 PASS        every selected test ran and passed, isolation held, and no broader mode is required.
@@ -22,6 +26,7 @@
   powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\verify.ps1 -Mode focused -ListOnly
   powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\verify.ps1 -Mode focused -AllowDesktopFocus
   powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\verify.ps1 -Mode full -AllowDesktopFocus
+  powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\verify.ps1 -Mode full -Image <folder>\SkyWing-<version>.msi -AllowDesktopFocus
 #>
 param(
     [ValidateSet('focused', 'full', 'release')][string]$Mode = 'focused',
@@ -31,14 +36,20 @@ param(
     [string]$Base,
     # Tests that open windows or go full screen take desktop focus. The user must be told first.
     [switch]$AllowDesktopFocus,
-    # Folder holding libmpv-2.dll for native and UI tests. Default: the payload that packaging ships.
+    # Folder holding libmpv-2.dll for native and UI tests. Default: the -Image's app\resources, then
+    # SKYWING_TEST_MPV_DIR, then the payload that packaging ships.
     [string]$MpvDir,
+    # An existing build to test instead of this checkout's createDistributable image: an app image folder (the one
+    # holding SkyWing.exe) or an MSI, unpacked read-only into windows\build\verify-image (also with -ListOnly) and never
+    # installed. The UI automation tests launch it; the other tests still run this checkout's code. Not with release.
+    [string]$Image,
     # Print the plan and prerequisite status without building or running anything.
     [switch]$ListOnly
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
+if ($Image -and $Mode -eq 'release') { throw '-Image tests an existing build, but release mode builds and checks this checkout''s installers. Use -Mode full or focused.' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $windows = Join-Path $repo 'windows'
 $results = Join-Path $windows 'build\test-results\test'
@@ -181,6 +192,10 @@ function Test-Prerequisites([string[]]$tests, [string]$mode, [string]$mpv) {
     $checks += [pscustomobject]@{ Name = 'ffmpeg on PATH (multi-track MKV and 24 fps fixtures)'; Required = $needFfmpeg; Ok = [bool]$ffmpeg; Detail = $(if ($ffmpeg) { $ffmpeg.Source } else { '' }) }
     $loopback = Test-Path '\\localhost\C$\Windows' -ErrorAction SilentlyContinue
     $checks += [pscustomobject]@{ Name = 'Loopback admin share \\localhost\C$ (read-only playback)'; Required = $needLoopback; Ok = $loopback; Detail = '' }
+    if ($Image) {
+        $checks += [pscustomobject]@{ Name = 'App image to test (-Image) with SkyWing.exe'; Required = $true
+            Ok = [bool]($imageDir -and (Test-Path -LiteralPath (Join-Path $imageDir 'SkyWing.exe'))); Detail = $(if ($imageProblem) { $imageProblem } else { $imageDir }) }
+    }
     $a = Get-ChildItem (Join-Path $repo '.agents\skills') -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Substring($repo.Length + 8) + ':' + (Get-FileHash $_.FullName).Hash }
     $c = Get-ChildItem (Join-Path $repo '.claude\skills') -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Substring($repo.Length + 8) + ':' + (Get-FileHash $_.FullName).Hash }
     $inSync = -not (Compare-Object @($a) @($c))
@@ -211,9 +226,31 @@ function Get-UserDataFingerprint {
 
 function Get-Leftovers {
     $dirs = @(Get-ChildItem $env:TEMP -Directory -Filter 'skywing-*' -ErrorAction SilentlyContinue | ForEach-Object Name)
-    $image = Join-Path $windows 'build\compose\binaries\main\app'
-    $procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($image, [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object ProcessId)
+    $procs = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith("$testImage\", [StringComparison]::OrdinalIgnoreCase) } | ForEach-Object ProcessId)
     [pscustomobject]@{ Dirs = $dirs; Processes = $procs }
+}
+
+# Records every SkyWing.exe that starts while the tests run, to prove which image the UI automation tests launched.
+# SkyWing processes that were already running, such as the user's own, are not counted.
+function Start-LaunchWatch {
+    Start-Job -ArgumentList (Get-Date) -ScriptBlock {
+        param([datetime]$since)
+        $seen = @{}
+        while ($true) {
+            foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name = 'SkyWing.exe'" -ErrorAction SilentlyContinue)) {
+                $key = "$($p.ProcessId)|$($p.CreationDate)"
+                if ($p.ExecutablePath -and $p.CreationDate -ge $since -and -not $seen.ContainsKey($key)) { $seen[$key] = $true; $p.ExecutablePath }
+            }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+
+function Stop-LaunchWatch($job) {
+    Stop-Job $job
+    $paths = @(Receive-Job $job -ErrorAction SilentlyContinue | ForEach-Object { "$_" })
+    Remove-Job $job -Force
+    $paths
 }
 
 function Invoke-Gradle([string[]]$gradleArgs) {
@@ -282,6 +319,86 @@ function Compare-MsiToImage([string]$msiPath, [string]$imageDir) {
         $differences += @($onlyPacked | ForEach-Object { "$($_.Name) (MSI only)" })
         [pscustomobject]@{ Identical = $tested.Count - $onlyTested.Count; Equivalent = $equivalent; Differences = $differences }
     } finally { Remove-Item -LiteralPath $out -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+# -Image with an MSI: unpack it with WiX dark.exe (read-only; nothing is installed) and lay its files out as Windows
+# Installer would, so the UI automation tests can launch the build it holds. Returns the folder holding SkyWing.exe.
+function Expand-MsiImage([string]$msiPath, [string]$dest) {
+    Remove-Item -LiteralPath $dest -Recurse -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $dest) { throw "could not clear $dest; close any SkyWing started from it" }
+    $raw = Join-Path $dest 'unpacked'
+    [void][IO.Directory]::CreateDirectory($raw)
+    $wxs = Join-Path $raw 'product.wxs'
+    $log = @(cmd.exe /c "`"$(Join-Path $windows 'build\wix311\dark.exe')`" -nologo -x `"$raw`" -o `"$wxs`" `"$msiPath`" 2>&1")
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $wxs)) { throw "dark.exe exited $LASTEXITCODE $(@($log | Where-Object { "$_".Trim() }) | Select-Object -Last 1)" }
+    [xml]$x = Get-Content -LiteralPath $wxs -Raw
+    # The install path of each Directory, from its Name and its parent Directory or DirectoryRef.
+    $dirs = @{}
+    foreach ($d in $x.GetElementsByTagName('Directory')) {
+        $parent = $d.ParentNode
+        $dirs[$d.GetAttribute('Id')] = @{ Name = $d.GetAttribute('Name')
+            Parent = $(if ($parent.LocalName -eq 'Directory' -or $parent.LocalName -eq 'DirectoryRef') { $parent.GetAttribute('Id') } else { $null }) }
+    }
+    $pathOf = { param($id)
+        $parts = @()
+        while ($id -and $dirs.ContainsKey($id)) { $name = $dirs[$id].Name; if ($name -and $name -ne 'SourceDir') { $parts = @($name) + $parts }; $id = $dirs[$id].Parent }
+        $parts -join '\' }
+    $files = @(foreach ($c in $x.GetElementsByTagName('Component')) {
+        $dir = if ($c.GetAttribute('Directory')) { $c.GetAttribute('Directory') } else { $c.ParentNode.GetAttribute('Id') }
+        foreach ($f in $c.GetElementsByTagName('File')) {
+            $s = $f.GetAttribute('Source')
+            [pscustomobject]@{ Target = "$(& $pathOf $dir)\$($f.GetAttribute('Name'))"
+                               Source = $(if ([IO.Path]::IsPathRooted($s)) { $s } else { Join-Path $raw ($s -replace '^SourceDir\\', '') }) }
+        }
+    })
+    $exe = @($files | Where-Object { $_.Target -match '\\SkyWing\.exe$' })
+    if ($exe.Count -ne 1) { throw "it holds $($exe.Count) SkyWing.exe files" }
+    $root = $exe[0].Target -replace 'SkyWing\.exe$', ''
+    $image = Join-Path $dest 'SkyWing'
+    foreach ($f in @($files | Where-Object { $_.Target.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) })) {
+        # The names come from the MSI, so make sure none of them leads out of the image folder.
+        $target = [IO.Path]::GetFullPath((Join-Path $image $f.Target.Substring($root.Length)))
+        if (-not $target.StartsWith("$image\", [StringComparison]::OrdinalIgnoreCase)) { throw "it names a file outside the app folder: $($f.Target)" }
+        [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))
+        [IO.File]::Copy($f.Source, $target, $true)
+    }
+    Remove-Item -LiteralPath $raw -Recurse -Force
+    $image
+}
+
+# The build an app image holds: skywing-build.properties (version, commit, localChanges, runtime, watchdogFix) from
+# one of its jars, or $null.
+function Get-ImageBuild([string]$imageDir) {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    foreach ($jar in @(Get-ChildItem -LiteralPath (Join-Path $imageDir 'app') -Filter '*.jar' -File -ErrorAction SilentlyContinue)) {
+        $zip = [IO.Compression.ZipFile]::OpenRead($jar.FullName)
+        try {
+            $entry = $zip.GetEntry('skywing-build.properties')
+            if (-not $entry) { continue }
+            $reader = New-Object IO.StreamReader($entry.Open())
+            try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            $props = @{}
+            foreach ($line in $text -split "`r?`n") { if ($line -match '^([^#=]+)=(.*)$') { $props[$Matches[1].Trim()] = $Matches[2].Trim() } }
+            return $props
+        } finally { $zip.Dispose() }
+    }
+    $null
+}
+
+# The off-screen and native tests run this checkout's code, not the image's. Says whether that is the same app code:
+# the image's commit against this working tree, untracked files included.
+function Get-SourceMatch([string]$commit) {
+    # The commit comes from the image, so it reaches git only when it is a plain commit id.
+    if ($commit -notmatch '^[0-9a-fA-F]{7,40}$') { return "no valid commit is recorded, so whether this checkout's app code matches it is unknown" }
+    Push-Location $repo
+    $previous = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try {
+        $files = @(git diff --name-only $commit -- windows/src/main 2>$null); $code = $LASTEXITCODE
+        $files += @(git ls-files --others --exclude-standard -- windows/src/main 2>$null)
+    } finally { $ErrorActionPreference = $previous; Pop-Location }
+    if ($code -ne 0) { "commit $commit is not in this checkout, so the in-process tests ran this checkout's app code, not the image's" }
+    elseif ($files.Count -eq 0) { "this checkout's app code (windows/src/main) is the same, so the in-process tests ran it too" }
+    else { "this checkout's app code (windows/src/main) differs in $($files.Count) files, so the in-process tests ran this checkout's code, not the image's" }
 }
 
 function Test-ReleasePayload {
@@ -394,7 +511,29 @@ function Test-ReleasePayload {
 # ---------------------------------------------------------------------------------------------------------------
 $script:commands = @()
 $script:payload = @()   # release checks; stays empty when tests fail or with -ListOnly
-if (-not $MpvDir) { $MpvDir = if ($env:SKYWING_TEST_MPV_DIR) { $env:SKYWING_TEST_MPV_DIR } else { Join-Path $windows 'build\native-resources\windows' } }
+# The app image the UI automation tests launch: -Image (an MSI is unpacked first), or this checkout's own.
+$imageDir = $null; $imageProblem = $null; $item = $null
+if ($Image) {
+    $item = Get-Item -LiteralPath $Image -ErrorAction SilentlyContinue
+    if (-not $item) { $imageProblem = "not found: $Image" }
+    elseif ($item.PSIsContainer) {
+        $imageDir = $item.FullName.TrimEnd('\')
+        $installed = "$env:ProgramFiles\SkyWing"
+        if ($imageDir -eq $installed -or $imageDir.StartsWith("$installed\", [StringComparison]::OrdinalIgnoreCase)) {
+            $imageProblem = 'this is the installed SkyWing, which the tests never launch: pass its MSI, or a copy of the folder'; $imageDir = $null
+        }
+    }
+    elseif ($item.Extension -ne '.msi') { $imageProblem = 'use an app image folder (the one holding SkyWing.exe) or an .msi' }
+    elseif (-not (Test-Path -LiteralPath (Join-Path $windows 'build\wix311\dark.exe'))) { $imageProblem = 'WiX dark.exe, needed to unpack the MSI, is missing (packageMsi downloads it to windows\build\wix311)' }
+    else {
+        Write-Host "Unpacking $($item.Name) into windows\build\verify-image (read-only; nothing is installed)"
+        try { $imageDir = Expand-MsiImage $item.FullName (Join-Path $windows 'build\verify-image') } catch { $imageProblem = "could not unpack the MSI: $($_.Exception.Message)" }
+    }
+}
+$testImage = if ($Image) { $imageDir } else { Join-Path $windows 'build\compose\binaries\main\app\SkyWing' }
+if (-not $MpvDir) {
+    $MpvDir = if ($imageDir) { Join-Path $imageDir 'app\resources' } elseif ($env:SKYWING_TEST_MPV_DIR) { $env:SKYWING_TEST_MPV_DIR } else { Join-Path $windows 'build\native-resources\windows' }
+}
 # powershell -File passes "a,b" as one string, so split on commas as well.
 $changed = @(if ($Paths) { $Paths -split ',' | ForEach-Object { $_.Trim() -replace '\\', '/' } | Where-Object { $_ } } else { Get-ChangedPaths })
 $plan = Select-Tests $changed
@@ -409,6 +548,7 @@ $prereqs = @($prereqs) + [pscustomobject]@{ Name = 'Python 3.11+ for the build t
 $toolRun = $null
 
 Write-Host "SkyWing verification: mode=$Mode  changed=$($changed.Count) files  areas=$(@($plan.Areas) -join ', ')"
+if ($Image) { Write-Host "App image under test: $(if ($imageDir) { $imageDir } else { "none ($imageProblem)" })" }
 if ($Mode -eq 'focused') {
     Write-Host "Selected test classes ($($tests.Count)):"; $tests | ForEach-Object { Write-Host "  $_" }
 }
@@ -426,20 +566,23 @@ if ($needsFocus -and -not $AllowDesktopFocus) {
 if ($verdict -ne 'BLOCKED' -and $Mode -eq 'focused' -and $tests.Count -eq 0) { $verdict = 'NO-TESTS'; $reasons += 'Only documentation or instructions changed; no test covers them.' }
 if ($ListOnly -and $verdict -eq 'PASS') { $verdict = 'PLAN' }
 
-$run = $null; $before = $null; $leftBefore = $null; $after = $null; $leftAfter = $null
+$run = $null; $before = $null; $leftBefore = $null; $after = $null; $leftAfter = $null; $launched = @(); $fromImage = @()
 $realAppRunning = [bool](Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path -like "$env:ProgramFiles\SkyWing\*" })
 if (-not $ListOnly -and $verdict -ne 'BLOCKED' -and ($Mode -ne 'focused' -or $tests.Count -gt 0)) {
     if ($needsFocus) { Write-Host "`n*** Desktop focus: SkyWing windows and full screen will appear until this finishes. ***`n" }
     $env:SKYWING_TEST_MPV = 'true'; $env:SKYWING_TEST_MPV_DIR = $MpvDir; $env:SKYWING_TEST_AUTOMATION = 'true'
+    # SkyWingTestApp launches SKYWING_TEST_IMAGE when it is set. Without -Image, drop one inherited from the shell.
+    if ($Image) { $env:SKYWING_TEST_IMAGE = $imageDir } else { Remove-Item Env:\SKYWING_TEST_IMAGE -ErrorAction SilentlyContinue }
     $before = Get-UserDataFingerprint; $leftBefore = Get-Leftovers
-    $needImage = ($Mode -ne 'focused') -or [bool]($tests | Where-Object { $_ -match '^com\.skywing\.desktop\.automation\.' })
+    $needImage = (-not $Image) -and (($Mode -ne 'focused') -or [bool]($tests | Where-Object { $_ -match '^com\.skywing\.desktop\.automation\.' }))
     $code = 0
     if ($needImage) { $code = Invoke-Gradle @('createDistributable', '--no-daemon') }
     if ($code -ne 0) { $verdict = 'FAIL'; $reasons += 'createDistributable failed' }
     else {
         $gradleArgs = @('test', '--no-daemon', '--rerun')
         foreach ($t in $tests) { $gradleArgs += @('--tests', $t) }
-        $testCode = Invoke-Gradle $gradleArgs
+        $watch = Start-LaunchWatch
+        try { $testCode = Invoke-Gradle $gradleArgs } finally { $launched = @(Stop-LaunchWatch $watch) }
         $run = Read-Results $tests
         if ($testCode -ne 0 -and -not ($run.Suites | Where-Object { $_.Failures -gt 0 })) { $verdict = 'FAIL'; $reasons += "Gradle test exited $testCode without a test failure (build or configuration error)" }
         if ($run.Suites | Where-Object { $_.Failures -gt 0 }) { $verdict = 'FAIL'; $reasons += 'Test failures' }
@@ -478,6 +621,12 @@ if (-not $ListOnly -and $verdict -ne 'BLOCKED' -and ($Mode -ne 'focused' -or $te
     $newDirs = @($leftAfter.Dirs | Where-Object { $leftBefore.Dirs -notcontains $_ })
     $newProcs = @($leftAfter.Processes | Where-Object { $leftBefore.Processes -notcontains $_ })
     if ($newDirs -or $newProcs) { $verdict = 'FAIL'; $reasons += "Left behind: $($newDirs.Count) temp folders, $($newProcs.Count) processes" }
+    # Which build the UI tests ran: every SkyWing.exe they started must come from the image under test.
+    $fromImage = @($launched | Where-Object { $_.StartsWith("$testImage\", [StringComparison]::OrdinalIgnoreCase) })
+    $installedRuns = @($launched | Where-Object { $_.StartsWith("$env:ProgramFiles\SkyWing\", [StringComparison]::OrdinalIgnoreCase) })
+    $otherImages = @($launched | Where-Object { $fromImage -notcontains $_ -and $installedRuns -notcontains $_ } | Sort-Object -Unique)
+    if ($otherImages) { $verdict = 'FAIL'; $reasons += "SkyWing started from an image other than the one under test: $($otherImages -join '; ')" }
+    if ($installedRuns) { $reasons += 'WARNING: the installed SkyWing was started during the run' }
     if ($before.Prefs -ne $after.Prefs -or $before.Library -ne $after.Library) {
         if ($realAppRunning) { $reasons += 'WARNING: real SkyWing data changed while the installed SkyWing was running; close it and rerun to confirm isolation' }
         else { $verdict = 'FAIL'; $reasons += 'The real SkyWing preferences or %LOCALAPPDATA%\SkyWing changed during the tests' }
@@ -504,6 +653,17 @@ Add "- Changed files considered: $($changed.Count); areas: $(if ($plan.Areas) { 
 if ($plan.Escalate) { Add "- **Full mode required by policy** after focused passes: $(@($plan.Escalate) -join ', ')" }
 if ($plan.Release) { Add "- **Release mode required by policy** before shipping (installer, payload or legal inputs changed)" }
 if ($plan.Unmapped) { Add "- Unmapped changes: $(@($plan.Unmapped) -join ', ')" }
+if ($Image) {
+    $unpacked = if ($imageDir -and -not $item.PSIsContainer) { ", unpacked from $($item.Name) (not installed)" } else { '' }
+    Add "- App image under test (-Image): $(if ($imageDir) { $imageDir } else { "none ($imageProblem)" })$unpacked"
+    $build = if ($imageDir) { Get-ImageBuild $imageDir } else { $null }
+    if ($build) {
+        $dirty = $build['localChanges'] -eq 'true'
+        $match = if ($dirty) { "it was built with uncommitted changes, so whether this checkout's app code matches it is unknown" } else { Get-SourceMatch $build['commit'] }
+        Add "- Its build: version $($build['version']), commit $($build['commit'])$(if ($dirty) { ' with local changes' }), runtime $($build['runtime']); $match"
+    }
+    elseif ($imageDir) { Add '- Its build: unknown (no skywing-build.properties in its jars)' }
+}
 Add ""
 Add "## Prerequisites"
 $prereqs | ForEach-Object { Add ("- {0} {1}{2}" -f $(if ($_.Ok) { 'OK' } elseif ($_.Required) { '**MISSING**' } else { 'not needed:' }), $_.Name, $(if ($_.Detail) { " ($($_.Detail))" })) }
@@ -523,6 +683,7 @@ if ($after) {
     Add "- Real library cache (%LOCALAPPDATA%\SkyWing): $(if ($before.Library -eq $after.Library) { 'unchanged' } else { 'CHANGED' })"
     Add "- New temp folders: $(@($leftAfter.Dirs | Where-Object { $leftBefore.Dirs -notcontains $_ }).Count); lingering test processes: $(@($leftAfter.Processes | Where-Object { $leftBefore.Processes -notcontains $_ }).Count)"
     Add "- Installed SkyWing running during the run: $realAppRunning"
+    Add "- SkyWing.exe starts during the tests: $(@($launched).Count), from the image under test: $(@($fromImage).Count)"
     $mem = Join-Path $windows 'build\reports\tests\test'
     foreach ($m in 'playback-memory.txt', 'app-memory.txt') { $p = Join-Path $mem $m; if ((Test-Path $p) -and (Get-Item $p).LastWriteTime -ge $started) { Add "- $(((Get-Content $p) -join ' ').Trim())" } }
 }

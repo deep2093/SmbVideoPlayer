@@ -209,8 +209,12 @@ internal class SkyWingTestApp private constructor(
         private const val CLOSE_TIMEOUT_MS = 10_000L
         private const val POLL_MS = 150L
 
-        /** The distributable built by `createDistributable`; override with -Dskywing.test.image. */
-        val image: Path = Path.of(System.getProperty("skywing.test.image") ?: "build/compose/binaries/main/app/SkyWing")
+        /**
+         * The app image the tests launch: the one `createDistributable` builds, or the one the SKYWING_TEST_IMAGE
+         * environment variable names (`verify.ps1 -Image` sets it to test an existing build). An environment variable,
+         * because Gradle passes its own -D options to the build JVM, not to the test JVM.
+         */
+        val image: Path = Path.of(System.getenv("SKYWING_TEST_IMAGE")?.takeIf { it.isNotBlank() } ?: "build/compose/binaries/main/app/SkyWing")
             .toAbsolutePath().normalize()
 
         private val REPORTS: Path = Path.of("build/reports/automation").toAbsolutePath()
@@ -232,7 +236,9 @@ internal class SkyWingTestApp private constructor(
             seed: (Preferences, Path) -> Unit = { _, _ -> },
         ): SkyWingTestApp {
             val launcher = image.resolve("SkyWing.exe")
-            check(Files.isRegularFile(launcher)) { "No test image at $image. Run `gradlew -p windows createDistributable` first." }
+            check(Files.isRegularFile(launcher)) {
+                "No test image at $image. Run `gradlew -p windows createDistributable` first, or set SKYWING_TEST_IMAGE to an app image."
+            }
             val bridge = AccessBridgeClient.forImage(image)
             val dataDir = dataDir ?: Files.createTempDirectory("skywing-ui-test-")
             val home = dataDir.resolve("home").createDirectories()
