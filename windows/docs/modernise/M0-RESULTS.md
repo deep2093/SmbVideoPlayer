@@ -120,7 +120,7 @@ The override applies only to SkyWing started from that window. The report must s
 | CPU package temperature, average / maximum °C | 68 / 80 | 71 / 79 |
 | GPU temperature, average / maximum °C | Intel 45 / 46; NVIDIA 39 / 40 | Intel 43 / 45; NVIDIA 41 / 42 |
 | Fans, average / maximum RPM | CPU 2,450 / 2,800; GPU 2,439 / 2,700; PCH 3,251 / 3,600 | CPU 2,780 / 2,800; GPU 2,686 / 2,700; PCH 3,581 / 3,600 |
-| Anything visible (judder, artefacts, audio sync) | The owner's check is pending | The owner's check is pending |
+| Anything visible (judder, artefacts, audio sync) | Nothing; the owner saw and heard nothing odd | Nothing; the owner saw and heard nothing odd |
 
 Notes:
 - Both runs used the automated route in section 2: the local clip from the start, full screen, plugged in. In neither window did another program come to the front, full screen drop or any keyboard or mouse input arrive.
@@ -182,7 +182,7 @@ Clips: a local 1080p SDR clip (the same file on both handhelds; write down its f
 ## 5. What the numbers decide
 
 - **Automatic GPU (plan 5.3):** Automatic stays all-Intel unless run A drops frames, or run B holds 2× with clearly fewer drops at an acceptable power cost.
-  Result of the laptop runs on 23 November: Automatic stays all-Intel. Run A held 2× without a drop, and run B dropped no fewer while drawing about 6.7 W more (CPU package plus NVIDIA). This rests on the numbers; the owner's visual check of both runs is pending.
+  Result of the laptop runs on 23 November: Automatic stays all-Intel. Run A held 2× without a drop, and run B dropped no fewer while drawing about 6.7 W more (CPU package plus NVIDIA). The owner saw and heard nothing odd in either run.
 - **Handheld default (plan 5.7, item 3):** the quality that holds 2× at 1080p without drops on battery becomes the handheld default. The plan starts from 1080p 2× Fast.
 
 ## 6. How this build picks its GPU
