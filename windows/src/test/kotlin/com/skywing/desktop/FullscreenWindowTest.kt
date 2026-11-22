@@ -45,6 +45,10 @@ class FullscreenWindowTest {
         fun PostMessageW(hwnd: Pointer, message: Int, wparam: Pointer?, lparam: Pointer?): Boolean
         fun IsWindowVisible(hwnd: Pointer): Boolean
         fun GetCursorInfo(info: Pointer): Boolean
+        fun LoadCursorW(instance: Pointer?, name: Pointer): Pointer?
+        /** [point] is a POINT passed by value on x64: y in the high 32 bits, x in the low. */
+        fun WindowFromPoint(point: Long): Pointer?
+        fun GetClassNameW(hwnd: Pointer, name: CharArray, size: Int): Int
         fun DrawIconEx(dc: Pointer, x: Int, y: Int, icon: Pointer, width: Int, height: Int, step: Int, brush: Pointer?, flags: Int): Boolean
         fun GetWindowLongW(hwnd: Pointer, index: Int): Int
     }
@@ -98,8 +102,30 @@ class FullscreenWindowTest {
                 .joinToString { "focused=${it.isFocused}, bounds=${it.bounds}, cursor=${it.cursor}, overlays=" +
                     it.ownedWindows.joinToString { child -> "${child.name}:${child.isVisible}:${child.bounds}" } }
         }
-        fail("$message; pointer=${java.awt.MouseInfo.getPointerInfo()?.location}; $context")
+        fail("$message; pointer=${java.awt.MouseInfo.getPointerInfo()?.location}; ${cursorState()}; $context")
     }
+
+    /**
+     * For failure messages: the cursor Windows shows and the class of the window under the pointer. The cursor check
+     * failed twice on 23 Nov 2026 with SkyWing's hidden cursor set and the controls hidden; this says what showed.
+     */
+    private fun cursorState(): String = runCatching {
+        com.sun.jna.Memory(24).use { info ->
+            info.clear(); info.setInt(0, 24)
+            check(user32.GetCursorInfo(info))
+            val handle = info.getPointer(8)
+            val name = systemCursors.entries.firstOrNull { user32.LoadCursorW(null, Pointer(it.key.toLong())) == handle }?.value
+            val showing = if (info.getInt(4) and 1 == 0) " (not showing)" else ""
+            val point = (info.getInt(20).toLong() shl 32) or (info.getInt(16).toLong() and 0xFFFF_FFFFL)
+            val under = user32.WindowFromPoint(point)?.let { hwnd -> CharArray(256).let { String(it, 0, user32.GetClassNameW(hwnd, it, it.size)) } }
+            "Windows cursor=${name ?: "not a system cursor"}$showing; window under the pointer=${under ?: "none"}"
+        }
+    }.getOrElse { "cursor state unavailable: ${it.message}" }
+
+    private val systemCursors = mapOf(
+        32512 to "arrow", 32513 to "I-beam", 32514 to "wait", 32515 to "cross", 32646 to "size all", 32648 to "no",
+        32649 to "hand", 32650 to "app starting", 32651 to "help",
+    )
     private fun canvases(component: Component): List<Canvas> =
         (if (component.javaClass == Canvas::class.java) listOf(component as Canvas) else emptyList()) +
             (if (component is Container) component.components.flatMap(::canvases) else emptyList())
