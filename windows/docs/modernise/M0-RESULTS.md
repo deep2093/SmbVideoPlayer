@@ -129,6 +129,7 @@ Notes:
 - Both runs' reports say `G-SYNC / FreeSync: true`, `lower automatically: false` and `VRR capability: unknown; Display capability unavailable; choice: manual`.
 - HWiNFO logged every 2 seconds, with gaps of up to 12 seconds. Run A's first sample in the window came 56 seconds after it started (228 samples); run B's came 11 seconds after (249 samples).
 - CPU package plus NVIDIA power: 57.4 W in run A and 64.1 W in run B.
+- Private memory rose by 287 MB during run A's window and by 15 MB during run B's (58 MB in the first run A). One run of each can't tell steady growth from memory that levels off; a longer run on the Intel path would show which.
 
 ## 4. Handhelds
 
