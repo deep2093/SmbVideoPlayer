@@ -27,17 +27,18 @@ Use the same steps for every run.
 
 **Playback**
 - Local files only, not the network drive. Audio on. Fullscreen.
-- Start the clip from the beginning. No seeks, no pauses and no other apps. Don't touch the mouse or keyboard during the measured window.
+- Start the clip from the beginning. No seeks, no pauses and no other apps. Close any other SkyWing build too: the snippet below counts every process named SkyWing. Don't touch the mouse or keyboard during the measured window.
 - Use one power mode per machine (the Windows power mode and the maker's performance, fan or TDP mode) and write it down.
 - Battery runs: start with at least 40 % charge and battery saver off.
 
-**Timing, process CPU and battery**
+**Timing, process CPU, memory and battery**
 
-Open Windows PowerShell and paste the snippet below. Then start the clip and go fullscreen straight away. The snippet waits until SkyWing runs and gives playback 60 seconds to settle. Then it beeps once: copy report A (Motion options → Copy playback report, and paste it into a text file), close Motion options and leave the PC alone. When the window ends it beeps twice: copy report B. It prints SkyWing's process CPU and, on battery, the battery drain. The laptop window is 10 minutes; for the handhelds set `$window = 300` (5 minutes). The clip must outlast the settling time plus the window.
+Open Windows PowerShell and paste the snippet below. Then start the clip and go fullscreen straight away. The snippet waits until SkyWing runs and gives playback 60 seconds to settle. Then it beeps once: copy report A (Motion options → Copy playback report, and paste it into a text file), close Motion options and leave the PC alone. When the window ends it beeps twice: copy report B. It prints SkyWing's process CPU, its private memory at the start and end of the window and, on battery, the battery drain. The laptop window is 10 minutes; for the handhelds set `$window = 300` (5 minutes). The clip must outlast the settling time plus the window.
 
 ```powershell
 $name = 'SkyWing'; $warmup = 60; $window = 600   # handheld runs: $window = 300
 function Get-CpuSeconds { (Get-Process $name | ForEach-Object { $_.TotalProcessorTime.TotalSeconds } | Measure-Object -Sum).Sum }
+function Get-PrivateMB { (Get-Process $name | Measure-Object PrivateMemorySize64 -Sum).Sum / 1MB }
 function Get-BatteryCharge {
     $status = @(Get-CimInstance -Namespace root\wmi -ClassName BatteryStatus -ErrorAction SilentlyContinue)
     if ($status) { [pscustomobject]@{ mWh = ($status | Measure-Object RemainingCapacity -Sum).Sum; OnAC = [bool]($status | Where-Object PowerOnline) } }
@@ -45,13 +46,14 @@ function Get-BatteryCharge {
 while (-not (Get-Process $name -ErrorAction SilentlyContinue)) { Start-Sleep 1 }
 "$name is running. Start the clip and go fullscreen; the measured window starts in $warmup s."
 Start-Sleep $warmup
-$cpu0 = Get-CpuSeconds; $battery0 = Get-BatteryCharge; $t0 = Get-Date
+$cpu0 = Get-CpuSeconds; $memory0 = Get-PrivateMB; $battery0 = Get-BatteryCharge; $t0 = Get-Date
 [console]::Beep(880, 300); "Window started at $($t0.ToString('T')). Copy report A now, then leave SkyWing alone."
 Start-Sleep $window
-$cpu1 = Get-CpuSeconds; $battery1 = Get-BatteryCharge; $seconds = ((Get-Date) - $t0).TotalSeconds
+$cpu1 = Get-CpuSeconds; $memory1 = Get-PrivateMB; $battery1 = Get-BatteryCharge; $seconds = ((Get-Date) - $t0).TotalSeconds
 [console]::Beep(660, 300); [console]::Beep(660, 300)
 "Window ended after {0:N0} s. Copy report B now." -f $seconds
 "SkyWing process CPU: {0:N2} cores" -f (($cpu1 - $cpu0) / $seconds)
+"SkyWing private memory: {0:N0} MB at the start of the window, {1:N0} MB at the end" -f $memory0, $memory1
 if ($battery0 -and -not $battery1.OnAC) {
     $full = (Get-CimInstance -Namespace root\wmi -ClassName BatteryFullChargedCapacity | Measure-Object FullChargedCapacity -Sum).Sum
     $used = $battery0.mWh - $battery1.mWh
@@ -66,6 +68,7 @@ if ($battery0 -and -not $battery1.OnAC) {
 - Restarts: `Stall recovery attempts:` in report B. Expect 0.
 - Graph generations: `observed graph generations:` in reports A and B. It should not change during the window.
 - Process CPU is in logical cores: 1.00 means one core busy all the time. HWiNFO's CPU usage is for the whole system, so the two can't be compared.
+- Private memory is Task Manager's "Commit size", summed over the SkyWing processes like the CPU. The change from start to end shows growth during the window. There is no earlier figure to compare with, so these runs set the baseline.
 - On Intel, GPU power is part of CPU package power. Don't add the two.
 - None of these numbers measures the frames on the screen. Presented FPS isn't measured yet (plan 5.6).
 
@@ -98,6 +101,7 @@ The override applies only to SkyWing started from that window. The report must s
 | Restarts (expect 0) | | |
 | Graph generations, report A → B | | |
 | Process CPU (cores) | | |
+| Private memory, MB: start → end of the window | | |
 | CPU package power, average W | | |
 | NVIDIA GPU power, average W | | |
 | CPU package temperature, average / maximum °C | | |
@@ -121,16 +125,16 @@ Clips: a local 1080p SDR clip (the same file on both handhelds; write down its f
 | Power or TDP mode | |
 | 1080p clip frame rate | |
 
-| Clip | Quality | Power | Drops in 5 min | Drops per minute | Restarts | Process CPU (cores) | Battery drain (W; % per hour) | Notes |
-|---|---|---|---|---|---|---|---|---|
-| 1080p | Fast | Plugged in | | | | | — | |
-| 1080p | Balanced | Plugged in | | | | | — | |
-| 4K | Fast | Plugged in | | | | | — | |
-| 4K | Balanced | Plugged in | | | | | — | |
-| 1080p | Fast | Battery | | | | | | |
-| 1080p | Balanced | Battery | | | | | | |
-| 4K | Fast | Battery | | | | | | |
-| 4K | Balanced | Battery | | | | | | |
+| Clip | Quality | Power | Drops in 5 min | Drops per minute | Restarts | Process CPU (cores) | Private memory, MB (start → end) | Battery drain (W; % per hour) | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| 1080p | Fast | Plugged in | | | | | | — | |
+| 1080p | Balanced | Plugged in | | | | | | — | |
+| 4K | Fast | Plugged in | | | | | | — | |
+| 4K | Balanced | Plugged in | | | | | | — | |
+| 1080p | Fast | Battery | | | | | | | |
+| 1080p | Balanced | Battery | | | | | | | |
+| 4K | Fast | Battery | | | | | | | |
+| 4K | Balanced | Battery | | | | | | | |
 
 ### MSI Claw 8
 
@@ -142,16 +146,16 @@ Clips: a local 1080p SDR clip (the same file on both handhelds; write down its f
 | Power or TDP mode | |
 | 1080p clip frame rate | |
 
-| Clip | Quality | Power | Drops in 5 min | Drops per minute | Restarts | Process CPU (cores) | Battery drain (W; % per hour) | Notes |
-|---|---|---|---|---|---|---|---|---|
-| 1080p | Fast | Plugged in | | | | | — | |
-| 1080p | Balanced | Plugged in | | | | | — | |
-| 4K | Fast | Plugged in | | | | | — | |
-| 4K | Balanced | Plugged in | | | | | — | |
-| 1080p | Fast | Battery | | | | | | |
-| 1080p | Balanced | Battery | | | | | | |
-| 4K | Fast | Battery | | | | | | |
-| 4K | Balanced | Battery | | | | | | |
+| Clip | Quality | Power | Drops in 5 min | Drops per minute | Restarts | Process CPU (cores) | Private memory, MB (start → end) | Battery drain (W; % per hour) | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| 1080p | Fast | Plugged in | | | | | | — | |
+| 1080p | Balanced | Plugged in | | | | | | — | |
+| 4K | Fast | Plugged in | | | | | | — | |
+| 4K | Balanced | Plugged in | | | | | | — | |
+| 1080p | Fast | Battery | | | | | | | |
+| 1080p | Balanced | Battery | | | | | | | |
+| 4K | Fast | Battery | | | | | | | |
+| 4K | Balanced | Battery | | | | | | | |
 
 ## 5. What the numbers decide
 
