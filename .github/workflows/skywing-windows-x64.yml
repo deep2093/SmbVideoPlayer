@@ -31,6 +31,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Whole history: the build records whether it contains the watchdog fix ed072bf (generateBuildInfo).
+          fetch-depth: 0
       - name: Configure Java 17
         uses: actions/setup-java@v4
         with:
@@ -144,6 +147,27 @@ jobs:
               Write-Host "Diagnostics: $($_.FullName)"
               Get-Content -LiteralPath $_.FullName -Tail 120
             }
+      - name: Name the installers after their build identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # SkyWing-<version>-<commit>[-modified]-<runtime>-<with|without>-ed072bf, from the skywing-build.properties that
+          # the packaging build put in the app. The playback report's Build line shows the same facts.
+          $identity = Get-Content -Raw windows/build/generated/build-info/skywing-build.properties | ConvertFrom-StringData
+          $watchdog = switch ($identity.watchdogFix) {
+            'included' { 'with-ed072bf' }
+            'missing' { 'without-ed072bf' }
+            default { 'ed072bf-unknown' }
+          }
+          $modified = if ($identity.localChanges -eq 'true') { '-modified' } else { '' }
+          $suffix = "$($identity.commit)$modified-$($identity.runtime)-$watchdog"
+          $installers = @(Get-ChildItem windows/build/compose/binaries/main/exe/*.exe, windows/build/compose/binaries/main/msi/*.msi)
+          if ($installers.Count -ne 2) { throw "Expected one EXE and one MSI, found $($installers.Count) installers" }
+          foreach ($installer in $installers) {
+            $name = "$($installer.BaseName)-$suffix$($installer.Extension)"
+            Rename-Item -LiteralPath $installer.FullName -NewName $name
+            Write-Host "Installer: $name"
+          }
       - name: Verify bundled libmpv and legal files in app image
         shell: pwsh
         run: |

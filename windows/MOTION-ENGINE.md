@@ -53,6 +53,16 @@ last engine metrics and incident counters, heartbeat age, elapsed time, filter
 presence, preceding actions and last 20 VapourSynth warnings/errors. Paths are
 redacted. Processing throughput is not measured physical presentation FPS.
 
+The report starts with the build: its version, then a `Build:` line with the commit
+(and whether `windows/` had uncommitted changes), the libmpv runtime staged for it
+(`stock`, or `frame-sharing` when `MPV-PREVIEW-MANIFEST.json` was staged with libmpv)
+and whether it contains `ed072bf`, the watchdog fix that keeps the latest heartbeat
+across missed polls. For `frame-sharing` it also says whether sharing is on:
+`SKYWING_VS_SHARE_FRAMES` unset or `1` shares the output planes, and any other value
+uses the original output copy for A/B tests (set it before starting SkyWing). CI names
+the installers after the same facts:
+`SkyWing-<version>-<commit>[-modified]-<runtime>-<with|without>-ed072bf`.
+
 ## Validation and remaining work
 
 Native tests cover 60 seeks, all five presets, failure fallback, property/filter
