@@ -8,11 +8,11 @@ Fill in the tables yourself, or paste the playback reports, the snippet output a
 
 | | Value |
 |---|---|
-| Installer file name | |
+| Installer file name | `SkyWing-0.1.101-ea838e1-frame-sharing-with-ed072bf.msi` (and `.exe`), from [run 101](https://github.com/deep2093/SmbVideoPlayer/actions/runs/44986909958), the push build of ea838e1 |
 | Expected installer name | `SkyWing-<version>-<commit>-frame-sharing-with-ed072bf.msi` (or `.exe`) |
 | Playback report `Build:` line | |
 | Expected `Build:` line | `Build: commit <commit>; runtime frame-sharing, sharing on; watchdog fix ed072bf included` (no "with local changes") |
-| CI artifact check (Claude, after the push): `MPV-PREVIEW-MANIFEST.json` and the motion payload in the app image match the checkout | |
+| CI artifact check (Claude, after the push): `MPV-PREVIEW-MANIFEST.json` and the motion payload in the app image match the checkout | Pass (22 November, MSI unpacked with WiX `dark.exe`). ProductVersion 0.1.101; UpgradeCode {F40C59EF-E520-4E10-B7A2-B86E7458F923} unchanged. `skywing-build.properties` in the app jar: commit ea838e1, no local changes, runtime frame-sharing, watchdog fix included. libmpv: mpv revision e471496c and the frame-sharing patch match the checkout, and all 125 DLLs match `MPV-PREVIEW-MANIFEST.json`. Motion: the pins and the open-svpflow patch match `NATIVE-PROVENANCE.json`, no local plugin override, and all 63 files match `BUILD-MANIFEST.json`, none extra. |
 
 ## 2. How to measure
 
