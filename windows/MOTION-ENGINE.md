@@ -40,9 +40,12 @@ Seeks, pauses, cache waits and reconfiguration restart the warmup period.
 
 ## Runtime and diagnostics
 
-NVIDIA is preferred for motion and for D3D11 rendering when mpv validates a matching
-installed DXGI adapter. Otherwise automatic renderer selection remains available.
-The report separates the preferred motion GPU from mpv’s actual renderer device.
+Rendering and motion use the GPU that drives the monitor the window is on when
+SkyWing first creates its video surface (Intel or NVIDIA, as Windows names the
+display adapter). Moving the window later does not change it. When Windows names
+neither, NVIDIA is preferred if mpv validates an installed NVIDIA DXGI adapter;
+otherwise automatic renderer selection remains available. No setting or environment
+variable overrides this choice yet. The report separates the preferred motion GPU from mpv’s actual renderer device.
 Native DLLs stay loaded for the process lifetime so Rust worker state survives
 VapourSynth core rebuilds. Only the named filter is owned; previous decoder/sync/
 interpolation settings and other filters are preserved when it ends.
