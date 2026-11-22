@@ -45,7 +45,13 @@ class EmbeddedPlaybackNativeTest {
             }
             assertEquals(codec, player.diagnosticProperty("current-tracks/video/codec"), "decoder for ${clip.name}")
             assertEquals(LENGTH.toDouble(), player.playbackDuration()!!, 0.3, "duration of ${clip.name}")
-            assertEquals("1", player.diagnosticProperty("current-tracks/audio/id"), "${clip.name} has its audio track selected")
+            // GitHub's runners have no sound device. mpv then plays the video without sound and drops the audio track.
+            if (hasSoundDevice(player)) {
+                assertEquals("1", player.diagnosticProperty("current-tracks/audio/id"), "${clip.name} has its audio track selected")
+            } else {
+                assertTrue("audio" in entries(player, "track-list", "type"), "${clip.name} has an audio track")
+                println("No sound device here, so mpv plays ${clip.name} without its audio track")
+            }
 
             assertTrue(player.pause())
             waitFor("${clip.name} to pause") { player.isPaused() == true }
@@ -211,6 +217,16 @@ class EmbeddedPlaybackNativeTest {
             Thread.sleep(50)
         }
         fail("Timed out waiting for $what")
+    }
+
+    /** True when mpv lists a Windows (WASAPI) sound device. Its list has "auto" and "openal" either way. */
+    private fun hasSoundDevice(player: EmbeddedMpv): Boolean =
+        entries(player, "audio-device-list", "name").any { it.startsWith("wasapi/") }
+
+    /** The [field] of every entry in the mpv list property [list], for example each track's "type" in "track-list". */
+    private fun entries(player: EmbeddedMpv, list: String, field: String): List<String> {
+        val count = player.diagnosticProperty("$list/count")?.toIntOrNull() ?: 0
+        return (0 until count).mapNotNull { player.diagnosticProperty("$list/$it/$field") }
     }
 
     @Suppress("FunctionName")
