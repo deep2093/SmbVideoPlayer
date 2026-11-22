@@ -5,6 +5,7 @@ import com.skywing.desktop.automation.ClipSize
 import com.skywing.desktop.automation.Disturbances
 import com.skywing.desktop.automation.FinishedRun
 import com.skywing.desktop.automation.HandheldPlan
+import com.skywing.desktop.automation.HandheldSystem
 import com.skywing.desktop.automation.M0Outcome
 import com.skywing.desktop.automation.M0Settings
 import com.skywing.desktop.automation.PlaybackReport
@@ -14,7 +15,9 @@ import com.skywing.desktop.automation.finishedRun
 import com.skywing.desktop.automation.handheldTable
 import com.skywing.desktop.automation.machineFolder
 import com.skywing.desktop.automation.registryString
+import com.skywing.desktop.automation.registryValue
 import com.skywing.desktop.automation.reportMismatch
+import com.skywing.desktop.automation.runnerFolderRefusal
 import com.skywing.desktop.automation.tableRow
 import com.skywing.desktop.playback.MotionQuality
 
@@ -29,10 +32,12 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * The handheld M0 runner (`M0Handheld.kt`) works out its runs, clips, resume points, checks and table rows from files
- * and text, so these tests need no SkyWing, battery or window. The files are temporary.
+ * and text, so these tests need no SkyWing, battery or window. The files are temporary. One test makes the runner's
+ * Windows calls on this machine; they only read its state.
  */
 class M0HandheldTest {
     private val temp: Path = Files.createTempDirectory("skywing m0 handheld ")
@@ -105,6 +110,31 @@ class M0HandheldTest {
     fun aClipCanBeNamedInTheEnvironmentInstead() {
         val named = temp.resolve("elsewhere.mp4")
         assertEquals(named, ClipSize.UHD_4K.clip(temp, mapOf("SKYWING_M0_CLIP_4K" to named.toString())))
+    }
+
+    @Test
+    fun theRunnerRefusesAFolderOnAShareAUsbStickOrInOneDrive() {
+        val local = temp.resolve("SkyWing-M0")
+        assertNull(runnerFolderRefusal(local, emptyMap(), removable = { false }))
+        val share = runnerFolderRefusal(Path.of("""\\nas.invalid\tools\SkyWing-M0"""), emptyMap(), removable = { error("a share is never queried") })
+        assertContains(share.orEmpty(), "network")
+        val stick = runnerFolderRefusal(local, emptyMap(), removable = { it == local }).orEmpty()
+        assertContains(stick, "USB stick")
+        assertContains(stick, """C:\SkyWing-M0""")
+        assertContains(runnerFolderRefusal(local, mapOf("OneDrive" to temp.toString()), removable = { false }).orEmpty(), "OneDrive")
+        val business = temp.resolve("OneDrive - Example").resolve("SkyWing-M0")
+        assertContains(runnerFolderRefusal(business, emptyMap(), removable = { false }).orEmpty(), "OneDrive")
+    }
+
+    @Test
+    fun theWindowsCallsTheRunnerMakesWorkOnThisMachine() {
+        val percent = HandheldSystem.powerStatus().percent
+        assertTrue(percent == null || percent in 0..100, "battery at $percent %")
+        assertTrue(HandheldSystem.foregroundLockTimeoutMs() >= 0)
+        assertTrue(HandheldSystem.idleMs() >= 0)
+        assertFalse(HandheldSystem.removable(Path.of(System.getenv("SystemRoot") ?: """C:\Windows""")))
+        assertContains(registryValue("""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion""", "ProductName").orEmpty(), "Windows")
+        assertNull(registryValue("""HKCU\Software\SkyWing M0 test key that does not exist""", "x"))
     }
 
     @Test

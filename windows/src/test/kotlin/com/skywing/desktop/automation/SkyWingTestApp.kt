@@ -223,7 +223,10 @@ internal class SkyWingTestApp private constructor(
         val image: Path = Path.of(System.getenv("SKYWING_TEST_IMAGE")?.takeIf { it.isNotBlank() } ?: "build/compose/binaries/main/app/SkyWing")
             .toAbsolutePath().normalize()
 
-        private val REPORTS: Path = Path.of("build/reports/automation").toAbsolutePath()
+        /** Names the folder [saveDiagnostics] writes to instead of build/reports/automation (the handheld M0 runner's results). */
+        const val REPORTS_PROPERTY = "skywing.test.reports"
+
+        private val REPORTS: Path get() = Path.of(System.getProperty(REPORTS_PROPERTY) ?: "build/reports/automation").toAbsolutePath()
 
         /** Where the test JVM compiled [IsolatedPreferencesFactory]; the app loads it from its boot class path. */
         private val supportClasses: Path =

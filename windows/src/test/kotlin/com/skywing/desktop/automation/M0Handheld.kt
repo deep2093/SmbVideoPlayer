@@ -1,9 +1,11 @@
 package com.skywing.desktop.automation
 
+import com.skywing.desktop.NetworkPaths
 import com.skywing.desktop.playback.MotionQuality
 import com.skywing.desktop.playback.MotionStops
 import com.skywing.desktop.playback.SmoothingCapabilities
 import com.sun.jna.Native
+import com.sun.jna.Pointer
 import com.sun.jna.Structure
 import com.sun.jna.WString
 import com.sun.jna.ptr.IntByReference
@@ -33,8 +35,9 @@ import kotlin.system.exitProcess
  * and empty `clips\1080p` and `clips\4K` folders. `Run M0.cmd` starts it. `Run M0.cmd trial` does a short check
  * instead: the plugged-in half with a 10-second warm-up and a 30-second window, which tests the runner, not the device.
  * The runner:
- * - refuses to start, saying what to fix, when SkyWing [M0_BUILD] isn't installed, the folder is on a USB stick or a
- *   memory card, a clips folder doesn't hold exactly one video, or plugged-in runs are left and the charger is out
+ * - refuses to start, saying what to fix, when the folder isn't on the device's own drive or is in OneDrive, SkyWing
+ *   [M0_BUILD] isn't installed, a clips folder doesn't hold exactly one video, or plugged-in runs are left and the
+ *   charger is out
  * - keeps the device and its screen awake while it runs, as a video player does
  * - before each run, waits until nobody has touched the device for Windows' foreground lock time-out (about 3
  *   minutes): until then, Windows keeps a new SkyWing window behind the program used last
@@ -55,6 +58,7 @@ fun main(args: Array<String>) {
     val trial = args.any { it.equals("trial", ignoreCase = true) }
     // exitProcess: AWT (the clipboard) and the Access Bridge client keep threads that would hold the JVM open.
     val code = try {
+        HandheldSystem.keepConsoleRunning()
         HandheldSystem.keepAwake()
         HandheldRunner(trial, System.getenv(), Path.of("").toAbsolutePath()).runAll()
     } catch (refused: IllegalArgumentException) {
@@ -161,6 +165,28 @@ internal fun finishedRun(results: Path, label: String): Path? {
 /** The data of the REG_SZ value [name] in `reg.exe query` output, or null when the output doesn't have it. */
 internal fun registryString(output: String, name: String): String? =
     Regex("^[ \\t]+${Regex.escape(name)}[ \\t]+REG_SZ(?:[ \\t]+(.*?))?[ \\t]*\\r?$", RegexOption.MULTILINE).find(output)?.groupValues?.get(1)
+
+/** One REG_SZ value, read with reg.exe (which only reads), or null when it isn't there. */
+internal fun registryValue(key: String, name: String): String? = runCatching {
+    val process = ProcessBuilder("reg.exe", "query", key, "/v", name).redirectErrorStream(true).start()
+    val output = process.inputStream.bufferedReader().readText()
+    if (process.waitFor(30, TimeUnit.SECONDS) && process.exitValue() == 0) registryString(output, name) else null
+}.getOrNull()?.takeIf { it.isNotBlank() }
+
+/**
+ * Why the runner can't work from [folder], or null. It writes its results there while it runs, so the folder must be on
+ * the device's own drive: not on a share, a USB stick or a memory card ([removable]), and not in OneDrive.
+ */
+internal fun runnerFolderRefusal(folder: Path, environment: Map<String, String>, removable: (Path) -> Boolean): String? {
+    val move = "Copy the whole folder to the device's own drive, for example to C:\\SkyWing-M0, and start Run M0.cmd there."
+    return when {
+        // First, and from the path alone, so a share is never queried.
+        NetworkPaths.isNetwork(folder.toString()) -> "Run M0.cmd is on a network drive or share. $move"
+        removable(folder) -> "Run M0.cmd is on a USB stick or memory card. $move"
+        inOneDrive(folder, environment) -> "Run M0.cmd is in OneDrive, which would upload the results while they are written. $move"
+        else -> null
+    }
+}
 
 /** A folder name for the device: its product name, or the computer's name when the firmware gives a placeholder. */
 internal fun machineFolder(product: String?, computerName: String?): String {
@@ -274,20 +300,22 @@ private class HandheldRunner(private val trial: Boolean, private val environment
     private val plan = HandheldPlan.runs(trial)
     private val timing = plan.first().timing
     private val image = Path.of(requireNotNull(environment["SKYWING_TEST_IMAGE"]?.takeIf { it.isNotBlank() }) { "Start the runner with Run M0.cmd." })
-    private val product = registry(BIOS, "SystemProductName")
-    private val device = listOfNotNull(registry(BIOS, "SystemManufacturer"), product).joinToString(" ").ifBlank { "this device" }
+    private val product = registryValue(BIOS, "SystemProductName")
+    private val device = listOfNotNull(registryValue(BIOS, "SystemManufacturer"), product).joinToString(" ").ifBlank { "this device" }
     private val results = runner.resolve("results").resolve(machineFolder(product, environment["COMPUTERNAME"]))
     private val table = results.resolve(if (trial) "M0-trial-table.md" else "M0-table.md")
     private var lastRunEnded: Long? = null
 
     /** Does every run without a row and returns the exit code: 0 when all count, 1 when some must be done again. */
     fun runAll(): Int {
+        runnerFolderRefusal(runner, environment, HandheldSystem::removable)?.let { throw IllegalArgumentException(it) }
         checkInstalled()
-        require(!HandheldSystem.removable(runner)) { "Run M0.cmd is on a USB stick or memory card. Copy the whole folder to the device's own drive (for example to C:\\SkyWing-M0) and start it there." }
         val clips = ClipSize.entries.associateWith { it.clip(runner, environment) }
         for ((size, clip) in clips) require(!HandheldSystem.removable(clip)) { "The ${size.folder} clip is on a USB stick or memory card. Copy it to the device's own drive." }
         val (vrr, vrrSource) = vrrChoice()
         results.createDirectories()
+        // The accessibility trees SkyWingTestApp saves when a run fails go with the results.
+        System.setProperty(SkyWingTestApp.REPORTS_PROPERTY, results.resolve("diagnostics").toString())
         val todo = plan.filter { finishedRun(results, it.label) == null }
         println("SkyWing M0 ${if (trial) "trial" else "handheld runs"} (M0-RESULTS.md section 4) on $device")
         println("Results: $results")
@@ -358,7 +386,7 @@ private class HandheldRunner(private val trial: Boolean, private val environment
 
     /** "My screen uses G-SYNC / FreeSync" for every run, and where the choice came from. */
     private fun vrrChoice(): Pair<Boolean?, String> = when (val text = environment["SKYWING_M0_VRR"]?.trim()?.takeIf { it.isNotEmpty() }) {
-        null -> when (val owner = registry(PLAYBACK, "motion.vrr")?.toBooleanStrictOrNull()) {
+        null -> when (val owner = registryValue(PLAYBACK, "motion.vrr")?.toBooleanStrictOrNull()) {
             null -> null to "not set in SkyWing on this device, so SkyWing detects it"
             else -> owner to "$owner, as SkyWing has it on this device"
         }
@@ -437,18 +465,14 @@ private class HandheldRunner(private val trial: Boolean, private val environment
 
         /** Where Java keeps the installed SkyWing's playback settings (its WindowsPreferences node, all lower case). */
         val PLAYBACK = "HKCU\\Software\\JavaSoft\\Prefs\\" + MotionStatus.PLAYBACK_NODE.replace('/', '\\')
-
-        /** One REG_SZ value, read with reg.exe (which only reads), or null when it isn't there. */
-        fun registry(key: String, name: String): String? = runCatching {
-            val process = ProcessBuilder("reg.exe", "query", key, "/v", name).redirectErrorStream(true).start()
-            val output = process.inputStream.bufferedReader().readText()
-            if (process.waitFor(30, TimeUnit.SECONDS) && process.exitValue() == 0) registryString(output, name) else null
-        }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 }
 
-/** The few Windows calls the runner needs that [Win32] doesn't have. */
-private object HandheldSystem {
+/**
+ * The few Windows calls the runner needs that [Win32] doesn't have. Only [keepConsoleRunning], [keepAwake] and [beep]
+ * change anything, and only while the runner runs.
+ */
+internal object HandheldSystem {
     @Suppress("FunctionName")
     private interface Kernel32 : StdCallLibrary {
         fun SetThreadExecutionState(flags: Int): Int
@@ -456,6 +480,9 @@ private object HandheldSystem {
         fun GetSystemPowerStatus(status: SystemPowerStatus): Boolean
         fun GetTickCount(): Int
         fun GetDriveTypeW(root: WString): Int
+        fun GetStdHandle(which: Int): Pointer?
+        fun GetConsoleMode(console: Pointer, mode: IntByReference): Boolean
+        fun SetConsoleMode(console: Pointer, mode: Int): Boolean
     }
 
     @Suppress("FunctionName")
@@ -481,6 +508,20 @@ private object HandheldSystem {
     private const val SPI_GETFOREGROUNDLOCKTIMEOUT = 0x2000
     private const val DRIVE_REMOVABLE = 2
     private const val NO_SYSTEM_BATTERY = 128
+    private const val STD_INPUT_HANDLE = -10
+    private const val ENABLE_QUICK_EDIT_MODE = 0x40
+    private const val ENABLE_EXTENDED_FLAGS = 0x80
+
+    /**
+     * Turns QuickEdit off in the runner's own console window, until it closes. With it on, a tap in the window starts
+     * a selection, and Windows then holds the runner's next line of output, and the runner, until a key is pressed.
+     * Does nothing when the runner has no console (started from a script).
+     */
+    fun keepConsoleRunning() {
+        val console = kernel32.GetStdHandle(STD_INPUT_HANDLE) ?: return
+        val mode = IntByReference()
+        if (kernel32.GetConsoleMode(console, mode)) kernel32.SetConsoleMode(console, (mode.value and ENABLE_QUICK_EDIT_MODE.inv()) or ENABLE_EXTENDED_FLAGS)
+    }
 
     /** Keeps the device and its screen on until the runner exits, as a video player does. Changes no setting. */
     fun keepAwake() {

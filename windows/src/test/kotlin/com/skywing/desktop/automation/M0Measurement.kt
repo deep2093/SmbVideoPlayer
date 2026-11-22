@@ -124,10 +124,7 @@ internal class M0Settings private constructor(
             val out = Path.of(outText).toAbsolutePath().normalize()
             val checkout = generateSequence(workingDir.toAbsolutePath().normalize()) { it.parent }.firstOrNull { it.resolve(".git").exists() }
             require(checkout == null || !out.isInside(checkout)) { "SKYWING_M0_OUT is inside the checkout. Results stay out of the repository." }
-            val oneDrive = listOf("OneDrive", "OneDriveConsumer", "OneDriveCommercial").mapNotNull(::value).map(Path::of)
-            require(oneDrive.none { out.isInside(it) } && out.none { it.toString().startsWith("OneDrive", ignoreCase = true) }) {
-                "SKYWING_M0_OUT is in OneDrive, which would upload the results while they are written."
-            }
+            require(!inOneDrive(out, environment)) { "SKYWING_M0_OUT is in OneDrive, which would upload the results while they are written." }
 
             val label = required("SKYWING_M0_LABEL", "a short run name such as laptop-run-b")
             require(LABEL.matches(label)) { "SKYWING_M0_LABEL may only hold letters, digits, '-' and '_', at most 40." }
@@ -152,6 +149,13 @@ internal class M0Settings private constructor(
 private fun Path.isInside(folder: Path): Boolean {
     fun text(path: Path) = path.toAbsolutePath().normalize().toString().lowercase(Locale.ROOT).trimEnd('\\') + "\\"
     return text(this).startsWith(text(folder))
+}
+
+/** True when [path] is in OneDrive (a folder its environment variables name, or one called OneDrive…), which uploads files as they are written. */
+internal fun inOneDrive(path: Path, environment: Map<String, String>): Boolean {
+    val roots = listOf("OneDrive", "OneDriveConsumer", "OneDriveCommercial").mapNotNull { environment[it]?.trim()?.takeIf(String::isNotEmpty) }
+    val absolute = path.toAbsolutePath().normalize()
+    return roots.any { absolute.isInside(Path.of(it)) } || absolute.any { it.toString().startsWith("OneDrive", ignoreCase = true) }
 }
 
 /** One measurement: [preflight], then [run]. */
