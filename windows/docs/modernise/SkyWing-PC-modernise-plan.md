@@ -58,6 +58,7 @@ The handhelds also have built-in game controllers and usually **no physical keyb
 13. **Window size:** don't open a near-full-screen "normal" window on the handhelds; smart default, remembered (section 6.8).
 14. **Extra features:** all of section 11.4 (offline browsing, sleep and wake safety, phone sync, handheld shortcut, accent colour and Mica, Wi-Fi buffering, refresh-rate matching, audio passthrough, undo, folder watching, signed installer, winget, licence audit, optional motion component).
 15. **Build on the motion work already done** (efficiency review, 19–20 November): keep what works (section 0, rule 2b), ship the watchdog fix and measure on the handhelds first (M0), and fix the new findings B28–B36.
+16. **Gaps found on 22 November:** interlaced and variable-frame-rate video (5.8 rules 9 and 10), paths over 260 characters (7.3), a 2-hour soak test and uninstall (section 10), the screen staying on while a video plays (11.4 item 2), Bluetooth headphones and subtitle download (11.2 items 6 and 7).
 
 ---
 
@@ -381,6 +382,8 @@ The "Default smoothing" column only sets the first-use **quality** and the resol
 6. **HDR:** motion smoothing stays **bypassed** for 10-bit HDR and Dolby Vision until it's validated on real files with Windows HDR on and off (as `AGENTS.md` requires). For playback: if Windows HDR is on for that monitor, pass HDR through (`target-colorspace-hint=yes`; **verify** with the bundled mpv). If not, tone-map with the GPU (`tone-mapping=bt.2446a` or `spline`; integrated GPUs use the cheaper option).
 7. **The playback report** lists: adapter, driver version, decode path, render path, OpenCL device, VRR range, plan reason, Windows' graphics setting, the CPU (5.9), drops.
 8. **A GPU lost while playing** (driver reset, a driver update, an external GPU unplugged, the screen switched to the other GPU): **verify** what mpv reports when its device is lost, then treat it as a plan change. Re-initialise the video output on a working adapter, restart the motion engine on the new plan, and resume at the same position. Never a black window or a hang; report it. Forcing a driver reset on my PCs to test this needs my OK.
+9. **Interlaced video** (TV recordings, DVDs, 1080i camera files): **verify** how the bundled mpv flags interlaced frames (`video-frame-info/interlaced`) and whether its `deinterlace` option has an `auto` mode. Deinterlace before the motion engine (`bwdif`; **verify** whether frame rate or field rate works better with the four stops), or bypass smoothing for that file with a plain reason. With smoothing off, let mpv deinterlace (on the GPU when the frames stay there). Never smooth interlaced fields as if they were frames. Test with an interlaced fixture made by ffmpeg.
+10. **Variable frame rate** (phone and screen recordings): **verify** what the motion engine does with uneven frame times. Detect them (frame timestamps over the first seconds, or `estimated-vf-fps` against `container-fps`). Then either smooth at the measured rate, if a test shows the audio stays in sync and the motion stays even, or bypass smoothing with a plain reason. Test with a variable-rate fixture made by ffmpeg.
 
 ### 5.9 Any processor (Intel or AMD)
 - **Features, not brands:** nothing may check whether the CPU is Intel or AMD. Only its features count.
@@ -657,6 +660,7 @@ fun connect(host: String, share: String?, user: String?, password: CharArray?): 
 
 - **On app start:** reconnect saved drives in the background (credentials come from Credential Manager), using `ShareHosts.resolve` for the alternate addresses. Never block the UI.
 - **Migration:** convert existing `WindowsShareProfileStore` profiles into the new format, keeping the library paths exactly the same.
+- **Long paths:** a file whose full path is over 260 characters (deep folders on the drive) must scan, play, get its thumbnail and keep its watch position. **Verify** each layer: the Java file code, mpv (if it needs the `\\?\UNC\server\share\…` form, **verify** that it accepts it), the thumbnail worker and the library index. Test with a fixture path over 300 characters on the loopback share.
 
 ### 7.4 Connection check (the Wi-Fi problem)
 A **Check connection** button on each saved drive runs, in order:
@@ -843,6 +847,12 @@ suspend fun animatedFullscreen(owner: Window, area: () -> Rectangle, change: () 
   - Accessibility semantics for icon buttons, rail selection, switches and sliders (6.9).
 - **Native tests (existing harness):** fullscreen with the fade, 100 seeks with motion on, close while smoothing, async cursor, and no UI-thread `mpv_command` (add a debug assertion).
 - **More native tests:** frame-sharing teardown stress, 10 × (100 seeks + fullscreen toggles + close) (5.5); still-mouse cursor hide over the video (B32).
+- **Soak test** (manual, outside the normal runs, because it takes the screen for 2 hours: ask me first): 2 hours of fullscreen playback with smoothing on and a seek every 10 minutes, once from a local file and once from the loopback share (a generated fixture played with `loop-file` is fine). Use `--bench` (5.6) for the CSV. After the first 20 minutes, private bytes, handles, GDI and USER objects and the thread count stay flat (set the limits from the first runs), drops per minute don't rise, and the watchdog never restarts.
+- **Uninstall** (with the clean-install test, on a clean PC or a virtual machine):
+  - Removed: the program, its shortcuts and its file associations. Nothing is left in `Program Files`, and no SkyWing process keeps running.
+  - Kept, so a reinstall keeps my library: settings, the library index and thumbnails in the app-data folder.
+  - Saved drive passwords (Credential Manager, 7.3): **ask me** whether uninstall removes them, or a "Remove my data" choice in Settings does.
+  - Write down what uninstall keeps, in the release notes or the README.
 - **Performance check script** (manual, on my three machines), with the numbers in the report:
   1. Scroll Videos (5,000 items) for 30 s: overlay shows frame time p95 < 8.3 ms on the laptop and < 16.6 ms on the handhelds.
   2. Open Settings → Playback → Esc → Library: no stuck pages.
@@ -888,8 +898,8 @@ suspend fun animatedFullscreen(owner: Window, area: () -> Rectangle, change: () 
 3. **Seek previews** (trickplay) and chapter ticks (9.1).
 4. **Media keys + Windows media overlay + taskbar buttons** (11, item 2).
 5. **Resume toast and Up next** (9.3).
-6. **Subtitles:** auto-load `.srt`/`.ass` with the same name, subtitle delay (Z / X), size and position, a background box option.
-7. **Audio:** audio delay, "Night mode" (gentle compression for quiet listening; mpv `af=acompressor`; **verify** the filter exists in the bundled build), remember the audio language.
+6. **Subtitles:** auto-load `.srt`/`.ass` with the same name, subtitle delay (Z / X), size and position, a background box option. **Find subtitles** (optional): search an online subtitle service such as OpenSubtitles only when I press the button. It sends the file name and the file's hash, and says so first. Its API key is never committed to this public repository (**verify** the service's terms and download limits).
+7. **Audio:** audio delay, "Night mode" (gentle compression for quiet listening; mpv `af=acompressor`; **verify** the filter exists in the bundled build), remember the audio language. **Bluetooth headphones:** remember the audio delay per output device (Bluetooth adds lag), and **verify** that playback carries on, on the new device, when headphones connect or disconnect mid-video (mpv following the Windows default device).
 8. **Sleep timer:** stop after this video / 30 / 60 min.
 9. **Drive status without waking it:** show the last known state ("Asleep", "Reachable 14 ms") from the last real access; check only when I open the drive. Fits the "don't keep the drive awake" rule.
 10. **Remember window size, position and maximised state** per monitor.
@@ -926,6 +936,7 @@ Do these after P7, in this order. The first three come first because I'd notice 
 - **On suspend:** pause, save the position right away (B20 store), stop thumbnail and scan work, release the SMB file handle.
 - **On resume:** wait for the network (`NotifyIpInterfaceChange` or a 1 s poll up to 15 s), reconnect to the drive (the alternate addresses from `ShareHosts` included), reopen the file at the saved position, stay **paused**. If the drive doesn't answer, show the "Waking the drive" state from item 1.
 - mpv's video output can be lost after sleep on some Intel drivers: if the first frame after resume fails, re-initialise the video output (`vo` reinit) without closing the player.
+- **Keep the screen on while a video plays:** nothing in the app does this itself today. **Verify** that mpv's `stop-screensaver` (on by default; it lets the screen sleep again when paused) works in the embedded video window: play for 15 minutes on battery with a 5-minute screen timeout. If it doesn't, hold `SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED)` while playing and release it on pause, stop and close.
 - **Test:** sleep in the middle of a 4K video for 1 minute and for 30 minutes on both handhelds; on wake the picture is right, paused at the same second, and play works.
 
 **3. Watch progress sync with the phone (no drive writes)**

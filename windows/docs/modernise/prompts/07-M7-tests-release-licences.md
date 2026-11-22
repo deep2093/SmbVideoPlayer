@@ -20,10 +20,11 @@ You are continuing the SkyWing for Windows modernisation. The full brief is `win
 **Do:**
 1. Fill gaps in the unit and native tests listed in section 10.
 2. Write `windows/docs/modernise/CHECKS.md` (manual checks 1–9 plus the M0 acceptance) with a fill-in table per machine.
-3. Release assets (B35): installer carries matching motion assets; clean install and in-place upgrade test from the current installed build keep the library and settings.
+3. Release assets (B35): installer carries matching motion assets; clean install and in-place upgrade test from the current installed build keep the library and settings; the uninstall check (section 10), on a clean PC or a virtual machine. **Ask me before** installing or uninstalling anything on my PCs, and about saved drive passwords.
 4. Licence and source audit (11.4 item 13, B36): component list, `THIRD-PARTY-NOTICES.txt` generated in CI, build fails on an unlisted DLL. Ask me if anything looks incompatible with public distribution.
 5. Clean-up: dead code, shorten `MOTION-ENGINE.md` and `SOURCE-STATUS.md` to the facts (keep the efficiency review's conclusions).
 6. **Ask me first** before squashing or merging PRs #9–#13.
+7. The 2-hour soak test (section 10). **Ask me before** running it: it takes the screen for 2 hours.
 
 ---
 

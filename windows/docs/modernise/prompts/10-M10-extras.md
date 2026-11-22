@@ -24,7 +24,7 @@ You are continuing the SkyWing for Windows modernisation. The full brief is `win
 4. Undo toasts (item 9).
 5. Watch local PC folders (item 10), never network drives.
 6. Media keys, Windows media overlay, taskbar buttons; single instance; crash reporter; update check (off by default).
-7. Subtitles, audio delay and Night mode (**verify** `acompressor`), sleep timer.
+7. Subtitles, with the optional "Find subtitles" (its API key never in the repository), audio delay and Night mode (**verify** `acompressor`), audio delay per output device and Bluetooth headphone switching, sleep timer.
 8. Optional motion component in the installer (item 14), keeping the upgrade code.
 9. Signed installer (item 11) behind `if: secrets.SIGNING_ENDPOINT != ''`, only after the licence audit (item 13). **Ask me before** anything needing an account.
 10. winget manifest (item 12). **Ask me before** submitting it anywhere.

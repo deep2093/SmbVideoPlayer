@@ -19,7 +19,7 @@ You are continuing the SkyWing for Windows modernisation. The full brief is `win
 
 **Do, in this order:**
 1. **Browse while the drive sleeps** (item 1).
-2. **Sleep and wake safety** (item 2), including smoothing: on resume, rebuild the motion graph cleanly and keep the watchdog from counting the sleep as a stall.
+2. **Sleep and wake safety** (item 2), including smoothing: on resume, rebuild the motion graph cleanly and keep the watchdog from counting the sleep as a stall. The screen stays on while a video plays and may sleep again when paused.
 3. **Phone sync** (item 3). **This needs an Android change: before touching `app/`, write down exactly what changes there and ask me.** Build the PC side behind a hidden setting first.
 4. **Handheld launch shortcut** (item 4).
 5. **Accent colour and Mica** (item 5). **Verify** Mica doesn't break the video window or the transparent overlays; if it does, title bar and dialogs only.

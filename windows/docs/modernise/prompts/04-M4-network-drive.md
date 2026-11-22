@@ -24,6 +24,7 @@ You are continuing the SkyWing for Windows modernisation. The full brief is `win
 4. **Check connection** (7.4) with a copyable report.
 5. Replace the old three-field row in `FilesScreen.kt` (B3). Keep alternate share addresses.
 6. Unit tests for the error mapping.
+7. Long paths (7.3): a file whose path is over 260 characters scans, plays, gets its thumbnail and keeps its position.
 
 Test target: add my drive over **Wi-Fi** with username and password, restart, and it opens without asking again.
 
