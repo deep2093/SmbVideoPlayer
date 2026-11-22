@@ -135,7 +135,7 @@ Notes:
 
 OneXPlayer 3 (Intel Arc B390) first, then MSI Claw 8. Both use Intel for everything, so there is no GPU choice.
 
-Clips: a local 1080p SDR clip (the same file on both handhelds; write down its frame rate) and the laptop's 4K clip. Multiplier 2×. Window: 5 minutes. Do the plugged-in runs first, then the battery runs. The handheld runner below does all eight runs and writes the rows. The snippet in section 2, with `$window = 300`, is the manual route.
+Clips: a local 1080p SDR clip and the laptop's 4K clip. The 1080p clip needs a standard frame rate (23.976, 24, 25, 29.97 or 30 fps; SkyWing can't smooth other rates, such as a variable frame rate) and at least 8 minutes of video: each run plays it from the start through the warm-up and the window, and SkyWing stops at the end of a clip. Use the same file on both handhelds and write down its frame rate. Multiplier 2×. Window: 5 minutes. Do the plugged-in runs first, then the battery runs. The handheld runner below does all eight runs and writes the rows. The snippet in section 2, with `$window = 300`, is the manual route.
 
 **The handheld runner.** `.\gradlew.bat -p windows m0Runner --no-daemon` builds `windows\build\m0-runner\SkyWing-M0-runner`. The folder holds `Run M0.cmd`, `README.txt` with the owner's steps, a Java 17 runtime made with jlink, and the harness of section 2 (about 84 MB in all). It is a test tool for the owner's devices, not a SkyWing release. It installs nothing, changes no Windows setting and runs the installed SkyWing on preferences and data of its own, so the handheld's library and settings stay as they are.
 

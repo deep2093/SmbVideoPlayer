@@ -13,8 +13,10 @@ Once per handheld
 2. Copy this whole folder to the handheld's own drive, for example to C:\SkyWing-M0.
    Not to a USB stick, a memory card, a network share or a folder OneDrive syncs
    (Desktop and Documents often are).
-3. Copy one 1080p SDR video (24, 25 or 30 fps; the same file on both handhelds) into
-   clips\1080p, and the laptop's 4K SDR clip (about 10 GB) into clips\4K.
+3. Copy one 1080p SDR video into clips\1080p: at least 8 minutes long, at a standard
+   frame rate (23.976, 24, 25, 29.97 or 30 fps; SkyWing can't smooth other rates,
+   such as a variable one), and the same file on both handhelds. Copy the laptop's
+   4K SDR clip (about 10 GB) into clips\4K.
 4. Charge the battery to 100 %, then leave the charger plugged in.
 5. Close SkyWing, and turn battery saver off.
 
