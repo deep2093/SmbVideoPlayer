@@ -369,10 +369,11 @@ class EmbeddedMpv : Closeable {
         val oldest = reportSamples.first
         val elapsed = ((now - oldest.first) / 1000).coerceAtMost(60)
         val deltas = totals.zip(oldest.second).map { (a, b) -> if (a != null && b != null && a >= b) (a-b).toString() else "unavailable" }
-        val version = javaClass.getResourceAsStream("/skywing-build.txt")?.bufferedReader()?.use { it.readText().trim() } ?: "development"
+        val build = BuildIdentity.current
         val fileKind = expectedPath?.let { if (it.startsWith("\\\\") || it.startsWith("//")) "network share" else "local file" } ?: "none"
         return buildString {
-            appendLine("SkyWing $version · Windows x64 motion preview")
+            appendLine("SkyWing ${build.version} · Windows x64 motion preview")
+            appendLine(build.reportLine())
             appendLine("OS: ${System.getProperty("os.name")} ${System.getProperty("os.version")}")
             appendLine("Preferred motion GPU: ${MotionRuntime.preferredGpu}; driver: ${MotionRuntime.driver}")
             appendLine("Renderer: $rendererDevice; preference: $rendererPreference; output: ${textProperty("current-vo") ?: "unavailable"}")

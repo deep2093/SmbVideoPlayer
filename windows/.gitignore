@@ -1,0 +1,3 @@
+# Kotlin 2 keeps compiler session files and daemon error logs here while it builds. They are not source, and the build
+# identity (generateBuildInfo in build.gradle.kts) would otherwise count them as local changes.
+.kotlin/

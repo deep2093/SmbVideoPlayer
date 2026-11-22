@@ -269,6 +269,8 @@ class FullscreenWindowTest {
                     if (rendererReport.contains("preference: NVIDIA D3D11")) {
                         assertTrue(rendererReport.contains("Renderer: NVIDIA"), rendererReport)
                     }
+                    // The live report names its build (commit, runtime, ed072bf) right under the version line.
+                    assertEquals(com.skywing.desktop.playback.BuildIdentity.current.reportLine(), rendererReport.lines()[1], rendererReport)
                     val thumbnail = File(mediaDir, "thumbnail.jpg")
                     val extracted = com.skywing.desktop.playback.ThumbnailExtractor.extractDetailed(media, thumbnail, start = "0")
                     assertTrue(extracted.success && thumbnail.isFile, "Unicode thumbnail failed: ${extracted.reason}")

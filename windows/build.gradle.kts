@@ -275,12 +275,51 @@ tasks.withType<AbstractArchiveTask>().configureEach {
     isReproducibleFileOrder = true
 }
 
+// skywing-build.properties tells the playback report, and the installer names CI gives, which build this is: the version,
+// the commit and whether windows/ had uncommitted changes, the libmpv runtime staged for it (frame-sharing when
+// MPV-PREVIEW-MANIFEST.json was staged with libmpv, otherwise stock) and whether it contains ed072bf, the watchdog fix
+// that keeps the latest motion heartbeat across missed polls. None of these is a Gradle input, so the file is rewritten
+// on every build; the tasks that use it rerun only when its contents change.
+val watchdogFixCommit = "ed072bfac364b2cee24bd365c03160ec4f5665c5"
+
+/** Runs git in [directory]; returns its exit code and output, or null when git cannot be started. */
+fun git(directory: File, vararg args: String): Pair<Int, String>? = runCatching {
+    val process = ProcessBuilder(listOf("git", "--no-optional-locks") + args).directory(directory)
+        .redirectError(ProcessBuilder.Redirect.DISCARD).start()
+    val output = process.inputStream.bufferedReader().readText().trim()
+    process.waitFor() to output
+}.getOrNull()
+
 val generateBuildInfo by tasks.registering {
     val destination = layout.buildDirectory.dir("generated/build-info")
+    val stagedRuntime = layout.buildDirectory.dir("native-resources/windows")
+    val sourceDirectory = projectDir
     outputs.dir(destination)
-    inputs.property("previewVersion", previewVersion)
+    outputs.upToDateWhen { false }
     doLast {
-        destination.get().asFile.apply { mkdirs() }.resolve("skywing-build.txt").writeText(previewVersion)
+        val head = git(sourceDirectory, "rev-parse", "HEAD")?.takeIf { it.first == 0 }?.second
+        val changes = git(sourceDirectory, "status", "--porcelain", "--", ".")?.takeIf { it.first == 0 }?.second
+        val watchdogFix = when (git(sourceDirectory, "merge-base", "--is-ancestor", watchdogFixCommit, "HEAD")?.first) {
+            0 -> "included"
+            1 -> "missing"
+            else -> "unknown" // no git, or a shallow clone without ed072bf
+        }
+        val runtime = stagedRuntime.get().asFile.let {
+            when {
+                it.resolve("MPV-PREVIEW-MANIFEST.json").isFile -> "frame-sharing"
+                it.resolve("libmpv-2.dll").isFile -> "stock"
+                else -> "none"
+            }
+        }
+        if (!changes.isNullOrEmpty()) logger.info("Build identity: local changes in windows/:\n$changes")
+        val identity = buildString {
+            appendLine("version=$previewVersion")
+            appendLine("commit=${head?.take(7) ?: "unknown"}")
+            if (changes != null) appendLine("localChanges=${changes.isNotEmpty()}") // left out when git cannot tell
+            appendLine("runtime=$runtime")
+            appendLine("watchdogFix=$watchdogFix")
+        }
+        destination.get().asFile.apply { deleteRecursively(); mkdirs() }.resolve("skywing-build.properties").writeText(identity)
     }
 }
 sourceSets.main { resources.srcDir(generateBuildInfo) }
