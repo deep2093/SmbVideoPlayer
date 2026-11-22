@@ -2,7 +2,7 @@
 
 These are the M0 acceptance runs from section 3.1, items 4 and 5, of `SkyWing-PC-modernise-plan.md`. Run them with the CI build of the pushed M0 commit. The laptop runs decide whether Automatic GPU stays as it is (plan 5.3). The handheld runs set the handheld default quality (plan 5.7).
 
-Fill in the tables yourself, or paste the playback reports, the snippet output and the HWiNFO log back to Claude, who fills them in. Keep media names and paths out of this file: the repository is public.
+Fill in the tables yourself, or give Claude the playback reports, the snippet output or the handheld runner's results folder, and the HWiNFO log. Claude fills them in. Keep media names and paths out of this file: the repository is public.
 
 ## 1. Build under test
 
@@ -68,11 +68,11 @@ if ($battery0 -and -not $battery1.OnAC) {
 - `SKYWING_M0_CLIP`: a local clip that outlasts the warm-up plus the window. A clip on a network share is refused.
 - `SKYWING_M0_OUT`: a results folder outside this checkout and outside OneDrive.
 - `SKYWING_M0_LABEL`: a name for the run (letters, digits, `-` and `_`).
-- `SKYWING_M0_VRR`: the G-SYNC / FreeSync setting, `true` or `false`.
+- `SKYWING_M0_VRR`: the G-SYNC / FreeSync setting, `true` or `false`, or `auto` to leave it unset so SkyWing detects it.
 - `SKYWING_M0_POWER`: `ac` or `battery`. The run doesn't start if the laptop is on the other.
-- Optional: `SKYWING_M0_WARMUP` and `SKYWING_M0_WINDOW` in seconds (60 and 600 by default), and `SKYWING_GPU` for run B. The run refuses to start if `SKYWING_VS_SHARE_FRAMES` or `SKYWING_D3D11_COMPAT` is set.
+- Optional: `SKYWING_M0_QUALITY` (Fastest, Fast, Balanced, Better or Best; Balanced by default), `SKYWING_M0_WARMUP` and `SKYWING_M0_WINDOW` in seconds (60 and 600 by default), and `SKYWING_GPU` for run B. The run refuses to start if `SKYWING_VS_SHARE_FRAMES` or `SKYWING_D3D11_COMPAT` is set.
 
-It seeds the settings above (motion on, 2×, Balanced for every video class, "Lower automatically" off), opens the clip, goes full screen, copies report A after the warm-up and report B at the end of the window, and closes SkyWing. Each run gets its own folder with both reports, SkyWing's output and `summary.txt`: process CPU, private memory, the battery, the Windows power mode at the start and end, the report numbers, and anything that disturbed the window (another program in front, full screen lost, or keyboard or mouse input). Don't use the PC after starting a run, not even to type in another window: Windows then keeps SkyWing behind that window, and the run stops within 10 seconds. Start HWiNFO logging yourself; `summary.txt` gives the window's start and end times. The handhelds have no JDK or checkout, so they still use the snippet.
+It seeds the settings above (motion on, 2×, the run's quality for every video class, "Lower automatically" off), opens the clip, goes full screen, copies report A after the warm-up and report B at the end of the window, and closes SkyWing. Each run gets its own folder with both reports, SkyWing's output and `summary.txt`: process CPU, private memory, the battery, the Windows power mode at the start and end, the report numbers, and anything that disturbed the window (another program in front, full screen lost, or keyboard or mouse input). Don't use the PC after starting a run, not even to type in another window: Windows then keeps SkyWing behind that window, and the run stops within 10 seconds. Windows lets a new window come to the front again once nobody has used the PC for its foreground lock time-out, 200 s by default. On the laptop, Windows reported 2147483647 ms (about 25 days) while the registry said 200 s. Something had changed the value after sign-in without changing the registry, so there the lock doesn't end. Start HWiNFO logging yourself; `summary.txt` gives the window's start and end times. The handhelds have no JDK or checkout, so they use the portable runner in section 4, which runs this harness on a Java runtime of its own.
 
 **HWiNFO** (the laptop, and the handhelds if it is installed): sensors only. Start CSV logging before the clip; the beeps mark the window. Keep the CSV out of the repository, and out of OneDrive or any other synced folder, which would upload it while it is written.
 
@@ -135,7 +135,22 @@ Notes:
 
 OneXPlayer 3 (Intel Arc B390) first, then MSI Claw 8. Both use Intel for everything, so there is no GPU choice.
 
-Clips: a local 1080p SDR clip (the same file on both handhelds; write down its frame rate) and the laptop's 4K clip. Multiplier 2×. Window: 5 minutes (`$window = 300`). Do the plugged-in runs first, then the battery runs.
+Clips: a local 1080p SDR clip (the same file on both handhelds; write down its frame rate) and the laptop's 4K clip. Multiplier 2×. Window: 5 minutes. Do the plugged-in runs first, then the battery runs. The handheld runner below does all eight runs and writes the rows. The snippet in section 2, with `$window = 300`, is the manual route.
+
+**The handheld runner.** `.\gradlew.bat -p windows m0Runner --no-daemon` builds `windows\build\m0-runner\SkyWing-M0-runner`. The folder holds `Run M0.cmd`, `README.txt` with the owner's steps, a Java 17 runtime made with jlink, and the harness of section 2 (about 84 MB in all). It is a test tool for the owner's devices, not a SkyWing release. It installs nothing, changes no Windows setting and runs the installed SkyWing on preferences and data of its own, so the handheld's library and settings stay as they are.
+
+On each handheld, the owner installs 0.1.101 if needed and copies the folder to the handheld's own drive. Then the owner copies the two clips into `clips\1080p` and `clips\4K`, charges the battery to 100 % with the charger left in, closes SkyWing and turns battery saver off. The owner double-clicks `Run M0.cmd`, leaves the handheld alone, unplugs the charger at the beep and brings back the `results` folder. The runner:
+- refuses to start, saying what to fix, when its folder is on a network share, a USB stick, a memory card or OneDrive. It also refuses when 0.1.101 isn't installed, a clips folder doesn't hold exactly one video, a clip is on removable or network storage, or plugged-in runs are left and the charger is out;
+- does the eight runs in table order, each with a 60-second warm-up and a 5-minute window, a minute apart;
+- leaves "My screen uses G-SYNC / FreeSync" as SkyWing has it on the handheld: it reads the setting and doesn't change it;
+- before each run, waits until nobody has touched the handheld for Windows' foreground lock time-out plus 5 seconds (205 seconds by default). When the time-out is over 10 minutes, as on the laptop, it doesn't wait, and SkyWing comes to the front only if nobody touches the handheld after the start;
+- after the plugged-in runs, beeps until the charger is out, waits 30 seconds and checks the battery: at least 40 % and battery saver off;
+- stops when report B doesn't show the run's video class, SDR, 2× and quality. A run that another program covered, or that left full screen, doesn't count, and two such runs in a row stop the runner;
+- writes `results\<handheld>\M0-table.md` with the rows for the tables below, `runner-log.txt` with everything it printed, and a folder per run with both reports and `summary.txt`. Started again, it does only the runs that have no row.
+
+HWiNFO isn't part of the runner. Start its logging yourself if it is installed.
+
+**Laptop trial of the runner** (23 November, 05:30–05:34). `Run M0.cmd trial` in a copy of the folder ran the four plugged-in runs against the installed 0.1.101, with a 10-second warm-up and 30-second windows. It used a generated 1080p clip at 24000/1001 fps and the laptop's 4K clip. All four runs counted: no other program came to the front, full screen held and no input arrived. The table and `runner-log.txt` were written. 4K Balanced dropped 2 frames in its 30 seconds and the other runs none, but trial numbers aren't measurements. The battery half wasn't tried. `verify.ps1 -Mode full` passed straight after (147 tests).
 
 ### OneXPlayer 3 (Intel Arc B390)
 

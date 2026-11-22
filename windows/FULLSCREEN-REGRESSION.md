@@ -53,6 +53,12 @@ ComposeWindow and exercises its AWT dispatcher through ten F/Esc cycles, includi
 held F. It checks restored bounds/decorations, native WS_VISIBLE, the same Java
 Canvas and unchanged frame/Canvas HWNDs. It also checks maximized/idempotent
 transitions and closed-player reattach rejection.
+In full screen it also checks that the cursor hides with the player controls. That
+check failed once on a laptop on 23 November: the window had focus, the controls
+were hidden and SkyWing had set its hidden cursor, but the cursor Windows drew still
+had visible pixels. It passed in the next three full runs, and the cause isn't
+known. Its failure message now also names the cursor Windows shows and the window
+under the pointer.
 Another test launches the production application in a separate JVM, sends
 WM_CLOSE only to a visible window belonging to that child process, and requires
 exit within 20 seconds with code zero (no lingering background process).
