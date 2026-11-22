@@ -14,6 +14,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Base64
 import java.util.Locale
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.prefs.Preferences
 import kotlin.io.path.copyTo
@@ -536,14 +537,20 @@ private class Probe(
     }
 }
 
-/** Runs [script] in Windows PowerShell, without a profile, and returns its output. [what] names it if it fails. */
+/**
+ * Runs [script] in Windows PowerShell, without a profile, and returns its output. [what] names it if it fails. The
+ * error stream isn't part of the result: with no console to show them, PowerShell writes its progress records there
+ * (as CLIXML), such as "Preparing modules for first use." on a device's first PowerShell use.
+ */
 internal fun runPowerShell(script: String, what: String): String {
     val encoded = Base64.getEncoder().encodeToString(script.toByteArray(Charsets.UTF_16LE))
-    val process = ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
-        .redirectErrorStream(true)
-        .start()
+    val process = ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded).start()
+    // Read at the same time as the output, so a full error pipe can't stop the script.
+    val errors = CompletableFuture.supplyAsync { process.errorStream.bufferedReader().readText() }
     val output = process.inputStream.bufferedReader().readText()
-    check(process.waitFor(60, TimeUnit.SECONDS) && process.exitValue() == 0) { "$what failed: $output" }
+    check(process.waitFor(60, TimeUnit.SECONDS) && process.exitValue() == 0) {
+        "$what failed: $output${runCatching { errors.get(10, TimeUnit.SECONDS) }.getOrDefault("")}"
+    }
     return output
 }
 

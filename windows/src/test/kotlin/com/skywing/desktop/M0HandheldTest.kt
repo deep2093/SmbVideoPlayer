@@ -18,6 +18,7 @@ import com.skywing.desktop.automation.machineFolder
 import com.skywing.desktop.automation.registryString
 import com.skywing.desktop.automation.registryValue
 import com.skywing.desktop.automation.reportMismatch
+import com.skywing.desktop.automation.runPowerShell
 import com.skywing.desktop.automation.runnerFolderRefusal
 import com.skywing.desktop.automation.tableRow
 import com.skywing.desktop.playback.MotionQuality
@@ -41,8 +42,8 @@ import kotlin.test.assertTrue
 
 /**
  * The handheld M0 runner (`M0Handheld.kt`) works out its runs, clips, resume points, checks and table rows from files
- * and text, so these tests need no SkyWing, battery or window. The files are temporary. One test makes the runner's
- * Windows calls on this machine; they only read its state.
+ * and text, so these tests need no SkyWing, battery or window. The files are temporary. Two tests make the runner's
+ * Windows calls on this machine, PowerShell included; they only read its state.
  */
 class M0HandheldTest {
     private val temp: Path = Files.createTempDirectory("skywing m0 handheld ")
@@ -140,6 +141,14 @@ class M0HandheldTest {
         assertFalse(HandheldSystem.removable(Path.of(System.getenv("SystemRoot") ?: """C:\Windows""")))
         assertContains(registryValue("""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion""", "ProductName").orEmpty(), "Windows")
         assertNull(registryValue("""HKCU\Software\SkyWing M0 test key that does not exist""", "x"))
+    }
+
+    @Test
+    fun aPowerShellResultIsOnlyWhatTheScriptOutputs() {
+        // On a device's first PowerShell use, Windows writes "Preparing modules for first use." as a progress record to
+        // PowerShell's error stream. Mixed into the result, it made the runner read SkyWing's version as that record.
+        val script = "Write-Progress -Activity 'Preparing modules for first use.' -Status 'Ready'; [Console]::Error.WriteLine('a warning'); '0.1.101'"
+        assertEquals("0.1.101", runPowerShell(script, "A test script").trim())
     }
 
     @Test
