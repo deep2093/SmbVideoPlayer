@@ -304,8 +304,10 @@ internal fun handheldTable(device: String, plan: List<HandheldRun>, finished: Ma
 /**
  * From now until the runner exits, copies what it prints to the end of [log] as well, after a line that marks this
  * start. The results folder then says why a run or the runner stopped, without anyone copying the console window.
+ * Returns the new [System.out]. Closing it closes the log file and leaves the console open; the runner doesn't, as
+ * the file closes when it exits.
  */
-internal fun logOutput(log: Path) {
+internal fun logOutput(log: Path): PrintStream {
     val console = System.out
     val file = FileOutputStream(log.toFile(), true)
     val started = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT))
@@ -325,8 +327,13 @@ internal fun logOutput(log: Path) {
             console.flush()
             file.flush()
         }
+
+        override fun close() {
+            console.flush()
+            file.close()
+        }
     }
-    System.setOut(PrintStream(both, true, Charsets.UTF_8))
+    return PrintStream(both, true, Charsets.UTF_8).also(System::setOut)
 }
 
 /** One start of the runner on one device. */

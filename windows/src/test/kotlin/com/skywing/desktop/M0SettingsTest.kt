@@ -22,7 +22,8 @@ import kotlin.test.assertTrue
  * No window is opened; the files are temporary.
  */
 class M0SettingsTest {
-    private val temp: Path = Files.createTempDirectory("skywing m0 settings ")
+    // "skywing-…": verify.ps1 reports the test folders of that name that a run leaves in %TEMP%.
+    private val temp: Path = Files.createTempDirectory("skywing-m0 settings ")
     private val image: Path = temp.resolve("SkyWing").createDirectories().also { it.resolve("SkyWing.exe").createFile() }
     private val clip: Path = temp.resolve("clip.mp4").createFile()
 

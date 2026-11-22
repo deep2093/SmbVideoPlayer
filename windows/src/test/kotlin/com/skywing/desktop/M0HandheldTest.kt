@@ -46,7 +46,8 @@ import kotlin.test.assertTrue
  * Windows calls on this machine, PowerShell included; they only read its state.
  */
 class M0HandheldTest {
-    private val temp: Path = Files.createTempDirectory("skywing m0 handheld ")
+    // "skywing-…": verify.ps1 reports the test folders of that name that a run leaves in %TEMP%.
+    private val temp: Path = Files.createTempDirectory("skywing-m0 handheld ")
     private val runs = HandheldPlan.runs(trial = false)
 
     @AfterTest
@@ -242,14 +243,16 @@ class M0HandheldTest {
         log.writeText("An earlier start.\r\n")
         val console = ByteArrayOutputStream()
         val original = System.out
-        try {
+        val logged = try {
             System.setOut(PrintStream(console, true, Charsets.UTF_8))
-            logOutput(log)
-            println("Run 1 of 8: 1080p Fast, plugged in. Don't touch the device.")
-            println("SkyWing didn't play at 2× (Multiplier: 1.5×).")
+            logOutput(log).also {
+                println("Run 1 of 8: 1080p Fast, plugged in. Don't touch the device.")
+                println("SkyWing didn't play at 2× (Multiplier: 1.5×).")
+            }
         } finally {
             System.setOut(original)
         }
+        logged.close()
         val shown = console.toString(Charsets.UTF_8)
         val kept = log.readText()
         for (line in listOf("Run 1 of 8: 1080p Fast, plugged in.", "SkyWing didn't play at 2× (Multiplier: 1.5×).")) {
@@ -259,6 +262,8 @@ class M0HandheldTest {
         assertTrue(kept.startsWith("An earlier start."), "the log keeps what earlier starts wrote")
         assertContains(kept, "===", message = "the log marks where this start begins")
         assertFalse("===" in shown, "the start mark goes only into the log")
+        // Windows refuses to delete a file that is still open, which left this test's folder in %TEMP%.
+        Files.delete(log)
     }
 
     private fun outcome(
