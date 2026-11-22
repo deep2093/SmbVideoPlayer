@@ -90,7 +90,7 @@ The override applies only to SkyWing started from that window. The report must s
 
 | | Run A: Automatic (all-Intel) | Run B: NVIDIA |
 |---|---|---|
-| Date; power and fan mode | 23 November; Windows power mode Balanced; the maker's mode is still to record | |
+| Date; power and fan mode | 23 November; Windows power mode Balanced; Lenovo mode Balance | |
 | How NVIDIA was selected | — | |
 | `Preferred motion GPU:` line | `Intel(R) Graphics; driver: 32.0.101.9175` | |
 | `Renderer:` line | `Intel(R) Graphics; preference: Intel D3D11; output: gpu-next` | |
@@ -107,7 +107,7 @@ The override applies only to SkyWing started from that window. The report must s
 | CPU package temperature, average / maximum °C | 69 / 79 | |
 | GPU temperature, average / maximum °C | Intel 44 / 46; NVIDIA 39 / 39 | |
 | Fans, average / maximum RPM | CPU 2,572 / 2,800; GPU 2,528 / 2,700; PCH 3,372 / 3,600 | |
-| Anything visible (judder, artefacts, audio sync) | Still to record | |
+| Anything visible (judder, artefacts, audio sync) | Nothing seen; the owner says the video was fine | |
 
 Run A notes:
 - The clip played from a network share (both reports say `File: network share`), not from a local file as section 2 asks.
