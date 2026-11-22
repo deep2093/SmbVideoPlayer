@@ -57,6 +57,19 @@ tasks.test {
     }
 }
 
+// One M0 measurement against an installed SkyWing (docs/modernise/M0-RESULTS.md). It takes the desktop, so ask the
+// owner first; the settings come from the environment (see M0Measurement.kt).
+tasks.register<JavaExec>("m0Run") {
+    group = "verification"
+    description = "Runs one M0 measurement against an installed SkyWing; takes the desktop"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.skywing.desktop.automation.M0MeasurementKt")
+    // Like the tests, the harness JVM gets file-backed preferences, so it can't touch the user's.
+    val userData = layout.buildDirectory.dir("m0-run-data").get().asFile
+    systemProperty("java.util.prefs.PreferencesFactory", "com.skywing.testsupport.IsolatedPreferencesFactory")
+    systemProperty("skywing.test.preferencesFile", userData.resolve("preferences.properties").absolutePath)
+}
+
 compose.desktop {
     application {
         mainClass = "com.skywing.desktop.MainKt"

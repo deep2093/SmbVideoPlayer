@@ -32,7 +32,7 @@ class MotionAutomationTest {
             try {
                 val player = PlayerControls(first)
                 player.waitAdvancing("the 24 fps video")
-                first.waitUntil("the status to say smoothing is off") { s -> s.status()?.startsWith("Smoothing off") == true }
+                first.waitUntil("the status to say smoothing is off") { s -> s.motionStatus()?.startsWith("Smoothing off") == true }
 
                 player.press("Smoothing: Off")
                 val held = first.waitForHolding()
@@ -62,7 +62,7 @@ class MotionAutomationTest {
                 app.waitForHolding()
                 player.press("Smoothing: On")
                 player.waitButton("Smoothing: Off")
-                app.waitUntil("the status to say smoothing is off") { s -> s.status()?.startsWith("Smoothing off") == true }
+                app.waitUntil("the status to say smoothing is off") { s -> s.motionStatus()?.startsWith("Smoothing off") == true }
                 app.waitUntil("smoothing=OFF saved") { app.preferences().node(PLAYBACK).get("smoothing", null) == "OFF" }
                 player.waitAdvancing("the video after turning smoothing off")
                 app.close()
@@ -98,26 +98,10 @@ class MotionAutomationTest {
         }
     }
 
-    private fun Screen.status(): String? = nodes.firstOrNull { it.roleName == PlayerControls.LABEL && STATUS.containsMatchIn(it.name) }?.name
-
-    /** Waits for the engine to report the rate it holds, and returns it. */
-    private fun SkyWingTestApp.waitForHolding(): Double {
-        var rate = 0.0
-        waitUntil("the motion engine to report 'Holding N fps'", timeoutMs = 45_000) { s ->
-            val text = s.status() ?: return@waitUntil false
-            if (UNAVAILABLE.any { it in text }) throw AssertionError("Motion smoothing did not start: $text")
-            HOLDING.find(text)?.let { rate = it.groupValues[1].toDouble() } != null
-        }
-        return rate
-    }
-
     companion object {
         private const val PLAYBACK = "com/skywing/desktop/playback"
         private const val PROFILE = "1080-sdr"
         private const val CHECK_BOX = "check box"
-        private val HOLDING = Regex("""^Holding ([0-9.]+) fps""")
-        private val STATUS = Regex("""^(Smoothing off|Holding |Starting motion|Motion |Play a |Waiting |Could not |Can.t keep|Lowered|No smoothing|Cannot keep)""")
-        private val UNAVAILABLE = listOf("unavailable:", "Play a hardware-decoded video first", "No smoothing rate", "Could not")
         private lateinit var media: File
         private lateinit var clip: File
 

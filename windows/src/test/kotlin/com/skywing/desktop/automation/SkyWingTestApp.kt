@@ -51,12 +51,18 @@ internal class SkyWingTestApp private constructor(
     /** A fresh view of the isolated preferences file, as the app last wrote it. */
     fun preferences(): Preferences = IsolatedPreferencesFactory.openUserRoot(preferencesFile)
 
-    /** Visible top-level Java windows owned by the launched process or its children (the launcher starts a child). */
+    /** True while the launched process runs. */
+    val isRunning: Boolean get() = process.isAlive
+
+    /** The launched process and its children (the launcher starts a child). */
+    fun processIds(): Set<Long> = buildSet {
+        add(process.pid())
+        process.descendants().forEach { add(it.pid()) }
+    }
+
+    /** Visible top-level Java windows owned by the launched process or its children. */
     fun windows(): List<Long> {
-        val pids = buildSet {
-            add(process.pid())
-            process.descendants().forEach { add(it.pid()) }
-        }
+        val pids = processIds()
         return Win32.visibleWindows().filter { (hwnd, owner) -> owner in pids && bridge.isJavaWindow(hwnd) }.map { it.first }
     }
 
@@ -301,6 +307,15 @@ internal object Win32 {
         fun GetWindowRect(hwnd: Pointer, rect: Rect): Boolean
         fun MonitorFromWindow(hwnd: Pointer, flags: Int): Pointer?
         fun GetMonitorInfoW(monitor: Pointer, info: MonitorInfo): Boolean
+        fun GetForegroundWindow(): Pointer?
+        fun GetLastInputInfo(info: LastInputInfo): Boolean
+    }
+
+    @Structure.FieldOrder("cbSize", "dwTime")
+    class LastInputInfo : Structure() {
+        @JvmField var cbSize = 0
+        @JvmField var dwTime = 0
+        init { cbSize = size() }
     }
 
     @Structure.FieldOrder("left", "top", "right", "bottom")
@@ -358,6 +373,20 @@ internal object Win32 {
     }
 
     fun close(hwnd: Long) { user32.PostMessageW(Pointer(hwnd), WM_CLOSE, 0, 0) }
+
+    /** The process that owns the foreground window, or null when no window is in the foreground. Read only. */
+    fun foregroundProcess(): Long? {
+        val hwnd = user32.GetForegroundWindow() ?: return null
+        val pid = IntByReference()
+        user32.GetWindowThreadProcessId(hwnd, pid)
+        return pid.value.toLong().takeIf { it != 0L }
+    }
+
+    /**
+     * The tick of the last keyboard or mouse input in this session. Messages posted to a window, as [postKey] posts
+     * them, don't change it. Read only.
+     */
+    fun lastInputTick(): Int = LastInputInfo().also { check(user32.GetLastInputInfo(it)) }.dwTime
 
     /**
      * Posts one key press (down, then up) to [hwnd]'s message queue. It goes to that window only: no global input,

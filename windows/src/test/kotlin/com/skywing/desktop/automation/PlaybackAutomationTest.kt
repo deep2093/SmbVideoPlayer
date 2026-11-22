@@ -30,14 +30,18 @@ internal class PlayerControls(private val app: SkyWingTestApp) {
     fun waitTitle(expected: String) =
         app.waitUntil("the player to show $expected") { s -> s.nodes.any { it.parentPath == bar && ControlQuery.matches(it, expected, LABEL) } }
 
-    /** Waits until the position moves forward between two readings at least 400 ms apart. */
-    fun waitAdvancing(what: String) {
+    /**
+     * Waits until the position moves forward by more than [minStepPercent] of the duration between two readings at
+     * least 400 ms apart. The default suits the tests' clips of a few seconds. On an hour-long clip 0.5 % is about 20
+     * seconds of playback, longer than the timeout, so pass 0.0 there.
+     */
+    fun waitAdvancing(what: String, minStepPercent: Double = 0.5) {
         var last = -1.0
         var lastAt = 0L
         app.waitUntil("$what (position advancing)", timeoutMs = 15_000) { s ->
             val now = ControlQuery.single(s.nodes, "Seek", LABEL) { it.value != null }.value!!.toDouble()
             val time = System.currentTimeMillis()
-            val advanced = last >= 0 && now > last + 0.5 && time - lastAt >= 400
+            val advanced = last >= 0 && now > last + minStepPercent && time - lastAt >= 400
             if (last < 0 || time - lastAt >= 400) { last = now; lastAt = time }
             advanced
         }
