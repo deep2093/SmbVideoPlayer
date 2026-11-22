@@ -10,7 +10,7 @@ Fill in the tables yourself, or paste the playback reports, the snippet output a
 |---|---|
 | Installer file name | `SkyWing-0.1.101-ea838e1-frame-sharing-with-ed072bf.msi` (and `.exe`), from [run 101](https://github.com/deep2093/SmbVideoPlayer/actions/runs/44986909958), the push build of ea838e1 |
 | Expected installer name | `SkyWing-<version>-<commit>-frame-sharing-with-ed072bf.msi` (or `.exe`) |
-| Playback report `Build:` line | |
+| Playback report `Build:` line | `Build: commit ea838e1; runtime frame-sharing, sharing on; watchdog fix ed072bf included`, from laptop run A's reports (23 November). It matches the expected line. |
 | Expected `Build:` line | `Build: commit <commit>; runtime frame-sharing, sharing on; watchdog fix ed072bf included` (no "with local changes") |
 | CI artifact check (Claude, after the push): `MPV-PREVIEW-MANIFEST.json` and the motion payload in the app image match the checkout | Pass (22 November, MSI unpacked with WiX `dark.exe`). ProductVersion 0.1.101; UpgradeCode {F40C59EF-E520-4E10-B7A2-B86E7458F923} unchanged. `skywing-build.properties` in the app jar: commit ea838e1, no local changes, runtime frame-sharing, watchdog fix included. libmpv: mpv revision e471496c and the frame-sharing patch match the checkout, and all 125 DLLs match `MPV-PREVIEW-MANIFEST.json`. Motion: the pins and the open-svpflow patch match `NATIVE-PROVENANCE.json`, no local plugin override, and all 63 files match `BUILD-MANIFEST.json`, none extra. |
 | Automated tests against the CI build (Claude, after the push) | Pass (22 November, on the laptop). The MSI's files, unpacked with `dark.exe` into a test copy (not installed), ran the whole Gradle test suite with native libmpv and UI automation, as `verify.ps1 -Mode full` does. The UI automation tests launched the copy's `SkyWing.exe` (46 launches, all from the copy), and the native tests loaded its frame-sharing libmpv and motion payload. 122 tests in 26 classes: 0 failed, 0 skipped. The real preferences, library and installed SkyWing were unchanged, and nothing was left running. |
@@ -61,7 +61,7 @@ if ($battery0 -and -not $battery1.OnAC) {
 } elseif ($battery1) { 'Battery: on AC power, not measured.' }
 ```
 
-**HWiNFO** (the laptop, and the handhelds if it is installed): sensors only. Start CSV logging before the clip; the beeps mark the window. Keep the CSV out of the repository.
+**HWiNFO** (the laptop, and the handhelds if it is installed): sensors only. Start CSV logging before the clip; the beeps mark the window. Keep the CSV out of the repository, and out of OneDrive or any other synced folder, which would upload it while it is written.
 
 **Reading the numbers**
 - Drops in the window: the increase in `frame-drop-count` plus `decoder-frame-drop-count` from report A to report B. Drops per minute: that number divided by the window's minutes. The report's "Drops in last 60 seconds" line covers only the last minute.
@@ -90,24 +90,28 @@ The override applies only to SkyWing started from that window. The report must s
 
 | | Run A: Automatic (all-Intel) | Run B: NVIDIA |
 |---|---|---|
-| Date; power and fan mode | | |
+| Date; power and fan mode | 23 November; Windows power mode Balanced; the maker's mode is still to record | |
 | How NVIDIA was selected | — | |
-| `Preferred motion GPU:` line | | |
-| `Renderer:` line | | |
-| `Display:` line | | |
-| Filter processing throughput (report B) | | |
-| Drops in the 10 minutes (video + decoder) | | |
-| Drops per minute | | |
-| Restarts (expect 0) | | |
-| Graph generations, report A → B | | |
-| Process CPU (cores) | | |
-| Private memory, MB: start → end of the window | | |
-| CPU package power, average W | | |
-| NVIDIA GPU power, average W | | |
-| CPU package temperature, average / maximum °C | | |
-| GPU temperature, average / maximum °C | | |
-| Fans, average / maximum RPM | | |
-| Anything visible (judder, artefacts, audio sync) | | |
+| `Preferred motion GPU:` line | `Intel(R) Graphics; driver: 32.0.101.9175` | |
+| `Renderer:` line | `Intel(R) Graphics; preference: Intel D3D11; output: gpu-next` | |
+| `Display:` line | `240.00020606660073 Hz; VRR activation: not measured` | |
+| Filter processing throughput (report B) | 58.17 fps. The filter output callbacks rose from 1,977 to 37,938 between the reports, about 60 a second. | |
+| Drops in the 10 minutes (video + decoder) | 1 (`frame-drop-count` 42 → 43; `decoder-frame-drop-count` 0 → 0) | |
+| Drops per minute | 0.1 | |
+| Restarts (expect 0) | 0 | |
+| Graph generations, report A → B | 2 → 2 | |
+| Process CPU (cores) | 2.00 | |
+| Private memory, MB: start → end of the window | 6,246 → 6,304 | |
+| CPU package power, average W | 52.9, including 6.2 for the Intel GPU | |
+| NVIDIA GPU power, average W | 3.5 | |
+| CPU package temperature, average / maximum °C | 69 / 79 | |
+| GPU temperature, average / maximum °C | Intel 44 / 46; NVIDIA 39 / 39 | |
+| Fans, average / maximum RPM | CPU 2,572 / 2,800; GPU 2,528 / 2,700; PCH 3,372 / 3,600 | |
+| Anything visible (judder, artefacts, audio sync) | Still to record | |
+
+Run A notes:
+- The clip played from a network share (both reports say `File: network share`), not from a local file as section 2 asks.
+- Both reports say `G-SYNC / FreeSync: true` and `lower automatically: false`. Keep the G-SYNC setting the same for run B.
 
 ## 4. Handhelds
 
