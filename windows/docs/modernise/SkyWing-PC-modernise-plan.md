@@ -59,6 +59,7 @@ The handhelds also have built-in game controllers and usually **no physical keyb
 14. **Extra features:** all of section 11.4 (offline browsing, sleep and wake safety, phone sync, handheld shortcut, accent colour and Mica, Wi-Fi buffering, refresh-rate matching, audio passthrough, undo, folder watching, signed installer, winget, licence audit, optional motion component).
 15. **Build on the motion work already done** (efficiency review, 19–20 November): keep what works (section 0, rule 2b), ship the watchdog fix and measure on the handhelds first (M0), and fix the new findings B28–B36.
 16. **Gaps found on 22 November:** interlaced and variable-frame-rate video (5.8 rules 9 and 10), paths over 260 characters (7.3), a 2-hour soak test and uninstall (section 10), the screen staying on while a video plays (11.4 item 2), Bluetooth headphones and subtitle download (11.2 items 6 and 7).
+17. **Reported on 23 November (laptop run A):** "Open with" starts a second SkyWing, a dropped video doesn't play, This PC shows network videos, and mute and the volume level are hard to find (B37–B40).
 
 ---
 
@@ -138,6 +139,21 @@ The handhelds also have built-in game controllers and usually **no physical keyb
 - **B24:** one reusable thumbnail mpv per worker; `hwdec=auto-copy` (falls back to software by itself); HDR sources get tone mapping (`vf=lavfi=[zscale=t=linear:npl=100,format=gbrpf32le,tonemap=hable,zscale=t=bt709:m=bt709:r=tv,format=yuv420p]`; **verify** the bundled FFmpeg has `zscale`, else use mpv's own `tone-mapping` with a screenshot path). Workers: 1 on battery or integrated-only, 2 on handhelds plugged in, 3 on dedicated GPUs. Paused while a video plays.
 - **B25:** publish scan progress through a `StateFlow`, sampled at 4 Hz.
 
+**Fourth pass (the owner's reports from laptop run A, 23 November):**
+
+| # | Where | Problem | Fix (phase) |
+|---|---|---|---|
+| B37 | `Main.kt` lines ~413–425: `LocalVideoDropHandler` is an AWT `DropTarget` on the window and the video canvas | A video dropped on an open SkyWing window doesn't play. Likely cause (**verify**): Compose Desktop puts its own `DropTarget` on the window's root container, so drops over Compose content never reach SkyWing's handler. | P1 |
+| B38 | `Main.kt` `main(args)` (line ~75) | "Open with" while SkyWing runs starts a second SkyWing, with its own window and player, instead of playing in the open one. There is no single-instance check (11, item 3). | P1 |
+| B39 | `VideosScreen.kt` lines ~61–65 and ~94 | With **This PC** chosen, the "Continue watching" row still shows network-share videos. The row is built from the whole history and ignores the source chip, which filters only the grid (line ~47). With no folder on this PC in the library, that row was all the owner saw, so the library offered no way to play a local file. | P1 |
+| B40 | `PlayerPage.kt` lines ~144–146 | The owner couldn't find mute: its speaker icon button sits between "Vol -" and "Vol +" and doesn't read as mute. The volume level is never shown. Design work, with B15 (volume slider) and 9.2 (the "65%" feedback). | P6 |
+
+**Fixes for the fourth pass:**
+- **B37:** take drops through Compose's own drag and drop (`Modifier.dragAndDropTarget` on the window content), and keep the AWT handler only where Compose doesn't reach (the video canvas, if so). **Verify** first which component receives a drop today. A dropped video plays as "Open with" does; with several files, the first video plays. Test: the drop handler as a unit (files in, path out), plus a manual drop on the library, the player and the full-screen video.
+- **B38:** a per-user single-instance check. The first SkyWing listens on a named pipe; a second start sends it the path and exits; the running one plays it and comes to the front (the second process first calls `AllowSetForegroundWindow` for it, since Windows only lets the process that has the foreground hand it on). The pipe name includes the data folder (`LOCALAPPDATA`), so the isolated UI tests and M0 runs never hand a file to the owner's SkyWing. Test: two launches with a file each give one window, playing the second file.
+- **B39:** filter "Continue watching", and every other row, with the same source test as the grid. With This PC chosen and no folder on this PC, show the empty state with **Add folder** instead of network videos. Test: a Compose UI test with one PC and one network-share history entry, where This PC shows only the PC one, Network only the share one, and All both. While there: `NetworkPaths` caches each drive letter's type for the app's lifetime, so a letter that changes between local and network stays misclassified until restart (fold into B29).
+- **B40:** with B15 in P6: a speaker button whose icon shows the mute state, a volume slider with its level ("65%"), and the centre feedback from 9.2. Keep M and ↑ / ↓.
+
 ### 2.2 Design problems
 
 - **Mixed styles:** glass outlines, white text with halos, saturated gradients and pill fields of different heights. Nothing lines up to a grid.
@@ -153,12 +169,12 @@ The handhelds also have built-in game controllers and usually **no physical keyb
 | Phase | Goal | Size |
 |---|---|---|
 | **M0** | Ship and measure what's already done: commit local work, a build with the watchdog fix, 10-minute Hybrid acceptance, first handheld measurements (section 3.1) | S |
-| **P1** | Speed foundation: nothing heavy on the UI thread, small images, cheap background, faster start; safe library index and JSON stores; network-drive detection (B16–B20, B24, B25, B29, B34 UI blocking) | M |
+| **P1** | Speed foundation: nothing heavy on the UI thread, small images, cheap background, faster start; safe library index and JSON stores; network-drive detection (B16–B20, B24, B25, B29, B34 UI blocking); single instance, drag and drop, and the This PC filter (B37–B39) | M |
 | **P2** | Graphics chip and display policy (hybrid/dedicated/integrated/external GPU, fixed/VRR), GPU compatibility matrix and fallbacks (5.8), any Intel or AMD processor (5.9); close frame-sharing's last risk (5.5); in-app measuring (5.6) and cheaper-smoothing experiments (5.7) | L |
 | **P3** | Modern design system + adaptive layout (6.6) + new app shell + Settings with proper navigation + accessibility (6.9); follow the design boards (6.7) | L |
 | **P4** | New "Add network drive" flow with username/password, auto-find, clear errors | M |
 | **P5** | Handheld support: touch keyboard (8.2), touch-friendly everywhere (8.3), controller navigation, power-aware defaults | M |
-| **P6** | New player: modern controls, animations, fullscreen transition; close, resume, display-change, Mouse Back and cursor fixes (B32, B34) | L |
+| **P6** | New player: modern controls, animations, fullscreen transition; close, resume, display-change, Mouse Back and cursor fixes (B32, B34); volume and mute (B40) | L |
 | **P7** | Tests, performance checks, cleanup; release assets and licence audit (B35, B36) | M |
 
 Report after each phase. M0 comes first because the watchdog fix isn't in any build yet and nothing has been measured on the handhelds. P1 and P2 then fix "slow" and the GPU choices without changing how anything looks.
@@ -874,7 +890,7 @@ suspend fun animatedFullscreen(owner: Window, area: () -> Rectangle, change: () 
 
 1. **Shared backup with Android:** one versioned JSON (folders, covers, positions, settings; never passwords), so I can move my library between phone and PC.
 2. **Jump lists and media keys:** play/pause/next from keyboard media keys, Windows' media overlay (System Media Transport Controls) and the taskbar thumbnail buttons.
-3. **Single instance:** opening a video from Explorer while SkyWing runs plays it in the existing window.
+3. **Single instance:** opening a video from Explorer while SkyWing runs plays it in the existing window. Now B38, in P1.
 4. **Crash reporter:** catch uncaught exceptions and native crashes (`-XX:ErrorFile=`) into the app-data folder. On next start, offer "Copy crash report". Nothing is sent anywhere.
 5. **Auto-update check (optional, off by default):** read the latest GitHub release tag and tell me when a newer build exists.
 
