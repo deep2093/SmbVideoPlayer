@@ -18,6 +18,13 @@ above 60 fps bypass smoothing. Stops above the display rate are unavailable; whe
 mpv cannot report a rate, the fallback limit is 240 Hz. There is no 120 fps cap.
 23.976 × 2.5 is exactly 60000/1001; 25 × 2.5 is 125/2. No output downscaling is used.
 
+Smoothing needs a source rate it can retime exactly: a whole number of frames per
+second up to 60, or 23.976, 29.97, 47.952 or 59.94 (each within 0.005). Any other
+rate mpv reports, such as the average of a variable-frame-rate file, shows "Can’t
+smooth N fps video: SkyWing needs a standard rate such as 24, 25 or 30 fps", with N
+to three decimals. Retiming the video to a rate it doesn't have would drift from the
+audio. Until mpv reports a rate, the status is "Waiting for source frame rate".
+
 Both sliders save on release and the worker applies the latest saved values on
 its next poll. A changed filter seeks exactly back to its sampled playback position.
 Multiplier and quality are stored independently for six resolution/HDR classes

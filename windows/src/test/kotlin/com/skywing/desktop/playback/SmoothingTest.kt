@@ -22,6 +22,28 @@ class SmoothingTest {
         assertEquals(MotionRate(240), MotionRate.target(MotionRate(60), 240.0, 3))
         assertNull(MotionRate.target(MotionRate(120), 240.0))
     }
+    @Test fun aRateSkyWingCannotSmoothIsNamedInsteadOfWaiting() {
+        // MSI Claw 8 report of 23 November: a local 1080p H.264 clip whose container reports this average rate.
+        val clip = SmoothingCapabilities(displayHz = 120.0, sourceFps = 23.06080436706543, gpuOutput = true,
+            hardwareDecode = true, width = 1920, height = 1080)
+        assertEquals("Can’t smooth 23.061 fps video: SkyWing needs a standard rate such as 24, 25 or 30 fps",
+            clip.unavailable(SmoothingMode.MOTION))
+        assertNull(clip.unavailable(SmoothingMode.OFF))
+        // Three decimals keep a rate near 23.976 from reading as 23.98.
+        assertEquals("Can’t smooth 23.982 fps video: SkyWing needs a standard rate such as 24, 25 or 30 fps",
+            clip.copy(sourceFps = 23.982).unavailable(SmoothingMode.MOTION))
+        // Rates SkyWing smooths, as mpv reports them (container-fps is a 32-bit float).
+        listOf(23.976024627685547, 24.0, 25.0, 30000 / 1001.0, 30.0, 50.0, 60000 / 1001.0, 60.0).forEach {
+            assertNull(clip.copy(sourceFps = it).unavailable(SmoothingMode.MOTION), "$it fps")
+        }
+        // Until mpv reports a rate, SkyWing keeps waiting for one.
+        assertNull(clip.copy(sourceFps = null).unavailable(SmoothingMode.MOTION))
+        assertNull(clip.copy(sourceFps = 0.0).unavailable(SmoothingMode.MOTION))
+        // The other reasons keep their precedence.
+        assertEquals("Already smooth", clip.copy(sourceFps = 75.3).unavailable(SmoothingMode.MOTION))
+        assertEquals("HDR smoothing is not available yet", clip.copy(hdrVideo = true).unavailable(SmoothingMode.MOTION))
+        assertEquals("Play a hardware-decoded video first", clip.copy(hardwareDecode = false).unavailable(SmoothingMode.MOTION))
+    }
     @Test fun videoTypesKeepIndependentSettings() {
         val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
         try {
