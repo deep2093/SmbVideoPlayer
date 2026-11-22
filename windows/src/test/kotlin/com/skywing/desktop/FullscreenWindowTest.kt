@@ -87,8 +87,8 @@ class FullscreenWindowTest {
         SwingUtilities.invokeAndWait(task)
         return task.get()
     }
-    private fun await(message: String, condition: () -> Boolean) {
-        val end = System.nanoTime() + 10_000_000_000
+    private fun await(message: String, timeoutMillis: Long = 10_000, condition: () -> Boolean) {
+        val end = System.nanoTime() + timeoutMillis * 1_000_000
         while (System.nanoTime() < end) {
             if (condition()) return
             Thread.sleep(50)
@@ -104,37 +104,79 @@ class FullscreenWindowTest {
         (if (component.javaClass == Canvas::class.java) listOf(component as Canvas) else emptyList()) +
             (if (component is Container) component.components.flatMap(::canvases) else emptyList())
 
+    /** Sixty alternating one-second frames in a GIF. */
+    private fun writeTestGif(media: File) {
+        // Exercise decoded video, without depending on an audio endpoint
+        // on a hosted Windows runner. Sixty alternating one-second frames.
+        val writer = ImageIO.getImageWritersByFormatName("gif").next()
+        try {
+            ImageIO.createImageOutputStream(media).use { output ->
+                writer.output = output
+                writer.prepareWriteSequence(null)
+                repeat(60) { frame ->
+                    val image = BufferedImage(32, 32, BufferedImage.TYPE_INT_RGB)
+                    for (x in 0 until 32) for (y in 0 until 32) image.setRGB(x, y,
+                        if (frame % 2 == 0) 0x2255AA else 0xAA5522)
+                    val metadata = writer.getDefaultImageMetadata(ImageTypeSpecifier.createFromRenderedImage(image), null)
+                    val tree = metadata.getAsTree("javax_imageio_gif_image_1.0") as IIOMetadataNode
+                    val control = tree.getElementsByTagName("GraphicControlExtension").item(0) as IIOMetadataNode
+                    control.setAttribute("delayTime", "100")
+                    metadata.setFromTree("javax_imageio_gif_image_1.0", tree)
+                    writer.writeToSequence(IIOImage(image, null, metadata), null)
+                }
+                writer.endWriteSequence()
+            }
+        } finally {
+            writer.dispose()
+        }
+    }
+
+    private fun dispatchKey(target: Component, code: Int, release: Boolean = true) {
+        edt {
+            val manager = KeyboardFocusManager.getCurrentKeyboardFocusManager()
+            manager.dispatchEvent(KeyEvent(target, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, code, KeyEvent.CHAR_UNDEFINED))
+            if (release) manager.dispatchEvent(KeyEvent(target, KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, code, KeyEvent.CHAR_UNDEFINED))
+        }
+    }
+
+    /** A point on the video in screen column [x] that no player control window covers, even a hidden one. */
+    private fun videoPointClearOfControls(window: java.awt.Window, canvas: Canvas, x: Int): Point = edt {
+        val video = Rectangle(canvas.locationOnScreen, canvas.size)
+        // Include hidden overlays: moving the pointer can reveal them again.
+        val overlays = window.ownedWindows.filter {
+            it.isDisplayable && it.name?.startsWith("skywing-") == true
+        }.map { Rectangle(it.bounds) }
+        val cuts = (listOf(video.y, video.y + video.height) + overlays.flatMap {
+            listOf(it.y, it.y + it.height)
+        }).map { it.coerceIn(video.y, video.y + video.height) }.distinct().sorted()
+        val band = checkNotNull(cuts.zipWithNext().filter { (top, bottom) ->
+            bottom > top && overlays.none { it.contains(x, top + (bottom - top) / 2) }
+        }.maxByOrNull { (top, bottom) -> bottom - top }) { "No video area outside the player controls" }
+        Point(x, band.first + (band.second - band.first) / 2)
+    }
+
+    /** Moves the pointer to [point] from 12 pixels to its left, so that it arrives by real movement. */
+    private fun movePointerTo(robot: Robot, point: Point) {
+        val approach = Point(point.x - 12, point.y)
+        robot.mouseMove(approach.x, approach.y)
+        await("Pointer did not reach the approach point $approach") {
+            java.awt.MouseInfo.getPointerInfo()?.location == approach
+        }
+        robot.waitForIdle()
+        robot.mouseMove(point.x, point.y)
+        robot.waitForIdle()
+    }
+
     private fun prepareInactivity(window: java.awt.Window, canvas: Canvas, robot: Robot): java.awt.Point {
         // Native setup and other test windows can change focus after the initial
         // request. Inactivity requires a focused player and no control hover.
         edt { window.toFront(); window.requestFocus(); canvas.requestFocusInWindow() }
         await("Inactivity target did not gain focus") { edt { window.isFocused } }
         robot.waitForIdle()
-        val (point, approach) = edt {
-            val video = Rectangle(canvas.locationOnScreen, canvas.size)
-            // Include hidden overlays: moving the pointer can reveal them again.
-            val overlays = window.ownedWindows.filter {
-                it.isDisplayable && it.name?.startsWith("skywing-") == true
-            }.map { Rectangle(it.bounds) }
-            val cuts = (listOf(video.y, video.y + video.height) + overlays.flatMap {
-                listOf(it.y, it.y + it.height)
-            }).map { it.coerceIn(video.y, video.y + video.height) }.distinct().sorted()
-            val x = video.x + video.width / 2
-            val band = checkNotNull(cuts.zipWithNext().filter { (top, bottom) ->
-                bottom > top && overlays.none { it.contains(x, top + (bottom - top) / 2) }
-            }.maxByOrNull { (top, bottom) -> bottom - top }) { "No video area outside the player controls" }
-            val y = band.first + (band.second - band.first) / 2
-            Point(x, y) to Point(x - 12, y)
-        }
+        val point = videoPointClearOfControls(window, canvas, x = edt { canvas.locationOnScreen.x + canvas.width / 2 })
         // Establish real movement before testing a stationary cursor. A move to
         // the current position may leave native mouse tracking uninitialized.
-        robot.mouseMove(approach.x, approach.y)
-        await("Inactivity setup pointer did not reach the approach point") {
-            java.awt.MouseInfo.getPointerInfo()?.location == approach
-        }
-        robot.waitForIdle()
-        robot.mouseMove(point.x, point.y)
-        robot.waitForIdle()
+        movePointerTo(robot, point)
         await("Inactivity pointer did not reach the video") {
             java.awt.MouseInfo.getPointerInfo()?.location == point && edt { window.isFocused }
         }
@@ -142,8 +184,8 @@ class FullscreenWindowTest {
     }
 
     private fun awaitInactivity(window: java.awt.Window, point: java.awt.Point,
-                                message: String, condition: () -> Boolean) {
-        await(message) {
+                                message: String, timeoutMillis: Long = 10_000, condition: () -> Boolean) {
+        await(message, timeoutMillis) {
             assertTrue(edt { window.isFocused }, "Desktop focus changed during inactivity assertion: $message")
             assertEquals(point, java.awt.MouseInfo.getPointerInfo()?.location,
                 "Desktop pointer moved during inactivity assertion: $message")
@@ -214,13 +256,7 @@ class FullscreenWindowTest {
             val canvasHwnd = edt { Native.getComponentPointer(canvas) }
             val originalBounds = edt { Rectangle(window.bounds) }
             val decorations = user32.GetWindowLongW(frameHwnd, -16) and 0x00CF0000
-            fun key(code: Int, release: Boolean = true) {
-                edt {
-                    val manager = KeyboardFocusManager.getCurrentKeyboardFocusManager()
-                    manager.dispatchEvent(KeyEvent(canvas, KeyEvent.KEY_PRESSED, System.currentTimeMillis(), 0, code, KeyEvent.CHAR_UNDEFINED))
-                    if (release) manager.dispatchEvent(KeyEvent(canvas, KeyEvent.KEY_RELEASED, System.currentTimeMillis(), 0, code, KeyEvent.CHAR_UNDEFINED))
-                }
-            }
+            fun key(code: Int, release: Boolean = true) = dispatchKey(canvas, code, release)
             edt { canvas.requestFocusInWindow() }
             await("Test window did not gain focus") { edt { window.isFocused } }
 
@@ -232,29 +268,7 @@ class FullscreenWindowTest {
             val media = File(mediaDir, "ғᴛ. @Rosa, à , ❤️❤️-.gif")
             try {
                 if (nativePlayback) {
-                    // Exercise decoded video, without depending on an audio endpoint
-                    // on a hosted Windows runner. Sixty alternating one-second frames.
-                    val writer = ImageIO.getImageWritersByFormatName("gif").next()
-                    try {
-                        ImageIO.createImageOutputStream(media).use { output ->
-                            writer.output = output
-                            writer.prepareWriteSequence(null)
-                            repeat(60) { frame ->
-                                val image = BufferedImage(32, 32, BufferedImage.TYPE_INT_RGB)
-                                for (x in 0 until 32) for (y in 0 until 32) image.setRGB(x, y,
-                                    if (frame % 2 == 0) 0x2255AA else 0xAA5522)
-                                val metadata = writer.getDefaultImageMetadata(ImageTypeSpecifier.createFromRenderedImage(image), null)
-                                val tree = metadata.getAsTree("javax_imageio_gif_image_1.0") as IIOMetadataNode
-                                val control = tree.getElementsByTagName("GraphicControlExtension").item(0) as IIOMetadataNode
-                                control.setAttribute("delayTime", "100")
-                                metadata.setFromTree("javax_imageio_gif_image_1.0", tree)
-                                writer.writeToSequence(IIOImage(image, null, metadata), null)
-                            }
-                            writer.endWriteSequence()
-                        }
-                    } finally {
-                        writer.dispose()
-                    }
+                    writeTestGif(media)
                     assertTrue(edt { player.attach(canvas) }, player.lastError)
                     assertTrue(player.open(media))
                     await("mpv did not start playback") { (player.playbackPosition() ?: 0.0) > 0.1 }
@@ -368,6 +382,80 @@ class FullscreenWindowTest {
             player.close()
             try { assertFalse(edt { player.attach(Canvas()) }) }
             finally { edt { window.dispose() } }
+        }
+    }
+
+    /**
+     * B32: someone who leaves the mouse resting where the fullscreen video appears must stop seeing the cursor. The
+     * pointer moves only before fullscreen, to a spot left of the window that the fullscreen video covers clear of
+     * the controls, and F enters fullscreen. Once the controls hide (2.5 s after the last input), Windows must stop
+     * drawing the cursor within 3 s. composeEscapeRestoresSameVisibleFrameAndCanvas moves the pointer over the
+     * fullscreen video first, which can hide this case.
+     */
+    @Test fun stillMouseOverFullscreenVideoHidesTheCursor() {
+        assumeTrue(System.getProperty("os.name").startsWith("Windows"))
+        assumeTrue(!GraphicsEnvironment.isHeadless())
+        assumeTrue("Needs libmpv playback (SKYWING_TEST_MPV=true)", System.getenv("SKYWING_TEST_MPV") == "true")
+        val player = EmbeddedMpv()
+        val mediaDir = java.nio.file.Files.createTempDirectory("skywing-still-mouse-").toFile()
+        val window = edt {
+            ComposeWindow().apply {
+                title = "SkyWing fullscreen regression"
+                setBounds(80, 80, 1000, 720)
+                setContent { SkyWingWindowContent(window, player, false, initialSection = "Now Playing") }
+                isVisible = true
+                toFront()
+            }
+        }
+        try {
+            await("Compose did not mount video Canvas") { edt { canvases(window).size == 1 } }
+            val canvas = edt { canvases(window).single() }
+            val originalBounds = edt { Rectangle(window.bounds) }
+            fun fullscreen() = edt { window.bounds == window.graphicsConfiguration.bounds }
+            fun overlaysVisible() = edt { window.ownedWindows.count { it.name?.startsWith("skywing-") == true && it.isVisible } == 2 }
+            fun overlaysHidden() = edt { window.ownedWindows.none { it.name?.startsWith("skywing-") == true && it.isVisible } }
+            fun focusPlayer() {
+                edt { window.toFront(); window.requestFocus(); canvas.requestFocusInWindow() }
+                await("Test window did not gain focus") { edt { window.isFocused } }
+            }
+            val media = File(mediaDir, "still-mouse.gif").also(::writeTestGif)
+            assertTrue(edt { player.attach(canvas) }, player.lastError)
+            assertTrue(player.open(media))
+            await("mpv did not start playback") { (player.playbackPosition() ?: 0.0) > 0.1 }
+            focusPlayer()
+
+            // A first fullscreen visit finds the resting spot: left of the window, on the video, clear of the controls.
+            dispatchKey(canvas, KeyEvent.VK_F)
+            await("F did not enter fullscreen") { fullscreen() }
+            await("Fullscreen controls were not shown") { overlaysVisible() }
+            val screen = edt { Rectangle(window.graphicsConfiguration.bounds) }
+            check(originalBounds.x - screen.x >= 40) { "The test window needs room on its left: $originalBounds on $screen" }
+            val rest = videoPointClearOfControls(window, canvas, x = screen.x + (originalBounds.x - screen.x) / 2)
+            dispatchKey(canvas, KeyEvent.VK_ESCAPE)
+            await("Escape did not restore the window") { edt { window.bounds == originalBounds } }
+
+            // The mouse moves now, outside the window, and never again.
+            val robot = Robot()
+            movePointerTo(robot, rest)
+            await("Pointer did not reach its resting spot $rest") { java.awt.MouseInfo.getPointerInfo()?.location == rest }
+            assertFalse(edt { window.bounds.contains(rest) }, "The resting spot must be outside the window before fullscreen")
+            focusPlayer()
+            dispatchKey(canvas, KeyEvent.VK_F)
+            await("F did not enter fullscreen again") { fullscreen() }
+            await("Fullscreen controls were not shown again") { overlaysVisible() }
+            assertTrue(edt { Rectangle(canvas.locationOnScreen, canvas.size).contains(rest) }, "The fullscreen video must be under the pointer")
+            assertFalse(edt { window.ownedWindows.any { it.name?.startsWith("skywing-") == true && it.bounds.contains(rest) } },
+                "The pointer must not rest on the player controls")
+            // Otherwise the B32 check below could pass on a cursor that never showed.
+            assertTrue(cursorHasPixels(), "The cursor must show while the fullscreen controls do")
+            awaitInactivity(window, rest, "Fullscreen controls did not auto-hide") { overlaysHidden() }
+            awaitInactivity(window, rest, "B32: Windows still drew the cursor 3 s after the controls hid, with the pointer " +
+                "resting on the video since before fullscreen", timeoutMillis = 3_000) { !cursorHasPixels() }
+        } finally {
+            // Destroy mpv before disposing its parent.
+            player.close()
+            edt { window.dispose() }
+            mediaDir.deleteRecursively()
         }
     }
 
