@@ -38,6 +38,7 @@ The handhelds also have built-in game controllers and usually **no physical keyb
    - Behave correctly in hybrid mode.
    - Use Intel or AMD integrated graphics when there is no dedicated GPU.
    - Never fail just because a vendor is missing.
+   - Work in every mode (integrated only, hybrid, dedicated only, an external GPU), on Intel or AMD processors, with integrated graphics from any vendor (sections 5.2, 5.8 and 5.9).
 2. **Every kind of screen:** fixed refresh rate (60/120/144/165 Hz…), G-SYNC, FreeSync and other VRR screens.
 3. **Speed:** the app is slow and sluggish on both handhelds. Make it as efficient as possible on every PC.
 4. **Modern design:** the app and the player look old and boring. Make them look like a modern Windows 11 app.
@@ -152,7 +153,7 @@ The handhelds also have built-in game controllers and usually **no physical keyb
 |---|---|---|
 | **M0** | Ship and measure what's already done: commit local work, a build with the watchdog fix, 10-minute Hybrid acceptance, first handheld measurements (section 3.1) | S |
 | **P1** | Speed foundation: nothing heavy on the UI thread, small images, cheap background, faster start; safe library index and JSON stores; network-drive detection (B16–B20, B24, B25, B29, B34 UI blocking) | M |
-| **P2** | Graphics chip and display policy (hybrid/dedicated/integrated, fixed/VRR), GPU compatibility matrix and fallbacks (5.8); close frame-sharing's last risk (5.5); in-app measuring (5.6) and cheaper-smoothing experiments (5.7) | L |
+| **P2** | Graphics chip and display policy (hybrid/dedicated/integrated/external GPU, fixed/VRR), GPU compatibility matrix and fallbacks (5.8), any Intel or AMD processor (5.9); close frame-sharing's last risk (5.5); in-app measuring (5.6) and cheaper-smoothing experiments (5.7) | L |
 | **P3** | Modern design system + adaptive layout (6.6) + new app shell + Settings with proper navigation + accessibility (6.9); follow the design boards (6.7) | L |
 | **P4** | New "Add network drive" flow with username/password, auto-find, clear errors | M |
 | **P5** | Handheld support: touch keyboard (8.2), touch-friendly everywhere (8.3), controller navigation, power-aware defaults | M |
@@ -240,14 +241,19 @@ Report after each phase. M0 comes first because the watchdog fix isn't in any bu
 - With motion smoothing on, frames are **copied to system memory** for VapourSynth (`hwdec=auto-copy`). So the motion engine (OpenCL) can run on a **different** GPU from the one that draws the video, at no extra cost.
 - On a hybrid laptop, the built-in screen is wired to the integrated GPU. A dedicated GPU that draws the video has its frames copied across by Windows (Optimus). That copy is usually fine for video, but costs some power.
 - In dedicated/MUX mode, or on an external monitor wired to the dedicated GPU, the dedicated GPU drives the screen directly.
+- mpv's `d3d11-adapter` matches the **start** of the adapter name (**verify** in the bundled mpv), so two GPUs of one family can look alike (for example "…RTX 4060" and "…RTX 4060 Ti").
+- The OpenCL vendor string can't tell two GPUs from one vendor apart (Intel + Intel Arc, AMD + AMD Radeon).
+- An external GPU (Thunderbolt, USB4 or OCuLink dock) can be unplugged while a video plays, and a driver reset or update can take any GPU away for a moment.
 
 ### 5.2 Detect the hardware (`playback/GpuInventory.kt`)
 - **List every adapter** with its name, vendor (NVIDIA / AMD / Intel / Other, from the PCI vendor ID, not the name), dedicated video memory, and whether it is integrated.
   - **Preferred:** DXGI `IDXGIFactory6::EnumAdapterByGpuPreference` through a tiny native helper DLL, or JNA COM vtables (**verify** which is simpler to keep correct).
   - **Fallback:** `EnumDisplayDevicesW` plus the registry `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}\*` (`DriverDesc`, `ProviderName`, `HardwareInformation.qwMemorySize`).
 - **Which adapter drives the window's monitor:** keep `WindowsDisplayAdapter`, but map to the vendor/adapter record (AMD included), not a "starts with" string.
+- **External GPUs** (Thunderbolt, USB4 and OCuLink docks, such as OneXPlayer's OneXGPU): mark them detachable (DXCore `IsDetachable`; **verify**). Treat them as dedicated, and expect them to vanish (5.8 rule 8).
+- **Windows' graphics setting for SkyWing** (Settings → System → Display → Graphics, stored under `HKCU\Software\Microsoft\DirectX\UserGpuPreferences`): read it for the policy (5.3). **Verify** whether NVIDIA's and AMD's own per-app GPU settings change what DXGI reports.
 - **Power:** use `GetSystemPowerStatus` (AC or battery) and the Windows power mode (Battery saver).
-- **Mode labels:** "Dedicated" (the monitor is wired to the dedicated GPU), "Hybrid" (dedicated GPU present, monitor on integrated), "Integrated only", "Dedicated only".
+- **Mode labels:** "Dedicated" (the monitor is wired to the dedicated GPU), "Hybrid" (dedicated GPU present, monitor on integrated), "Integrated only", "Dedicated only", plus "external GPU" when one is attached. Two GPUs from one vendor get the same labels as any other pair.
 
 ### 5.3 The policy (pure function, unit-tested)
 ```kotlin
@@ -262,17 +268,18 @@ fun plan(inv: GpuInventory, monitorAdapter: Adapter, choice: GpuChoice, onBatter
 | Only one GPU (handhelds) | that GPU | that GPU | Nothing to choose |
 | Dedicated mode (monitor on dedicated GPU) | dedicated | dedicated | Direct path; this is today's active-display routing |
 | Hybrid, **Automatic** | the monitor's GPU (integrated) | same GPU | **Today's behaviour, keep it.** Measured: all-Intel 4K Balanced 2× held 59.9 fps with zero drops, and the RTX stays near idle. Never mix devices: the old 398-drop result came from Intel drawing + NVIDIA elsewhere |
-| Hybrid, Automatic, smoothing **can't keep up** on the integrated GPU (the existing "offer next lower stop" fires at 2×) | offer "Use NVIDIA for smoothing" as well as the lower stop | — | One tap; remembered per video class. Never switch silently |
+| Hybrid, Automatic, smoothing **can't keep up** on the integrated GPU (the existing "offer next lower stop" fires at 2×) | offer "Use <dedicated GPU> for smoothing" (named: NVIDIA, AMD Radeon or Intel Arc) as well as the lower stop | — | One tap; remembered per video class. Never switch silently |
 | **Performance** | dedicated | dedicated | User asked. Accepts the cross-GPU copy to the screen and higher power |
 | **Power saving** | integrated | integrated | User asked |
-| A GPU missing or failed to start | the other GPU | same | Always fall back, never fail |
+| Automatic, and Windows' graphics setting for SkyWing is High performance or Power saving | the GPU Windows names | same GPU | I set it in Windows, so follow it and report "Following Windows' graphics setting". Without a Windows setting, Automatic stays today's routing |
+| A GPU missing, failed to start or lost while playing | the other GPU | same | Always fall back, never fail (5.8 rule 8) |
 
 **Verify before changing Automatic:** run the M0 acceptance on the laptop in Hybrid with both Automatic (all-Intel) and Performance (all-NVIDIA), 10 minutes each, same clip; keep Automatic as is unless the numbers say otherwise.
 
 **Applying the plan:**
-- **Draws the video:** set `d3d11-adapter` to the adapter's exact description (from DXGI), not a vendor prefix. If mpv rejects it, clear it and let Windows choose; then report "Using Windows' choice of graphics".
-- **Motion engine:** set `SKYWING_OPENCL_VENDOR` to `NVIDIA` / `AMD` / `Intel`. Extend the open-svpflow Windows patch to match those vendor strings (AMD's OpenCL vendor is "Advanced Micro Devices, Inc."; **verify** each).
-- **When the plan changes** (power plugged or unplugged, window moved to another monitor, setting changed):
+- **Draws the video:** set `d3d11-adapter` to the adapter's exact description (from DXGI), not a vendor prefix. If mpv rejects it, clear it and let Windows choose; then report "Using Windows' choice of graphics". When another adapter's name starts with the same text (5.1), check which one mpv opened (**verify** how to read it back) and fall back the same way if it's the wrong one.
+- **Motion engine:** set `SKYWING_OPENCL_VENDOR` to `NVIDIA` / `AMD` / `Intel`. Extend the open-svpflow Windows patch to match those vendor strings (AMD's OpenCL vendor is "Advanced Micro Devices, Inc."; **verify** each). When both GPUs share a vendor, match the OpenCL device to the DXGI adapter by LUID instead (`CL_DEVICE_LUID_KHR` from `cl_khr_device_uuid`; **verify** each driver reports it), else by device name, and extend the patch to select by that.
+- **When the plan changes** (power plugged or unplugged, window moved to another monitor, setting changed, the screen switched to the other GPU without a restart (Advanced Optimus, AMD SmartAccess Graphics), or a GPU added or removed):
   - Apply it at the **next video**, or immediately with a re-initialised video output and resume at the same position (`vo` reinit; **verify**).
   - Never restart on every small change. Debounce for 5 s.
 - **Report:** show the plan and its reason, e.g. "Hybrid · drawing on Intel Arc 140V · motion on NVIDIA RTX 5070 Ti · plugged in".
@@ -350,12 +357,17 @@ Detect capabilities at start-up (DXGI adapter + a one-off mpv probe of `hwdec-in
 | NVIDIA RTX 20/30/40/50, GTX 16 (RTX 5070 Ti Laptop) | D3D11 | H.264, HEVC 10-bit; AV1 from RTX 30 | Yes ("NVIDIA Corporation") | On; up to 4K at 2.5× on RTX 40/50 |
 | NVIDIA GTX 10 and older | D3D11 | H.264, HEVC 10-bit on GTX 10; no AV1 | Yes | 1080p only, Fast quality |
 | AMD Radeon RX 6000/7000/9000 | D3D11 | H.264, HEVC 10-bit, AV1 (RX 6000+; **verify** RX 6500/6400) | Yes ("Advanced Micro Devices, Inc.") | On; 1440p at 2.5× |
-| AMD Ryzen integrated (Radeon 680M/780M/880M/890M) | D3D11 | H.264, HEVC, AV1 | Yes | 1080p at 2.5×, Balanced |
+| AMD Radeon RX 400/500, Vega and RX 5000 (Polaris, Vega, RDNA 1) | D3D11 | H.264, HEVC 10-bit; no AV1 | Yes | 1080p at 2×, Balanced |
+| AMD Ryzen integrated (Radeon 680M/780M/880M/890M; handheld chips such as Z1 Extreme and Z2 Extreme) | D3D11 | H.264, HEVC, AV1 | Yes | 1080p at 2.5×, Balanced |
 | AMD Vega integrated (older Ryzen) | D3D11 | H.264, HEVC; no AV1 | Usually | 1080p 2×, Fast |
+| AMD small integrated (Radeon 610M/660M, Ryzen 7000/9000 desktop graphics, Z1) | D3D11 | H.264, HEVC, AV1 | Usually | Off by default; allowed for ≤1080p 2× |
 | **Intel Arc B390 / Arc 140V / Arc 130V** (OneXPlayer 3, Claw 8) | D3D11 | H.264, HEVC 10-bit, AV1, VVC on newest (**verify**) | Yes ("Intel(R) Corporation") | Set from the 5.7 handheld runs; start at 1080p 2×, Fast. 4K: allowed, with a note |
 | Intel Arc A-series dedicated | D3D11 | H.264, HEVC, AV1 | Yes | 1440p at 2.5× |
+| Intel Arc B-series dedicated (B570, B580) | D3D11 | H.264, HEVC 10-bit, AV1, VVC (**verify**) | Yes | 1440p at 2.5× |
 | Intel Iris Xe (11th–14th gen) | D3D11 | H.264, HEVC 10-bit, AV1 | Yes | 1080p 2×, Fast |
 | Intel UHD 6xx/7xx | D3D11 | H.264, HEVC (10-bit from Kaby Lake); no AV1 | Sometimes | Off by default; allowed for ≤1080p 2× |
+| Intel HD Graphics (Haswell, Broadwell and older) | D3D11 | H.264; HEVC mostly in software | Rarely | Off by default; allowed, with the "may struggle" note |
+| Any other GPU: other vendors (Moore Threads, Zhaoxin and similar) and virtual machines (Hyper-V, VMware, VirtualBox, Parallels) | D3D11 if the probe finds it, else `d3d11-warp=auto` | What the probe finds | Only if an OpenCL device is found | Off by default; allowed, with "Not tested on this graphics chip" |
 | No driver / Microsoft Basic Render / remote desktop | `d3d11-warp=auto` (software) | None (`hwdec=no`) | No | Off, with "Install your graphics driver for smooth playback" |
 
 The "Default smoothing" column only sets the first-use **quality** and the resolution above which a "may struggle on this graphics chip" note appears. The frame-rate stop keeps the existing first-use rule (closest to 60 fps), and the user's choices per video class always win.
@@ -365,9 +377,17 @@ The "Default smoothing" column only sets the first-use **quality** and the resol
 2. **Decode fallback chain:** `d3d11va` (zero-copy) → `d3d11va-copy` → `nvdec`/`vulkan` (only if present) → software. On the first decode error for a file, drop one step and continue from the same position. Report it.
 3. **Render fallback:** D3D11 with the plan's adapter → D3D11 with Windows' choice → `d3d11-warp=auto`. Never a black window.
 4. **Motion engine fallback:** OpenCL on the plan's GPU → OpenCL on any other GPU → CPU path for ≤1080p at 2× (**verify** open-svpflow's CPU mode is usable; if not, hide the switch and say "Motion smoothing needs a graphics driver with OpenCL"). Some Intel and AMD integrated drivers ship OpenCL only with the full driver package: say "Update your graphics driver" when no platform is found.
-5. **When smoothing can't keep up:** build on what exists ("offer next lower stop" on sustained drops; automatic lowering is a setting, **off by default**). Add a quality step to the offer ("Lower quality" before "Lower frame rate"), and on a hybrid laptop the "Use NVIDIA for smoothing" offer (5.3). When automatic lowering is on, remember the level that worked per GPU + video class so the next video starts there.
+5. **When smoothing can't keep up:** build on what exists ("offer next lower stop" on sustained drops; automatic lowering is a setting, **off by default**). Add a quality step to the offer ("Lower quality" before "Lower frame rate"), and on a hybrid PC the "Use <dedicated GPU> for smoothing" offer (5.3). When automatic lowering is on, remember the level that worked per GPU + video class so the next video starts there.
 6. **HDR:** motion smoothing stays **bypassed** for 10-bit HDR and Dolby Vision until it's validated on real files with Windows HDR on and off (as `AGENTS.md` requires). For playback: if Windows HDR is on for that monitor, pass HDR through (`target-colorspace-hint=yes`; **verify** with the bundled mpv). If not, tone-map with the GPU (`tone-mapping=bt.2446a` or `spline`; integrated GPUs use the cheaper option).
-7. **The playback report** lists: adapter, driver version, decode path, render path, OpenCL device, VRR range, plan reason, drops.
+7. **The playback report** lists: adapter, driver version, decode path, render path, OpenCL device, VRR range, plan reason, Windows' graphics setting, the CPU (5.9), drops.
+8. **A GPU lost while playing** (driver reset, a driver update, an external GPU unplugged, the screen switched to the other GPU): **verify** what mpv reports when its device is lost, then treat it as a plan change. Re-initialise the video output on a working adapter, restart the motion engine on the new plan, and resume at the same position. Never a black window or a hang; report it. Forcing a driver reset on my PCs to test this needs my OK.
+
+### 5.9 Any processor (Intel or AMD)
+- **Features, not brands:** nothing may check whether the CPU is Intel or AMD. Only its features count.
+- **Instruction sets:** list the minimum each bundled native DLL needs (libmpv and ffmpeg, VapourSynth, Python, open-svpflow, MVTools; **verify** from their build flags). At start-up, check the CPU (`IsProcessorFeaturePresent`, or CPUID). If a DLL needs more than the CPU has (for example AVX2 on some Celeron and Pentium chips), switch that feature off with a plain reason. Never crash with an illegal instruction.
+- **Hybrid cores** (Intel P-cores, E-cores and low-power E-cores; AMD Zen 5 and Zen 5c): Windows can slow a process it treats as background work (power throttling, "EcoQoS"). Measure drops with SkyWing in focus and out of focus, on the laptop and a handheld. Only if they rise, opt SkyWing out while a video plays (`SetProcessInformation` with `ProcessPowerThrottling`), and restore it when playback stops.
+- **Report:** the CPU name, its core types and the instruction sets that matter.
+- **ARM64 PCs (Snapdragon):** out of scope while SkyWing is x64 only. **Verify** once what happens there: the x64 build either runs under Windows' emulation with smoothing off and a plain reason, or the installer says ARM64 isn't supported.
 
 ---
 
@@ -814,7 +834,7 @@ suspend fun animatedFullscreen(owner: Window, area: () -> Rectangle, change: () 
   - Profile migration.
   - Library index: a corrupt or locked index never shrinks the library (B16); concurrent scan + hide keeps both changes (B17).
   - Registry → JSON migration runs once and keeps every record (B20).
-  - Capability matrix decisions (5.8) from recorded probe results for NVIDIA, AMD, Intel Arc B390, Iris Xe, UHD and "no driver".
+  - Capability matrix decisions (5.8) from recorded probe results for NVIDIA, AMD, Intel Arc B390, Iris Xe, UHD, "no driver", two GPUs from one vendor, an external GPU, an unknown vendor and a CPU without AVX2 (5.9).
   - Adaptive: width class and input mode for sample window sizes and input sequences (6.6).
   - Watchdog: no restart over 30 simulated minutes with periodic heartbeat read failures; a genuinely stalled graph still recovers once (B28).
   - Drive type: mapped letters and UNC paths both report "network share" (B29).
@@ -852,7 +872,7 @@ suspend fun animatedFullscreen(owner: Window, area: () -> Rectangle, change: () 
 
 | Earlier recommendation | Where now |
 |---|---|
-| Hybrid GPU choice: keep active-display routing as Automatic, add Performance / Power saving and the "Use NVIDIA for smoothing" offer | B4 → 5.3 policy table (corrected after the efficiency review) |
+| Hybrid GPU choice: keep active-display routing as Automatic, add Performance / Power saving and the "Use <dedicated GPU> for smoothing" offer | B4 → 5.3 policy table (corrected after the efficiency review) |
 | VRR detection for every vendor, no start-up flip and hitch | B6 → 5.4 (EDID range, `WM_DISPLAYCHANGE`) |
 | No synchronous mpv calls on the UI thread | B7, B21 → 4.1 and the observe-property fix |
 | Frame-sharing mpv: keep it, close the teardown timeout, pin MSYS2 | B12 → 5.5 |
@@ -864,7 +884,7 @@ suspend fun animatedFullscreen(owner: Window, area: () -> Rectangle, change: () 
 ### 11.2 New features worth adding (my picks, in order of value)
 
 1. **Home page:** Continue watching + Recently added (board "Desktop · Home").
-2. **Smarter "can't keep up" offers** (quality first, then frame rate, then NVIDIA on hybrids), built on the existing offer (5.8 rule 5).
+2. **Smarter "can't keep up" offers** (quality first, then frame rate, then the dedicated GPU on hybrids), built on the existing offer (5.8 rule 5).
 3. **Seek previews** (trickplay) and chapter ticks (9.1).
 4. **Media keys + Windows media overlay + taskbar buttons** (11, item 2).
 5. **Resume toast and Up next** (9.3).

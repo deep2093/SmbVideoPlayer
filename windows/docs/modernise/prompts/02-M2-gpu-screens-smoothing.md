@@ -15,19 +15,20 @@ You are continuing the SkyWing for Windows modernisation. The full brief is `win
 
 ---
 
-**Read:** section 5 (5.1–5.8), findings B4, B5, B6, B12, B28, B30, B31, and the motion efficiency review. Motion smoothing already works: keep the four stops, five presets, per-class memory, the "offer next lower stop" behaviour (auto-lowering off by default) and active-display routing.
+**Read:** section 5 (5.1–5.9), findings B4, B5, B6, B12, B28, B30, B31, and the motion efficiency review. Motion smoothing already works: keep the four stops, five presets, per-class memory, the "offer next lower stop" behaviour (auto-lowering off by default) and active-display routing.
 
 **Do:**
-1. `GpuInventory` (5.2), with AMD recognised by PCI vendor ID.
-2. The corrected policy (5.3) as a pure, unit-tested function: **Automatic = today's active-display routing**; add Performance (dedicated) and Power saving (integrated); re-plan on monitor or power change with a 5 s debounce; the "Use NVIDIA for smoothing" offer on hybrids when 2× can't keep up. Never mix devices.
+1. `GpuInventory` (5.2), with AMD recognised by PCI vendor ID, external GPUs, and Windows' graphics setting for SkyWing.
+2. The corrected policy (5.3) as a pure, unit-tested function: **Automatic = today's active-display routing**; add Performance (dedicated) and Power saving (integrated); re-plan on monitor, power or GPU change with a 5 s debounce; the "Use <dedicated GPU> for smoothing" offer on hybrids when 2× can't keep up; two GPUs from one vendor pick the motion device by LUID. Never mix devices.
 3. Display sync (5.4): refresh from the current mode (B30, never a 240 Hz guess); VRR range from NvAPI, ADLX if cheap, and EDID for every vendor; VRR active now (NvAPI; **verify** which drivers report it) and HDR on or off per monitor, "unknown" where nothing reports them; refresh only on `WM_DISPLAYCHANGE`; the "May judder on this N Hz screen" note for non-divisor stops on fixed screens (B31). No new frame-rate options.
 4. Frame sharing (5.5): keep it; add the teardown stress test (10 × (100 seeks + fullscreen toggles + close)); **verify** VapourSynth frame/core lifetime; pin the MSYS2 packages.
 5. Watchdog heartbeat (B28): replace the status file with an in-process channel (callback or shared memory); keep the 15 s threshold and bounded recovery; 30-minute simulated test with read failures.
 6. In-app measuring (5.6): per-minute CSV, "Copy test report", hidden `--bench` mode, all with the display state (HDR engaged, VRR active); optional on-screen frame times from ETW present events, only when I've given the rights; `verify.ps1` adds the display state to its report.
-7. Compatibility matrix (5.8): capability probe cached per driver, decode/render/motion fallbacks, HDR/DV smoothing stays bypassed, full report.
+7. Compatibility matrix (5.8): capability probe cached per driver, decode/render/motion fallbacks, HDR/DV smoothing stays bypassed, recovery from a GPU lost while playing (rule 8), the new rows, full report.
 8. Cheaper smoothing (5.7): only the experiments, behind hidden settings, with numbers. Don't change any preset without my OK.
+9. Any processor (5.9): the instruction-set check, the CPU in the report, and the hybrid-core measurement before any throttling change.
 
-Test target: the M0 acceptance repeated with this build shows no restart, no new drops, and the report names the GPU plan and the screen's HDR and VRR state.
+Test target: the M0 acceptance repeated with this build shows no restart, no new drops, and the report names the GPU plan, the CPU and the screen's HDR and VRR state.
 
 ---
 
