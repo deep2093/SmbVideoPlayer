@@ -21,7 +21,7 @@ Use the same steps for every run.
 **Settings**
 - Motion options: motion on, 2×, and the quality the run asks for. SkyWing keeps these per video class (1080p or 4K, SDR or HDR), so set them while each clip plays. The report shows them as `Multiplier: 2×` and `Engine: … quality: <quality>; target: <fps> fps`.
 - Settings → Playback: "Lower automatically when needed" off (the default). Leave "My screen uses G-SYNC / FreeSync" as it is, but the same for every run on one machine.
-- Leave `SKYWING_VS_SHARE_FRAMES` and `SKYWING_D3D11_COMPAT` unset, so frame sharing is on and the normal swap chain is used.
+- Leave `SKYWING_VS_SHARE_FRAMES` and `SKYWING_D3D11_COMPAT` unset, so frame sharing is on and the normal swap chain is used. `SKYWING_GPU` is only for laptop run B.
 
 **Playback**
 - Local files only, not the network drive. Audio on. Fullscreen.
@@ -75,7 +75,13 @@ SkyWing picks its GPU once per run, when it first creates the video surface, fro
 
 **Run A, Automatic (all-Intel).** The laptop in Hybrid (Optimus) mode, SkyWing on the built-in screen. The report must show Intel on both lines: `Preferred motion GPU: Intel…` and `Renderer: …; preference: Intel D3D11`.
 
-**Run B, NVIDIA.** This build has no Performance choice and no override (section 6), so make NVIDIA drive the screen. Switch the laptop to its dedicated-GPU (MUX) mode in the maker's control app, or in NVIDIA Control Panel → Manage Display Mode where it exists, and restart Windows if it asks. Everything else stays the same. The report must show NVIDIA on both lines. Switch back to Hybrid afterwards. This measures NVIDIA driving the screen directly, not the plan's Hybrid + Performance case, where NVIDIA's frames are copied to the Intel-driven screen. Without a MUX switch, use an external monitor on a port wired to the NVIDIA GPU (on most gaming laptops, HDMI); that also changes the screen, so write down which one.
+**Run B, NVIDIA.** The same as run A, still in Hybrid mode, but with the test-only override `SKYWING_GPU=NVIDIA` (section 6). Close SkyWing, then start it from Windows PowerShell:
+
+```powershell
+$env:SKYWING_GPU = 'NVIDIA'; & "$env:ProgramFiles\SkyWing\SkyWing.exe"
+```
+
+The override applies only to SkyWing started from that window. The report must show NVIDIA on both lines, and the `Renderer:` line's preference must end in "forced by SKYWING_GPU". This is the plan's Hybrid + Performance case: NVIDIA draws the video and runs motion, and Windows copies the frames to the Intel-driven screen. If the laptop also has a dedicated-GPU (MUX) mode, a run in that mode without the override measures NVIDIA driving the screen directly; it's optional, so note it under the table if you do it.
 
 | | Run A: Automatic (all-Intel) | Run B: NVIDIA |
 |---|---|---|
@@ -152,4 +158,6 @@ Clips: a local 1080p SDR clip (the same file on both handhelds; write down its f
 
 ## 6. How this build picks its GPU
 
-This differs from the brief. Its "Performance forced to NVIDIA … (or `SKYWING_*` override)" doesn't exist yet: Performance is part of plan 5.3 (M2). Today SkyWing uses the GPU that drives the monitor its window is on when it first creates the video surface (`WindowsDisplayAdapter`), both to draw the video (mpv's `d3d11-adapter`) and for motion (`SKYWING_OPENCL_VENDOR`, which SkyWing sets itself). If Windows names neither an Intel nor an NVIDIA adapter, it asks for NVIDIA. No environment variable changes the choice. Windows' per-app graphics setting doesn't change it either, because SkyWing passes the adapter to mpv by name.
+This differs from the brief, whose "Performance forced to NVIDIA … (or `SKYWING_*` override)" didn't exist: Performance is part of plan 5.3 (M2). SkyWing uses the GPU that drives the monitor its window is on when it first creates the video surface (`WindowsDisplayAdapter`), both to draw the video (mpv's `d3d11-adapter`) and for motion (`SKYWING_OPENCL_VENDOR`, which SkyWing sets itself). If Windows names neither an Intel nor an NVIDIA adapter, it asks for NVIDIA. Windows' per-app graphics setting doesn't change the choice, because SkyWing passes the adapter to mpv by name.
+
+For run B, M0 adds the test-only override `SKYWING_GPU` (`NVIDIA` or `Intel`, set before SkyWing starts). It changes the GPU for drawing and motion only; display queries such as VRR still use the monitor's GPU. If mpv refuses the named GPU (NVIDIA on a handheld, for example), SkyWing uses Windows' choice and the `Renderer:` line says so. The plan 5.3 setting replaces the override.

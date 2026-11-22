@@ -14,7 +14,10 @@ import java.io.File
  * Uses mpv's Windows --wid child-window embedding; GPU-render API integration follows later.
  * Requires libmpv-2.dll and its dependencies to be bundled in the installed application.
  */
-class EmbeddedMpv : Closeable {
+class EmbeddedMpv(
+    /** The GPU SKYWING_GPU names for drawing and motion ([GpuOverride]), or null to use the monitor's GPU. */
+    private val forcedGpu: String? = GpuOverride.vendor(),
+) : Closeable {
     private interface Api : Library {
         fun mpv_create(): Pointer?
         fun mpv_set_option_string(ctx: Pointer, name: String, value: String): Int
@@ -35,6 +38,8 @@ class EmbeddedMpv : Closeable {
     private var closed = false
     private var rendererPreference = "Automatic"
     private var motionAdapter: String? = null
+    /** The adapter that drives the window's monitor, for display queries such as VRR, even when SKYWING_GPU is set. */
+    private var monitorAdapter: String? = null
     private var rendererDevice = "Not yet reported by mpv"
     private val smoothingHealth = SmoothingHealth()
     private var smoothingMode = SmoothingMode.OFF
@@ -102,10 +107,13 @@ class EmbeddedMpv : Closeable {
                 // keep decoding, interpolation and presentation on Intel. Preserve the previous
                 // preference when Windows does not identify a supported display adapter.
                 val displayAdapter = WindowsDisplayAdapter.vendor(handle)
-                val adapter = displayAdapter ?: "NVIDIA"
+                // SKYWING_GPU (forcedGpu) replaces the monitor's adapter for drawing and motion in test runs.
+                val wantedAdapter = forcedGpu ?: displayAdapter
+                val adapter = wantedAdapter ?: "NVIDIA"
                 if (native.mpv_set_option_string(context, "d3d11-adapter", adapter) >= 0) {
                     set("gpu-api", "d3d11")
-                    motionAdapter = displayAdapter
+                    motionAdapter = wantedAdapter
+                    monitorAdapter = displayAdapter
                     if (adapter == "NVIDIA" && System.getenv("SKYWING_D3D11_COMPAT") == "1") {
                         // Trial for dedicated-GPU displays that drop frames on the default swap chain.
                         set("vo", "gpu")
@@ -115,9 +123,12 @@ class EmbeddedMpv : Closeable {
                     } else {
                         rendererPreference = "$adapter D3D11"
                     }
+                    if (forcedGpu != null) rendererPreference += ", forced by SKYWING_GPU"
                 } else {
                     set("d3d11-adapter", "")
                     motionAdapter = null
+                    monitorAdapter = null
+                    if (forcedGpu != null) rendererPreference = "Automatic (mpv refused SKYWING_GPU=$forcedGpu)"
                 }
                 // Reserve decoder surfaces before loading a file for runtime temporal smoothing.
                 set("hwdec-extra-frames", "8")
@@ -215,7 +226,7 @@ class EmbeddedMpv : Closeable {
         motion.lastAction = playerEvents.lastOrNull()?.let { it + " (" + (System.currentTimeMillis() - lastActionMillis) + " ms ago)" } ?: "none"
         val motionWasActive = motion.active
         val filterFailed = drainEvents()
-        DisplayVrr.refresh(if (motionAdapter == "Intel") null else textProperty("display-names/0"))
+        DisplayVrr.refresh(if (monitorAdapter == "Intel") null else textProperty("display-names/0"))
         lastMinuteDrops = recentDrops.sample(System.nanoTime() / 1_000_000, listOf(
             numberProperty("frame-drop-count")?.toLong(), numberProperty("decoder-frame-drop-count")?.toLong()))
         if (filterFailed && motion.active) {

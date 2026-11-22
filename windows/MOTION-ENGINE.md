@@ -44,8 +44,11 @@ Rendering and motion use the GPU that drives the monitor the window is on when
 SkyWing first creates its video surface (Intel or NVIDIA, as Windows names the
 display adapter). Moving the window later does not change it. When Windows names
 neither, NVIDIA is preferred if mpv validates an installed NVIDIA DXGI adapter;
-otherwise automatic renderer selection remains available. No setting or environment
-variable overrides this choice yet. The report separates the preferred motion GPU from mpv’s actual renderer device.
+otherwise automatic renderer selection remains available. For test runs only,
+`SKYWING_GPU=NVIDIA` or `Intel`, set before SkyWing starts, overrides the choice
+for rendering and motion; display queries such as VRR still follow the monitor,
+and the report's renderer preference ends in "forced by SKYWING_GPU". The report
+separates the preferred motion GPU from mpv’s actual renderer device.
 Native DLLs stay loaded for the process lifetime so Rust worker state survives
 VapourSynth core rebuilds. Only the named filter is owned; previous decoder/sync/
 interpolation settings and other filters are preserved when it ends.

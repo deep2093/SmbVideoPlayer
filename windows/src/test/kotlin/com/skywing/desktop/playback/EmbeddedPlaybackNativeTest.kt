@@ -94,6 +94,25 @@ class EmbeddedPlaybackNativeTest {
         }
     }
 
+    /**
+     * SKYWING_GPU=NVIDIA draws on NVIDIA even where Intel drives the window's monitor, as on a Hybrid laptop's own
+     * screen. Without an NVIDIA adapter (CI), mpv refuses it and the report says so.
+     */
+    @Test(timeout = 60_000)
+    fun skywingGpuChoosesTheGpuThatDrawsTheVideo() = withPlayer(EmbeddedMpv(forcedGpu = "NVIDIA")) { player ->
+        assertTrue(player.open(mp4))
+        waitFor("the video to play") { (player.playbackPosition() ?: 0.0) > 0.3 }
+        fun renderer() = player.updateSmoothing(SmoothingMode.OFF).report.lines().single { it.startsWith("Renderer: ") }
+        val line = renderer()
+        if (line.contains("preference: Automatic (mpv refused SKYWING_GPU=NVIDIA)")) {
+            println("No NVIDIA adapter here: $line")
+            return@withPlayer
+        }
+        assertTrue(line.contains("preference: NVIDIA D3D11, forced by SKYWING_GPU"), line)
+        waitFor("mpv to draw on NVIDIA: $line") { renderer().startsWith("Renderer: NVIDIA") }
+        println("Forced: ${renderer()}")
+    }
+
     @Test(timeout = 60_000)
     fun openingAnotherVideoWhilePausedPlaysIt() = withPlayer { player ->
         assertTrue(player.open(mp4))
@@ -163,7 +182,7 @@ class EmbeddedPlaybackNativeTest {
         assertTrue(growth < 96L * 1024 * 1024, "native memory grew ${growth / (1024 * 1024)} MB over 20 switches and 2 restarts: $samples")
     }
 
-    private fun withPlayer(block: (EmbeddedMpv) -> Unit) {
+    private fun withPlayer(player: EmbeddedMpv = EmbeddedMpv(), block: (EmbeddedMpv) -> Unit) {
         lateinit var frame: Frame
         lateinit var canvas: Canvas
         SwingUtilities.invokeAndWait {
@@ -173,7 +192,6 @@ class EmbeddedPlaybackNativeTest {
             frame.setSize(480, 300)
             frame.isVisible = true
         }
-        val player = EmbeddedMpv()
         try {
             waitFor("the video surface") { canvas.isDisplayable }
             var attached = false
