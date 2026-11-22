@@ -1,6 +1,7 @@
 package com.skywing.desktop.automation
 
 import com.skywing.desktop.NetworkPaths
+import com.skywing.desktop.playback.MotionQuality
 import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
@@ -26,8 +27,8 @@ import kotlin.system.exitProcess
 /**
  * Runs one M0 measurement (`docs/modernise/M0-RESULTS.md`, section 2) with nobody at the keyboard. It launches an
  * installed SkyWing on isolated data ([SkyWingTestApp]), so the owner's settings, library and history are not used
- * or changed. It plays a local clip from the start, full screen, with motion on at 2× Balanced, leaves it alone for
- * the warm-up, and then measures a window:
+ * or changed. It plays a local clip from the start, full screen, with motion on at 2× in the run's quality, leaves it
+ * alone for the warm-up, and then measures a window:
  * - the SkyWing processes' CPU time and private memory, and the battery, read as the section 2 snippet reads them
  * - playback reports A (start of the window) and B (end), copied with the player's own "Copy playback report" button
  * - whether SkyWing kept the foreground and full screen, and whether anyone used the keyboard or mouse
@@ -43,13 +44,16 @@ import kotlin.system.exitProcess
  * - SKYWING_M0_CLIP: the clip, on a local drive.
  * - SKYWING_M0_OUT: where results go, outside this checkout and outside OneDrive (it would upload them while written).
  * - SKYWING_M0_LABEL: the run's name, used for its results folder (letters, digits, '-' and '_').
- * - SKYWING_M0_VRR: true or false, written as SkyWing's "My screen uses G-SYNC / FreeSync" setting.
+ * - SKYWING_M0_VRR: true or false, written as SkyWing's "My screen uses G-SYNC / FreeSync" setting, or auto to leave
+ *   it unset, so SkyWing detects it from the display.
+ * - SKYWING_M0_QUALITY: the motion quality (Fastest, Fast, Balanced, Better or Best); Balanced when unset.
  * - SKYWING_M0_POWER: ac or battery, what the machine must be on.
  * - SKYWING_M0_WARMUP and SKYWING_M0_WINDOW: seconds; 60 and 600 when unset.
  * SKYWING_GPU passes through to SkyWing (laptop run B).
  *
  * The results folder gets summary.txt, report-A.txt, report-B.txt, progress.txt and SkyWing's app-output.txt, or
- * failure.txt when the run stopped. The clip's name is not written anywhere.
+ * failure.txt when the run stopped. The clip's name is not written anywhere. `M0Handheld.kt` runs the handheld table
+ * with this class.
  */
 fun main() {
     val run = try {
@@ -60,7 +64,7 @@ fun main() {
     }
     // exitProcess: AWT (the clipboard) and the Access Bridge client keep threads that would hold the JVM open.
     val result = runCatching { run.run() }
-    result.onSuccess { println("M0 run finished. Results: $it") }
+    result.onSuccess { println("M0 run finished. Results: ${it.folder}") }
     result.onFailure { System.err.println("M0 run failed: ${it.message}\nResults: ${run.folder}") }
     exitProcess(if (result.isSuccess) 0 else 1)
 }
@@ -70,12 +74,26 @@ internal class M0Settings private constructor(
     val clip: Path,
     val out: Path,
     val label: String,
-    val vrr: Boolean,
+    /** "My screen uses G-SYNC / FreeSync"; null leaves it unset, so SkyWing detects it from the display. */
+    val vrr: Boolean?,
     val onAc: Boolean,
+    val quality: MotionQuality,
     val warmupSeconds: Long,
     val windowSeconds: Long,
     val gpu: String?,
 ) {
+    /** Motion on at 2× in [quality] for every video class, as section 2 sets it, "Lower automatically" off, and [vrr]. */
+    fun seed(root: Preferences) {
+        val playback = root.node(MotionStatus.PLAYBACK_NODE)
+        playback.put("smoothing", "MOTION")
+        for (size in listOf("1080", "1440", "4k")) for (range in listOf("sdr", "hdr")) {
+            playback.putInt("motion.$size-$range.stop", 0)
+            playback.put("motion.$size-$range.quality", quality.name)
+        }
+        vrr?.let { playback.putBoolean("motion.vrr", it) }
+        playback.putBoolean("motion.lowerAutomatically", false)
+    }
+
     companion object {
         private val LABEL = Regex("[A-Za-z0-9_-]{1,40}")
 
@@ -113,10 +131,19 @@ internal class M0Settings private constructor(
 
             val label = required("SKYWING_M0_LABEL", "a short run name such as laptop-run-b")
             require(LABEL.matches(label)) { "SKYWING_M0_LABEL may only hold letters, digits, '-' and '_', at most 40." }
-            val vrr = requireNotNull(required("SKYWING_M0_VRR", "true or false").toBooleanStrictOrNull()) { "SKYWING_M0_VRR must be true or false." }
+            val vrrText = required("SKYWING_M0_VRR", "true, false or auto")
+            val vrr = vrrText.toBooleanStrictOrNull()
+            require(vrr != null || vrrText == "auto") { "SKYWING_M0_VRR must be true, false or auto." }
             val power = required("SKYWING_M0_POWER", "ac or battery")
             require(power == "ac" || power == "battery") { "SKYWING_M0_POWER must be ac or battery." }
-            return M0Settings(clip, out, label, vrr, power == "ac", seconds("SKYWING_M0_WARMUP", 60), seconds("SKYWING_M0_WINDOW", 600), value("SKYWING_GPU"))
+            val qualityText = value("SKYWING_M0_QUALITY") ?: MotionQuality.BALANCED.label
+            val quality = requireNotNull(
+                MotionQuality.entries.firstOrNull { qualityText.equals(it.label, ignoreCase = true) || qualityText.equals(it.name, ignoreCase = true) },
+            ) { "SKYWING_M0_QUALITY must be one of ${MotionQuality.entries.joinToString { it.label }}." }
+            return M0Settings(
+                clip, out, label, vrr, power == "ac", quality,
+                seconds("SKYWING_M0_WARMUP", 60), seconds("SKYWING_M0_WINDOW", 600), value("SKYWING_GPU"),
+            )
         }
     }
 }
@@ -138,11 +165,11 @@ internal class M0Run(private val settings: M0Settings) {
         require(others.isEmpty()) { "Close SkyWing first: ${others.size} SkyWing process(es) are running, and the run counts every one." }
         val probe = Probe.take()
         require(probe.onAc != null) { "The battery state can't be read (root\\wmi BatteryStatus)." }
-        require(probe.onAc == settings.onAc) { "The machine is on ${if (probe.onAc) "AC power" else "battery"}, not ${if (settings.onAc) "AC power" else "battery"}." }
+        require(probe.onAc == settings.onAc) { "The machine is ${power(probe.onAc)}, not ${power(settings.onAc)}." }
     }
 
-    /** Measures once and writes the results folder, which it returns. Throws when the run could not be completed. */
-    fun run(): Path {
+    /** Measures once, writes the results folder and returns what it measured. Throws when the run could not be completed. */
+    fun run(): M0Outcome {
         folder.createDirectories()
         val clipboard = Clipboard.text()
         try {
@@ -151,9 +178,9 @@ internal class M0Run(private val settings: M0Settings) {
             line("Image: ${SkyWingTestApp.image}")
             line("Clip: a local file, %.2f GiB (its name is not recorded)".format(Locale.ROOT, settings.clip.fileSize() / GIB))
             line("SKYWING_GPU: ${settings.gpu ?: "unset"}")
-            line("Seeded: motion on; 2×; Balanced; G-SYNC / FreeSync ${settings.vrr}; lower automatically false")
-            val app = SkyWingTestApp.launch("m0-${settings.label}", args = listOf(settings.clip.toString())) { root, _ -> seed(root) }
-            try {
+            line("Seeded: motion on; 2×; ${settings.quality.label}; G-SYNC / FreeSync ${settings.vrr ?: "unset (SkyWing detects it)"}; lower automatically false")
+            val app = SkyWingTestApp.launch("m0-${settings.label}", args = listOf(settings.clip.toString())) { root, _ -> settings.seed(root) }
+            return try {
                 measure(app)
             } finally {
                 app.close(keepData = true)
@@ -161,7 +188,6 @@ internal class M0Run(private val settings: M0Settings) {
                 runCatching { app.dataDir.resolve("app-output.txt").copyTo(folder.resolve("app-output.txt")) }
                 app.close(keepData = false)
             }
-            return folder
         } catch (stopped: Throwable) {
             line("STOPPED: ${stopped.message?.lineSequence()?.firstOrNull()}")
             folder.resolve("failure.txt").writeText(stopped.stackTraceToString())
@@ -177,18 +203,7 @@ internal class M0Run(private val settings: M0Settings) {
         println(text)
     }
 
-    /** Motion on at 2× Balanced for every video class, as section 2 sets it, and the run's G-SYNC / FreeSync choice. */
-    private fun seed(root: Preferences) = root.node(MotionStatus.PLAYBACK_NODE).run {
-        put("smoothing", "MOTION")
-        for (size in listOf("1080", "1440", "4k")) for (range in listOf("sdr", "hdr")) {
-            putInt("motion.$size-$range.stop", 0)
-            put("motion.$size-$range.quality", "BALANCED")
-        }
-        putBoolean("motion.vrr", settings.vrr)
-        putBoolean("motion.lowerAutomatically", false)
-    }
-
-    private fun measure(app: SkyWingTestApp) {
+    private fun measure(app: SkyWingTestApp): M0Outcome {
         val player = PlayerControls(app)
         player.waitAdvancing("the clip", minStepPercent = 0.0)
         val holding = app.waitForHolding()
@@ -215,7 +230,7 @@ internal class M0Run(private val settings: M0Settings) {
         val end = probe(app, "end")
         val reportB = copyReport(app, screen, "B")
         line("Window disturbances: ${window.describe()}")
-        record(start, end, ReportNumbers(reportA), ReportNumbers(reportB), reportB, holding)
+        return record(start, end, PlaybackReport(reportA), PlaybackReport(reportB), holding, window.disturbances())
     }
 
     /** Whether a window of this run's SkyWing becomes the foreground window within [timeoutMs]. */
@@ -228,11 +243,15 @@ internal class M0Run(private val settings: M0Settings) {
         }
     }
 
-    /** Reads the SkyWing processes and the battery, and checks that every SkyWing process is the one this run started. */
+    /**
+     * Reads the SkyWing processes and the battery, and checks that every SkyWing process is the one this run started and
+     * that the machine is still on the power the run measures.
+     */
     private fun probe(app: SkyWingTestApp, moment: String): Probe {
         val probe = Probe.take()
         val ours = app.processIds()
         check(probe.ids.isNotEmpty() && ours.containsAll(probe.ids)) { "A SkyWing process that this run did not start was running at the $moment of the window." }
+        check(probe.onAc == settings.onAc) { "The power changed: at the $moment of the window the machine was ${power(probe.onAc)}, not ${power(settings.onAc)}." }
         line("Windows power mode at the $moment: ${probe.powerMode(settings.onAc)}")
         return probe
     }
@@ -258,32 +277,55 @@ internal class M0Run(private val settings: M0Settings) {
         return report
     }
 
-    private fun record(start: Probe, end: Probe, a: ReportNumbers, b: ReportNumbers, reportB: String, holding: Double) {
+    private fun record(start: Probe, end: Probe, a: PlaybackReport, b: PlaybackReport, holding: Double, disturbances: Disturbances): M0Outcome {
         val seconds = (end.at - start.at) / 1000.0
+        val cores = (end.cpuSeconds - start.cpuSeconds) / seconds
         line("Window: ${clock(start.at)} to ${clock(end.at)} (%.1f s)".format(Locale.ROOT, seconds))
         line("SkyWing processes: ${start.ids.size} at the start, ${end.ids.size} at the end")
-        line("Process CPU: %.2f cores".format(Locale.ROOT, (end.cpuSeconds - start.cpuSeconds) / seconds))
+        line("Process CPU: %.2f cores".format(Locale.ROOT, cores))
         line("Private memory, MB: %,.0f at the start, %,.0f at the end".format(Locale.ROOT, start.privateBytes / MIB, end.privateBytes / MIB))
         val used = if (start.batteryMwh != null && end.batteryMwh != null) start.batteryMwh - end.batteryMwh else null
+        val battery = if (end.onAc != true && used != null && start.fullMwh != null && start.fullMwh > 0) {
+            BatteryDrain(watts = used / 1000.0 * 3600 / seconds, percentPerHour = used * 100.0 / start.fullMwh * 3600 / seconds)
+        } else {
+            null
+        }
         line(when {
             end.onAc == true -> "Battery: on AC power, not measured"
-            used != null && start.fullMwh != null && start.fullMwh > 0 -> "Battery: %.1f W; %.1f %% per hour (%d mWh used)"
-                .format(Locale.ROOT, used / 1000.0 * 3600 / seconds, used * 100.0 / start.fullMwh * 3600 / seconds, used)
+            battery != null -> "Battery: %.1f W; %.1f %% per hour (%d mWh used)".format(Locale.ROOT, battery.watts, battery.percentPerHour, used)
             else -> "Battery: unavailable"
         })
         val reportLines = listOf("SkyWing ", "Build:", "Preferred motion GPU:", "Renderer:", "Display:", "VRR capability:", "File:", "Codec:", "Engine:", "Multiplier:")
-        reportB.lineSequence().filter { text -> reportLines.any(text::startsWith) }.forEach { line("Report B: $it") }
+        b.text.lineSequence().filter { text -> reportLines.any(text::startsWith) }.forEach { line("Report B: $it") }
         line("Filter processing throughput (report B): ${b.throughput ?: "unavailable"} fps")
         if (a.callbacks != null && b.callbacks != null) {
             line("Filter output callbacks: %d to %d, %.1f a second (holding %s fps)".format(Locale.ROOT, a.callbacks, b.callbacks, (b.callbacks - a.callbacks) / seconds, holding))
         }
-        if (a.frameDrops != null && b.frameDrops != null && a.decoderDrops != null && b.decoderDrops != null) {
-            val drops = (b.frameDrops - a.frameDrops) + (b.decoderDrops - a.decoderDrops)
+        val drops = if (a.frameDrops != null && b.frameDrops != null && a.decoderDrops != null && b.decoderDrops != null) {
+            (b.frameDrops - a.frameDrops) + (b.decoderDrops - a.decoderDrops)
+        } else {
+            null
+        }
+        if (drops != null) {
             line("Drops in the window (video + decoder): $drops (frame-drop-count ${a.frameDrops} to ${b.frameDrops}; decoder-frame-drop-count ${a.decoderDrops} to ${b.decoderDrops})")
             line("Drops per minute: %.1f".format(Locale.ROOT, drops / (seconds / 60)))
         }
         line("Restarts (Stall recovery attempts, report B): ${b.restarts ?: "unavailable"}")
         line("Graph generations, report A to B: ${a.generations ?: "?"} to ${b.generations ?: "?"}")
+        return M0Outcome(
+            folder = folder,
+            windowSeconds = seconds,
+            cores = cores,
+            memoryStartMb = start.privateBytes / MIB,
+            memoryEndMb = end.privateBytes / MIB,
+            battery = battery,
+            drops = drops,
+            restarts = b.restarts,
+            generations = a.generations to b.generations,
+            powerModes = start.powerMode(settings.onAc) to end.powerMode(settings.onAc),
+            disturbances = disturbances,
+            reportB = b,
+        )
     }
 
     private companion object {
@@ -296,7 +338,43 @@ internal class M0Run(private val settings: M0Settings) {
         fun skyWingProcesses(): List<ProcessHandle> = ProcessHandle.allProcesses().filter { process ->
             process.info().command().map { Path.of(it).fileName.toString().equals("SkyWing.exe", ignoreCase = true) }.orElse(false)
         }.toList()
+
+        fun power(onAc: Boolean?) = when (onAc) {
+            true -> "on AC power"
+            false -> "on battery"
+            null -> "in a power state Windows doesn't report"
+        }
     }
+}
+
+/** What one M0 run measured. A number the reports didn't give is null. */
+internal data class M0Outcome(
+    val folder: Path,
+    val windowSeconds: Double,
+    val cores: Double,
+    val memoryStartMb: Double,
+    val memoryEndMb: Double,
+    /** Null on AC power, or when Windows didn't report the battery. */
+    val battery: BatteryDrain?,
+    /** Video plus decoder drops from report A to report B. */
+    val drops: Long?,
+    val restarts: Long?,
+    /** Graph generations in reports A and B. */
+    val generations: Pair<Long?, Long?>,
+    /** The Windows power mode at the start and at the end of the window. */
+    val powerModes: Pair<String, String>,
+    val disturbances: Disturbances,
+    val reportB: PlaybackReport,
+) {
+    val dropsPerMinute: Double? get() = drops?.let { it / (windowSeconds / 60) }
+}
+
+internal data class BatteryDrain(val watts: Double, val percentPerHour: Double)
+
+/** What disturbed a measured window ([Watch]); [description] is the summary line's text. */
+internal data class Disturbances(val foregroundLostSeconds: Int, val fullScreenLostSeconds: Int, val inputSeconds: Int, val description: String) {
+    /** Another program was in front or SkyWing left full screen, so the numbers don't describe full-screen playback. */
+    val spoiled: Boolean get() = foregroundLostSeconds > 0 || fullScreenLostSeconds > 0
 }
 
 /** Local time of day, as HWiNFO's CSV log writes it. */
@@ -372,6 +450,8 @@ private class Watch(private val app: SkyWingTestApp, private val screen: FullScr
         return this
     }
 
+    fun disturbances() = Disturbances(foregroundLost, fullScreenLost, inputSeconds, describe())
+
     fun describe(): String = buildString {
         append("foreground lost $foregroundLost s")
         if (takenBy.isNotEmpty()) append(" (to ${takenBy.joinToString()})")
@@ -433,13 +513,7 @@ private class Probe(
         """.trimIndent()
 
         fun take(): Probe {
-            val encoded = Base64.getEncoder().encodeToString(SCRIPT.toByteArray(Charsets.UTF_16LE))
-            val process = ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
-                .redirectErrorStream(true)
-                .start()
-            val output = process.inputStream.bufferedReader().readText()
-            check(process.waitFor(60, TimeUnit.SECONDS) && process.exitValue() == 0) { "The process probe failed: $output" }
-            val values = output.lineSequence().mapNotNull { text ->
+            val values = runPowerShell(SCRIPT, "The process probe").lineSequence().mapNotNull { text ->
                 text.split('=', limit = 2).takeIf { it.size == 2 }?.let { (key, value) -> key.trim() to value.trim() }
             }.toMap()
             fun present(key: String) = values[key]?.takeIf { it.isNotEmpty() }
@@ -458,15 +532,39 @@ private class Probe(
     }
 }
 
-/** The counters the M0 table needs, read from one playback report (EmbeddedMpv.playbackReport). */
-private class ReportNumbers(private val report: String) {
-    private fun long(pattern: String) = Regex(pattern, RegexOption.MULTILINE).find(report)?.groupValues?.get(1)?.toLongOrNull()
+/** Runs [script] in Windows PowerShell, without a profile, and returns its output. [what] names it if it fails. */
+internal fun runPowerShell(script: String, what: String): String {
+    val encoded = Base64.getEncoder().encodeToString(script.toByteArray(Charsets.UTF_16LE))
+    val process = ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded)
+        .redirectErrorStream(true)
+        .start()
+    val output = process.inputStream.bufferedReader().readText()
+    check(process.waitFor(60, TimeUnit.SECONDS) && process.exitValue() == 0) { "$what failed: $output" }
+    return output
+}
+
+/** One playback report (EmbeddedMpv.playbackReport): the counters the M0 tables need and the lines that describe the run. */
+internal class PlaybackReport(val text: String) {
+    private fun find(pattern: String) = Regex(pattern, RegexOption.MULTILINE).find(text)
+    private fun long(pattern: String) = find(pattern)?.groupValues?.get(1)?.toLongOrNull()
+    private fun word(pattern: String) = find(pattern)?.groupValues?.get(1)?.trim()
     val frameDrops = long("^frame-drop-count: (\\d+)")
     val decoderDrops = long("^decoder-frame-drop-count: (\\d+)")
     val callbacks = long("^Filter output callbacks: (\\d+)")
     val generations = long("observed graph generations: (\\d+)")
     val restarts = long("^Stall recovery attempts: (\\d+)")
-    val throughput = Regex("^Filter processing throughput: ([0-9.]+) fps", RegexOption.MULTILINE).find(report)?.groupValues?.get(1)
+    val throughput = word("^Filter processing throughput: ([0-9.]+) fps")
+    /** The video's width and height, from the `File:` line. */
+    val size: Pair<Int, Int>? = find("^File: [^;]*; (\\d+) × (\\d+);")?.destructured?.let { (width, height) -> width.toInt() to height.toInt() }
+    val sourceFps = word("^File: .*; source ([0-9.]+) fps")
+    /** mpv's transfer function (`video-params/gamma`): pq or hlg for HDR video. */
+    val transfer = word("^Transfer: ([^;]+);")
+    val quality = word("^Engine: .*; quality: ([^;]+);")
+    val target = word("^Engine: .*; target: ([0-9.]+) fps")
+    val multiplier = word("^Multiplier: ([^;]+);")
+
+    /** The rest of the first line that starts with [prefix] (such as `Renderer: `), or null. */
+    fun line(prefix: String): String? = text.lineSequence().firstOrNull { it.startsWith(prefix) }?.removePrefix(prefix)?.trim()
 }
 
 /** Text on the system clipboard, where the player's "Copy playback report" button puts the report. */

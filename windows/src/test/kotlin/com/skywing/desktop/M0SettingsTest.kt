@@ -1,6 +1,8 @@
 package com.skywing.desktop
 
 import com.skywing.desktop.automation.M0Settings
+import com.skywing.desktop.playback.MotionQuality
+import com.skywing.testsupport.IsolatedPreferencesFactory
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -11,6 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -50,8 +53,40 @@ class M0SettingsTest {
         assertEquals(clip, settings.clip)
         assertEquals(60, settings.warmupSeconds)
         assertEquals(600, settings.windowSeconds)
-        assertTrue(settings.vrr)
+        assertEquals(true, settings.vrr)
         assertTrue(settings.onAc)
+        assertEquals(MotionQuality.BALANCED, settings.quality)
+    }
+
+    @Test
+    fun aRunCanAskForAnotherQualityByItsLabelOrName() {
+        assertEquals(MotionQuality.FAST, M0Settings.fromEnvironment(environment("SKYWING_M0_QUALITY" to "Fast")).quality)
+        assertEquals(MotionQuality.FAST, M0Settings.fromEnvironment(environment("SKYWING_M0_QUALITY" to "FAST")).quality)
+        assertEquals(MotionQuality.BALANCED, M0Settings.fromEnvironment(environment("SKYWING_M0_QUALITY" to "balanced")).quality)
+    }
+
+    @Test
+    fun vrrAutoLeavesTheChoiceToSkyWing() {
+        assertNull(M0Settings.fromEnvironment(environment("SKYWING_M0_VRR" to "auto")).vrr)
+        assertEquals(false, M0Settings.fromEnvironment(environment("SKYWING_M0_VRR" to "false")).vrr)
+    }
+
+    @Test
+    fun theSeedGivesEveryVideoClassTheRunsQualityAndWritesVrrOnlyWhenChosen() {
+        fun seeded(vararg changes: Pair<String, String?>) =
+            IsolatedPreferencesFactory.openUserRoot(temp.resolve("preferences ${changes.size}.properties")).also { root ->
+                M0Settings.fromEnvironment(environment(*changes)).seed(root)
+            }.node("com/skywing/desktop/playback")
+
+        val fast = seeded("SKYWING_M0_QUALITY" to "Fast", "SKYWING_M0_VRR" to "auto")
+        assertEquals("MOTION", fast.get("smoothing", null))
+        for (key in listOf("1080-sdr", "1080-hdr", "1440-sdr", "1440-hdr", "4k-sdr", "4k-hdr")) {
+            assertEquals("FAST", fast.get("motion.$key.quality", null), key)
+            assertEquals(0, fast.getInt("motion.$key.stop", -1), key)
+        }
+        assertNull(fast.get("motion.vrr", null), "auto leaves SkyWing's own VRR detection in charge")
+        assertEquals("false", fast.get("motion.lowerAutomatically", null))
+        assertEquals("true", seeded().get("motion.vrr", null))
     }
 
     @Test
@@ -72,6 +107,7 @@ class M0SettingsTest {
         assertContains(refusal("SKYWING_VS_SHARE_FRAMES" to "0"), "SKYWING_VS_SHARE_FRAMES")
         assertContains(refusal("SKYWING_M0_LABEL" to "run a"), "SKYWING_M0_LABEL")
         assertContains(refusal("SKYWING_M0_VRR" to "yes"), "SKYWING_M0_VRR")
+        assertContains(refusal("SKYWING_M0_QUALITY" to "quick"), "SKYWING_M0_QUALITY")
         assertContains(refusal("SKYWING_M0_POWER" to "plugged"), "SKYWING_M0_POWER")
         assertContains(refusal("SKYWING_M0_WINDOW" to "ten"), "SKYWING_M0_WINDOW")
     }
