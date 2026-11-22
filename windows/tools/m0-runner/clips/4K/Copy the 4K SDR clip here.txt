@@ -1,0 +1,2 @@
+Copy the laptop's 4K SDR clip into this folder.
+Leave this text file here; the runner ignores it.

@@ -70,6 +70,64 @@ tasks.register<JavaExec>("m0Run") {
     systemProperty("skywing.test.preferencesFile", userData.resolve("preferences.properties").absolutePath)
 }
 
+// The portable handheld M0 runner (docs/modernise/M0-RESULTS.md section 4), for a device with SkyWing installed but no
+// JDK or checkout: its own Java runtime, the harness jars, and Run M0.cmd and README.txt from tools/m0-runner. A test
+// tool for the owner's own devices, not part of any installer. Starting it takes that device's desktop. The modules are
+// what jdeps --print-module-deps lists for the harness and its class path, plus the Access Bridge (AWT loads it when
+// Windows has Java Access Bridge turned on), java.management, and jdk.charsets for other programs' output.
+val m0RunnerModules = listOf(
+    "java.base", "java.desktop", "java.instrument", "java.logging", "java.management", "java.prefs", "java.sql",
+    "jdk.accessibility", "jdk.charsets", "jdk.unsupported",
+)
+
+val m0RunnerRuntime by tasks.registering(Exec::class) {
+    description = "Builds the portable M0 runner's Java runtime with jlink"
+    val jdk = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(17)) }
+    val runtime = layout.buildDirectory.dir("m0-runner/runtime")
+    inputs.property("modules", m0RunnerModules)
+    inputs.property("jdk", jdk.map { it.metadata.javaRuntimeVersion })
+    outputs.dir(runtime)
+    doFirst {
+        // jlink refuses an existing output folder.
+        runtime.get().asFile.deleteRecursively()
+        executable = jdk.get().metadata.installationPath.file("bin/jlink.exe").asFile.absolutePath
+        args(
+            "--add-modules", m0RunnerModules.joinToString(","),
+            "--strip-debug", "--no-header-files", "--no-man-pages", "--compress=2",
+            "--output", runtime.get().asFile.absolutePath,
+        )
+    }
+}
+
+val m0HarnessJar by tasks.registering(Jar::class) {
+    description = "Jars the M0 harness (the test classes) for the portable M0 runner"
+    archiveFileName.set("skywing-m0-harness.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("m0-runner/jars"))
+    from(sourceSets.test.get().output) { exclude("com/skywing/testsupport/**") }
+}
+
+// A jar of its own: SkyWingTestApp puts the jar that holds IsolatedPreferencesFactory on SkyWing's boot class path.
+val m0SupportJar by tasks.registering(Jar::class) {
+    description = "Jars the isolated preferences class for the portable M0 runner"
+    archiveFileName.set("skywing-test-support.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("m0-runner/jars"))
+    from(sourceSets.test.get().output) { include("com/skywing/testsupport/**") }
+}
+
+tasks.register<Sync>("m0Runner") {
+    group = "verification"
+    description = "Builds the portable handheld M0 runner in build/m0-runner/SkyWing-M0-runner"
+    into(layout.buildDirectory.dir("m0-runner/SkyWing-M0-runner"))
+    from("tools/m0-runner") { exclude(".gitattributes") }
+    into("runtime") { from(m0RunnerRuntime) }
+    into("lib") {
+        from(tasks.jar) { rename { "skywing-main.jar" } }
+        from(m0HarnessJar, m0SupportJar)
+        // The harness never draws Compose or opens a web view, so their native libraries stay out.
+        from(sourceSets.test.get().runtimeClasspath.filter { it.isFile && !it.name.startsWith("jcef-natives-") && !it.name.startsWith("skiko-awt-runtime-") })
+    }
+}
+
 compose.desktop {
     application {
         mainClass = "com.skywing.desktop.MainKt"

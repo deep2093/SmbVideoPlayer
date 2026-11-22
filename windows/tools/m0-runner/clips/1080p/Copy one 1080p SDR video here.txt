@@ -1,0 +1,2 @@
+Copy one 1080p SDR video into this folder: 24, 25 or 30 fps, the same file on both handhelds.
+Leave this text file here; the runner ignores it.
