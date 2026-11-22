@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SkyWing design tokens and adaptive rules</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+table{border-collapse:collapse}
+td,th{text-align:left;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.06);vertical-align:top}
+th{font-weight:600;color:#A9AEB8;font-size:12px}
+</style>
+</head>
+<body>
+<div style="width: 1440px; height: 1000px; background: #111215; color: #F3F4F6; font-family: 'Segoe UI Variable Text','Segoe UI',Inter,system-ui,sans-serif; font-size: 14px; padding: 40px; box-sizing: border-box; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; overflow: hidden">
+
+  <div style="display: flex; flex-direction: column; gap: 28px">
+    <section>
+      <h2 style="margin: 0 0 14px; font-size: 20px; font-weight: 600">Colour · dark</h2>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+        
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 56px; border-radius: 10px; background: #111215; border: 1px solid rgba(255,255,255,0.1)"></div>
+            <span style="font-weight: 500">base</span><span style="font-size: 12px; color: #A9AEB8; font-family: ui-monospace, Consolas, monospace">#111215</span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 56px; border-radius: 10px; background: #16181C; border: 1px solid rgba(255,255,255,0.1)"></div>
+            <span style="font-weight: 500">layer1</span><span style="font-size: 12px; color: #A9AEB8; font-family: ui-monospace, Consolas, monospace">#16181C</span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 56px; border-radius: 10px; background: #1C1E23; border: 1px solid rgba(255,255,255,0.1)"></div>
+            <span style="font-weight: 500">layer2</span><span style="font-size: 12px; color: #A9AEB8; font-family: ui-monospace, Consolas, monospace">#1C1E23</span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 56px; border-radius: 10px; background: #24272D; border: 1px solid rgba(255,255,255,0.1)"></div>
+            <span style="font-weight: 500">layer3</span><span style="font-size: 12px; color: #A9AEB8; font-family: ui-monospace, Consolas, monospace">#24272D</span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 56px; border-radius: 10px; background: #2B2F37; border: 1px solid rgba(255,255,255,0.1)"></div>
+            <span style="font-weight: 500">control</span><span style="font-size: 12px; color: #A9AEB8; font-family: ui-monospace, Consolas, monospace">#2B2F37</span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 56px; border-radius: 10px; background: #F3F4F6; border: 1px solid rgba(255,255,255,0.1)"></div>
+            <span style="font-weight: 500">text</span><span style="font-size: 12px; color: #A9AEB8; font-family: ui-monospace, Consolas, monospace">#F3F4F6</span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 56px; border-radius: 10px; background: #A9AEB8; border: 1px solid rgba(255,255,255,0.1)"></div>
+            <span style="font-weight: 500">textSecondary</span><span style="font-size: 12px; color: #A9AEB8; font-family: ui-monospace, Consolas, monospace">#A9AEB8</span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 56px; border-radius: 10px; background: #6CA8FF; border: 1px solid rgba(255,255,255,0.1)"></div>
+            <span style="font-weight: 500">accent</span><span style="font-size: 12px; color: #A9AEB8; font-family: ui-monospace, Consolas, monospace">#6CA8FF</span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 56px; border-radius: 10px; background: #0B1220; border: 1px solid rgba(255,255,255,0.1)"></div>
+            <span style="font-weight: 500">onAccent</span><span style="font-size: 12px; color: #A9AEB8; font-family: ui-monospace, Consolas, monospace">#0B1220</span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 56px; border-radius: 10px; background: #4CC38A; border: 1px solid rgba(255,255,255,0.1)"></div>
+            <span style="font-weight: 500">success</span><span style="font-size: 12px; color: #A9AEB8; font-family: ui-monospace, Consolas, monospace">#4CC38A</span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 56px; border-radius: 10px; background: #FFB547; border: 1px solid rgba(255,255,255,0.1)"></div>
+            <span style="font-weight: 500">warning</span><span style="font-size: 12px; color: #A9AEB8; font-family: ui-monospace, Consolas, monospace">#FFB547</span>
+          </div>
+        
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <div style="height: 56px; border-radius: 10px; background: #FF6B6B; border: 1px solid rgba(255,255,255,0.1)"></div>
+            <span style="font-weight: 500">danger</span><span style="font-size: 12px; color: #A9AEB8; font-family: ui-monospace, Consolas, monospace">#FF6B6B</span>
+          </div>
+        
+      </div>
+    </section>
+
+    <section>
+      <h2 style="margin: 0 0 14px; font-size: 20px; font-weight: 600">Type · Segoe UI Variable</h2>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        
+          <div style="display: flex; align-items: baseline; gap: 16px"><span style="width: 120px; flex: none; font-size: 12px; color: #A9AEB8">Display · 28 / 600</span><span style="font-size: 28px; font-weight: 600">Northern Lights</span></div>
+        
+          <div style="display: flex; align-items: baseline; gap: 16px"><span style="width: 120px; flex: none; font-size: 12px; color: #A9AEB8">Title · 20 / 600</span><span style="font-size: 20px; font-weight: 600">Northern Lights</span></div>
+        
+          <div style="display: flex; align-items: baseline; gap: 16px"><span style="width: 120px; flex: none; font-size: 12px; color: #A9AEB8">Subtitle · 16 / 600</span><span style="font-size: 16px; font-weight: 600">Northern Lights</span></div>
+        
+          <div style="display: flex; align-items: baseline; gap: 16px"><span style="width: 120px; flex: none; font-size: 12px; color: #A9AEB8">Body · 14 / 400</span><span style="font-size: 14px; font-weight: 400">Northern Lights</span></div>
+        
+          <div style="display: flex; align-items: baseline; gap: 16px"><span style="width: 120px; flex: none; font-size: 12px; color: #A9AEB8">Caption · 12 / 400</span><span style="font-size: 12px; font-weight: 400">Northern Lights</span></div>
+        
+          <div style="display: flex; align-items: baseline; gap: 16px"><span style="width: 120px; flex: none; font-size: 12px; color: #A9AEB8">Touch body · 16 / 400</span><span style="font-size: 16px; font-weight: 400">Northern Lights</span></div>
+        
+      </div>
+    </section>
+
+    <section>
+      <h2 style="margin: 0 0 14px; font-size: 20px; font-weight: 600">Spacing, radius, motion</h2>
+      <div style="display: flex; align-items: flex-end; gap: 14px; margin-bottom: 14px">
+        
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px"><div style="width: 4px; height: 4px; background: #6CA8FF; border-radius: 2px"></div><span style="font-size: 12px; color: #A9AEB8">4px</span></div>
+        
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px"><div style="width: 8px; height: 8px; background: #6CA8FF; border-radius: 2px"></div><span style="font-size: 12px; color: #A9AEB8">8px</span></div>
+        
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px"><div style="width: 12px; height: 12px; background: #6CA8FF; border-radius: 2px"></div><span style="font-size: 12px; color: #A9AEB8">12px</span></div>
+        
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px"><div style="width: 16px; height: 16px; background: #6CA8FF; border-radius: 2px"></div><span style="font-size: 12px; color: #A9AEB8">16px</span></div>
+        
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px"><div style="width: 24px; height: 24px; background: #6CA8FF; border-radius: 2px"></div><span style="font-size: 12px; color: #A9AEB8">24px</span></div>
+        
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px"><div style="width: 32px; height: 32px; background: #6CA8FF; border-radius: 2px"></div><span style="font-size: 12px; color: #A9AEB8">32px</span></div>
+        
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px"><div style="width: 40px; height: 40px; background: #6CA8FF; border-radius: 2px"></div><span style="font-size: 12px; color: #A9AEB8">40px</span></div>
+        
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 6px"><div style="width: 48px; height: 48px; background: #6CA8FF; border-radius: 2px"></div><span style="font-size: 12px; color: #A9AEB8">48px</span></div>
+        
+      </div>
+      <div style="font-size: 13px; color: #C9CDD4; line-height: 1.6">Radius 6 · 8 · 12 · 16 · full. Motion: fast 120 ms, standard 200 ms, emphasised 320 ms (decelerate 0.05, 0.7, 0.1, 1). Full screen uses a 180 ms fade through black. All motion drops to instant when Windows animation effects are off or Battery mode is on.</div>
+    </section>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 28px">
+    <section>
+      <h2 style="margin: 0 0 14px; font-size: 20px; font-weight: 600">Adaptive layout · window width</h2>
+      <table style="width: 100%">
+        <thead><tr><th>Width</th><th>Navigation</th><th>Grid</th><th>Settings</th></tr></thead>
+        <tbody>
+          <tr><td>under 720 dp</td><td>Top tabs</td><td>2 columns</td><td>List, then page with Back</td></tr>
+          <tr><td>720–1199 dp</td><td>Rail 72 dp, icon + label</td><td>3–4 columns</td><td>Two panes, 240 dp list</td></tr>
+          <tr><td>1200 dp and up</td><td>Rail 240 dp, full labels</td><td>5–6 columns, max card 320 dp</td><td>Two panes, 288 dp list</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 style="margin: 0 0 14px; font-size: 20px; font-weight: 600">Input density · last input used</h2>
+      <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+        
+          <div style="padding: 16px; border-radius: 12px; background: #1C1E23; border: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 10px">
+            <span style="font-weight: 600">Mouse</span>
+            <div style="display: flex; align-items: center; gap: 10px"><div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(108,168,255,0.25); border: 1px solid #6CA8FF"></div><span style="font-size: 13px; color: #A9AEB8">32 dp</span></div>
+            <span style="font-size: 13px; color: #C9CDD4; line-height: 1.5">Hover shows card actions and seek preview. Right-click menus. Compact rows 40 dp.</span>
+          </div>
+        
+          <div style="padding: 16px; border-radius: 12px; background: #1C1E23; border: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 10px">
+            <span style="font-weight: 600">Touch</span>
+            <div style="display: flex; align-items: center; gap: 10px"><div style="width: 48px; height: 48px; border-radius: 8px; background: rgba(108,168,255,0.25); border: 1px solid #6CA8FF"></div><span style="font-size: 13px; color: #A9AEB8">48 dp</span></div>
+            <span style="font-size: 13px; color: #C9CDD4; line-height: 1.5">Bigger rows 56 dp, long-press for menus, swipe gestures in player, touch keyboard on text focus.</span>
+          </div>
+        
+          <div style="padding: 16px; border-radius: 12px; background: #1C1E23; border: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; gap: 10px">
+            <span style="font-weight: 600">Controller</span>
+            <div style="display: flex; align-items: center; gap: 10px"><div style="width: 48px; height: 48px; border-radius: 8px; background: rgba(108,168,255,0.25); border: 1px solid #6CA8FF"></div><span style="font-size: 13px; color: #A9AEB8">48 dp + ring</span></div>
+            <span style="font-size: 13px; color: #C9CDD4; line-height: 1.5">Focus ring always on, LB/RB switch tabs, A select, B back, Y search, Start player menu.</span>
+          </div>
+        
+      </div>
+    </section>
+
+    <section>
+      <h2 style="margin: 0 0 14px; font-size: 20px; font-weight: 600">Components</h2>
+      <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center">
+        <button style="height: 36px; padding: 0 16px; border-radius: 8px; background: #6CA8FF; color: #0B1220; font-weight: 600">Primary</button>
+        <button style="height: 36px; padding: 0 16px; border-radius: 8px; background: #2B2F37">Secondary</button>
+        <button style="height: 36px; padding: 0 16px; border-radius: 8px; color: #6CA8FF">Text button</button>
+        <button style="height: 36px; padding: 0 16px; border-radius: 8px; background: #2B2F37; box-shadow: 0 0 0 2px #111215, 0 0 0 4px #6CA8FF">Focused</button>
+        <span style="height: 28px; padding: 0 12px; border-radius: 999px; background: rgba(76,195,138,0.16); color: #7ee0b0; display: inline-flex; align-items: center; font-size: 13px">Connected</span>
+        <span style="height: 28px; padding: 0 12px; border-radius: 999px; background: rgba(255,107,107,0.16); color: #ff9c9c; display: inline-flex; align-items: center; font-size: 13px">Can't reach drive</span>
+        <button role="switch" aria-checked="true" aria-label="Sample switch" style="width: 44px; height: 24px; border-radius: 999px; background: #6CA8FF; position: relative"><span style="position: absolute; top: 3px; left: 23px; width: 18px; height: 18px; border-radius: 50%; background: #0B1220"></span></button>
+      </div>
+      <div style="margin-top: 14px; font-size: 13px; color: #C9CDD4; line-height: 1.6">Focus ring: 2 dp gap + 2 dp accent ring on every control, always visible with keyboard or controller. Cards lift 2 % and gain an accent edge on hover or focus; touch shows a 120 ms press tint instead.</div>
+    </section>
+  </div>
+</div>
+</body>
+</html>

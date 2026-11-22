@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SkyWing settings, handheld</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#6CA8FF}a:hover{color:#9cc4ff}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 1280px; height: 800px; display: flex; flex-direction: column; background: #111215; color: #F3F4F6; font-family: 'Segoe UI Variable Text','Segoe UI',Inter,system-ui,sans-serif; font-size: 16px; overflow: hidden">
+
+  <header style="height: 76px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 24px">
+    <button aria-label="Back" style="width: 48px; height: 48px; border-radius: 12px; background: #1C1E23; display: flex; align-items: center; justify-content: center">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+    <h1 style="margin: 0; font-size: 26px; font-weight: 600; flex: 1">Settings</h1>
+    <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #A9AEB8"><span style="padding: 2px 8px; border-radius: 6px; background: #24272D; color: #F3F4F6">LB</span><span style="padding: 2px 8px; border-radius: 6px; background: #24272D; color: #F3F4F6">RB</span>switch category</span>
+  </header>
+
+  <div role="tablist" aria-label="Settings categories" style="display: flex; gap: 8px; padding: 0 24px 16px; flex: none">
+    <sc-for list="{{cats}}" as="c" hint-placeholder-count="7">
+      <button role="tab" aria-selected="{{c.on}}" style="height: 48px; padding: 0 18px; border-radius: 999px; background: {{c.bg}}; border: {{c.edge}}; color: {{c.color}}; font-weight: 500; flex: none">{{c.label}}</button>
+    </sc-for>
+  </div>
+
+  <main style="flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 0 24px; align-content: start">
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+      <div style="min-height: 88px; padding: 14px 18px; border-radius: 16px; background: #1C1E23; border: {{r.edge}}; box-shadow: {{r.glow}}; display: flex; align-items: center; gap: 16px; box-sizing: border-box">
+        <span style="width: 44px; height: 44px; border-radius: 12px; flex: none; background: {{r.tile}}; color: {{r.color}}; display: flex; align-items: center; justify-content: center; font-weight: 600">{{r.letter}}</span>
+        <div style="flex: 1; min-width: 0"><div style="font-weight: 600">{{r.title}}</div><div style="font-size: 14px; color: #A9AEB8">{{r.sub}}</div></div>
+        <span style="font-size: 14px; padding: 6px 12px; border-radius: 999px; background: #24272D; flex: none">{{r.value}}</span>
+      </div>
+    </sc-for>
+  </main>
+
+  <footer style="height: 56px; flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 24px; padding: 0 24px; font-size: 14px; color: #A9AEB8; border-top: 1px solid rgba(255,255,255,0.06)">
+    <span><span style="display: inline-flex; width: 24px; height: 24px; border-radius: 50%; background: #4CC38A; color: #0B1220; align-items: center; justify-content: center; font-weight: 700; margin-right: 6px">A</span>Change</span>
+    <span><span style="display: inline-flex; width: 24px; height: 24px; border-radius: 50%; background: #FF6B6B; color: #0B1220; align-items: center; justify-content: center; font-weight: 700; margin-right: 6px">B</span>Back</span>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const cats = ['Appearance','Library','Network drives','Playback','Controls','Performance','About'].map((l) => { const on = l === 'Performance'; return { label: l, on: on ? 'true' : 'false', bg: on ? 'rgba(108,168,255,0.18)' : '#1C1E23', edge: on ? '1px solid #6CA8FF' : '1px solid rgba(255,255,255,0.06)', color: on ? '#F3F4F6' : '#C9CDD4' }; });
+    const rows = [
+      ['Battery mode','Lighter effects and smaller thumbnails when unplugged','On','B','#4CC38A',true],
+      ['Graphics for video','Intel Arc B390 (integrated)','Automatic','G','#6CA8FF',false],
+      ['Motion smoothing on battery','Turns smoothing off below 30 % battery','Off below 30 %','M','#C08CFF',false],
+      ['Thumbnail work','How many covers are made at once','2 at a time','T','#FF9F6B',false],
+      ['Animations','Follows Windows animation effects','System','A','#FFB547',false],
+      ['Screen','Built-in 120 Hz · variable refresh 48–120 Hz','VRR on','S','#5EC8E5',false],
+    ].map((r) => ({ title: r[0], sub: r[1], value: r[2], letter: r[3], color: r[4], tile: r[4] + '29',
+      edge: r[5] ? '2px solid #6CA8FF' : '2px solid transparent', glow: r[5] ? '0 0 0 4px rgba(108,168,255,0.22)' : 'none' }));
+    return { cats, rows };
+  }
+}
+</script>
+</body>
+</html>

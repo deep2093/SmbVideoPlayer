@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SkyWing desktop home</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#6CA8FF}a:hover{color:#9cc4ff}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; background: #111215; color: #F3F4F6; font-family: 'Segoe UI Variable Text','Segoe UI',Inter,system-ui,sans-serif; font-size: 14px; overflow: hidden">
+
+  <nav aria-label="Sections" style="width: 240px; flex: none; background: #16181C; border-right: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; padding: 16px 12px; gap: 4px; box-sizing: border-box">
+    <div style="display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 8px; margin-bottom: 12px">
+      <div style="width: 28px; height: 28px; border-radius: 8px; background: {{accent}}; display: flex; align-items: center; justify-content: center">
+        <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z" fill="#0B1220"></path></svg>
+      </div>
+      <span style="font-size: 16px; font-weight: 600">SkyWing</span>
+    </div>
+    <a href="#" style="display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border-radius: 8px; background: rgba(108,168,255,0.16); color: #F3F4F6; text-decoration: none; font-weight: 500">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="{{accent}}" stroke-width="1.8" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"></path></svg>Home</a>
+    <a href="FoldersCompact.dc.html" style="display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border-radius: 8px; color: #C9CDD4; text-decoration: none">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>Folders</a>
+    <a href="#" style="display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border-radius: 8px; color: #C9CDD4; text-decoration: none">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M10 9l5 3-5 3z"></path></svg>Videos</a>
+    <a href="#" style="display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border-radius: 8px; color: #C9CDD4; text-decoration: none">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect><path d="M7 7h.01M7 17h.01"></path></svg>Files and drives</a>
+    <div style="height: 1px; background: rgba(255,255,255,0.06); margin: 12px 4px"></div>
+    <span style="font-size: 12px; color: #A9AEB8; padding: 0 12px 6px">Now playing</span>
+    <a href="PlayerDesktop.dc.html" style="display: flex; gap: 10px; align-items: center; padding: 8px; border-radius: 10px; background: #1C1E23; text-decoration: none; color: #F3F4F6">
+      <div style="width: 64px; height: 36px; border-radius: 6px; flex: none; background: linear-gradient(135deg,#3b5b8c,#101a2e)"></div>
+      <div style="display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1">
+        <span style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Northern Lights · Part 2</span>
+        <div style="height: 3px; border-radius: 2px; background: rgba(255,255,255,0.12)"><div style="width: 38%; height: 3px; border-radius: 2px; background: {{accent}}"></div></div>
+      </div>
+    </a>
+    <div style="flex: 1"></div>
+    <a href="SettingsDesktop.dc.html" style="display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border-radius: 8px; color: #C9CDD4; text-decoration: none">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-2.7-1.1l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.1-2.7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 2.7-1.1V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 2.7 1.1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"></path></svg>Settings</a>
+  </nav>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 0 32px; box-sizing: border-box">
+    <header style="height: 76px; flex: none; display: flex; align-items: center; gap: 12px">
+      <h1 style="margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.01em; flex: 1">Home</h1>
+      <label for="search" style="display: flex; align-items: center; gap: 8px; width: 320px; height: 36px; padding: 0 12px; border-radius: 8px; background: #1C1E23; border: 1px solid rgba(255,255,255,0.08); box-sizing: border-box; color: #A9AEB8">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+        <input id="search" placeholder="Search videos and folders" style="flex: 1; min-width: 0; background: none; border: 0; outline: none; color: #F3F4F6; font: inherit">
+        <span style="font-size: 12px; padding: 2px 6px; border-radius: 4px; background: #24272D">Ctrl F</span>
+      </label>
+      <button style="height: 36px; padding: 0 14px; border-radius: 8px; background: {{accent}}; color: #0B1220; font-weight: 600; display: flex; align-items: center; gap: 6px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add folder</button>
+      <button aria-label="More options" style="width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #C9CDD4">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="12" cy="19" r="1.7"></circle></svg></button>
+    </header>
+
+    <section style="display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: baseline; gap: 12px"><h2 style="margin: 0; font-size: 18px; font-weight: 600">Continue watching</h2><a href="#" style="font-size: 13px; text-decoration: none">See all</a></div>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+        <sc-for list="{{resume}}" as="v" hint-placeholder-count="4">
+          <article style="border-radius: 12px; overflow: hidden; background: #1C1E23; border: {{v.edge}}; transform: {{v.lift}}">
+            <div style="position: relative; aspect-ratio: 16 / 9; background: {{v.cover}}">
+              <span style="position: absolute; right: 8px; bottom: 10px; font-size: 12px; padding: 2px 6px; border-radius: 4px; background: rgba(0,0,0,0.6)">{{v.left}}</span>
+              <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0,0,0,0.45)"><div style="height: 3px; width: {{v.done}}; background: {{accent}}"></div></div>
+            </div>
+            <div style="padding: 10px 12px"><div style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{v.title}}</div><div style="font-size: 12px; color: #A9AEB8">{{v.meta}}</div></div>
+          </article>
+        </sc-for>
+      </div>
+    </section>
+
+    <section style="display: flex; flex-direction: column; gap: 12px; margin-top: 28px">
+      <div style="display: flex; align-items: baseline; gap: 12px"><h2 style="margin: 0; font-size: 18px; font-weight: 600">Recently added</h2><span style="font-size: 13px; color: #A9AEB8">24 new this week</span></div>
+      <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px">
+        <sc-for list="{{recent}}" as="v" hint-placeholder-count="10">
+          <article style="border-radius: 12px; overflow: hidden; background: #1C1E23; border: 1px solid rgba(255,255,255,0.06)">
+            <div style="position: relative; aspect-ratio: 16 / 9; background: {{v.cover}}"><span style="position: absolute; left: 8px; top: 8px; font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(0,0,0,0.6)">{{v.badge}}</span></div>
+            <div style="padding: 8px 10px"><div style="font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{v.title}}</div><div style="font-size: 12px; color: #A9AEB8">{{v.meta}}</div></div>
+          </article>
+        </sc-for>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#6CA8FF","options":["#6CA8FF","#4CC38A","#FFB547","#C08CFF"]},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const covers = ['linear-gradient(135deg,#3b5b8c,#101a2e)','linear-gradient(135deg,#7a3e2e,#1d1311)','linear-gradient(135deg,#2e6b5a,#0e1d19)','linear-gradient(135deg,#5b3b7a,#140f1f)','linear-gradient(135deg,#8a6a2a,#1d170c)','linear-gradient(135deg,#29506e,#0c1620)','linear-gradient(135deg,#6e2940,#1b0c12)','linear-gradient(135deg,#3f6e2a,#111c0c)','linear-gradient(135deg,#2a3f6e,#0c111c)','linear-gradient(135deg,#6e5a29,#1c170c)'];
+    const resume = [
+      ['Northern Lights · Part 2','42 min left','Home server · 4K HDR','38%'],
+      ['Harbour Run','1 h 05 min left','Home server · 1080p','22%'],
+      ['City at Dusk','12 min left','This PC · 4K','81%'],
+      ['Coastline Diaries 3','55 min left','Home server · 1440p','9%'],
+    ].map((r, i) => ({ title: r[0], left: r[1], meta: r[2], done: r[3], cover: covers[i],
+      edge: i === 0 ? '1px solid rgba(108,168,255,0.45)' : '1px solid rgba(255,255,255,0.06)',
+      lift: i === 0 ? 'scale(1.02)' : 'none' }));
+    const names = ['Mountain Pass','Night Market','Old Town Walk','Rain on Glass','Desert Road','Studio Session 4','Late Ferry','Forest Light','Lakeside 2','Winter Coast'];
+    const recent = names.map((t, i) => ({ title: t, cover: covers[(i + 3) % covers.length],
+      badge: ['4K HDR','1080p','4K','DV','1440p'][i % 5], meta: ['1 h 52 min','48 min','2 h 10 min','35 min','1 h 21 min'][i % 5] }));
+    return { accent: this.props.accent ?? '#6CA8FF', resume, recent };
+  }
+}
+</script>
+</body>
+</html>
