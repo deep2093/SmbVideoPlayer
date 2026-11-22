@@ -284,6 +284,11 @@ fun plan(inv: GpuInventory, monitorAdapter: Adapter, choice: GpuChoice, onBatter
     1. NVIDIA: keep the NvAPI query.
     2. AMD: ADLX `IADLXDisplayFreeSync::IsSupported` (**verify** the binding cost; skip it if heavy).
     3. Any vendor: parse the monitor's **EDID** from `HKLM\SYSTEM\CurrentControlSet\Enum\DISPLAY\<id>\<instance>\Device Parameters\EDID`. Read the *Display Range Limits* descriptor (min/max vertical Hz), the DisplayID **Adaptive-Sync** block and AMD's FreeSync VSDB. That gives a VRR range (for example 48–240 Hz) for G-SYNC Compatible and FreeSync screens on Intel, AMD and NVIDIA. Treat it as "capable", not "enabled".
+  - **VRR active now**, kept apart from capable:
+    1. NVIDIA reports it in the same NvAPI VRR info whose "possible" flag the app reads today (`bIsDisplayInVRRMode`). Only newer NVAPI releases define that bit, so **verify** it against `nvapi.h` and the installed driver, and how to tell "off" from "this driver doesn't report it".
+    2. AMD and Intel: **verify** whether ADLX or Intel's IGCL cheaply reports adaptive sync as *active*. ADLX `IsEnabled` means switched on, not active.
+    3. Otherwise report "unknown", for example on a hybrid laptop's built-in screen when it's wired to the integrated GPU, which NvAPI can't see. Unknown never means active.
+  - **HDR on or off** for the monitor showing the video, with its bits per colour: `DisplayConfigGetDeviceInfo` with `DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO` (Windows 11 24H2 adds `_INFO_2`, with the active colour mode). Read it with the rest of the screen state, and **verify** that switching HDR on or off sends `WM_DISPLAYCHANGE`.
 - **Show:** Settings → Playback → "Screen", as "240 Hz · Variable refresh 48–240 Hz (detected)". Keep my manual override switch. Refresh this only when the monitor or mode changes (`WM_DISPLAYCHANGE`), **not** every second, which also fixes the start-up hitch in B6.
 - **Frame-rate stops (already built, keep them):** the four exact stops 2× / 2.5× / 3× / 4× with first use closest to 60 fps and stops above the refresh turned off. Changes only:
   - Refresh comes from the real current mode, never a 240 Hz guess (B30).
@@ -319,7 +324,14 @@ fun plan(inv: GpuInventory, monitorAdapter: Adapter, choice: GpuChoice, onBatter
 
 ### 5.6 Measuring inside the app (so tests don't depend on external tools)
 - **Per-minute log while smoothing:** output fps, mpv `frame-drop-count`, `decoder-frame-drop-count`, `vo-delayed-frame-count`, `mistimed-frame-count`, `vsync-jitter`, `estimated-display-fps`, process CPU (cores), motion heartbeat age, graph generation, and events (seek, pause, cache wait, fullscreen, recovery). Read through observed properties (B21), write to a CSV in the app-data folder. **Verify** each property exists in the pinned mpv.
-- **"Copy test report"** in the playback report: build, runtime and sharing state, GPU plan, screen and VRR state, and the per-minute table.
+- **Display state in the log and the report**, so a run shows what the screen was doing, not only what the engine produced. Each value is a reading, or "unknown" or "not measured" with the reason, never a guess:
+  - **HDR engaged** means all three: Windows HDR is on for that monitor (5.4), the source is HDR (`video-params/gamma` is PQ or HLG), and mpv sends PQ or HLG to the screen (`video-target-params/gamma`, with its primaries and peak). **Verify** `video-target-params` in the pinned mpv.
+  - **VRR active** (5.4), next to capable, and the refresh.
+- **On-screen frame times (optional, off by default):** Windows can log every frame it puts on screen (ETW present events, which PresentMon reads). They give the displayed frame intervals, the frames never shown, and the present mode, such as independent flip (the usual path for VRR) or composed by DWM.
+  - Reading them needs admin rights, or my account in the Performance Log Users group. That choice is mine: the app never asks for elevation, and without the rights the report says "not measured".
+  - **Verify** which costs less: running PresentMon (MIT licence; downloading it needs my OK, shipping it needs its notice) next to `--bench`, or reading the events in the app.
+- **"Copy test report"** in the playback report: build, runtime and sharing state, GPU plan, screen, HDR and VRR state, and the per-minute table.
+- **`verify.ps1`** adds the display state, and the frame times when measured, to its report. Its "Not covered by automation" list then keeps only the display checks no reading can make: how HDR looks and how smooth playback feels.
 - **Benchmark mode** (hidden, `--bench <file> --minutes 10 --quality Balanced --stop 2x`): plays fullscreen from a fixed start time and writes the CSV, so laptop, Claw and OneXPlayer runs are comparable.
 
 ### 5.7 Making smoothing cheaper (experiments, not promises)
