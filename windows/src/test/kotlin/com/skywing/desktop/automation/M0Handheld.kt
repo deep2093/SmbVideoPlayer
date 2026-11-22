@@ -44,8 +44,9 @@ import kotlin.system.exitProcess
  *   [M0_BUILD] isn't installed, a clips folder doesn't hold exactly one video, or plugged-in runs are left and the
  *   charger is out
  * - keeps the device and its screen awake while it runs, as a video player does
- * - before each run, waits until nobody has touched the device for Windows' foreground lock time-out (about 3
- *   minutes): until then, Windows keeps a new SkyWing window behind the program used last
+ * - before each run, waits until nobody has touched the device for Windows' foreground lock time-out (200 s unless
+ *   changed): until then, Windows keeps a new SkyWing window behind the program used last. When the time-out is over
+ *   10 minutes, waiting can't help, and it doesn't wait ([quietWaitMs]).
  * - after the plugged-in runs, beeps until the charger is out (for up to 30 minutes), waits 30 seconds and checks the
  *   battery: at least 40 % charge and battery saver off (section 2)
  * - checks report B of each run: the video's size and SDR range fit its folder, and SkyWing played at 2× in the run's
@@ -216,6 +217,16 @@ internal fun batteryRefusal(status: PowerStatus): String? = when {
 }
 
 /**
+ * How long nobody may touch the device before a new SkyWing window can come to the front: Windows' foreground lock
+ * time-out ([lockTimeoutMs]) and 5 s, or null when the time-out is over 10 minutes and waiting can't help. Windows can
+ * hold the lock for good: a laptop reported 2147483647 ms while its registry said 200 s. SkyWing then comes to the front
+ * only if nobody has touched the device since Run M0.cmd started.
+ */
+internal fun quietWaitMs(lockTimeoutMs: Long): Long? = if (lockTimeoutMs > MAX_LOCK_WAIT_MS) null else lockTimeoutMs + 5_000
+
+private const val MAX_LOCK_WAIT_MS = 10 * 60 * 1000L
+
+/**
  * Why report B shows the run didn't measure what it should, or null. The video must be in its folder's class and SDR
  * (section 4), and SkyWing must have played it at 2× in the run's quality.
  */
@@ -345,6 +356,8 @@ private class HandheldRunner(private val trial: Boolean, private val environment
     private val device = listOfNotNull(registryValue(BIOS, "SystemManufacturer"), product).joinToString(" ").ifBlank { "this device" }
     private val results = runner.resolve("results").resolve(machineFolder(product, environment["COMPUTERNAME"]))
     private val table = results.resolve(if (trial) "M0-trial-table.md" else "M0-table.md")
+    private val lockTimeoutMs = HandheldSystem.foregroundLockTimeoutMs()
+    private val quietWait = quietWaitMs(lockTimeoutMs)
     private var lastRunEnded: Long? = null
 
     /** Does every run without a row and returns the exit code: 0 when all count, 1 when some must be done again. */
@@ -363,13 +376,17 @@ private class HandheldRunner(private val trial: Boolean, private val environment
         println("SkyWing M0 ${if (trial) "trial" else "handheld runs"} (M0-RESULTS.md section 4) on $device")
         println("Results: $results")
         println("G-SYNC / FreeSync: $vrrSource")
+        println(
+            "Windows foreground lock time-out: ${lockTimeoutMs / 1000} s" +
+                if (quietWait == null) ". Once the device is touched, Windows here keeps SkyWing behind other windows." else "",
+        )
         writeTable()
         if (todo.isEmpty()) {
             println("All ${plan.size} runs are already done. The table is in $table.")
             return 0
         }
         if (todo.any { it.onAc }) require(HandheldSystem.powerStatus().onAc == true) { "Plug in the charger: the first runs are plugged in. Then run Run M0.cmd again." }
-        val minutes = (todo.size * (timing.warmupSeconds + timing.windowSeconds + timing.coolDownSeconds + 50) + 210) / 60
+        val minutes = (todo.size * (timing.warmupSeconds + timing.windowSeconds + timing.coolDownSeconds + 50) + (quietWait ?: 0) / 1000) / 60
         println("${todo.size} of ${plan.size} runs to do, about $minutes minutes.${if (todo.any { !it.onAc }) " The device beeps when it is time to unplug the charger." else ""}")
         println("Don't touch the device until it beeps.")
 
@@ -470,9 +487,9 @@ private class HandheldRunner(private val trial: Boolean, private val environment
         }
     }
 
-    /** Waits until nobody has touched the device for Windows' foreground lock time-out, so SkyWing can come to the front. */
+    /** Waits until nobody has touched the device for Windows' foreground lock time-out ([quietWaitMs]), so SkyWing can come to the front. */
     private fun waitForQuiet() {
-        val needed = HandheldSystem.foregroundLockTimeoutMs() + 5_000
+        val needed = quietWait ?: return
         if (HandheldSystem.idleMs() >= needed) return
         println("Waiting until nobody has touched the device for ${needed / 1000} s: until then, Windows keeps SkyWing behind the program used last.")
         while (true) {
@@ -594,10 +611,14 @@ internal object HandheldSystem {
     /** Milliseconds since the last keyboard, mouse or touch input. */
     fun idleMs(): Long = (kernel32.GetTickCount() - Win32.lastInputTick()).toLong() and 0xFFFF_FFFFL
 
-    /** How long after input Windows keeps other programs from taking the foreground; 200 s unless changed. */
+    /**
+     * How long after input Windows keeps other programs from taking the foreground: 200 s unless changed. Programs can
+     * change it while Windows runs, without changing the registry.
+     */
     fun foregroundLockTimeoutMs(): Long {
         val value = IntByReference()
-        return if (user32.SystemParametersInfoW(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, value, 0)) value.value.toLong() else 200_000L
+        // A DWORD: over 2^31 it reads as a negative Int.
+        return if (user32.SystemParametersInfoW(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, value, 0)) value.value.toLong() and 0xFFFF_FFFFL else 200_000L
     }
 
     /** True when [path] is on a USB stick or a memory card. */

@@ -15,6 +15,7 @@ import com.skywing.desktop.automation.finishedRun
 import com.skywing.desktop.automation.handheldTable
 import com.skywing.desktop.automation.logOutput
 import com.skywing.desktop.automation.machineFolder
+import com.skywing.desktop.automation.quietWaitMs
 import com.skywing.desktop.automation.registryString
 import com.skywing.desktop.automation.registryValue
 import com.skywing.desktop.automation.reportMismatch
@@ -150,6 +151,17 @@ class M0HandheldTest {
         // PowerShell's error stream. Mixed into the result, it made the runner read SkyWing's version as that record.
         val script = "Write-Progress -Activity 'Preparing modules for first use.' -Status 'Ready'; [Console]::Error.WriteLine('a warning'); '0.1.101'"
         assertEquals("0.1.101", runPowerShell(script, "A test script").trim())
+    }
+
+    @Test
+    fun theWaitForWindowsForegroundLockHasALimit() {
+        // Windows' default: a new window may come to the front once nobody has touched the device for 200 s.
+        assertEquals(205_000L, quietWaitMs(lockTimeoutMs = 200_000))
+        assertEquals(5_000L, quietWaitMs(lockTimeoutMs = 0))
+        assertEquals(605_000L, quietWaitMs(lockTimeoutMs = 600_000))
+        // The laptop reported 2147483647 ms (24.8 days) while its registry said 200 s, and the runner waited for it.
+        assertNull(quietWaitMs(lockTimeoutMs = 600_001))
+        assertNull(quietWaitMs(lockTimeoutMs = Int.MAX_VALUE.toLong()))
     }
 
     @Test

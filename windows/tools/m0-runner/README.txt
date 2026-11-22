@@ -21,11 +21,11 @@ Once per handheld
 Run
 1. Double-click Run M0.cmd. A black window shows what it is doing.
 2. Leave the handheld alone: don't touch the screen, the buttons or the sticks, and
-   don't close the black window. The first run starts after about 3 minutes without
-   input; Windows doesn't let SkyWing come to the front before then.
-3. After about 35 minutes it beeps, and beeps again every minute: unplug the charger,
-   then leave the handheld alone again. The battery runs start 30 seconds later, or
-   about 3 minutes after the handheld was last touched.
+   don't close the black window. The first run starts within about 4 minutes;
+   Windows doesn't let SkyWing come to the front while the handheld is being used.
+3. After about 35 minutes it beeps, and beeps again every minute: unplug the charger
+   without touching the screen, the buttons or the sticks. The battery runs start
+   30 seconds later, or up to 4 minutes later if the handheld was touched.
 4. After about 30 more minutes it beeps three times and says "All runs are done".
    Plug the charger back in and press a key to close the window.
 
