@@ -255,13 +255,12 @@ internal class SkyWingTestApp private constructor(
                 "-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge",
                 "-Duser.home=${home.absolutePathString()}",
             )
-            require(options.none { it.contains(' ') }) { "Test paths must not contain spaces: $options" }
             val process = ProcessBuilder(listOf(launcher.toString()) + args)
                 .directory(dataDir.toFile())
                 .redirectErrorStream(true)
                 .redirectOutput(dataDir.resolve("app-output.txt").toFile())
                 .apply {
-                    environment()["JAVA_TOOL_OPTIONS"] = options.joinToString(" ")
+                    environment()["JAVA_TOOL_OPTIONS"] = javaToolOptions(options)
                     environment()["LOCALAPPDATA"] = local.absolutePathString()
                     environment()["APPDATA"] = roaming.absolutePathString()
                     environment()["USERPROFILE"] = home.absolutePathString()
@@ -277,6 +276,16 @@ internal class SkyWingTestApp private constructor(
             return app
         }
     }
+}
+
+/**
+ * [options] as one JAVA_TOOL_OPTIONS value. The JVM splits that value at white space and removes double quotes, so an
+ * option holding a path with a space (a checkout or an image under a folder such as "Program Files") is quoted. An
+ * option can't contain a double quote itself.
+ */
+internal fun javaToolOptions(options: List<String>): String {
+    require(options.none { '"' in it }) { "A JVM option can't contain a double quote: $options" }
+    return options.joinToString(" ") { option -> if (option.any(Char::isWhitespace)) "\"$option\"" else option }
 }
 
 /** The few user32 calls needed to find and close SkyWing's windows. */
