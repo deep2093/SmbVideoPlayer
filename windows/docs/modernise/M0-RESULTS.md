@@ -10,7 +10,7 @@ Fill in the tables yourself, or paste the playback reports, the snippet output a
 |---|---|
 | Installer file name | `SkyWing-0.1.101-ea838e1-frame-sharing-with-ed072bf.msi` (and `.exe`), from [run 101](https://github.com/deep2093/SmbVideoPlayer/actions/runs/44986909958), the push build of ea838e1 |
 | Expected installer name | `SkyWing-<version>-<commit>-frame-sharing-with-ed072bf.msi` (or `.exe`) |
-| Playback report `Build:` line | `Build: commit ea838e1; runtime frame-sharing, sharing on; watchdog fix ed072bf included`, from laptop run A's reports (23 November). It matches the expected line. |
+| Playback report `Build:` line | `Build: commit ea838e1; runtime frame-sharing, sharing on; watchdog fix ed072bf included`, from the reports of laptop runs A and B (23 November). It matches the expected line. |
 | Expected `Build:` line | `Build: commit <commit>; runtime frame-sharing, sharing on; watchdog fix ed072bf included` (no "with local changes") |
 | CI artifact check (Claude, after the push): `MPV-PREVIEW-MANIFEST.json` and the motion payload in the app image match the checkout | Pass (22 November, MSI unpacked with WiX `dark.exe`). ProductVersion 0.1.101; UpgradeCode {F40C59EF-E520-4E10-B7A2-B86E7458F923} unchanged. `skywing-build.properties` in the app jar: commit ea838e1, no local changes, runtime frame-sharing, watchdog fix included. libmpv: mpv revision e471496c and the frame-sharing patch match the checkout, and all 125 DLLs match `MPV-PREVIEW-MANIFEST.json`. Motion: the pins and the open-svpflow patch match `NATIVE-PROVENANCE.json`, no local plugin override, and all 63 files match `BUILD-MANIFEST.json`, none extra. |
 | Automated tests against the CI build (Claude, after the push) | Pass (22 November, on the laptop). The MSI's files, unpacked with `dark.exe` into a test copy (not installed), ran the whole Gradle test suite with native libmpv and UI automation, as `verify.ps1 -Mode full` does. The UI automation tests launched the copy's `SkyWing.exe` (46 launches, all from the copy), and the native tests loaded its frame-sharing libmpv and motion payload. 122 tests in 26 classes: 0 failed, 0 skipped. The real preferences, library and installed SkyWing were unchanged, and nothing was left running. |
@@ -61,6 +61,19 @@ if ($battery0 -and -not $battery1.OnAC) {
 } elseif ($battery1) { 'Battery: on AC power, not measured.' }
 ```
 
+**Automated route (the laptop, with this checkout and JDK 17)**
+
+`.\gradlew.bat -p windows m0Run --no-daemon` does one run of everything above against an installed SkyWing without changing it: SkyWing runs on isolated preferences and data, so the installed copy and the owner's library and settings stay as they are. The run takes the desktop, so ask the owner first. Set these in the environment:
+- `SKYWING_TEST_IMAGE`: the folder that holds `SkyWing.exe`, for example `C:\Program Files\SkyWing`.
+- `SKYWING_M0_CLIP`: a local clip that outlasts the warm-up plus the window. A clip on a network share is refused.
+- `SKYWING_M0_OUT`: a results folder outside this checkout and outside OneDrive.
+- `SKYWING_M0_LABEL`: a name for the run (letters, digits, `-` and `_`).
+- `SKYWING_M0_VRR`: the G-SYNC / FreeSync setting, `true` or `false`.
+- `SKYWING_M0_POWER`: `ac` or `battery`. The run doesn't start if the laptop is on the other.
+- Optional: `SKYWING_M0_WARMUP` and `SKYWING_M0_WINDOW` in seconds (60 and 600 by default), and `SKYWING_GPU` for run B. The run refuses to start if `SKYWING_VS_SHARE_FRAMES` or `SKYWING_D3D11_COMPAT` is set.
+
+It seeds the settings above (motion on, 2×, Balanced for every video class, "Lower automatically" off), opens the clip, goes full screen, copies report A after the warm-up and report B at the end of the window, and closes SkyWing. Each run gets its own folder with both reports, SkyWing's output and `summary.txt`: process CPU, private memory, the battery, the Windows power mode at the start and end, the report numbers, and anything that disturbed the window (another program in front, full screen lost, or keyboard or mouse input). Don't use the PC after starting a run, not even to type in another window: Windows then keeps SkyWing behind that window, and the run stops within 10 seconds. Start HWiNFO logging yourself; `summary.txt` gives the window's start and end times. The handhelds have no JDK or checkout, so they still use the snippet.
+
 **HWiNFO** (the laptop, and the handhelds if it is installed): sensors only. Start CSV logging before the clip; the beeps mark the window. Keep the CSV out of the repository, and out of OneDrive or any other synced folder, which would upload it while it is written.
 
 **Reading the numbers**
@@ -90,28 +103,32 @@ The override applies only to SkyWing started from that window. The report must s
 
 | | Run A: Automatic (all-Intel) | Run B: NVIDIA |
 |---|---|---|
-| Date; power and fan mode | 23 November; Windows power mode Balanced; Lenovo mode Balance | |
-| How NVIDIA was selected | — | |
-| `Preferred motion GPU:` line | `Intel(R) Graphics; driver: 32.0.101.9175` | |
-| `Renderer:` line | `Intel(R) Graphics; preference: Intel D3D11; output: gpu-next` | |
-| `Display:` line | `240.00020606660073 Hz; VRR activation: not measured` | |
-| Filter processing throughput (report B) | 58.17 fps. The filter output callbacks rose from 1,977 to 37,938 between the reports, about 60 a second. | |
-| Drops in the 10 minutes (video + decoder) | 1 (`frame-drop-count` 42 → 43; `decoder-frame-drop-count` 0 → 0) | |
-| Drops per minute | 0.1 | |
-| Restarts (expect 0) | 0 | |
-| Graph generations, report A → B | 2 → 2 | |
-| Process CPU (cores) | 2.00 | |
-| Private memory, MB: start → end of the window | 6,246 → 6,304 | |
-| CPU package power, average W | 52.9, including 6.2 for the Intel GPU | |
-| NVIDIA GPU power, average W | 3.5 | |
-| CPU package temperature, average / maximum °C | 69 / 79 | |
-| GPU temperature, average / maximum °C | Intel 44 / 46; NVIDIA 39 / 39 | |
-| Fans, average / maximum RPM | CPU 2,572 / 2,800; GPU 2,528 / 2,700; PCH 3,372 / 3,600 | |
-| Anything visible (judder, artefacts, audio sync) | Nothing seen; the owner says the video was fine | |
+| Date and window; power and fan mode | 23 November, 02:09:15–02:19:15; Windows power mode Balanced at the start and end; Lenovo mode Balance | 23 November, 02:50:01–03:00:02; Windows power mode Balanced at the start and end; Lenovo mode Balance |
+| How NVIDIA was selected | — | `SKYWING_GPU=NVIDIA`, set by the harness for SkyWing only; the laptop in Hybrid mode |
+| `Preferred motion GPU:` line | `Intel(R) Graphics; driver: 32.0.101.9175` | `NVIDIA GeForce RTX 5070 Ti Laptop GPU; driver: 621.24` |
+| `Renderer:` line | `Intel(R) Graphics; preference: Intel D3D11; output: gpu-next` | `NVIDIA GeForce RTX 5070 Ti Laptop GPU; preference: NVIDIA D3D11, forced by SKYWING_GPU; output: gpu-next` |
+| `Display:` line | `240.00020606660073 Hz; VRR activation: not measured` | `240.00020606660073 Hz; VRR activation: not measured` |
+| Filter processing throughput (report B) | 59.91 fps. The filter output callbacks rose from 3,664 to 39,597 between the reports, about 60 a second. | 60.19 fps. The filter output callbacks rose from 3,742 to 39,738 between the reports, about 60 a second. |
+| Drops in the 10 minutes (video + decoder) | 0 (`frame-drop-count` 0 → 0; `decoder-frame-drop-count` 0 → 0) | 0 (`frame-drop-count` 0 → 0; `decoder-frame-drop-count` 0 → 0) |
+| Drops per minute | 0.0 | 0.0 |
+| Restarts (expect 0) | 0 | 0 |
+| Graph generations, report A → B | 1 → 1 | 1 → 1 |
+| Process CPU (cores) | 2.06 | 1.79 |
+| Private memory, MB: start → end of the window | 5,659 → 5,946 | 6,158 → 6,173 |
+| CPU package power, average W | 53.8, including 7.2 for the Intel GPU | 44.0, including 0.0 for the Intel GPU |
+| NVIDIA GPU power, average W | 3.5 | 20.1 |
+| CPU package temperature, average / maximum °C | 68 / 80 | 71 / 79 |
+| GPU temperature, average / maximum °C | Intel 45 / 46; NVIDIA 39 / 40 | Intel 43 / 45; NVIDIA 41 / 42 |
+| Fans, average / maximum RPM | CPU 2,450 / 2,800; GPU 2,439 / 2,700; PCH 3,251 / 3,600 | CPU 2,780 / 2,800; GPU 2,686 / 2,700; PCH 3,581 / 3,600 |
+| Anything visible (judder, artefacts, audio sync) | The owner's check is pending | The owner's check is pending |
 
-Run A notes:
-- The clip played from a network share (both reports say `File: network share`), not from a local file as section 2 asks.
-- Both reports say `G-SYNC / FreeSync: true` and `lower automatically: false`. Keep the G-SYNC setting the same for run B.
+Notes:
+- Both runs used the automated route in section 2: the local clip from the start, full screen, plugged in. In neither window did another program come to the front, full screen drop or any keyboard or mouse input arrive.
+- Run A replaces a first run A from earlier that night, which played from the network share (both of its reports said `File: network share`). Its numbers, for reference: 58.17 fps, 1 drop, 2.00 cores, 6,246 → 6,304 MB, 52.9 W CPU package (6.2 for the Intel GPU) and 3.5 W NVIDIA. The owner saw nothing wrong in it.
+- A first attempt at run B (from 02:22) was discarded. Another program stayed the active window for 586 of the 600 seconds, so the taskbar and that program covered the video. Windows keeps a new window behind the active one when someone has just used another program. The harness now stops a run within 10 seconds when this happens.
+- Both runs' reports say `G-SYNC / FreeSync: true`, `lower automatically: false` and `VRR capability: unknown; Display capability unavailable; choice: manual`.
+- HWiNFO logged every 2 seconds, with gaps of up to 12 seconds. Run A's first sample in the window came 56 seconds after it started (228 samples); run B's came 11 seconds after (249 samples).
+- CPU package plus NVIDIA power: 57.4 W in run A and 64.1 W in run B.
 
 ## 4. Handhelds
 
@@ -164,6 +181,7 @@ Clips: a local 1080p SDR clip (the same file on both handhelds; write down its f
 ## 5. What the numbers decide
 
 - **Automatic GPU (plan 5.3):** Automatic stays all-Intel unless run A drops frames, or run B holds 2× with clearly fewer drops at an acceptable power cost.
+  Result of the laptop runs on 23 November: Automatic stays all-Intel. Run A held 2× without a drop, and run B dropped no fewer while drawing about 6.7 W more (CPU package plus NVIDIA). This rests on the numbers; the owner's visual check of both runs is pending.
 - **Handheld default (plan 5.7, item 3):** the quality that holds 2× at 1080p without drops on battery becomes the handheld default. The plan starts from 1080p 2× Fast.
 
 ## 6. How this build picks its GPU
