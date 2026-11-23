@@ -337,6 +337,31 @@ class MotionNativeTest {
         assertFalse(smoothed.variable, "a constant rate's rounded times are not a variable rate")
     }
 
+    /**
+     * Plan 5.7: what each option set costs on this PC. Each plays in real time (mpv timed, no display, no audio),
+     * 24 to 48 fps, on the OpenCL device SkyWing chooses; after 5 s of warm-up, 20 s give the output rate and the
+     * processor cores the whole process used (decoding, the motion search and the copies; not the GPU's own time).
+     * Fast, Balanced and the PotPlayer-like experiment, at 1080p and 4K. The fixture is a generated pattern, not film,
+     * so only the differences between rows mean anything. They are measurements, not pass marks;
+     * `build/reports/tests/test/motion-cost.txt` keeps them.
+     */
+    @Test(timeout = 900000) fun eachOptionSetsCostIsMeasuredInRealTime() = withFixtures { folder ->
+        val rows = mutableListOf<String>()
+        val sets = listOf(Triple("Fast", MotionQuality.FAST, null), Triple("Balanced", MotionQuality.BALANCED, null),
+            Triple("PotPlayer-like", MotionQuality.FAST, MotionExperiment.POTPLAYER_LIKE))
+        for (size in listOf("1920x1080", "3840x2160")) {
+            val video = encodePattern(folder, "pattern-$size.mkv", size, 40)
+            measureInRealTime(video, "motion-cost-native.log") { smooth ->
+                for ((label, quality, experiment) in sets) rows += "$size, $label: " + smooth(quality, experiment)
+            }
+        }
+        rows.add(0, "OpenCL device: " + MotionRuntime.preferredGpu + " (driver " + MotionRuntime.driver + "); processor: " +
+            Processor.current.line())
+        rows.forEach(::println)
+        File("build/reports/tests/test/motion-cost.txt").absoluteFile.apply { parentFile.mkdirs() }
+            .writeText(rows.joinToString("\n", postfix = "\n"))
+    }
+
     private fun withFixtures(block: (File) -> Unit) {
         assumeTrue(System.getenv("SKYWING_TEST_MPV") == "true")
         assumeTrue("ffmpeg is needed for the frame-time fixtures", TestMedia.ffmpeg != null)
@@ -355,6 +380,80 @@ class MotionNativeTest {
         val encodeLog = encode.inputStream.bufferedReader().readText()
         assertTrue(encode.waitFor(60, TimeUnit.SECONDS) && encode.exitValue() == 0 && video.isFile, "ffmpeg: $encodeLog")
         return video
+    }
+
+    /** A generated pattern of [size] for [seconds] at 24 fps, as SkyWing would get a camera or film file. */
+    private fun encodePattern(folder: File, name: String, size: String, seconds: Int): File {
+        val video = File(folder, name)
+        val encode = ProcessBuilder(TestMedia.ffmpeg!!.absolutePath, "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=$size:rate=24:duration=$seconds",
+            "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", video.absolutePath,
+        ).redirectErrorStream(true).start()
+        val encodeLog = encode.inputStream.bufferedReader().readText()
+        assertTrue(encode.waitFor(300, TimeUnit.SECONDS) && encode.exitValue() == 0 && video.isFile, "ffmpeg: $encodeLog")
+        return video
+    }
+
+    /**
+     * Opens [video] with no display, and gives [block] a function that smooths it from the start at 2× with one option
+     * set, in real time, and says what it took: the output rate and the process's cores over 20 s after 5 s.
+     */
+    private fun measureInRealTime(video: File, logName: String, block: ((MotionQuality, MotionExperiment?) -> String) -> Unit) {
+        val resources = File(System.getProperty("compose.application.resources.dir"))
+        val api = Native.load(File(resources, "libmpv-2.dll").path, Api::class.java,
+            mapOf(Library.OPTION_STRING_ENCODING to "UTF-8"))
+        val ctx = api.mpv_create()
+        val log = File("build/reports/tests/test/$logName").absoluteFile
+        log.parentFile.mkdirs()
+        fun get(name: String): String? {
+            val p = api.mpv_get_property_string(ctx, name) ?: return null
+            return try { p.getString(0, "UTF-8") } finally { api.mpv_free(p) }
+        }
+        fun command(args: List<String>): Boolean = api.mpv_command(ctx, (args + listOf(null)).toTypedArray()) >= 0
+        fun waitFor(message: String, predicate: () -> Boolean) {
+            val until = System.nanoTime() + 60_000_000_000L
+            while (System.nanoTime() < until) { if (predicate()) return; Thread.sleep(50) }
+            fail(message + "\n" + if (log.isFile) log.readText().takeLast(8000) else "No native log")
+        }
+        val cpu = java.lang.management.ManagementFactory.getOperatingSystemMXBean() as com.sun.management.OperatingSystemMXBean
+        val session = MotionSession(::get, ::command, scriptDirectory = { video.parentFile })
+        try {
+            listOf("config" to "no", "vo" to "null", "audio" to "no", "keep-open" to "yes", "pause" to "yes",
+                "log-file" to log.path).forEach { (k, v) -> assertTrue(api.mpv_set_option_string(ctx, k, v) >= 0, k) }
+            assertTrue(api.mpv_initialize(ctx) >= 0)
+            assertTrue(command(listOf("loadfile", video.path)))
+            waitFor("${video.name} did not load") { get("container-fps")?.toDoubleOrNull() == 24.0 }
+            val rate = MotionRate(24)
+            block { quality, experiment ->
+                assertTrue(command(listOf("set", "pause", "yes")))
+                assertTrue(command(listOf("seek", "0", "absolute+exact")))
+                waitFor("Playback did not return to the start") {
+                    get("seeking") == "no" && get("time-pos")?.toDoubleOrNull()?.let { it < 0.05 } == true
+                }
+                assertNull(session.begin(video.path, rate, MotionStops.rate(rate, 0), quality, experiment))
+                assertTrue(command(listOf("set", "pause", "no")))
+                waitFor("No output from the motion engine: " + session.failure) {
+                    (session.heartbeat()?.completed ?: 0) > 0 && (get("time-pos")?.toDoubleOrNull() ?: 0.0) >= 5.0
+                }
+                val start = assertNotNull(session.heartbeat())
+                val busy = cpu.processCpuTime
+                val wall = System.nanoTime()
+                Thread.sleep(20_000)
+                val cores = (cpu.processCpuTime - busy) / ((System.nanoTime() - wall).toDouble())
+                assertNotEquals("yes", get("eof-reached"), "The fixture ended during the measurement")
+                val beat = assertNotNull(session.heartbeat())
+                assertNull(session.failure)
+                val frames = beat.completed - start.completed
+                val seconds = (beat.updatedMillis - start.updatedMillis) / 1000.0
+                assertTrue(frames > 0 && seconds > 0, "No frames after warm-up")
+                assertTrue(session.end(), "Smoothing did not end")
+                String.format(Locale.ROOT, "%.2f of %d cores at %.1f output frames/s (%d in %.1f s)",
+                    cores, Runtime.getRuntime().availableProcessors(), frames / seconds, frames, seconds)
+            }
+        } finally {
+            api.mpv_terminate_destroy(ctx)
+            session.release()
+        }
     }
 
     /** The rate SkyWing smoothed [video] at, its frames' own gaps, and whether it found the rate varies. */

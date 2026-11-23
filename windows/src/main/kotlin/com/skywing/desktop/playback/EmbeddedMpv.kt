@@ -497,7 +497,7 @@ class EmbeddedMpv(
         val position = if (changed) numberProperty("time-pos") else null
         if (changed && !motion.end()) return status("Could not change motion settings; reopen video")
         val starting = !motion.active
-        motion.begin(file, source, target, settings.quality)?.let { return status("Motion smoothing unavailable: $it") }
+        motion.begin(file, source, target, settings.quality, settings.experiment)?.let { return status("Motion smoothing unavailable: $it") }
         // Plan 5.8 rule 10: once the script finds the standard rate's frames off its period, they play against the audio.
         val variable = motion.variableRate
         if (starting || appliedMotionSettings != settings || appliedVrr != vrr || appliedVariable != variable) {
@@ -614,7 +614,7 @@ class EmbeddedMpv(
             appendLine("Interlaced: ${textProperty("video-frame-info/interlaced") ?: "unavailable"}; deinterlacing: ${textProperty("deinterlace-active") ?: "unavailable"}")
             appendLine("Selected: ${smoothingMode.label}; state: $state")
             if (smoothingMode == SmoothingMode.MOTION) {
-                appendLine("Engine: open-svpflow deadbad2; quality: ${(appliedMotionSettings?.quality ?: MotionQuality.DEFAULT).label}; target: ${motion.target?.label ?: "none"} fps")
+                appendLine("Engine: open-svpflow deadbad2; quality: ${appliedMotionSettings?.qualityLabel ?: MotionQuality.DEFAULT.label}; target: ${motion.target?.label ?: "none"} fps")
                 appendLine("Filter processing throughput: ${retainedBeat?.processingFps ?: "unavailable"} fps (not presented FPS)")
                 appendLine("Filter output callbacks: ${retainedBeat?.completed ?: 0}; observed graph generations: ${motion.rebuilds}")
             }
@@ -663,7 +663,7 @@ class EmbeddedMpv(
                 "; let VRR control refresh: " + MotionSettingsStore.values.vrr + " (fullscreen: " + fullscreen + ")")
             appendLine("File: ${com.skywing.desktop.NetworkPaths.kindOf(expectedPath)}; ${caps.resolution}; source ${caps.sourceFps ?: "unavailable"} fps" +
                 "; transfer ${textProperty("video-params/gamma") ?: "unavailable"}; decoder ${textProperty("hwdec-current") ?: "unavailable"}")
-            appendLine("Smoothing: ${smoothingMode.label}; quality: ${(appliedMotionSettings?.quality ?: MotionQuality.DEFAULT).label}" +
+            appendLine("Smoothing: ${smoothingMode.label}; quality: ${appliedMotionSettings?.qualityLabel ?: MotionQuality.DEFAULT.label}" +
                 "; multiplier: " + (appliedMotionSettings?.let { MotionStops.labels[it.stop] } ?: "none") +
                 "; target: ${motion.target?.label ?: "none"} fps; state: $state" + if (benchSettings != null) "; benchmark" else "")
             appendLine("Per-minute log: " + logLine())

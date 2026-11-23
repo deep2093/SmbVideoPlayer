@@ -1,5 +1,6 @@
 package com.skywing.desktop
 
+import com.skywing.desktop.playback.MotionExperiment
 import com.skywing.desktop.playback.MotionQuality
 import org.junit.Test
 import java.io.File
@@ -23,6 +24,9 @@ class BenchOptionsTest {
             BenchOptions.parse(listOf("--bench", "C:/clip.mkv", "--quality", "best", "--stop", "2.5×", "--minutes", "1.5",
                 "--start", "30", "--out", "C:/out"))!!.getOrThrow())
         assertEquals(3, BenchOptions.parse(listOf("--bench", "C:/clip.mkv", "--stop", "4x"))!!.getOrThrow().stop)
+        assertNull(BenchOptions.parse(listOf("--bench", "C:/clip.mkv"))!!.getOrThrow().experiment, "no experiment unless asked")
+        assertEquals(MotionExperiment.POTPLAYER_LIKE,
+            BenchOptions.parse(listOf("--bench", "C:/clip.mkv", "--experiment", "potplayer-like"))!!.getOrThrow().experiment)
     }
 
     @Test fun mistakesAreReportedNotGuessed() {
@@ -34,5 +38,6 @@ class BenchOptionsTest {
         assertEquals("--minutes must be a number from 0.1 to 120", error("--bench", "a.mkv", "--minutes"))
         assertEquals("--start must be 0 or more seconds", error("--bench", "a.mkv", "--start", "-1"))
         assertEquals("Unknown bench option '--fast'", error("--bench", "a.mkv", "--fast"))
+        assertEquals("Unknown experiment 'mvtools': use PotPlayer-like", error("--bench", "a.mkv", "--experiment", "mvtools"))
     }
 }

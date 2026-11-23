@@ -103,7 +103,16 @@ class SmoothingTest {
             }
             assertEquals(6, keys.size)
             assertEquals(MotionSettings(1), store.load("new", 1))
+            // A plan 5.7 experiment is for measuring only: it is never saved for a video type.
+            store.save("4k-sdr", MotionSettings(0, MotionQuality.FAST, MotionExperiment.POTPLAYER_LIKE))
+            assertEquals(MotionSettings(0, MotionQuality.FAST), store.load("4k-sdr", 0))
         } finally { node.removeNode() }
+    }
+
+    @Test fun theReportsNameAnExperimentNextToThePreset() {
+        assertEquals("Fast", MotionSettings(0, MotionQuality.FAST).qualityLabel)
+        assertEquals("Fast; experiment: PotPlayer-like (test only, replaces the preset)",
+            MotionSettings(0, MotionQuality.FAST, MotionExperiment.POTPLAYER_LIKE).qualityLabel)
     }
 
     /** Owner decision, 23 November: Fast is the default quality on every PC; a quality chosen for a video type is kept. */

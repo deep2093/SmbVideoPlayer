@@ -200,11 +200,16 @@ another video plays; a seek or a settings change stays in the same file. The new
 the smoothing state, the log file's name and the per-minute table, to compare PCs.
 
 **Benchmark mode** is hidden: `SkyWing.exe --bench <file> [--minutes 10] [--quality Balanced] [--stop 2x] [--start 0]
-[--out <folder>]`. It opens a window of its own, plays full screen from `--start` with those settings (ignoring the
+[--out <folder>] [--experiment PotPlayer-like]`. It opens a window of its own, plays full screen from `--start` with those settings (ignoring the
 saved ones and automatic lowering) and measures for `--minutes` once smoothing holds. The video must be at least
 `--start` + `--minutes` + 1 minute long. It writes the CSV and `bench-<time>.txt` (the options, the result and the
 test report), saves nothing to the settings or library, and exits 0 when smoothing held, 1 when it stopped or the
 run ended early, and 2 when the run could not start. Closing its window ends the run early.
+
+`--experiment` (plan 5.7) replaces the preset's Super, Analyse and SmoothFps options for that run; nothing else can
+pick one, and it is never saved. The reports' quality reads "Fast; experiment: PotPlayer-like (test only, replaces
+the preset)". PotPlayer-like is the owner's PotPlayer 2x MVTools script as near as open-svpflow allows;
+`docs/modernise/reports/potplayer-script.md` keeps the script and maps each setting.
 
 `windows/tools/bench.ps1 -Video <file>` runs it (default: this checkout's `createDistributable` image). With
 `-PresentMon` it also runs Intel's PresentMon console app (MIT; installed separately, not shipped) on `SkyWing.exe`,

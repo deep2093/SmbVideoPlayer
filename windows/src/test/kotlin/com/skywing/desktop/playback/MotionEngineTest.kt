@@ -100,6 +100,22 @@ class MotionEngineTest {
         assertFalse(script.contains("core.std.AssumeFPS(out"))
     }
 
+    /** Plan 5.7 item 1: a hidden experiment replaces the preset's three option sets in the script, and only then. */
+    @Test fun anExperimentReplacesThePresetsOptions() {
+        val heartbeat = 0x7ff612340000
+        val preset = SvpScript.create(File("C:/runtime"), heartbeat, MotionRate(24), MotionRate(48), MotionQuality.FAST)
+        assertTrue(preset.contains("core.svp1.Super(clip, '{gpu:1,pel:1}')"), preset)
+        assertTrue(preset.contains("clip, '{block:{w:32,h:32,overlap:1}}')"), preset)
+        assertTrue(preset.contains("den:1},algo:13,mask:{area:30},scene:{mode:0}}'"), preset)
+        val potplayer = MotionExperiment.POTPLAYER_LIKE
+        val experiment = SvpScript.create(File("C:/runtime"), heartbeat, MotionRate(24), MotionRate(48), MotionQuality.FAST, potplayer)
+        assertTrue(experiment.contains("core.svp1.Super(clip, '" + potplayer.superOptions + "')"), experiment)
+        assertTrue(experiment.contains("clip, '" + potplayer.analyse + "')"), experiment)
+        assertTrue(experiment.contains("den:1}," + potplayer.smooth + ",scene:{mode:0}}'"), experiment)
+        assertFalse(experiment.contains("overlap:1"))
+        assertFalse(experiment.contains("algo:13"))
+    }
+
     @Test fun scriptTimesOtherRatesFromTheSourceFrames() {
         val status = 0x7ff612340000
         val measured = MotionRate(23061, 1000)

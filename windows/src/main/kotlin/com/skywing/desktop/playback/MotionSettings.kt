@@ -19,7 +19,34 @@ enum class MotionQuality(val label: String, val superOptions: String, val analys
     }
 }
 
-data class MotionSettings(val stop: Int, val quality: MotionQuality = MotionQuality.DEFAULT)
+/**
+ * Plan 5.7 experiments, for measuring only. They are not in Settings and are never saved for a video type: only the
+ * hidden benchmark option `--experiment` picks one. An experiment replaces the preset's three option sets, and the
+ * reports name it.
+ */
+enum class MotionExperiment(val label: String, val superOptions: String, val analyse: String, val smooth: String) {
+    /**
+     * The owner's PotPlayer 2× script (MVTools) as near as open-svpflow allows. `docs/modernise/reports/potplayer-script.md`
+     * keeps the script and maps each setting, with what open-svpflow can't express: `chroma=false`, the zero padding,
+     * MRecalculate's one step from 32 to 8, MBlockFps and `Prefetch(1)`.
+     */
+    POTPLAYER_LIKE(
+        "PotPlayer-like", "{gpu:1,pel:1}",
+        "{block:{w:32,h:32,overlap:0},main:{search:{distance:1,coarse:{distance:3,satd:false,width:0}},penalty:{plevel:0}}," +
+            "refine:[{thsad:200},{thsad:200}]}",
+        "algo:2,mask:{area:0}",
+    );
+
+    companion object {
+        fun find(label: String?): MotionExperiment? = entries.firstOrNull { it.label.equals(label, ignoreCase = true) }
+    }
+}
+
+data class MotionSettings(val stop: Int, val quality: MotionQuality = MotionQuality.DEFAULT, val experiment: MotionExperiment? = null) {
+    /** The reports' quality: the preset, and an experiment that replaces it. */
+    val qualityLabel: String get() =
+        quality.label + (experiment?.let { "; experiment: ${it.label} (test only, replaces the preset)" } ?: "")
+}
 
 internal object MotionStops {
     val labels = listOf("2×", "2.5×", "3×", "4×")
