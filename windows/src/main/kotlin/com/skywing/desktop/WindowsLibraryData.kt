@@ -291,15 +291,17 @@ internal class WindowsPlaybackHistoryStore(
     private val legacy: () -> Preferences? = { registryNode(WindowsPlaybackHistoryStore::class.java, "playback-history") },
 ) {
     private val file = JsonFile(path)
+    /** Shared by every store on this file, so two can't move the registry history at once. */
+    private val lock = file.lock
 
     /** The videos to show in Continue watching, newest first. */
-    @Synchronized
-    fun load(): List<WindowsWatchRecord> = (all() ?: emptyList())
-        .filter { it.path.isNotBlank() && it.position > 0 && it.duration > 0 && it.position < it.duration - 30 }
-        .sortedByDescending { it.updated }
+    fun load(): List<WindowsWatchRecord> = synchronized(lock) {
+        (all() ?: emptyList())
+            .filter { it.path.isNotBlank() && it.position > 0 && it.duration > 0 && it.position < it.duration - 30 }
+            .sortedByDescending { it.updated }
+    }
 
-    @Synchronized
-    fun saveProgress(file: File, position: Double, duration: Double) {
+    fun saveProgress(file: File, position: Double, duration: Double): Unit = synchronized(lock) {
         if (!position.isFinite() || !duration.isFinite() || duration <= 0) return
         // Nothing is written over a history that can't be read now.
         if (all() == null) return
@@ -312,8 +314,7 @@ internal class WindowsPlaybackHistoryStore(
         write(next.take(MAX_RECORDS))
     }
 
-    @Synchronized
-    fun renamePath(old: String, new: String) {
+    fun renamePath(old: String, new: String): Unit = synchronized(lock) {
         if (all() == null) return
         val records = load()
         if (records.any { it.path.equals(old, ignoreCase = true) })

@@ -7,6 +7,8 @@ import java.nio.file.NoSuchFileException
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.prefs.Preferences
 
 /** A file in SkyWing's library folder, `%LOCALAPPDATA%\SkyWing\library`, next to the library index. */
@@ -33,6 +35,13 @@ internal fun Preferences.removeMoved() {
  * over the old one, so a crash or a full disk leaves the last good file, never half of one.
  */
 internal class JsonFile(val path: Path) {
+    /**
+     * The lock every store on this file holds while it reads, moves or writes it. Two stores can open the same file at
+     * once (the Folders page and the library scan both do at start); with a lock each, one could find no file while
+     * the other moved the registry values into it and removed them, and so read nothing.
+     */
+    val lock: Any = locks.computeIfAbsent(path.toAbsolutePath().normalize().toString().lowercase(Locale.ROOT)) { Any() }
+
     sealed interface Read {
         data class Found(val root: JsonObject) : Read
         /** No file yet. */
@@ -72,5 +81,10 @@ internal class JsonFile(val path: Path) {
         } catch (_: Exception) {
             Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING)
         }
+    }
+
+    private companion object {
+        /** One lock per file, by its full path in lower case (Windows paths ignore case). */
+        val locks = ConcurrentHashMap<String, Any>()
     }
 }

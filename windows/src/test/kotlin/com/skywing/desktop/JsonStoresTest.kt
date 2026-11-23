@@ -4,7 +4,11 @@ import com.google.gson.JsonParser
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.prefs.Preferences
+import kotlin.concurrent.thread
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -98,6 +102,45 @@ class JsonStoresTest {
         assertEquals(listOf(first, second, third), store().add(third))
         assertEquals(listOf(first, third), store().remove(second))
         assertEquals(listOf(first, third), store().load())
+    }
+
+    /**
+     * At start the Folders page and the library scan each make a store and read the folders at the same moment. The
+     * one that finds no file first must still get the folders when the other one moves them and removes the registry
+     * values in between; before, it got none and the start-up scan found no videos.
+     */
+    @Test fun twoStoresReadingTheFoldersAtOnceBothGetThemWhileOneMovesThem() {
+        val library = folder.resolve("Library").toString()
+        legacyParent.node(legacyName).apply {
+            put("folder.0", library)
+            putInt("count", 1)
+            flush()
+        }
+        val path = folder.resolve("local-folders.json")
+        val lateStoreInMove = CountDownLatch(1)
+        val otherStoreDone = CountDownLatch(1)
+        // This store has found no file and is about to read the registry; it waits there for the other store's move.
+        val late = LocalFolderStore(path) {
+            lateStoreInMove.countDown()
+            otherStoreDone.await(2, TimeUnit.SECONDS)
+            legacy()
+        }
+        val other = LocalFolderStore(path) { legacy() }
+        val otherResult = CompletableFuture<List<String>>()
+        thread {
+            try {
+                lateStoreInMove.await()
+                otherResult.complete(other.load())
+            } catch (e: Throwable) {
+                otherResult.completeExceptionally(e)
+            } finally {
+                otherStoreDone.countDown()
+            }
+        }
+
+        assertEquals(listOf(library), late.load(), "the store that reached the registry first")
+        assertEquals(listOf(library), otherResult.get(10, TimeUnit.SECONDS), "the store that started second")
+        assertNull(legacy(), "the folders moved once")
     }
 
     @Test fun theOldCustomFoldersAreRemovedFromTheRegistry() {

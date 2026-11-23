@@ -107,26 +107,24 @@ internal class LocalFolderStore(
 ) {
     private val file = JsonFile(path)
 
-    @Synchronized
-    fun load(): List<String> = (saved() ?: emptyList()).filterNot(NetworkPaths::isNetwork)
+    // Every store on this file shares its lock, so a second store can't read while the first moves the registry values.
+    fun load(): List<String> = synchronized(file.lock) { (saved() ?: emptyList()).filterNot(NetworkPaths::isNetwork) }
 
-    @Synchronized
-    fun add(folder: String): List<String> {
+    fun add(folder: String): List<String> = synchronized(file.lock) {
         val path = Paths.get(folder).toAbsolutePath().normalize().toString()
         require(!NetworkPaths.isNetwork(path)) { "That folder is on a network drive. Add the share under Network shares instead, so its videos are listed once." }
         checkReadable()
         val folders = (load() + path).distinctBy { it.lowercase() }
         require(folders.size <= MAX_FOLDERS) { "You can add up to " + MAX_FOLDERS + " folders" }
         write(folders)
-        return folders
+        folders
     }
 
-    @Synchronized
-    fun remove(folder: String): List<String> {
+    fun remove(folder: String): List<String> = synchronized(file.lock) {
         checkReadable()
         val folders = load().filterNot { it.equals(folder, ignoreCase = true) }
         write(folders)
-        return folders
+        folders
     }
 
     /** Nothing is written over a folder list that can't be read now. */
