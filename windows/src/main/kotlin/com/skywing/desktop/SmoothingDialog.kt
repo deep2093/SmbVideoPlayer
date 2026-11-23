@@ -152,11 +152,19 @@ internal fun ScreenSetting() {
 internal fun MotionPlaybackSettings() {
     var vrr by remember { mutableStateOf(MotionSettingsStore.values.vrr) }
     var lower by remember { mutableStateOf(MotionSettingsStore.values.lowerAutomatically) }
+    var screenSize by remember { mutableStateOf(MotionSettingsStore.values.smoothAtScreenSize) }
     val theme = LocalSkyTheme.current
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Lower automatically when needed", color = theme.ink)
         SkySwitch(lower, { lower = it; MotionSettingsStore.values.lowerAutomatically = it }, "Lower automatically when needed")
     }
+    // Plan 5.7 item 4: off by default until the owner has compared it by eye.
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Smooth at screen size", color = theme.ink)
+        SkySwitch(screenSize, { screenSize = it; MotionSettingsStore.values.smoothAtScreenSize = it }, "Smooth at screen size")
+    }
+    Text("A video larger than the screen is shrunk to the screen's size before smoothing, so there are fewer pixels " +
+        "to smooth. Subtitles and the controls stay sharp.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
     // Plan 5.4: an advanced option, off by default on every screen. It does what "My screen uses G-SYNC / FreeSync"
     // did; the driver, not SkyWing, turns VRR on.
     Text("Advanced", color = theme.ink, style = MaterialTheme.typography.titleMedium)

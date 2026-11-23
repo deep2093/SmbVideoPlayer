@@ -110,6 +110,10 @@ internal class MotionPreferences(private val prefs: Preferences) {
     var vrr: Boolean
         get() = vrrOverride ?: false
         set(value) { prefs.putBoolean("motion.vrr", value) }
+    /** "Smooth at screen size" (plan 5.7 item 4): off until the owner has compared it by eye. */
+    var smoothAtScreenSize: Boolean
+        get() = prefs.getBoolean("motion.screenSize", false)
+        set(value) { prefs.putBoolean("motion.screenSize", value) }
     var lowerAutomatically: Boolean
         get() = prefs.getBoolean("motion.lowerAutomatically", false)
         set(value) { prefs.putBoolean("motion.lowerAutomatically", value) }

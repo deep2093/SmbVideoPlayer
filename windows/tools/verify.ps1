@@ -69,8 +69,8 @@ $rules = @(
        Tests = @("$pkg.playback.EmbeddedPlaybackNativeTest", "$pkg.playback.ThumbnailExtractorNativeTest", "$pkg.playback.GpuAdaptersTest", "$pkg.VideoDropTest",
                  "$pkg.automation.PlaybackAutomationTest") }
     @{ Area = 'Motion interpolation / smoothing'; Escalate = $false
-       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(Motion\w*|Smoothing|RecentDrops|DisplayVrr|WindowsDisplayAdapter)\.kt|SmoothingDialog\.kt)$|windows/tools/(build_motion\.py|open-svpflow-windows\.patch)$'
-       Tests = @("$pkg.playback.MotionEngineTest", "$pkg.playback.SmoothingTest", "$pkg.playback.MotionNativeTest", "$pkg.automation.MotionAutomationTest") }
+       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(Motion\w*|Smoothing|SmoothingSize|RecentDrops|DisplayVrr|WindowsDisplayAdapter)\.kt|SmoothingDialog\.kt)$|windows/tools/(build_motion\.py|open-svpflow-windows\.patch)$'
+       Tests = @("$pkg.playback.MotionEngineTest", "$pkg.playback.SmoothingTest", "$pkg.playback.SmoothingSizeTest", "$pkg.playback.MotionNativeTest", "$pkg.automation.MotionAutomationTest") }
     @{ Area = 'Screens / measuring'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(PlaybackLog|ScreenState|DisplayPaths|DisplayChanges)\.kt|Bench\.kt)$|windows/tools/bench\.ps1$'
        Tests = @("$pkg.playback.PlaybackLogTest", "$pkg.playback.ScreenStateTest", "$pkg.BenchOptionsTest", "$pkg.playback.SmoothingTest") }

@@ -31,6 +31,8 @@ param(
     [ValidateSet('2x', '2.5x', '3x', '4x')][string]$Stop = '2x',
     # A plan 5.7 experiment that replaces the -Quality preset's options (test only, never saved).
     [ValidateSet('PotPlayer-like')][string]$Experiment,
+    # Plan 5.7 item 4: shrink a video larger than the screen to the screen's size before smoothing.
+    [switch]$ScreenSize,
     [double]$Start = 0,
     # SkyWing.exe to run; default: this checkout's createDistributable image.
     [string]$App,
@@ -140,6 +142,7 @@ if ($PresentMon) {
 $benchArgs = @('--bench', "`"$Video`"", '--minutes', $Minutes.ToString($invariant), '--quality', $Quality, '--stop', $Stop,
     '--start', $Start.ToString($invariant), '--out', "`"$Out`"")
 if ($Experiment) { $benchArgs += @('--experiment', $Experiment) }
+if ($ScreenSize) { $benchArgs += @('--screen-size', 'on') }
 Write-Host "SkyWing benchmark: $Minutes min, $Quality, $Stop, from $Start s. It plays full screen; keep hands off until it closes."
 $skywing = Start-Process -FilePath $App -ArgumentList $benchArgs -PassThru
 if ($PresentMon -and -not $notMeasured) {

@@ -338,11 +338,23 @@ class MotionNativeTest {
     }
 
     /**
+     * Plan 5.7 item 4: at screen size, a 4K video on a 1920 × 1200 screen is smoothed at 1920 × 1080. mpv gets the
+     * smaller frames, and every output frame still shows at its source position's time, also after a seek.
+     */
+    @Test(timeout = 400000) fun aFourKVideoOnAWuxgaScreenIsSmoothedAt1080pWithExactFrameTimes() = withFixtures { folder ->
+        val video = encode(folder, "uhd-23.976.mp4", "24000/1001", "-bf", "0", size = "3840x2160")
+        val size = SmoothingSize.fit(PixelSize(3840, 2160), PixelSize(3840, 2160), PixelSize(1920, 1200))
+        assertEquals(PixelSize(1920, 1080), size)
+        smooth(video, "motion-screen-size-native.log", size) { source, shown, p, q, what -> assertFollows(source, shown, p, q, what) }
+    }
+
+    /**
      * Plan 5.7: what each option set costs on this PC. Each plays in real time (mpv timed, no display, no audio),
      * 24 to 48 fps, on the OpenCL device SkyWing chooses; after 5 s of warm-up, 20 s give the output rate and the
      * processor cores the whole process used (decoding, the motion search and the copies; not the GPU's own time).
-     * Fast, Balanced and the PotPlayer-like experiment, at 1080p and 4K. The fixture is a generated pattern, not film,
-     * so only the differences between rows mean anything. They are measurements, not pass marks;
+     * Fast, Balanced and the PotPlayer-like experiment, at 1080p and 4K, and 4K at 1920 × 1080 ("Smooth at screen
+     * size", plan 5.7 item 4, on a 1920 × 1200 screen). The fixture is a generated pattern, not film, so only the
+     * differences between rows mean anything. They are measurements, not pass marks;
      * `build/reports/tests/test/motion-cost.txt` keeps them.
      */
     @Test(timeout = 900000) fun eachOptionSetsCostIsMeasuredInRealTime() = withFixtures { folder ->
@@ -352,7 +364,10 @@ class MotionNativeTest {
         for (size in listOf("1920x1080", "3840x2160")) {
             val video = encodePattern(folder, "pattern-$size.mkv", size, 40)
             measureInRealTime(video, "motion-cost-native.log") { smooth ->
-                for ((label, quality, experiment) in sets) rows += "$size, $label: " + smooth(quality, experiment)
+                for ((label, quality, experiment) in sets) rows += "$size, $label: " + smooth(quality, experiment, null)
+                if (size == "3840x2160") for ((label, quality) in listOf("Fast" to MotionQuality.FAST, "Balanced" to MotionQuality.BALANCED)) {
+                    rows += "$size at 1920 × 1080, $label: " + smooth(quality, null, PixelSize(1920, 1080))
+                }
             }
         }
         rows.add(0, "OpenCL device: " + MotionRuntime.preferredGpu + " (driver " + MotionRuntime.driver + "); processor: " +
@@ -370,11 +385,11 @@ class MotionNativeTest {
         try { block(folder) } finally { folder.deleteRecursively() }
     }
 
-    /** A 4-second generated clip at [rate] fps, encoded by ffmpeg with [options]. */
-    private fun encode(folder: File, name: String, rate: String, vararg options: String): File {
+    /** A 4-second generated clip of [size] at [rate] fps, encoded by ffmpeg with [options]. */
+    private fun encode(folder: File, name: String, rate: String, vararg options: String, size: String = "320x240"): File {
         val video = File(folder, name)
         val encode = ProcessBuilder(listOf(TestMedia.ffmpeg!!.absolutePath, "-hide_banner", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=$rate:duration=4") + options +
+            "-f", "lavfi", "-i", "testsrc2=size=$size:rate=$rate:duration=4") + options +
             listOf("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", video.absolutePath),
         ).redirectErrorStream(true).start()
         val encodeLog = encode.inputStream.bufferedReader().readText()
@@ -396,9 +411,10 @@ class MotionNativeTest {
 
     /**
      * Opens [video] with no display, and gives [block] a function that smooths it from the start at 2× with one option
-     * set, in real time, and says what it took: the output rate and the process's cores over 20 s after 5 s.
+     * set, in real time, at its own size or a smaller one, and says what it took: the output rate and the process's
+     * cores over 20 s after 5 s.
      */
-    private fun measureInRealTime(video: File, logName: String, block: ((MotionQuality, MotionExperiment?) -> String) -> Unit) {
+    private fun measureInRealTime(video: File, logName: String, block: ((MotionQuality, MotionExperiment?, PixelSize?) -> String) -> Unit) {
         val resources = File(System.getProperty("compose.application.resources.dir"))
         val api = Native.load(File(resources, "libmpv-2.dll").path, Api::class.java,
             mapOf(Library.OPTION_STRING_ENCODING to "UTF-8"))
@@ -424,13 +440,13 @@ class MotionNativeTest {
             assertTrue(command(listOf("loadfile", video.path)))
             waitFor("${video.name} did not load") { get("container-fps")?.toDoubleOrNull() == 24.0 }
             val rate = MotionRate(24)
-            block { quality, experiment ->
+            block { quality, experiment, size ->
                 assertTrue(command(listOf("set", "pause", "yes")))
                 assertTrue(command(listOf("seek", "0", "absolute+exact")))
                 waitFor("Playback did not return to the start") {
                     get("seeking") == "no" && get("time-pos")?.toDoubleOrNull()?.let { it < 0.05 } == true
                 }
-                assertNull(session.begin(video.path, rate, MotionStops.rate(rate, 0), quality, experiment))
+                assertNull(session.begin(video.path, rate, MotionStops.rate(rate, 0), quality, experiment, size))
                 assertTrue(command(listOf("set", "pause", "no")))
                 waitFor("No output from the motion engine: " + session.failure) {
                     (session.heartbeat()?.completed ?: 0) > 0 && (get("time-pos")?.toDoubleOrNull() ?: 0.0) >= 5.0
@@ -441,6 +457,8 @@ class MotionNativeTest {
                 Thread.sleep(20_000)
                 val cores = (cpu.processCpuTime - busy) / ((System.nanoTime() - wall).toDouble())
                 assertNotEquals("yes", get("eof-reached"), "The fixture ended during the measurement")
+                size?.let { assertEquals(it, PixelSize.of(get("video-out-params/w")?.toIntOrNull(),
+                    get("video-out-params/h")?.toIntOrNull()), "The size smoothing gave mpv") }
                 val beat = assertNotNull(session.heartbeat())
                 assertNull(session.failure)
                 val frames = beat.completed - start.completed
@@ -460,10 +478,12 @@ class MotionNativeTest {
     private data class Smoothed(val rate: MotionRate, val gaps: List<Double>, val variable: Boolean)
 
     /**
-     * Smooths [video] at 2× and 2.5× from the first frame and after a seek, and gives [check] the frames' own times and
-     * the output frames' times, one frame step at a time, with p output frames for every q source frames.
+     * Smooths [video] at 2× and 2.5× from the first frame and after a seek, at its own size or [size], and gives [check]
+     * the frames' own times and the output frames' times, one frame step at a time, with p output frames for every q
+     * source frames.
      */
-    private fun smooth(video: File, logName: String, check: (List<Double>, List<Double>, Int, Int, String) -> Unit): Smoothed {
+    private fun smooth(video: File, logName: String, size: PixelSize? = null,
+                       check: (List<Double>, List<Double>, Int, Int, String) -> Unit): Smoothed {
         val resources = File(System.getProperty("compose.application.resources.dir"))
         val api = Native.load(File(resources, "libmpv-2.dll").path, Api::class.java,
             mapOf(Library.OPTION_STRING_ENCODING to "UTF-8"))
@@ -513,9 +533,15 @@ class MotionNativeTest {
                 waitFor("Playback did not return to the first frame") {
                     get("seeking") == "no" && get("time-pos")?.toDoubleOrNull()?.let { abs(it - source[0]) < 1e-4 } == true
                 }
-                assertNull(session.begin(video.path, rate, MotionStops.rate(rate, stop)))
+                assertNull(session.begin(video.path, rate, MotionStops.rate(rate, stop), size = size))
                 waitFor("No output from the motion engine at $label: " + session.failure) {
                     (session.heartbeat()?.completed ?: 0) > 0 && get("seeking") == "no"
+                }
+                size?.let { wanted ->
+                    waitFor("mpv did not get ${wanted.width} × ${wanted.height} frames at $label: " + get("video-out-params/w") + " × " +
+                        get("video-out-params/h")) {
+                        get("video-out-params/w") == wanted.width.toString() && get("video-out-params/h") == wanted.height.toString()
+                    }
                 }
                 check(source, frameTimes((source.size - 2) * p / q), p, q, "$label from the start")
                 // A seek rebuilds the filter, which then times its output from the first frame it gets.

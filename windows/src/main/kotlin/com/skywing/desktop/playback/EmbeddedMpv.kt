@@ -85,6 +85,8 @@ class EmbeddedMpv(
     private var appliedMotionSettings: MotionSettings? = null
     private var appliedVrr: Boolean? = null
     private var appliedVariable: Boolean? = null
+    /** The size smoothing runs at, or null for the video's own (plan 5.7 item 4). */
+    private var appliedSize: PixelSize? = null
     private var fullscreen = false
     /** The screen showing the video, as [Screens] last read it (plan 5.4). */
     private var screen: ScreenState? = null
@@ -117,6 +119,8 @@ class EmbeddedMpv(
     internal var logFolder: File = PlaybackCsv.folder()
     /** The benchmark's fixed smoothing settings: used in place of the saved ones, and never saved. */
     internal var benchSettings: MotionSettings? = null
+    /** The benchmark's "Smooth at screen size", used in place of Settings' switch. */
+    internal var benchScreenSize: Boolean? = null
     private var lastCaps = SmoothingCapabilities()
     private var engineErrorCount = 0
     private val motionWarnings = java.util.ArrayDeque<String>()
@@ -260,6 +264,7 @@ class EmbeddedMpv(
         if (!file.isFile) return false
         if (!motion.end()) { lastError = "Could not stop motion smoothing"; return false }
         appliedMotionSettings = null
+        appliedSize = null
         motionNoticeUntil = 0L
         reportSamples.clear()
         recentDrops.reset()
@@ -460,6 +465,22 @@ class EmbeddedMpv(
     private fun outputNeedsGpu(): Boolean = outputLost || deviceLoss.count > 0 && GpuAdapters.softwareRenderer(openedGpu) &&
         inventory.adapters.any { !GpuAdapters.softwareRenderer(it.name) }
 
+    private fun atScreenSize(): Boolean = benchScreenSize ?: MotionSettingsStore.values.smoothAtScreenSize
+
+    /**
+     * Plan 5.7 item 4: the size to smooth at, or null for the video's own. The screen's size changes only with a display
+     * change or a move to another screen, so resizing the window never rebuilds the filter.
+     */
+    private fun smoothingSize(caps: SmoothingCapabilities): PixelSize? {
+        if (!atScreenSize()) return null
+        val video = PixelSize.of(caps.width, caps.height) ?: return null
+        val shown = PixelSize.of(numberProperty("video-params/dw")?.toInt(), numberProperty("video-params/dh")?.toInt()) ?: video
+        return SmoothingSize.fit(video, shown, screen?.path?.desktop ?: return null)
+    }
+
+    private fun sizeLine(caps: SmoothingCapabilities): String =
+        SmoothingSize.line(atScreenSize(), appliedSize.takeIf { motion.active }, PixelSize.of(caps.width, caps.height), screen?.path?.desktop)
+
     private fun updateMotion(caps: SmoothingCapabilities): SmoothingStatus {
         val source = caps.sourceFps?.let(MotionRate::source)
         val key = MotionStops.type(caps)
@@ -493,14 +514,17 @@ class EmbeddedMpv(
         // "Let VRR control refresh (fullscreen)": in a window SkyWing paces to the screen, as many drivers use VRR
         // only in fullscreen. Changing it sets video-sync alone; only new settings rebuild the filter.
         val vrr = MotionSettingsStore.values.vrr && fullscreen
-        val changed = motion.active && appliedMotionSettings != settings
+        val size = smoothingSize(caps)
+        val changed = motion.active && (appliedMotionSettings != settings || appliedSize != size)
         val position = if (changed) numberProperty("time-pos") else null
         if (changed && !motion.end()) return status("Could not change motion settings; reopen video")
         val starting = !motion.active
-        motion.begin(file, source, target, settings.quality, settings.experiment)?.let { return status("Motion smoothing unavailable: $it") }
+        motion.begin(file, source, target, settings.quality, settings.experiment, size)?.let { return status("Motion smoothing unavailable: $it") }
         // Plan 5.8 rule 10: once the script finds the standard rate's frames off its period, they play against the audio.
         val variable = motion.variableRate
-        if (starting || appliedMotionSettings != settings || appliedVrr != vrr || appliedVariable != variable) {
+        if (starting || appliedMotionSettings != settings || appliedSize != size || appliedVrr != vrr || appliedVariable != variable) {
+            if (changed && appliedSize != size) recordAction("smoothing size now " + (size?.toString() ?: "the video's own"))
+            appliedSize = size
             if (variable && appliedVariable == false) recordAction("frames off the ${source.label} fps period: variable rate, synced to the audio")
             smoothingHealth.reset()
             appliedMotionSettings = settings
@@ -615,6 +639,7 @@ class EmbeddedMpv(
             appendLine("Selected: ${smoothingMode.label}; state: $state")
             if (smoothingMode == SmoothingMode.MOTION) {
                 appendLine("Engine: open-svpflow deadbad2; quality: ${appliedMotionSettings?.qualityLabel ?: MotionQuality.DEFAULT.label}; target: ${motion.target?.label ?: "none"} fps")
+                appendLine(sizeLine(caps))
                 appendLine("Filter processing throughput: ${retainedBeat?.processingFps ?: "unavailable"} fps (not presented FPS)")
                 appendLine("Filter output callbacks: ${retainedBeat?.completed ?: 0}; observed graph generations: ${motion.rebuilds}")
             }
@@ -666,6 +691,7 @@ class EmbeddedMpv(
             appendLine("Smoothing: ${smoothingMode.label}; quality: ${appliedMotionSettings?.qualityLabel ?: MotionQuality.DEFAULT.label}" +
                 "; multiplier: " + (appliedMotionSettings?.let { MotionStops.labels[it.stop] } ?: "none") +
                 "; target: ${motion.target?.label ?: "none"} fps; state: $state" + if (benchSettings != null) "; benchmark" else "")
+            appendLine(sizeLine(caps))
             appendLine("Per-minute log: " + logLine())
             PlaybackMinute.table(minuteRows.toList()).forEach(::appendLine)
         }

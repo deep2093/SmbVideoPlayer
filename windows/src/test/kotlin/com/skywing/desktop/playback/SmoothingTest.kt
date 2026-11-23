@@ -93,6 +93,9 @@ class SmoothingTest {
         try {
             val store = MotionPreferences(node)
             assertFalse(store.lowerAutomatically)
+            assertFalse(store.smoothAtScreenSize, "off until the owner has compared it by eye (plan 5.7 item 4)")
+            store.smoothAtScreenSize = true
+            assertTrue(MotionPreferences(node).smoothAtScreenSize)
             val keys = mutableSetOf<String>()
             for ((w,h) in listOf(1920 to 1080, 2560 to 1440, 3840 to 2160)) for (hdr in listOf(false, true)) {
                 val key = MotionStops.type(SmoothingCapabilities(width=w, height=h, hdrVideo=hdr))

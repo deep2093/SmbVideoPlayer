@@ -19,6 +19,8 @@ internal data class DisplayPath(
     val devicePath: String,
     /** The adapter Windows names for the monitor itself; target-device packets (HDR) use it. */
     val targetAdapterLuid: Long = adapterLuid,
+    /** The desktop's size on this screen (its source mode), in physical pixels; null when Windows did not say. */
+    val desktop: PixelSize? = null,
 )
 
 /**
@@ -40,6 +42,7 @@ internal object DisplayPaths {
     private const val PATH_SIZE = 72L
     private const val MODE_SIZE = 64L
     private const val GET_SOURCE_NAME = 1
+    private const val SOURCE_MODE = 1
     private const val GET_TARGET_NAME = 2
     private const val GET_ADVANCED_COLOR_INFO = 9
     private const val GET_ADVANCED_COLOR_INFO_2 = 15
@@ -77,16 +80,17 @@ internal object DisplayPaths {
             val status = api.QueryDisplayConfig(ONLY_ACTIVE_PATHS, pathCount, paths, modeCount, modes, null)
             if (status == INSUFFICIENT_BUFFER) return@repeat
             if (status != 0) return emptyList()
-            return (0 until pathCount.value).mapNotNull { i -> path(api, paths, i * PATH_SIZE) }
+            return (0 until pathCount.value).mapNotNull { i -> path(api, paths, i * PATH_SIZE, modes, modeCount.value) }
         }
         return emptyList()
     }
 
-    private fun path(api: User32, paths: Memory, at: Long): DisplayPath? {
-        // DISPLAYCONFIG_PATH_SOURCE_INFO: adapterId (0), id (8). DISPLAYCONFIG_PATH_TARGET_INFO from 20: adapterId (20),
-        // id (28), refreshRate numerator (48) and denominator (52).
+    private fun path(api: User32, paths: Memory, at: Long, modes: Memory, modeCount: Int): DisplayPath? {
+        // DISPLAYCONFIG_PATH_SOURCE_INFO: adapterId (0), id (8), modeInfoIdx (12). DISPLAYCONFIG_PATH_TARGET_INFO from
+        // 20: adapterId (20), id (28), refreshRate numerator (48) and denominator (52).
         val sourceAdapter = paths.getLong(at)
         val sourceId = paths.getInt(at + 8)
+        val desktop = sourceSize(modes, modeCount, paths.getInt(at + 12))
         val targetAdapter = paths.getLong(at + 20)
         val targetId = paths.getInt(at + 28)
         val numerator = paths.getInt(at + 48).toUInt().toDouble()
@@ -102,7 +106,20 @@ internal object DisplayPaths {
             if (api.DisplayConfigGetDeviceInfo(name) == 0) name.getWideString(36) to name.getWideString(164) else "" to ""
         }
         return DisplayPath(gdi, sourceAdapter, targetId,
-            if (numerator > 0 && denominator > 0) numerator / denominator else null, friendly, device, targetAdapter)
+            if (numerator > 0 && denominator > 0) numerator / denominator else null, friendly, device, targetAdapter, desktop)
+    }
+
+    /**
+     * The size of the source mode at [index] in a DISPLAYCONFIG_MODE_INFO array of [count]: the desktop's resolution on
+     * that screen, in physical pixels and as rotated. Without QDC_VIRTUAL_MODE_AWARE a path's modeInfoIdx is a plain
+     * index, DISPLAYCONFIG_PATH_MODE_IDX_INVALID (-1) when there is none. A mode has infoType at 0 (1 for a source)
+     * and, for a source, width at 16 and height at 20.
+     */
+    internal fun sourceSize(modes: Pointer, count: Int, index: Int): PixelSize? {
+        if (index !in 0 until count) return null
+        val at = index * MODE_SIZE
+        if (modes.getInt(at) != SOURCE_MODE) return null
+        return PixelSize.of(modes.getInt(at + 16), modes.getInt(at + 20))
     }
 
     /**

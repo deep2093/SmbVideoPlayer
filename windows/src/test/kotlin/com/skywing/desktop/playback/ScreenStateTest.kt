@@ -165,6 +165,9 @@ class ScreenStateTest {
         }
         // Type 9 exists since Windows 10 1709, so every active screen answers one of the two packets.
         states.forEach { assertNotNull(it.hdr.on, "HDR state of " + it.path.gdiName) }
+        // Plan 5.7 item 4: each screen's desktop size, in physical pixels, from its source mode.
+        paths.forEach { println("screen size: " + it.desktop) }
+        paths.forEach { assertNotNull(it.desktop, "desktop size of " + it.gdiName) }
         assertTrue(states.any { it.edid.limits != null || it.edid.vrr != null }, "at least one screen's EDID is readable")
     }
 

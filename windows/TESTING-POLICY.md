@@ -65,7 +65,7 @@ every test class that uses it. "Full" means a passing focused run is not enough:
 | Area | Files | Focused tests | Then |
 |---|---|---|---|
 | Playback / libmpv | `playback/EmbeddedMpv`, `GpuAdapters`, `LocalPlayback`, `ThumbnailExtractor`, `PlayerPage`, `PlaybackProblemDialog`, `LocalVideoDropHandler` | `EmbeddedPlaybackNativeTest`, `ThumbnailExtractorNativeTest`, `GpuAdaptersTest`, `VideoDropTest`, `PlaybackAutomationTest` | Full |
-| Motion / smoothing | `playback/Motion*`, `Smoothing`, `RecentDrops`, `DisplayVrr`, `WindowsDisplayAdapter`, `SmoothingDialog`, `tools/build_motion.py`, the open-svpflow patch | `MotionEngineTest`, `SmoothingTest`, `MotionNativeTest`, `MotionAutomationTest` | |
+| Motion / smoothing | `playback/Motion*`, `Smoothing`, `SmoothingSize`, `RecentDrops`, `DisplayVrr`, `WindowsDisplayAdapter`, `SmoothingDialog`, `tools/build_motion.py`, the open-svpflow patch | `MotionEngineTest`, `SmoothingTest`, `SmoothingSizeTest`, `MotionNativeTest`, `MotionAutomationTest` | |
 | Screens / measuring | `playback/PlaybackLog`, `ScreenState`, `DisplayPaths`, `DisplayChanges`, `Bench`, `tools/bench.ps1` | `PlaybackLogTest`, `ScreenStateTest`, `BenchOptionsTest`, `SmoothingTest` | |
 | Full screen / window chrome | `BorderlessFullscreen`, `FullscreenChrome`, `PlayerChrome`, `WindowChrome` | `FullscreenWindowTest`, `PlayerChromeTest`, `FullscreenAutomationTest` | Full |
 | App shell | `Main.kt`, `SingleInstance.kt` | full screen, playback, navigation and single-instance tests | Full |

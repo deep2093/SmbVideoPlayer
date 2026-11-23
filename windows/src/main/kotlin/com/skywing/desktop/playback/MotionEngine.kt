@@ -70,6 +70,7 @@ internal class MotionSession(
     private var source: MotionRate? = null
     private var quality = MotionQuality.BALANCED
     private var experiment: MotionExperiment? = null
+    private var size: PixelSize? = null
     private val restartedFiles = mutableSetOf<String>()
     private var sessionStarted = 0L
     var lastHeartbeat: MotionHeartbeat? = null
@@ -105,7 +106,7 @@ internal class MotionSession(
     val variableRate: Boolean get() = path in variableFiles
 
     fun begin(file: String, source: MotionRate, rate: MotionRate, quality: MotionQuality = MotionQuality.BALANCED,
-              experiment: MotionExperiment? = null): String? {
+              experiment: MotionExperiment? = null, size: PixelSize? = null): String? {
         failedFiles[file]?.let { failure = it; return it }
         if (active) return null
         if (path != file) {
@@ -118,6 +119,7 @@ internal class MotionSession(
         this.source = source
         this.quality = quality
         this.experiment = experiment
+        this.size = size
         failure = null
         target = rate
         try {
@@ -132,7 +134,7 @@ internal class MotionSession(
             scriptFile = script
             val memory = HeartbeatMemory.allocate().also { heartbeatBlocks += it }
             heartbeatAddress = memory
-            script.writeText(SvpScript.create(runtime, memory, source, rate, quality, experiment), Charsets.UTF_8)
+            script.writeText(SvpScript.create(runtime, memory, source, rate, quality, experiment, size), Charsets.UTF_8)
             previous = saved
             started = nowMillis()
             generation = null
@@ -196,7 +198,7 @@ internal class MotionSession(
         recordIncident("Heartbeat stalled; attempting one restart")
         if (!end()) return false
         restarts++
-        return begin(file, input, rate, quality, experiment) == null
+        return begin(file, input, rate, quality, experiment, size) == null
     }
 
     fun fail(reason: String) {
@@ -323,7 +325,7 @@ internal object SvpScript {
 
     /** [heartbeat] is a [HeartbeatMemory] block the script writes its progress to. */
     fun create(runtime: File, heartbeat: Long, source: MotionRate, target: MotionRate, quality: MotionQuality = MotionQuality.BALANCED,
-               experiment: MotionExperiment? = null): String = """
+               experiment: MotionExperiment? = null, size: PixelSize? = null): String = """
         import ctypes, math, time, threading
         from fractions import Fraction
         import vapoursynth as vs
@@ -400,7 +402,7 @@ internal object SvpScript {
         try:
             core.std.LoadPlugin(${literal(File(runtime, "svpflow1_vs.dll").absolutePath)})
             core.std.LoadPlugin(${literal(File(runtime, "svpflow2_vs.dll").absolutePath)})
-            clip = core.std.AssumeFPS(video_in, fpsnum=${source.numerator}, fpsden=${source.denominator})
+            clip = core.std.AssumeFPS(video_in, fpsnum=${source.numerator}, fpsden=${source.denominator})${size?.let { "\n            clip = core.resize.Bicubic(clip, width=${it.width}, height=${it.height})" }.orEmpty()}
             sup = core.svp1.Super(clip, '${experiment?.superOptions ?: quality.superOptions}')
             vec = core.svp1.Analyse(sup['clip'], sup['data'], clip, '${experiment?.analyse ?: quality.analyse}')
             out = core.svp2.SmoothFps(clip, sup['clip'], sup['data'], vec['clip'], vec['data'],

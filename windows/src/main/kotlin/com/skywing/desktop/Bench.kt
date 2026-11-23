@@ -24,7 +24,7 @@ import javax.swing.SwingUtilities
 
 /**
  * The hidden benchmark mode (plan 5.6): `--bench <file> [--minutes 10] [--quality Fast] [--stop 2x] [--start 0]
- * [--out <folder>] [--experiment PotPlayer-like]`. Defaults are fixed so runs on different PCs compare.
+ * [--out <folder>] [--experiment PotPlayer-like] [--screen-size on]`. Defaults are fixed so runs on different PCs compare.
  */
 internal data class BenchOptions(
     val file: File,
@@ -37,6 +37,8 @@ internal data class BenchOptions(
     val out: File? = null,
     /** A plan 5.7 experiment that replaces the preset's options; never saved. */
     val experiment: MotionExperiment? = null,
+    /** "Smooth at screen size" (plan 5.7 item 4), in place of Settings' switch; off unless asked. */
+    val screenSize: Boolean = false,
 ) {
     companion object {
         private val STOPS = listOf("2", "2.5", "3", "4")
@@ -60,6 +62,11 @@ internal data class BenchOptions(
                         "--start" -> options.copy(startSeconds = value?.toDoubleOrNull()?.takeIf { it >= 0 && it.isFinite() }
                             ?: throw IllegalArgumentException("--start must be 0 or more seconds"))
                         "--out" -> options.copy(out = value?.let(::File) ?: throw IllegalArgumentException("--out needs a folder"))
+                        "--screen-size" -> options.copy(screenSize = when (value?.lowercase()) {
+                            "on" -> true
+                            "off" -> false
+                            else -> throw IllegalArgumentException("--screen-size must be on or off")
+                        })
                         "--experiment" -> options.copy(experiment = MotionExperiment.find(value)
                             ?: throw IllegalArgumentException("Unknown experiment '$value': use " + MotionExperiment.entries.joinToString { it.label }))
                         else -> throw IllegalArgumentException("Unknown bench option '${args[i]}'")
@@ -86,11 +93,13 @@ internal object Bench {
         val lines = mutableListOf(
             "SkyWing benchmark " + started.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT)),
             "Options: " + String.format(Locale.ROOT, "%.1f", options.minutes) + " min; quality " + MotionSettings(options.stop, options.quality, options.experiment).qualityLabel +
-                "; stop " + MotionStops.labels[options.stop] + "; start " + String.format(Locale.ROOT, "%.1f", options.startSeconds) + " s",
+                "; stop " + MotionStops.labels[options.stop] + "; start " + String.format(Locale.ROOT, "%.1f", options.startSeconds) + " s" +
+                "; smooth at screen size " + (if (options.screenSize) "on" else "off"),
         )
         var code = 2
         val player = EmbeddedMpv()
         player.benchSettings = MotionSettings(options.stop, options.quality, options.experiment)
+        player.benchScreenSize = options.screenSize
         player.logFolder = folder
         lateinit var frame: Frame
         lateinit var canvas: Canvas

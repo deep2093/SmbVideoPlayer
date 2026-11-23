@@ -25,6 +25,8 @@ class BenchOptionsTest {
                 "--start", "30", "--out", "C:/out"))!!.getOrThrow())
         assertEquals(3, BenchOptions.parse(listOf("--bench", "C:/clip.mkv", "--stop", "4x"))!!.getOrThrow().stop)
         assertNull(BenchOptions.parse(listOf("--bench", "C:/clip.mkv"))!!.getOrThrow().experiment, "no experiment unless asked")
+        assertEquals(false, BenchOptions.parse(listOf("--bench", "C:/clip.mkv"))!!.getOrThrow().screenSize, "Settings' switch is ignored")
+        assertEquals(true, BenchOptions.parse(listOf("--bench", "C:/clip.mkv", "--screen-size", "on"))!!.getOrThrow().screenSize)
         assertEquals(MotionExperiment.POTPLAYER_LIKE,
             BenchOptions.parse(listOf("--bench", "C:/clip.mkv", "--experiment", "potplayer-like"))!!.getOrThrow().experiment)
     }
@@ -39,5 +41,6 @@ class BenchOptionsTest {
         assertEquals("--start must be 0 or more seconds", error("--bench", "a.mkv", "--start", "-1"))
         assertEquals("Unknown bench option '--fast'", error("--bench", "a.mkv", "--fast"))
         assertEquals("Unknown experiment 'mvtools': use PotPlayer-like", error("--bench", "a.mkv", "--experiment", "mvtools"))
+        assertEquals("--screen-size must be on or off", error("--bench", "a.mkv", "--screen-size", "yes"))
     }
 }

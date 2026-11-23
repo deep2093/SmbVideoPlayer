@@ -73,6 +73,19 @@ Interlaced video is not smoothed ("Interlaced video isn’t smoothed; it is dein
 mpv then reports the deinterlaced frame in `video-frame-info`, so SkyWing also reads `deinterlace-active`.
 Smoothing waits for the first frame, so it never starts before this is known.
 
+**Smooth at screen size** (Settings → Playback, plan 5.7 item 4) is off by default until it is compared by eye.
+When it is on and a video is larger than the screen, the script shrinks the frames to fit the screen
+(`core.resize.Bicubic`, VapourSynth's defaults) before `Super`, so the motion search and the output are smaller,
+and mpv scales the result to the window. The size keeps the video's displayed aspect, shrinks both sides alike
+and is rounded down to even numbers. A video that fits is never scaled up. Examples: 4K on 1920 × 1200 is
+1920 × 1080, and 1080p on 1366 × 768 is 1364 × 768. The screen's size is its source mode in Windows' display
+configuration, the desktop in physical pixels, also in a window. It changes only with a display change or a
+move to another screen, so resizing the window never rebuilds the filter. mpv's `d3d11vpp` can also scale, but
+only D3D11 frames, and the motion engine's `hwdec=auto-copy` hands VapourSynth frames in system memory, so the
+resize runs in VapourSynth. Subtitles and the controls are drawn after the filter, so they stay sharp. HDR
+smoothing stays bypassed. The reports add "Smoothing size: 1920 × 1080 (screen 1920 × 1200)". The benchmark
+ignores the switch; `--screen-size on` (`bench.ps1 -ScreenSize`) turns it on for a run.
+
 Automatic lowering only happens when enabled; overload stops motion at 2×.
 Seeks, pauses, cache waits and reconfiguration restart the warmup period.
 
@@ -200,7 +213,7 @@ another video plays; a seek or a settings change stays in the same file. The new
 the smoothing state, the log file's name and the per-minute table, to compare PCs.
 
 **Benchmark mode** is hidden: `SkyWing.exe --bench <file> [--minutes 10] [--quality Balanced] [--stop 2x] [--start 0]
-[--out <folder>] [--experiment PotPlayer-like]`. It opens a window of its own, plays full screen from `--start` with those settings (ignoring the
+[--out <folder>] [--experiment PotPlayer-like] [--screen-size on]`. It opens a window of its own, plays full screen from `--start` with those settings (ignoring the
 saved ones and automatic lowering) and measures for `--minutes` once smoothing holds. The video must be at least
 `--start` + `--minutes` + 1 minute long. It writes the CSV and `bench-<time>.txt` (the options, the result and the
 test report), saves nothing to the settings or library, and exits 0 when smoothing held, 1 when it stopped or the

@@ -116,6 +116,17 @@ class MotionEngineTest {
         assertFalse(experiment.contains("algo:13"))
     }
 
+    /** Plan 5.7 item 4: at screen size, the frames are shrunk before Super, so the search and the output are smaller. */
+    @Test fun atScreenSizeTheScriptShrinksTheVideoBeforeTheMotionSearch() {
+        val heartbeat = 0x7ff612340000
+        val full = SvpScript.create(File("C:/runtime"), heartbeat, MotionRate(24), MotionRate(48), MotionQuality.FAST)
+        assertFalse(full.contains("core.resize"), full)
+        val small = SvpScript.create(File("C:/runtime"), heartbeat, MotionRate(24), MotionRate(48), MotionQuality.FAST,
+            size = PixelSize(1920, 1080))
+        val resize = small.indexOf("clip = core.resize.Bicubic(clip, width=1920, height=1080)")
+        assertTrue(resize > small.indexOf("clip = core.std.AssumeFPS(video_in") && resize < small.indexOf("core.svp1.Super(clip"), small)
+    }
+
     @Test fun scriptTimesOtherRatesFromTheSourceFrames() {
         val status = 0x7ff612340000
         val measured = MotionRate(23061, 1000)
