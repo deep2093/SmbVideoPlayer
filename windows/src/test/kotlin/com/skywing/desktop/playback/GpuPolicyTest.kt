@@ -135,6 +135,27 @@ class GpuPolicyTest {
     }
 
     @Test
+    fun theGraphicsChoiceIsSavedAndAVideoClassCanKeepTheDedicatedGpu() {
+        val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
+        try {
+            val store = MotionPreferences(node)
+            assertEquals(GpuChoice.AUTOMATIC, store.gpuChoice)
+            store.gpuChoice = GpuChoice.POWER_SAVING
+            assertEquals(GpuChoice.POWER_SAVING, MotionPreferences(node).gpuChoice)
+            store.gpuChoice = GpuChoice.AUTOMATIC
+            // "Use NVIDIA for smoothing" is remembered for that video class only.
+            store.useDedicatedFor("4k-sdr")
+            assertEquals(GpuChoice.PERFORMANCE, store.gpuChoiceFor("4k-sdr"))
+            assertEquals(GpuChoice.AUTOMATIC, store.gpuChoiceFor("1080-sdr"))
+            // A choice made in Settings wins over a class's memory.
+            store.gpuChoice = GpuChoice.POWER_SAVING
+            assertEquals(GpuChoice.POWER_SAVING, store.gpuChoiceFor("4k-sdr"))
+            node.put("playback.gpu", "NOT-A-CHOICE")
+            assertEquals(GpuChoice.AUTOMATIC, store.gpuChoice)
+        } finally { node.removeNode() }
+    }
+
+    @Test
     fun aChangeIsTakenOnlyAfterItHoldsForFiveSeconds() {
         val debounce = Debounce<String>(5_000)
         assertEquals("a", debounce.offer("a", 0))

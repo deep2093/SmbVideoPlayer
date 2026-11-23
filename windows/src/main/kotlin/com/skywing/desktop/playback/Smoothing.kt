@@ -35,6 +35,8 @@ data class SmoothingStatus(
     val settings: MotionSettings? = null,
     val nextLowerStop: Int? = null,
     val requestOff: Boolean = false,
+    /** "Use <dedicated GPU> for smoothing" when a hybrid PC's integrated GPU can't keep up at 2× (plan 5.3), else null. */
+    val gpuOffer: String? = null,
 )
 
 /** Three consecutive ~1 s intervals with >=3 drops trip a per-file fallback after warmup.

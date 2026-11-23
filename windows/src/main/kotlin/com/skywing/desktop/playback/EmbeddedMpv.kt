@@ -16,7 +16,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
  * Requires libmpv-2.dll and its dependencies to be bundled in the installed application.
  */
 class EmbeddedMpv(
-    /** The GPU SKYWING_GPU names for drawing and motion ([GpuOverride]), or null to use the monitor's GPU. */
+    /** The GPU SKYWING_GPU names for drawing and motion ([GpuOverride]), or null to follow the GPU plan. */
     private val forcedGpu: String? = GpuOverride.vendor(),
 ) : Closeable {
     private interface Api : Library {
@@ -41,16 +41,36 @@ class EmbeddedMpv(
     private var surface: Long? = null
     private var closed = false
     private var rendererPreference = "Automatic"
-    private var motionAdapter: String? = null
-    /** The adapter that drives the window's monitor, for display queries such as VRR, even when SKYWING_GPU is set. */
-    private var monitorAdapter: String? = null
     private var rendererDevice = "Not yet reported by mpv"
+    /** The GPU name mpv reported opening ("Device Name:"), or null until it does. */
+    private var openedGpu: String? = null
+    private var canvasHandle: Pointer? = null
+    private var inventory = GpuInventory(emptyList())
+    /** The GPU that drives the window's monitor, for display queries such as VRR, even when SKYWING_GPU is set. */
+    private var monitorGpu: GpuAdapters.Adapter? = null
+    private val forcedVendor = forcedGpu?.let { name -> GpuVendor.entries.firstOrNull { it.label.equals(name, ignoreCase = true) } }
+    /** The plan mpv's video output runs with (plan 5.3); Windows' choice when mpv refused [requestedPlan]'s GPU. */
+    private var gpuPlan: GpuPlan? = null
+    private var requestedPlan: GpuPlan? = null
+    /** The choice [gpuPlan] was made for: Settings' own, or a video class's "Use <dedicated GPU> for smoothing". */
+    private var gpuChoice = GpuChoice.AUTOMATIC
+    /** A plan that differs from [gpuPlan], found while a video plays; the next video starts with it. */
+    private var pendingPlan: GpuPlan? = null
+    private val replan = Debounce<GpuSignature>(5_000)
+    private var lastGpuCheck = 0L
+    private var pathLuids = emptySet<Long>()
+    private var inventoryReadAt = 0L
+    /** Switches mpv's `vo` between two spellings of the same output, so setting it always re-creates the output. */
+    private var voSpelling = false
+    /** The file that has shown the "Use <dedicated GPU> for smoothing" offer; it is shown once per file. */
+    private var offeredDedicated: String? = null
+    private var dedicatedOffer: GpuAdapters.Adapter? = null
     private val smoothingHealth = SmoothingHealth()
     private var smoothingMode = SmoothingMode.OFF
     private var expectedPath: String? = null
     private var loadEndedWithError = false
     private val motion = MotionSession(::textProperty, { command(*it.toTypedArray()) },
-        prepare = { MotionRuntime.prepare(it, motionAdapter) })
+        prepare = { dir -> motionGpu().let { MotionRuntime.prepare(dir, it, it != null && sharesMaker(it)) } })
     private var lastPosition = 0.0
     private var appliedMotionSettings: MotionSettings? = null
     private var appliedVrr: Boolean? = null
@@ -107,33 +127,31 @@ class EmbeddedMpv(
                 set("force-window", "yes")
                 set("keep-open", "yes")
                 set("hwdec", "auto-safe")
-                // Prefer the adapter that drives this monitor, so Intel-connected playback can
-                // keep decoding, interpolation and presentation on Intel. Preserve the previous
-                // preference when Windows does not identify a supported display adapter.
-                val displayAdapter = WindowsDisplayAdapter.vendor(handle)
-                // SKYWING_GPU (forcedGpu) replaces the monitor's adapter for drawing and motion in test runs.
-                val wantedAdapter = forcedGpu ?: displayAdapter
-                val adapter = wantedAdapter ?: "NVIDIA"
-                if (native.mpv_set_option_string(context, "d3d11-adapter", adapter) >= 0) {
+                // The GPU plan (plan 5.3): Automatic keeps decoding, smoothing and presentation on the GPU that drives
+                // this monitor, as before M2; SKYWING_GPU still forces one in test runs.
+                canvasHandle = handle
+                readGpus(handle, System.currentTimeMillis())
+                gpuChoice = MotionSettingsStore.values.gpuChoice
+                val plan = planFor(gpuChoice)
+                requestedPlan = plan
+                // mpv checks the name against its adapters and refuses one it can't find; Windows chooses then.
+                if (plan.mpvAdapter.isNotEmpty() && native.mpv_set_option_string(context, "d3d11-adapter", plan.mpvAdapter) >= 0) {
                     set("gpu-api", "d3d11")
-                    motionAdapter = wantedAdapter
-                    monitorAdapter = displayAdapter
-                    if (adapter == "NVIDIA" && System.getenv("SKYWING_D3D11_COMPAT") == "1") {
+                    gpuPlan = plan
+                    rendererPreference = plan.mpvAdapter
+                    if (plan.adapter?.gpuVendor == GpuVendor.NVIDIA && System.getenv("SKYWING_D3D11_COMPAT") == "1") {
                         // Trial for dedicated-GPU displays that drop frames on the default swap chain.
                         set("vo", "gpu")
                         set("d3d11-flip", "no")
                         set("d3d11-sync-interval", "0")
-                        rendererPreference = "NVIDIA D3D11 compatibility"
-                    } else {
-                        rendererPreference = "$adapter D3D11"
+                        rendererPreference += " (D3D11 compatibility)"
                     }
-                    if (forcedGpu != null) rendererPreference += ", forced by SKYWING_GPU"
                 } else {
                     set("d3d11-adapter", "")
-                    motionAdapter = null
-                    monitorAdapter = null
-                    if (forcedGpu != null) rendererPreference = "Automatic (mpv refused SKYWING_GPU=$forcedGpu)"
+                    gpuPlan = refused(plan)
+                    rendererPreference = "Windows' choice"
                 }
+                replan.offer(signature(), System.currentTimeMillis())
                 // Reserve decoder surfaces before loading a file for runtime temporal smoothing.
                 set("hwdec-extra-frames", "8")
                 check(native.mpv_initialize(context) >= 0) { "mpv_initialize failed" }
@@ -209,6 +227,19 @@ class EmbeddedMpv(
         drainEvents()
         loadEndedWithError = false
         playbackFailure = null
+        dedicatedOffer = null
+        // A new video starts with a fresh GPU plan (plan 5.3). While smoothing is on, a video class's "Use <dedicated
+        // GPU> for smoothing" is kept until this video's class is known, so videos of that class don't move twice.
+        canvasHandle?.takeIf { instance != null }?.let { handle ->
+            readGpus(handle, System.currentTimeMillis(), force = true)
+            val settings = MotionSettingsStore.values.gpuChoice
+            val choice = if (smoothingMode == SmoothingMode.MOTION && settings == GpuChoice.AUTOMATIC) gpuChoice else settings
+            val plan = planFor(choice)
+            gpuChoice = choice
+            pendingPlan = null
+            // A failed move still opens the video; the Renderer line shows the GPU mpv actually opened.
+            if (!samePlan(plan, requestedPlan) && !restartVideoOutput(plan)) recordAction("GPU change failed")
+        }
         // mpv keeps "pause" across loadfile: a video paused earlier (or by leaving the player) would leave the next one
         // stuck at 0:00. Opening a video means playing it.
         command("set", "pause", "no")
@@ -253,7 +284,10 @@ class EmbeddedMpv(
             ?.let { it + " (" + (System.currentTimeMillis() - lastActionMillis) + " ms ago)" } ?: "none"
         val motionWasActive = motion.active
         val filterFailed = drainEvents()
-        DisplayVrr.refresh(if (monitorAdapter == "Intel") null else textProperty("display-names/0"))
+        checkGpus()
+        // NvAPI knows only screens on NVIDIA GPUs, and Intel's driver reports nothing; ask it unless another maker's
+        // GPU drives the screen.
+        DisplayVrr.refresh(if (monitorGpu?.gpuVendor.let { it == null || it == GpuVendor.NVIDIA }) textProperty("display-names/0") else null)
         lastMinuteDrops = recentDrops.sample(System.nanoTime() / 1_000_000, listOf(
             numberProperty("frame-drop-count")?.toLong(), numberProperty("decoder-frame-drop-count")?.toLong()))
         if (filterFailed && motion.active) {
@@ -301,7 +335,8 @@ class EmbeddedMpv(
                         val level = log.getPointer(8)?.getString(0, "UTF-8").orEmpty()
                         val rendererMessage = log.getPointer(16)?.getString(0, "UTF-8").orEmpty()
                         if (prefix.startsWith("vo/") && rendererMessage.trim().startsWith("Device Name:")) {
-                            rendererDevice = MotionLog.redact(rendererMessage.substringAfter("Device Name:").trim())
+                            openedGpu = rendererMessage.substringAfter("Device Name:").trim()
+                            rendererDevice = MotionLog.redact(openedGpu.orEmpty())
                             native.mpv_request_log_messages(context, "warn")
                         }
                         if (prefix.contains("vapoursynth") && level in setOf("fatal", "error", "warn")) {
@@ -331,7 +366,8 @@ class EmbeddedMpv(
         val allowed = source?.let { MotionStops.allowed(it, caps.displayHz) }.orEmpty()
         val settings = stored?.copy(stop = allowed.lastOrNull { it <= stored.stop } ?: allowed.firstOrNull() ?: stored.stop)
         fun status(detail: String, active: Boolean = false, beat: MotionHeartbeat? = null, lower: Int? = null) =
-            SmoothingStatus(caps, detail, motionActive = active, report = playbackReport(caps, detail, beat), settings = settings, nextLowerStop = lower)
+            SmoothingStatus(caps, detail, motionActive = active, report = playbackReport(caps, detail, beat), settings = settings, nextLowerStop = lower,
+                gpuOffer = dedicatedOffer?.takeIf { gpuChoice == GpuChoice.AUTOMATIC }?.let(GpuPolicy::offerLabel))
         val file = expectedPath
         if (file == null || !file.equals(textProperty("path"), true)) return status("Waiting for the selected video")
         caps.unavailable(SmoothingMode.MOTION)?.let {
@@ -339,6 +375,14 @@ class EmbeddedMpv(
             return status(it)
         }
         if (source == null || settings == null) return status("Waiting for source frame rate")
+        // "Use <dedicated GPU> for smoothing" is kept for this video's class, and a choice made in Settings while the
+        // video plays applies now: drawing and smoothing move together, and the video goes on from where it was.
+        val classChoice = MotionSettingsStore.values.gpuChoiceFor(key)
+        if (classChoice != gpuChoice) when (useGpu(classChoice)) {
+            true -> return status("Moving the video to " + (gpuPlan?.adapter?.name ?: "Windows' choice of graphics"))
+            false -> return status("Could not change the graphics; reopen video")
+            null -> {}
+        }
         val target = MotionRate.target(source, caps.displayHz, settings.stop)
             ?: return status("No smoothing rate fits this display")
         val vrr = MotionSettingsStore.values.vrr
@@ -374,6 +418,14 @@ class EmbeddedMpv(
             } else if (playing && smoothingHealth.tripped) {
                 val lower = allowed.lastOrNull { it < settings.stop }
                 if (lower == null) {
+                    // On a hybrid PC in Automatic the dedicated GPU is offered once per file before smoothing stops.
+                    val offer = gpuPlan?.let { GpuPolicy.smoothingOffer(inventory, it, gpuChoice) }
+                    if (offer != null && offeredDedicated != file) {
+                        offeredDedicated = file
+                        dedicatedOffer = offer
+                        smoothingHealth.reset()
+                        return status("Can’t keep up at 2× on " + gpuPlan?.adapter?.name, true, beat)
+                    }
                     motion.fail("Cannot keep up at 2×; smoothing stopped")
                     return status("Cannot keep up at 2×; smoothing stopped").copy(requestOff = true)
                 } else if (MotionSettingsStore.values.lowerAutomatically) {
@@ -412,8 +464,17 @@ class EmbeddedMpv(
             appendLine("SkyWing ${build.version} · Windows x64 motion preview")
             appendLine(build.reportLine())
             appendLine("OS: ${System.getProperty("os.name")} ${System.getProperty("os.version")}")
-            appendLine("Preferred motion GPU: ${MotionRuntime.preferredGpu}; driver: ${MotionRuntime.driver}")
+            appendLine("Preferred motion GPU: ${MotionRuntime.preferredGpu}; driver: ${MotionRuntime.driver}; matched by: ${MotionRuntime.matchedBy}")
             appendLine("Renderer: $rendererDevice; preference: $rendererPreference; output: ${textProperty("current-vo") ?: "unavailable"}")
+            val onBattery = com.skywing.desktop.PowerSource.onBattery()
+            appendLine("GPU plan: " + (gpuPlan?.describe(onBattery) ?: "not made yet"))
+            appendLine("Graphics for video: ${gpuChoice.label}; Settings: ${MotionSettingsStore.values.gpuChoice.label}; Windows' graphics setting for SkyWing: " +
+                when (inventory.windowsPreference) {
+                    WindowsGpuPreference.NONE -> "none"
+                    WindowsGpuPreference.POWER_SAVING -> "power saving"
+                    WindowsGpuPreference.HIGH_PERFORMANCE -> "high performance"
+                })
+            pendingPlan?.let { appendLine("Next video: " + it.describe(onBattery)) }
             appendLine("Display: ${caps.displayHz ?: "unavailable"} Hz; VRR activation: not measured")
             appendLine("VRR capability: " + (DisplayVrr.current.supported?.toString() ?: "unknown") + "; " + DisplayVrr.current.detail + "; choice: " + if (MotionSettingsStore.values.vrrOverride == null) "automatic" else "manual")
             appendLine("File: $fileKind; ${caps.resolution}; source ${caps.sourceFps ?: "unavailable"} fps")
@@ -445,6 +506,102 @@ class EmbeddedMpv(
             if (motionWarnings.isEmpty()) appendLine("none") else motionWarnings.forEach { appendLine(it) }
             appendLine("State-duration history: not collected in this preview")
         }
+    }
+
+    private fun planFor(choice: GpuChoice): GpuPlan = GpuPolicy.plan(inventory, monitorGpu, choice, forcedVendor)
+
+    /**
+     * Moves the playing video to the plan for [choice] now. Null when that is the GPU it already uses, true when it
+     * moved, false when mpv would not re-create its output.
+     */
+    @Synchronized
+    internal fun useGpu(choice: GpuChoice): Boolean? {
+        gpuChoice = choice
+        val plan = planFor(choice)
+        if (samePlan(plan, requestedPlan)) return null
+        dedicatedOffer = null
+        return restartVideoOutput(plan)
+    }
+
+    /** The same GPU for mpv: a plan that differs only in its reason needs no new video output. */
+    private fun samePlan(a: GpuPlan, b: GpuPlan?): Boolean = b != null && a.adapter?.luid == b.adapter?.luid && a.mpvAdapter == b.mpvAdapter
+
+    /** mpv refused the GPU's name: Windows chooses, and the report says so. */
+    private fun refused(plan: GpuPlan): GpuPlan =
+        if (plan.mpvAdapter.isEmpty()) plan
+        else plan.copy(adapter = null, mpvAdapter = "", reason = plan.reason + " · mpv refused it: using Windows' choice of graphics")
+
+    /** The GPU mpv opened (from its log) as the PC lists it, else the plan's: smoothing never runs on another GPU. */
+    private fun motionGpu(): GpuAdapters.Adapter? {
+        val named = openedGpu?.let { name -> inventory.adapters.filter { it.name.equals(name, ignoreCase = true) } }.orEmpty()
+        return named.firstOrNull { it == gpuPlan?.adapter } ?: named.firstOrNull() ?: gpuPlan?.adapter
+    }
+
+    /** Another GPU has this one's maker, so the motion engine must pick its OpenCL device by LUID. */
+    private fun sharesMaker(adapter: GpuAdapters.Adapter): Boolean = inventory.adapters.count { it.gpuVendor == adapter.gpuVendor } > 1
+
+    /**
+     * Reads the screen's GPU and, when the screens changed or after a minute, the PC's GPUs again. Listing the GPUs
+     * costs more than reading the screens, which is why it isn't done every time.
+     */
+    private fun readGpus(window: Pointer, now: Long, force: Boolean = false) {
+        val paths = DisplayPaths.active()
+        val luids = paths.map { it.adapterLuid }.toSet()
+        if (force || luids != pathLuids || now - inventoryReadAt >= 60_000) {
+            inventory = GpuInventory.read()
+            pathLuids = luids
+            inventoryReadAt = now
+        }
+        val gdi = DisplayPaths.monitorName(window)
+        monitorGpu = paths.firstOrNull { gdi != null && it.gdiName.equals(gdi, ignoreCase = true) }?.adapterLuid?.let(inventory::byLuid)
+            // A screen Windows' display paths can't place (or a virtual one) falls back to the adapter's maker.
+            ?: WindowsDisplayAdapter.vendor(window)?.let { maker -> inventory.adapters.singleOrNull { it.gpuVendor.label == maker } }
+    }
+
+    private fun signature() = GpuSignature(monitorGpu?.luid, inventory.adapters.map { it.luid }, com.skywing.desktop.PowerSource.onBattery(),
+        MotionSettingsStore.values.gpuChoice, inventory.windowsPreference)
+
+    /**
+     * Every 5 s while a video plays: a new screen, GPU, power source or graphics choice that holds for 5 s makes a new
+     * plan (plan 5.3). It starts with the next video, or now when smoothing moves the video ([updateMotion]).
+     */
+    private fun checkGpus() {
+        val now = System.currentTimeMillis()
+        val handle = canvasHandle ?: return
+        if (now - lastGpuCheck < 5_000) return
+        lastGpuCheck = now
+        readGpus(handle, now)
+        replan.offer(signature(), now) ?: return
+        pendingPlan = planFor(MotionSettingsStore.values.gpuChoice).takeIf { !samePlan(it, requestedPlan) }
+    }
+
+    /**
+     * Moves drawing and smoothing to [plan]'s GPU while the video plays: smoothing stops, mpv gets the GPU's name and
+     * re-creates its video output inside the same Canvas window, and the video goes on. Smoothing starts again on the
+     * next [updateSmoothing].
+     */
+    private fun restartVideoOutput(plan: GpuPlan): Boolean {
+        val native = api ?: return false
+        val context = instance ?: return false
+        if (!motion.end()) return false
+        appliedMotionSettings = null
+        smoothingHealth.reset()
+        recordAction("GPU change")
+        val accepted = plan.mpvAdapter.isNotEmpty() && command("set", "d3d11-adapter", plan.mpvAdapter)
+        if (!accepted) command("set", "d3d11-adapter", "")
+        requestedPlan = plan
+        gpuPlan = if (accepted || plan.mpvAdapter.isEmpty()) plan else refused(plan)
+        rendererPreference = gpuPlan?.mpvAdapter?.ifEmpty { null } ?: "Windows' choice"
+        openedGpu = null
+        rendererDevice = "Not yet reported by mpv"
+        MotionRuntime.forgetDevices()
+        // The new output logs the GPU it opens ("Device Name:"), so listen at the level that carries it again.
+        native.mpv_request_log_messages(context, "v")
+        // Setting `vo` re-creates the video output, which opens the GPU named in d3d11-adapter. "gpu" and "gpu," name
+        // the same output, so alternating them always counts as a change.
+        val output = textProperty("current-vo")?.takeIf { it.isNotBlank() } ?: "gpu"
+        voSpelling = !voSpelling
+        return command("set", "vo", if (voSpelling) "$output," else output)
     }
 
     private fun recordAction(action: String) {
@@ -514,3 +671,12 @@ class EmbeddedMpv(
         motion.cleanup()
     }
 }
+
+/** What a GPU plan depends on; a change that holds for 5 s makes a new plan. */
+private data class GpuSignature(
+    val monitorLuid: Long?,
+    val adapterLuids: List<Long>,
+    val onBattery: Boolean,
+    val choice: GpuChoice,
+    val windowsPreference: WindowsGpuPreference,
+)

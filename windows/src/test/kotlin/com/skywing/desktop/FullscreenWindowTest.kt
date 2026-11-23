@@ -306,7 +306,8 @@ class FullscreenWindowTest {
                         assertFalse(status.capabilities.decision(mode).enabled)
                     }
                     val rendererReport = player.updateSmoothing(com.skywing.desktop.playback.SmoothingMode.OFF).report
-                    if (rendererReport.contains("preference: NVIDIA D3D11")) {
+                    // mpv was given an NVIDIA GPU's exact name (the GPU plan), so it draws on NVIDIA.
+                    if (rendererReport.contains("preference: NVIDIA")) {
                         assertTrue(rendererReport.contains("Renderer: NVIDIA"), rendererReport)
                     }
                     // The live report names its build (commit, runtime, ed072bf) right under the version line.

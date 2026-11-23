@@ -57,6 +57,15 @@ internal class MotionPreferences(private val prefs: Preferences, private val det
     var lowerAutomatically: Boolean
         get() = prefs.getBoolean("motion.lowerAutomatically", false)
         set(value) { prefs.putBoolean("motion.lowerAutomatically", value) }
+    /** Settings → Playback → "Graphics for video" (plan 5.3). */
+    var gpuChoice: GpuChoice
+        get() = GpuChoice.entries.firstOrNull { it.name == prefs.get("playback.gpu", null) } ?: GpuChoice.AUTOMATIC
+        set(value) { prefs.put("playback.gpu", value.name) }
+    /** Remembers "Use <dedicated GPU> for smoothing" for one video class ([MotionStops.type]). */
+    fun useDedicatedFor(key: String) = prefs.putBoolean("motion.$key.dedicated", true)
+    /** The choice for a video class: Settings' own, unless it is Automatic and the class keeps the dedicated GPU. */
+    fun gpuChoiceFor(key: String): GpuChoice = gpuChoice.takeIf { it != GpuChoice.AUTOMATIC }
+        ?: if (prefs.getBoolean("motion.$key.dedicated", false)) GpuChoice.PERFORMANCE else GpuChoice.AUTOMATIC
 }
 
 internal object MotionSettingsStore {

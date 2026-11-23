@@ -1,11 +1,8 @@
 package com.skywing.desktop.playback
 
-import com.sun.jna.Library
-import com.sun.jna.Memory
 import com.sun.jna.Native
 import com.sun.jna.Pointer
 import com.sun.jna.WString
-import com.sun.jna.ptr.IntByReference
 import com.sun.jna.win32.StdCallLibrary
 import java.io.File
 import java.nio.file.Files
@@ -328,60 +325,47 @@ internal object MotionRuntime {
         fun LoadLibraryExW(path: WString, file: Pointer?, flags: Int): Pointer?
         fun SetEnvironmentVariableW(name: WString, value: WString): Boolean
     }
-    private interface OpenCl : Library {
-        fun clGetPlatformIDs(count: Int, platforms: Pointer?, returned: IntByReference): Int
-        fun clGetDeviceIDs(platform: Pointer, type: Long, count: Int, devices: Pointer?, returned: IntByReference): Int
-        fun clGetDeviceInfo(device: Pointer, key: Int, size: Long, value: Pointer, returned: Pointer?): Int
-    }
     private var loaded: File? = null
     private var cookie: Pointer? = null
     private val libraries = mutableListOf<Pointer>()
+    /** The OpenCL devices, listed once; [forgetDevices] lists them again after a GPU change. */
+    private var devices: List<OpenClDevice>? = null
     var preferredGpu: String = "Automatic"
         private set
     var driver: String = "Unavailable"
         private set
+    /** How the OpenCL device was matched to the plan's GPU, for the playback report. */
+    var matchedBy: String = "not chosen yet"
+        private set
     fun directory(): File? = System.getProperty("compose.application.resources.dir")?.let {
         File(it, "motion").takeIf { dir -> listOf("VSScript.dll", "python313.dll", "portable.vs", "svpflow1_vs.dll", "svpflow2_vs.dll").all { name -> File(dir, name).isFile } }
     }
-    @Synchronized fun prepare(dir: File, vendor: String? = null): String? {
-        if (loaded == dir) return null
+
+    @Synchronized fun forgetDevices() { devices = null }
+
+    /**
+     * Loads the motion DLLs once, and before every motion start points the patched plugins at [adapter]'s OpenCL
+     * device: by maker, and by LUID when [byLuid] (two GPUs from one maker). The plugins read this filter each time
+     * they open a device, so every video can follow its own GPU plan. Null [adapter] means any device.
+     */
+    @Synchronized fun prepare(dir: File, adapter: GpuAdapters.Adapter? = null, byLuid: Boolean = false): String? {
         return runCatching {
             val kernel = Native.load("kernel32", Win32::class.java)
-            val wanted = vendor ?: "NVIDIA"
-            // The patched plugins honor this process-local filter across VapourSynth rebuilds.
-            // Pin an explicit display vendor even when its OpenCL device cannot be enumerated.
-            if (vendor != null) {
-                check(kernel.SetEnvironmentVariableW(WString("SKYWING_OPENCL_VENDOR"), WString(vendor)))
-                preferredGpu = vendor
+            OpenClDevice.filter(adapter, byLuid).forEach { (name, value) ->
+                check(kernel.SetEnvironmentVariableW(WString(name), WString(value)))
             }
-            runCatching {
-                val cl = Native.load("OpenCL", OpenCl::class.java)
-                val count = IntByReference()
-                if (cl.clGetPlatformIDs(0, null, count) == 0 && count.value in 1..32) {
-                    val platforms = Memory(count.value.toLong() * Native.POINTER_SIZE)
-                    if (cl.clGetPlatformIDs(count.value, platforms, count) == 0) {
-                        for (i in 0 until count.value) {
-                            val devices = Memory(Native.POINTER_SIZE.toLong())
-                            val found = IntByReference()
-                            if (cl.clGetDeviceIDs(platforms.getPointer(i.toLong()*Native.POINTER_SIZE), 4, 1, devices, found) != 0) continue
-                            val device = devices.getPointer(0)
-                            fun info(key: Int): String {
-                                val bytes = Memory(512)
-                                bytes.clear()
-                                return if (cl.clGetDeviceInfo(device, key, 512, bytes, null) == 0) bytes.getString(0) else ""
-                            }
-                            if (info(0x102C).contains(wanted, true)) {
-                                if (vendor == null) {
-                                    check(kernel.SetEnvironmentVariableW(WString("SKYWING_OPENCL_VENDOR"), WString(wanted)))
-                                }
-                                preferredGpu = info(0x102B)
-                                driver = info(0x102D)
-                                break
-                            }
-                        }
-                    }
-                }
+            val found = devices ?: OpenClDevice.list().also { devices = it }
+            val device = OpenClDevice.pick(found, adapter, byLuid)
+            preferredGpu = device?.name ?: adapter?.let { "${it.name} (no OpenCL device found)" } ?: "Automatic"
+            driver = device?.driver ?: "Unavailable"
+            matchedBy = when {
+                device == null -> "none"
+                adapter == null -> "any device"
+                byLuid && device.luid == adapter.luid -> "LUID"
+                byLuid -> "maker (this driver reports no LUID)"
+                else -> "maker"
             }
+            if (loaded == dir) return null
             cookie = kernel.AddDllDirectory(WString(dir.absolutePath)) ?: error("DLL directory")
             // VapourSynth destroys its core on every seek. Rust plugins own process-wide
             // Rayon/OpenCL state, so their DLLs must outlive those cores and worker threads.
