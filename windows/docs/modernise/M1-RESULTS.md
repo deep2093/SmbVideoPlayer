@@ -206,7 +206,25 @@ Against the M1 targets:
 - **Cold start under 4 s: not met.** A normal first start takes 4.9 s in both builds, and a normal everyday start 3.4 s. Some starts in both builds take 3.5 to 5 s longer, before SkyWing's log begins (see *Second run*). The after build's normal starts lose 0.3 s more than the before build's before the log.
 - **No UI task over 8 ms: not met** in either build.
 
+### Playback, laptop
+
+The M1 runner doesn't play video, so playback was measured with the M0 method (`m0Run`, `M0-RESULTS.md` section 2) on 24 November. The settings were those of M0's laptop run A: the same 4K SDR clip, motion on at 2×, Balanced, Automatic GPU (Intel), plugged in and Windows power mode Balanced. Each run had a 60-second warm-up and a 10-minute window.
+
+Each build ran from a copy of its runner image with the native files of the installed 0.1.101, which M0's run A used: its frame-sharing libmpv and CI's motion payload. The runner's own images have the stock libmpv and a locally built motion plugin. With those, the before build turned smoothing off within the window because it couldn't keep up at 2×. The reports' `Build:` line still says "runtime stock", because a build writes that line when it is built.
+
+| Measure | M0 run A (0.1.101) | before | after |
+|---|---|---|---|
+| Drops in the 10 minutes (video + decoder) | 0 | 108 | 0 |
+| Drops per minute | 0.0 | 10.8 | 0.0 |
+| Filter processing throughput, report B (fps) | 59.91 | 60.79 | 60.15 |
+| Restarts | 0 | 0 | 0 |
+| Graph generations, report A → B | 1 → 1 | 1 → 1 | 1 → 1 |
+| Process CPU (cores) | 2.06 | 2.17 | 2.13 |
+| Private memory, MB: start → end of the window | 5,659 → 5,946 | 5,684 → 5,965 | 5,876 → 5,942 |
+
+In both windows no other program came to the front, full screen held and no input arrived. All the before build's 108 drops came before the window's last minute, and the reports don't say when. One run of each can't tell whether they were chance: M0's run A had none. So M1 made playback no worse in this run, and these numbers don't show it made playback better. The test data has no library, so no thumbnails were being made, and B24 (thumbnails pause during playback) isn't measured here.
+
 ## 5. Not in this runner
 
-- **Playback frame drops per minute.** M1 doesn't change playback, but it pauses thumbnails during playback (B24). The playback numbers for both builds come from the M0 method in `M0-RESULTS.md`.
+- **Playback frame drops per minute.** The M1 runner doesn't play video. The laptop's playback numbers above come from the M0 method; the handhelds' weren't measured for M1.
 - **What the screen showed.** Display presentation and VRR need PresentMon and come in M2.
