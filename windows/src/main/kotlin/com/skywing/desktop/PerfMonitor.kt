@@ -8,6 +8,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Recomposer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -40,6 +41,8 @@ internal data class PerfSecond(
     val frameP95Ms: Double?,
     val frameMaxMs: Double?,
     val stateChanges: Int,
+    /** Recompositions that changed something: one per frame in which Compose redrew part of the window. */
+    val recompositions: Long,
     val heapUsedMb: Long,
     val heapMaxMb: Long,
     val gauges: Map<String, Long>,
@@ -57,6 +60,7 @@ internal data class PerfSecond(
         add("frame_p95_ms=${frameP95Ms?.let(::twoPlaces).orEmpty()}")
         add("frame_max_ms=${frameMaxMs?.let(::twoPlaces).orEmpty()}")
         add("state_changes=$stateChanges")
+        add("recompositions=$recompositions")
         add("heap_mb=$heapUsedMb")
         add("heap_max_mb=$heapMaxMb")
         gauges.forEach { (name, value) -> add("gauge.${logKey(name)}=$value") }
@@ -67,7 +71,7 @@ internal data class PerfSecond(
         add(if (frameMaxMs == null) "Frames: $frames/s (frame times while the overlay is open)"
             else "Frames: $frames/s; 95 % within ${twoPlaces(frameP95Ms!!)} ms; slowest ${twoPlaces(frameMaxMs)} ms")
         add("UI thread: busy ${(uiBusyMs / 10).toInt()} %; longest task ${twoPlaces(uiMaxMs)} ms; over 8 ms: $uiOver8")
-        add("State changes: $stateChanges/s")
+        add("State changes: $stateChanges/s; recompositions: $recompositions/s")
         add("Java heap: $heapUsedMb of $heapMaxMb MB")
         gauges.forEach { (name, value) -> add("$name: $value") }
     }
@@ -108,6 +112,7 @@ internal class PerfWindow {
     private val intervals = LongList()
     private var lastFrame: Long? = null
     private var states = 0
+    private var recompositionsBefore = 0L
 
     fun uiTask(nanos: Long) {
         tasks.add(nanos)
@@ -125,8 +130,11 @@ internal class PerfWindow {
 
     fun stateChanges(count: Int) { states += count }
 
-    /** Ends the second: returns its numbers and starts the next one. */
-    fun roll(atMs: Long, heapUsedMb: Long, heapMaxMb: Long, gauges: Map<String, Long>): PerfSecond {
+    /**
+     * Ends the second: returns its numbers and starts the next one. [recompositionTotal] is Compose's running count of
+     * recompositions; the second gets what it grew by (never less than 0: the count drops when a window closes).
+     */
+    fun roll(atMs: Long, heapUsedMb: Long, heapMaxMb: Long, gauges: Map<String, Long>, recompositionTotal: Long): PerfSecond {
         val sortedTasks = tasks.sorted()
         val sortedIntervals = intervals.sorted()
         val second = PerfSecond(
@@ -140,6 +148,7 @@ internal class PerfWindow {
             frameP95Ms = percentile95(sortedIntervals)?.div(MS),
             frameMaxMs = sortedIntervals.lastOrNull()?.div(MS),
             stateChanges = states,
+            recompositions = (recompositionTotal - recompositionsBefore).coerceAtLeast(0),
             heapUsedMb = heapUsedMb,
             heapMaxMb = heapMaxMb,
             gauges = gauges,
@@ -149,6 +158,7 @@ internal class PerfWindow {
         busyNanos = 0
         frames = 0
         states = 0
+        recompositionsBefore = recompositionTotal
         return second
     }
 
@@ -166,7 +176,8 @@ internal class PerfWindow {
  * - how long every task on the UI thread (the AWT event thread, where Compose works) took
  * - frame times, while the overlay is open or the mouse wheel turned in the last half second (timing frames asks for
  *   frames, which costs power, so the loop doesn't run otherwise)
- * - how many Compose state objects changed (thousands a second mean a recomposition storm)
+ * - how many Compose state objects changed (thousands a second mean a recomposition storm), and in how many frames
+ *   Compose recomposed
  * - the Java heap in use, and the gauges parts of the app report (pictures in memory, thumbnails waiting)
  * The log gets one line a second and one per mark (first frame, library loaded, scan finished). It holds times and
  * counts only, never file names or paths.
@@ -218,7 +229,8 @@ internal object PerfMonitor {
 
     /** The last second, for the playback report; null while nothing is recorded. */
     fun reportLine(): String? = latest?.takeIf { recording }?.let {
-        "UI: busy ${(it.uiBusyMs / 10).toInt()} %; longest task ${twoPlaces(it.uiMaxMs)} ms; over 8 ms: ${it.uiOver8}; Java heap ${it.heapUsedMb} MB"
+        "UI: busy ${(it.uiBusyMs / 10).toInt()} %; longest task ${twoPlaces(it.uiMaxMs)} ms; over 8 ms: ${it.uiOver8}; " +
+            "recompositions ${it.recompositions}/s; Java heap ${it.heapUsedMb} MB"
     }
 
     internal fun frameLoopStarted() = synchronized(window) { window.frameLoopStarted() }
@@ -239,8 +251,9 @@ internal object PerfMonitor {
                 Thread.sleep(1_000)
                 val runtime = Runtime.getRuntime()
                 val values = gauges.entries.sortedBy { it.key }.associate { (name, read) -> name to runCatching(read).getOrDefault(-1L) }
+                val recompositions = Recomposer.runningRecomposers.value.sumOf { it.changeCount }
                 val second = synchronized(window) {
-                    window.roll(now(), (runtime.totalMemory() - runtime.freeMemory()) / MB, runtime.maxMemory() / MB, values)
+                    window.roll(now(), (runtime.totalMemory() - runtime.freeMemory()) / MB, runtime.maxMemory() / MB, values, recompositions)
                 }
                 Snapshot.withMutableSnapshot { latest = second }
                 write(second.logLine())
