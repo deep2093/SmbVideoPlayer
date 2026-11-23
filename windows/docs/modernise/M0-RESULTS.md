@@ -212,12 +212,33 @@ Notes:
 - At these drains a full battery lasts about 4.9 hours for 1080p Fast and about 1.7 hours for 4K Balanced. Balanced at 1080p took 4.3 W more than Fast.
 - Earlier attempts that day don't count. The first 1080p clip reported 23.06 fps, which 0.1.101 can't smooth: SkyWing showed "Waiting for source frame rate" and the runner timed out. That clip was replaced. In the next attempt, Mouse Without Borders on the Claw came to the front three times when the PC's mouse crossed onto it (for 55, 14 and 295 seconds). Windows then kept SkyWing behind it, so the runner couldn't press Motion options and those runs stopped. No input reached the Claw in the runs above.
 
+#### Claw 8 on battery at a low power limit (plan 5.7, item 5)
+
+23 November, 16:39–16:58: the four battery runs again, with the same build, clips and runner. The plugged-in rows above were kept.
+
+| | Value |
+|---|---|
+| Power or TDP mode | The owner set MSI's limits to PL1 8 W and PL2 8–9 W, and chose Windows Best power efficiency. The runner read Windows power mode Best performance for battery (the `ActiveOverlayDcPowerScheme` value) at the start of every run and at the end of both 1080p runs. Which program changed it, or whether the choice went to the plugged-in setting, isn't known. |
+
+| Clip | Quality | Power | Drops in 5 min | Drops per minute | Restarts | Process CPU (cores) | Private memory, MB (start → end) | Battery drain (W; % per hour) | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| 1080p | Fast | Battery | 0 | 0.0 | 0 | 0.56 | 1,540 → 1,557 | 15.9; 22.7 | Filter throughput 48.866 fps, target 47.95 fps |
+| 1080p | Balanced | Battery | 0 | 0.0 | 0 | 0.93 | 1,752 → 1,768 | 15.6; 22.3 | Filter throughput 48.794 fps, target 47.95 fps |
+| 4K | Fast | Battery | — | — | — | — | — | — | Didn't hold 2×: SkyWing stopped smoothing during the 60-second warm-up |
+| 4K | Balanced | Battery | — | — | — | — | — | — | Didn't hold 2×: SkyWing stopped smoothing during the 60-second warm-up |
+
+Notes:
+- In both 1080p windows nothing came to the front, full screen held and no input arrived. Report B showed the run's quality, 0 restarts and 1 → 1 graph generations.
+- Against the battery runs at 30 W: 1080p Fast drew 1.7 W more (15.9 against 14.2 W), and 1080p Balanced drew 2.9 W less (15.6 against 18.5 W) while using more CPU time (0.93 against 0.64 cores). The drain is the whole device's, and the screen brightness wasn't recorded for either set, so these runs don't show how much of the change is the processor.
+- In both 4K runs, after the warm-up the player bar read "Smoothing: Off" and Motion options showed the switch off. With "Lower automatically" off and 2× already the lowest stop, SkyWing turns smoothing off by itself only when it can't keep up: "Cannot keep up at 2×; smoothing stopped" (`EmbeddedMpv.kt`). So 4K 2× held neither Fast nor Balanced at this setting. The runner reported a missing "Copy playback report" button instead, and stopped after the second such run.
+
 ## 5. What the numbers decide
 
 - **Automatic GPU (plan 5.3):** Automatic stays all-Intel unless run A drops frames, or run B holds 2× with clearly fewer drops at an acceptable power cost.
   Result of the laptop runs on 23 November: Automatic stays all-Intel. Run A held 2× without a drop, and run B dropped no fewer while drawing about 6.7 W more (CPU package plus NVIDIA). The owner saw and heard nothing odd in either run.
 - **Handheld default (plan 5.7, item 3):** the quality that holds 2× at 1080p without drops on battery becomes the handheld default. The plan starts from 1080p 2× Fast.
-  Result of the handheld runs on 23 November: Fast and Balanced both held 1080p 2× on battery without a drop on both handhelds. Fast drew 4.3 W less than Balanced on the Claw and 1.1 W less on the OneXPlayer 3. Both also held 4K 2× on battery without a drop. The choice between them is the owner's.
+  Result of the handheld runs on 23 November: Fast and Balanced both held 1080p 2× on battery without a drop on both handhelds. Fast drew 4.3 W less than Balanced on the Claw and 1.1 W less on the OneXPlayer 3. Both also held 4K 2× on battery without a drop.
+  Owner decision the same day: Fast is the default quality on every PC, not only the handhelds. A quality the user picks for a video class is saved on that PC and kept. Classes nobody has set use Fast.
 
 ## 6. How this build picks its GPU
 
