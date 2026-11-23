@@ -18,6 +18,9 @@ Before you start
 1. Copy this whole folder to the device's own drive, for example to C:\SkyWing-M1.
    Not to a USB stick, a memory card, a network share or a folder OneDrive syncs
    (Desktop and Documents often are). The drive must be NTFS, as C: is.
+   Copy it as it came, before it has run. After a run it holds a "work" folder: the
+   test library, 5,000 links to 50 clips that only work on that drive. A copy writes
+   them out in full, about 23 GB. Leave "work", "data" and "results" out.
 2. Plug in the charger and close SkyWing.
 3. Leave the Windows power mode and the device's own power settings as you use them.
 
