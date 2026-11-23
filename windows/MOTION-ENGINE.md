@@ -76,7 +76,13 @@ VapourSynth core rebuilds. Only the named filter is owned; previous decoder/sync
 interpolation settings and other filters are preserved when it ends.
 
 Concurrent requests are automatic, buffer 8; heartbeat writes occur at most every
-0.5 seconds. One heartbeat-stall restart is allowed per file. Reports retain the
+0.5 seconds. The script writes its heartbeat into 48 bytes of SkyWing's own memory
+through ctypes, under a sequence lock (odd while writing, even when done), and the
+player reads it there, with no file in between. A read that catches a write is a
+missed read, not a stall, and the last heartbeat is kept. Each smoothing start gets
+its own block, freed only after mpv is destroyed, because a removed filter's script
+may still write. After 15 s without a new heartbeat while playing, the graph counts as
+stalled. One heartbeat-stall restart is allowed per file. Reports retain the
 last engine metrics and incident counters, heartbeat age, elapsed time, filter
 presence, preceding actions and last 20 VapourSynth warnings/errors. Paths are
 redacted. Processing throughput is not measured physical presentation FPS.

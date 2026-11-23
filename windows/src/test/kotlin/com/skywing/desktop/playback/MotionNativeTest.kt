@@ -109,7 +109,7 @@ class MotionNativeTest {
             waitFor("Second filter did not produce output") { (session.heartbeat()?.completed ?: 0) > 5 }
         } finally {
             api.mpv_terminate_destroy(ctx)
-            session.cleanup()
+            session.release()
             folder.deleteRecursively()
         }
     }
@@ -221,7 +221,7 @@ class MotionNativeTest {
             }
         } finally {
             api.mpv_terminate_destroy(ctx)
-            session.cleanup()
+            session.release()
             folder.deleteRecursively()
         }
     }

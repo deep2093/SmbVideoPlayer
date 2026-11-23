@@ -1,5 +1,6 @@
 package com.skywing.desktop.playback
 
+import com.sun.jna.Pointer
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -83,7 +84,7 @@ class MotionEngineTest {
     }
 
     @Test fun scriptUsesExactOutputDurationsAndEscapedLocalPaths() {
-        val script = SvpScript.create(File("C:/SkyWing's runtime/é"), File("C:/local/status"),
+        val script = SvpScript.create(File("C:/SkyWing's runtime/é"), 0x7ff612340000,
             MotionRate(24000,1001), MotionRate(120000,1001))
         assertTrue(script.contains("out = core.std.AssumeFPS(out, fpsnum=120000, fpsden=1001)"))
         assertTrue(script.contains("num:120000,den:1001"))
@@ -95,7 +96,7 @@ class MotionEngineTest {
     }
 
     @Test fun scriptTimesOtherRatesFromTheSourceFrames() {
-        val status = File("C:/local/status")
+        val status = 0x7ff612340000
         val measured = MotionRate(23061, 1000)
         val script = SvpScript.create(File("C:/runtime"), status, measured, MotionRate(23061, 400))
         // SVP works at the measured rate. Output frames then take their times from the source frames' durations
@@ -119,8 +120,7 @@ class MotionEngineTest {
             }, { root }, { null }, { root })
             assertNull(session.begin("video", MotionRate(25), MotionRate(100)))
             fun heartbeat() {
-                val script = root.listFiles()!!.single { it.extension == "vpy" }
-                File(script.path + ".status").writeText("ok\ttest\t1200\t96.0\t" + System.currentTimeMillis())
+                beat(session, 1, 1200, 96.0, System.currentTimeMillis())
                 assertNotNull(session.heartbeat())
             }
             heartbeat()
@@ -138,32 +138,114 @@ class MotionEngineTest {
             assertEquals("seek requested", session.lastIncident?.action)
             assertNotNull(session.lastIncident?.heartbeatAgeMillis)
             assertTrue(root.listFiles().orEmpty().isEmpty())
+            session.release()
         } finally { root.deleteRecursively() }
     }
 
-    @Test fun missedStatusReadDoesNotStallARecentlyActiveGraph() {
+    @Test fun missedHeartbeatReadDoesNotStallARecentlyActiveGraph() {
         val root = Files.createTempDirectory("motion-heartbeat-").toFile()
+        var now = 1_000_000L
+        val props = mapOf("hwdec" to "auto-safe", "video-sync" to "audio", "interpolation" to "no")
+        val session = MotionSession(props::get, { true }, { root }, { null }, { root }, { now })
         try {
-            var now = 1_000_000L
-            val props = mapOf("hwdec" to "auto-safe", "video-sync" to "audio", "interpolation" to "no")
-            val session = MotionSession(props::get, { true }, { root }, { null }, { root }, { now })
             assertNull(session.begin("video", MotionRate(25), MotionRate(50)))
-            val script = root.listFiles()!!.single { it.extension == "vpy" }
-            val status = File(script.path + ".status")
-            status.writeText("ok\tgraph\t30\t50.0\t$now")
+            beat(session, 7, 30, 50.0, now)
             assertNotNull(session.heartbeat())
             now += 400_000
-            status.writeText("ok\tgraph\t20000\t50.0\t$now")
+            beat(session, 7, 20000, 50.0, now)
             assertNotNull(session.heartbeat())
-            assertTrue(status.delete())
+            // Caught while the script writes: the read is missed, and the last beat is kept.
+            beat(session, 7, 20012, 50.0, now + 500, finish = false)
             now += 1_040
             assertNull(session.heartbeat())
+            assertEquals(20000, session.lastHeartbeat?.completed)
             assertFalse(session.stalled(true))
             now += 14_000
             assertTrue(session.stalled(true))
             assertTrue(session.restartAfterStall())
             assertEquals(1, session.restarts)
-        } finally { root.deleteRecursively() }
+        } finally { session.release(); root.deleteRecursively() }
+    }
+
+    @Test fun theHeartbeatIsMemoryTheScriptWritesNotAFile() {
+        val root = Files.createTempDirectory("motion-heartbeat-").toFile()
+        val props = mapOf("hwdec" to "auto-safe", "video-sync" to "audio", "interpolation" to "no")
+        val session = MotionSession(props::get, { true }, { root }, { null }, { root })
+        try {
+            assertNull(session.begin("video", MotionRate(25), MotionRate(50)))
+            val address = assertNotNull(session.heartbeatAddress)
+            val script = root.listFiles()!!.single { it.extension == "vpy" }.readText()
+            assertTrue(script.contains("Heartbeat.from_address($address)"), script)
+            assertFalse(script.contains("open("), "the script writes no status file")
+            assertNull(session.heartbeat(), "nothing written yet")
+            beat(session, 42, 120, 47.5, 1_700_000_000_000)
+            assertEquals(MotionHeartbeat("42", 120, 47.5, 1_700_000_000_000), session.heartbeat())
+            assertTrue(root.listFiles()!!.none { it.name.contains(".status") })
+        } finally { session.release(); root.deleteRecursively() }
+    }
+
+    @Test fun aScriptThatCannotStartSaysSoThroughTheHeartbeat() {
+        val root = Files.createTempDirectory("motion-heartbeat-").toFile()
+        val props = mapOf("hwdec" to "auto-safe", "video-sync" to "audio", "interpolation" to "no")
+        val session = MotionSession(props::get, { true }, { root }, { null }, { root })
+        try {
+            assertNull(session.begin("video", MotionRate(25), MotionRate(50)))
+            beat(session, 3, 0, 0.0, 1_700_000_000_000, state = HeartbeatMemory.FAILED)
+            assertNull(session.heartbeat())
+            assertEquals("The motion engine could not process this video", session.failure)
+            assertFalse(session.active)
+        } finally { session.release(); root.deleteRecursively() }
+    }
+
+    /**
+     * B28: 30 minutes of smoothing on a simulated clock. The script writes a beat every 0.5 s; every 7th read
+     * catches it mid-write, and every 5 minutes reads miss for 10 s in a row. None of that is a stall. Then the graph
+     * really stops: after 15 s it restarts once, and a second stall of the same file is not restarted again.
+     */
+    @Test fun thirtyMinutesOfMissedReadsNeverRestartButARealStallRecoversOnce() {
+        val root = Files.createTempDirectory("motion-heartbeat-").toFile()
+        var now = 1_700_000_000_000L
+        val props = mapOf("hwdec" to "auto-safe", "video-sync" to "audio", "interpolation" to "no")
+        val session = MotionSession(props::get, { true }, { root }, { null }, { root }, { now })
+        try {
+            assertNull(session.begin("video", MotionRate(24), MotionRate(48)))
+            var completed = 0L
+            for (tick in 1..3600) {
+                now += 500
+                completed += 24
+                val blackout = tick % 600 in 1..20
+                beat(session, 1, completed, 48.0, now, finish = blackout || tick % 7 != 0)
+                if (blackout) beat(session, 1, completed, 48.0, now, finish = false)
+                val read = session.heartbeat()
+                if (blackout || tick % 7 == 0) assertNull(read, "tick $tick should be a missed read")
+                assertFalse(session.stalled(true), "false stall at ${tick / 2} s")
+            }
+            assertEquals(0, session.restarts)
+            assertEquals(1, session.rebuilds)
+            now += 15_001
+            assertTrue(session.stalled(true))
+            assertTrue(session.restartAfterStall())
+            assertEquals(1, session.restarts)
+            beat(session, 2, 24, 48.0, now)
+            assertNotNull(session.heartbeat())
+            now += 15_001
+            assertTrue(session.stalled(true))
+            assertFalse(session.restartAfterStall(), "one restart per file")
+        } finally { session.release(); root.deleteRecursively() }
+    }
+
+    /** Writes one beat as the script does: the sequence is odd while writing, and [finish] makes it even again. */
+    private fun beat(session: MotionSession, generation: Long, completed: Long, fps: Double, updated: Long,
+                     state: Long = HeartbeatMemory.RUNNING, finish: Boolean = true) {
+        val memory = Pointer(assertNotNull(session.heartbeatAddress))
+        val writing = memory.getLong(HeartbeatMemory.SEQUENCE).let { if (it % 2 == 1L) it else it + 1 }
+        memory.setLong(HeartbeatMemory.SEQUENCE, writing)
+        memory.setLong(HeartbeatMemory.STATE, state)
+        memory.setLong(HeartbeatMemory.GENERATION, generation)
+        memory.setLong(HeartbeatMemory.COMPLETED, completed)
+        memory.setDouble(HeartbeatMemory.FPS, fps)
+        memory.setLong(HeartbeatMemory.UPDATED, updated)
+        if (finish) memory.setLong(HeartbeatMemory.SEQUENCE, writing + 1)
     }
 
     @Test fun diagnosticsRedactLocalAndNetworkPaths() {

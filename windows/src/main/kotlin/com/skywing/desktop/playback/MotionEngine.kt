@@ -77,7 +77,14 @@ internal class MotionSession(
     var lastAction: String = "none"
     var restarts: Int = 0
         private set
-    private var statusFile: File? = null
+    /** The heartbeat memory the current script writes, or null when no script runs. */
+    var heartbeatAddress: Long? = null
+        private set
+    /**
+     * Every heartbeat block this session gave a script. A removed filter's script may still be running, so a block is
+     * freed only by [release], after mpv is destroyed. Each block is [HeartbeatMemory.SIZE] bytes, one per start.
+     */
+    private val heartbeatBlocks = mutableListOf<Long>()
     private var scriptFile: File? = null
     private var started = 0L
     private var generation: String? = null
@@ -115,9 +122,9 @@ internal class MotionSession(
             check(folder.isDirectory || folder.mkdirs())
             val script = Files.createTempFile(folder.toPath(), "motion-", ".vpy").toFile()
             scriptFile = script
-            val status = File(script.path + ".status")
-            statusFile = status
-            script.writeText(SvpScript.create(runtime, status, source, rate, quality), Charsets.UTF_8)
+            val memory = HeartbeatMemory.allocate().also { heartbeatBlocks += it }
+            heartbeatAddress = memory
+            script.writeText(SvpScript.create(runtime, memory, source, rate, quality), Charsets.UTF_8)
             previous = saved
             started = nowMillis()
             generation = null
@@ -138,15 +145,14 @@ internal class MotionSession(
 
     private fun reject(reason: String): String { fail(reason); return failure ?: reason }
 
+    /** The script's latest beat, or null when none is written yet or this read caught the script writing one. */
     fun heartbeat(): MotionHeartbeat? {
-        val fields = runCatching { statusFile?.readText()?.trim()?.split('\t') }.getOrNull() ?: return null
-        if (fields.firstOrNull() == "error") {
+        val read = heartbeatAddress?.let(HeartbeatMemory::read) ?: return null
+        if (read.failed) {
             fail("The motion engine could not process this video")
             return null
         }
-        if (fields.size != 5 || fields[0] != "ok") return null
-        val parsed = MotionHeartbeat(fields[1], fields[2].toLongOrNull() ?: return null,
-            fields[3].toDoubleOrNull() ?: return null, fields[4].toLongOrNull() ?: return null)
+        val parsed = read.heartbeat
         if (generation != parsed.generation) {
             generation = parsed.generation
             rebuilds++
@@ -159,7 +165,7 @@ internal class MotionSession(
     fun stalled(playing: Boolean): Boolean {
         val now = nowMillis()
         if (!playing) { started = now; return false }
-        // A missed status read does not reset the last heartbeat for this graph.
+        // A missed heartbeat read does not reset the last heartbeat for this graph.
         val lastUpdate = lastHeartbeat?.updatedMillis.takeIf { generation != null } ?: started
         return active && now - maxOf(started, lastUpdate) > 15_000
     }
@@ -205,11 +211,61 @@ internal class MotionSession(
         return true
     }
 
-    /** Also called after mpv destruction, when no filter can still access these files. */
+    /** Deletes the script file and stops reading its heartbeat. The heartbeat memory stays until [release]. */
     fun cleanup() {
-        runCatching { statusFile?.let { File(it.path + ".tmp").delete(); it.delete() }; scriptFile?.delete() }
-        statusFile = null
+        runCatching { scriptFile?.delete() }
         scriptFile = null
+        heartbeatAddress = null
+    }
+
+    /** Frees the heartbeat memory. Call only after mpv is destroyed, when no script can still write to it. */
+    fun release() {
+        cleanup()
+        heartbeatBlocks.forEach(HeartbeatMemory::free)
+        heartbeatBlocks.clear()
+    }
+}
+
+/**
+ * The watchdog's heartbeat (B28): memory in SkyWing's process that the motion script writes through ctypes and the
+ * player worker reads, with no file in between. The script writes it under a sequence lock: [SEQUENCE] is odd while
+ * it writes the other fields and even once they are complete, so a read that sees an odd or changed sequence is a
+ * missed read, never a wrong beat. Every field is an aligned 8 bytes. x64 keeps each thread's stores, and each
+ * thread's loads, in program order, so no fence is needed on Windows x64.
+ */
+internal object HeartbeatMemory {
+    const val SIZE = 48L
+    const val SEQUENCE = 0L
+    const val STATE = 8L
+    const val GENERATION = 16L
+    const val COMPLETED = 24L
+    const val FPS = 32L
+    const val UPDATED = 40L
+    const val RUNNING = 1L
+    const val FAILED = 2L
+
+    data class Read(val failed: Boolean, val heartbeat: MotionHeartbeat)
+
+    fun allocate(): Long = Native.malloc(SIZE).also {
+        check(it != 0L) { "No memory for the motion heartbeat" }
+        Pointer(it).clear(SIZE)
+    }
+
+    fun free(address: Long) = Native.free(address)
+
+    fun read(address: Long): Read? {
+        val memory = Pointer(address)
+        val sequence = memory.getLong(SEQUENCE)
+        if (sequence == 0L || sequence % 2 != 0L) return null
+        val state = memory.getLong(STATE)
+        val heartbeat = MotionHeartbeat(memory.getLong(GENERATION).toString(), memory.getLong(COMPLETED),
+            memory.getDouble(FPS), memory.getLong(UPDATED))
+        if (memory.getLong(SEQUENCE) != sequence) return null
+        return when (state) {
+            RUNNING -> Read(false, heartbeat)
+            FAILED -> Read(true, heartbeat)
+            else -> null
+        }
     }
 }
 
@@ -241,20 +297,29 @@ internal object SvpScript {
         return "out = follow_source_times(out, $p, $q, ${source.numerator}, ${source.denominator})"
     }
 
-    fun create(runtime: File, status: File, source: MotionRate, target: MotionRate, quality: MotionQuality = MotionQuality.BALANCED): String = """
-        import math, os, time, threading
+    /** [heartbeat] is a [HeartbeatMemory] block the script writes its progress to. */
+    fun create(runtime: File, heartbeat: Long, source: MotionRate, target: MotionRate, quality: MotionQuality = MotionQuality.BALANCED): String = """
+        import ctypes, math, time, threading
         from fractions import Fraction
         import vapoursynth as vs
         core = vs.core
         core.num_threads = 8
-        status_path = ${literal(status.absolutePath)}
-        def write_status(text):
-            try:
-                with open(status_path + '.tmp', 'w', encoding='utf-8') as f:
-                    f.write(text)
-                os.replace(status_path + '.tmp', status_path)
-            except OSError:
-                pass
+        class Heartbeat(ctypes.Structure):
+            _fields_ = [('sequence', ctypes.c_int64), ('state', ctypes.c_int64), ('generation', ctypes.c_int64),
+                        ('completed', ctypes.c_int64), ('fps', ctypes.c_double), ('updated', ctypes.c_int64)]
+        heartbeat = Heartbeat.from_address($heartbeat)
+        generation = time.time_ns()
+        def write_status(state, completed=0, fps=0.0):
+            # Odd while writing, even when done. Taking the odd value from what is there keeps the parity right even
+            # if a script from before a seek writes at the same time.
+            writing = heartbeat.sequence | 1
+            heartbeat.sequence = writing
+            heartbeat.state = state
+            heartbeat.generation = generation
+            heartbeat.completed = completed
+            heartbeat.fps = fps
+            heartbeat.updated = time.time_ns() // 1000000
+            heartbeat.sequence = writing + 1
         def follow_source_times(clip, p, q, rate_num, rate_den):
             # mpv times output frames by adding up their durations from the first source frame. With p output frames
             # for every q source frames, output frame n stands for source position q*n/p, so its duration is the
@@ -300,7 +365,6 @@ internal object SvpScript {
                 '{rate:{abs:true,num:${target.numerator},den:${target.denominator}},${quality.smooth},scene:{mode:0}}',
                 src=clip, fps=${source.numerator}/${source.denominator})
             ${timing(source, target)}
-            generation = str(time.time_ns())
             lock = threading.Lock()
             last = [time.monotonic(), 0, 0]
             def observed(n, f):
@@ -309,12 +373,12 @@ internal object SvpScript {
                     now = time.monotonic()
                     if last[2] == 1 or now - last[0] >= 0.5:
                         fps = (last[2] - last[1]) / max(0.001, now - last[0])
-                        write_status('ok\t%s\t%d\t%.3f\t%d' % (generation, last[2], fps, time.time()*1000))
+                        write_status(${HeartbeatMemory.RUNNING}, last[2], fps)
                         last[0], last[1] = now, last[2]
                 return f
             core.std.ModifyFrame(out, out, observed).set_output()
         except Exception:
-            write_status('error\tinitialization')
+            write_status(${HeartbeatMemory.FAILED})
             video_in.set_output()
     """.trimIndent() + "\n"
 }

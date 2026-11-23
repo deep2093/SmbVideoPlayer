@@ -686,7 +686,7 @@ class EmbeddedMpv(
         }
         // No command can start now: api and instance are cleared, and one already being sent has finished.
         if (native != null && context != null) native.mpv_terminate_destroy(context)
-        motion.cleanup()
+        motion.release()
     }
 }
 
