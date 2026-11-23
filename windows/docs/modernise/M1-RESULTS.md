@@ -161,12 +161,12 @@ MSI Claw 8 AI+, 1920 × 1200 at 120 Hz, plugged in, Windows power mode Balanced.
 
 Against the M1 targets:
 - **Scrolling at the refresh rate: met.** Videos scrolls at 120 frames per second on the 120 Hz screen in both builds, with Adaptive Glow too. The frame time p95 (8.7 ms) is one refresh (8.3 ms). While thumbnails are made it went from 115 to 118 frames per second at half the CPU.
-- **Cold start under 4 s: met.** 3.25 s on the first start and 1.40 s on the everyday start. The first start took 1.9 s longer than before. Half of it (0.9 s) comes before SkyWing's own log starts, so the runner can't tell what it is, and it is one run.
+- **Cold start under 4 s: met.** 3.25 s on the first start and 1.40 s on the everyday start. The first start took 1.9 s longer than before. Half of it (0.9 s) comes before SkyWing's own log starts, so this runner can't tell what it is, and it is one run. The runner from d9d2116 on times that part.
 - **No UI task over 8 ms: not met.** The warm-up lasts about 3 seconds on the Claw (2 to 7 tasks over 8 ms a second, the longest 18 ms). After it a 30-second scroll has 3 to 9.
 
 ### OneXPlayer 3
 
-OneXPlayer 3 (Arc B390), 1920 × 1200 at 144 Hz, plugged in, Windows power mode Best performance. Before b9ea781 and after 061ea24, 24 November, with no rerun needed.
+OneXPlayer 3 (Arc B390), 1920 × 1200 at 144 Hz, plugged in, Windows power mode Best performance, power limits PL1 20 W and PL2 21 W in the device's own app. Before b9ea781 and after 061ea24, 24 November, with no rerun needed. The table is the first run; a second run of the same two builds the same day is under *Second run* below.
 
 | Measure | before | after |
 |---|---|---|
@@ -189,11 +189,21 @@ OneXPlayer 3 (Arc B390), 1920 × 1200 at 144 Hz, plugged in, Windows power mode 
 | While thumbnails are made: CPU cores | 5.50 | 2.92 |
 | Memory after scrolling: private / Java heap / pictures (MB) | 1,389 / 148 / 197 | 1,341 / 80 / 255 |
 
-**This device is two to three times slower than the Claw at everything, in both builds.** That covers scanning, thumbnails and the UI thread, which has tasks over 8 ms in nearly every second of every scroll (100 to 150 per scroll, not only in the warm-up). The cause isn't known yet. The device's own power setting is the first thing to check.
+**This device is two to three times slower than the Claw at everything, in both builds.** That covers scanning, thumbnails and the UI thread, which has tasks over 8 ms in nearly every second of every scroll (100 to 150 per scroll, not only in the warm-up). The cause isn't known. Whether the power limits above cause it is not tested.
+
+**Second run.** The second run repeats the first's thumbnail and scrolling numbers within the run-to-run noise: before and after, 285 and 229 thumbnails a minute, 137 and 140 frames per second on Videos, and 125 and 138 UI tasks over 8 ms there. The before build's Adaptive Glow scroll had a single 484 ms UI task. The start times of both runs:
+
+| Start to first page (s) | first run, before | first run, after | second run, before | second run, after |
+|---|---|---|---|---|
+| First start | 4.85 | 4.87 | 8.30 | 8.71 |
+| Everyday start | 3.38 | 8.44 | 8.10 | 3.40 |
+| Adaptive Glow start | 3.37 | 3.36 | 3.41 | 3.35 |
+
+Four of the twelve starts are 3.5 to 5 s slower than the same start in the other run, two in each build. In all four, SkyWing's log began about 4 s later than usual. The log's first line comes a second after the recorder starts, and starting the recorder sets up Java's graphics toolkit. So the time goes on Java starting, on that set-up or, in the after build, on the single-instance check (B38). The before build has no single-instance check and starts its recorder on the first line of its code, so the check isn't the cause. The runner from d9d2116 on times Java's start and the check for each start.
 
 Against the M1 targets:
 - **Scrolling at the refresh rate:** 139 frames per second on the 144 Hz screen in both builds. While thumbnails are made it went from 126 to 138, and the longest UI task from 125 ms to 36 ms.
-- **Cold start under 4 s: not met.** The first start takes 4.9 s in both builds. The everyday start took 8.44 s against 3.38 s before. In that one start SkyWing's own log began 4.8 s later than in any other start, before the window opened. That is close to the 5 s the single-instance check (B38) waits for an answer from a SkyWing already open, but it is one run and the log can't show it. The after build's other two starts on this device lost 0.3 s there.
+- **Cold start under 4 s: not met.** A normal first start takes 4.9 s in both builds, and a normal everyday start 3.4 s. Some starts in both builds take 3.5 to 5 s longer, before SkyWing's log begins (see *Second run*). The after build's normal starts lose 0.3 s more than the before build's before the log.
 - **No UI task over 8 ms: not met** in either build.
 
 ## 5. Not in this runner
