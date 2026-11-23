@@ -62,6 +62,21 @@ class SmoothingTest {
         } finally { node.removeNode() }
     }
 
+    /** Owner decision, 23 November: Fast is the default quality on every PC; a quality chosen for a video type is kept. */
+    @Test fun fastIsTheQualityUntilAVideoTypeSavesOne() {
+        val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
+        try {
+            val store = MotionPreferences(node)
+            assertEquals(MotionQuality.FAST, MotionSettings(0).quality)
+            assertEquals(MotionQuality.FAST, store.load("1080-sdr", 0).quality)
+            store.save("1080-sdr", MotionSettings(0, MotionQuality.BALANCED))
+            assertEquals(MotionQuality.BALANCED, store.load("1080-sdr", 0).quality)
+            assertEquals(MotionQuality.FAST, store.load("2160-sdr", 0).quality)
+            node.put("motion.1440-sdr.quality", "NOT-A-PRESET")
+            assertEquals(MotionQuality.FAST, store.load("1440-sdr", 0).quality)
+        } finally { node.removeNode() }
+    }
+
     @Test fun sustainedRecentDropsTripAndRecover() {
         val health = SmoothingHealth()
         assertFalse(health.sample(0, 0, true))

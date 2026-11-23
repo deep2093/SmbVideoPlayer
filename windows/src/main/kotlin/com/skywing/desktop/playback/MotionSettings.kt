@@ -11,9 +11,14 @@ enum class MotionQuality(val label: String, val superOptions: String, val analys
     BETTER("Better", "{gpu:1,pel:2}", "{block:{w:16,h:16,overlap:2},refine:[{thsad:200}]}", "algo:23,mask:{cover:80,area:30}"),
     // Half-block overlap stays even after refinement, including on the CPU renderer.
     BEST("Best", "{gpu:1,pel:4}", "{block:{w:8,h:8,overlap:3},refine:[{thsad:200}]}", "algo:23,mask:{cover:100,area:50}");
+
+    companion object {
+        /** Until a video type saves its own: Fast held 2× without drops on the laptop and both handhelds, also on battery (M0). */
+        val DEFAULT = FAST
+    }
 }
 
-data class MotionSettings(val stop: Int, val quality: MotionQuality = MotionQuality.BALANCED)
+data class MotionSettings(val stop: Int, val quality: MotionQuality = MotionQuality.DEFAULT)
 
 internal object MotionStops {
     val labels = listOf("2×", "2.5×", "3×", "4×")
@@ -40,7 +45,7 @@ internal object MotionStops {
 internal class MotionPreferences(private val prefs: Preferences, private val detectedVrr: () -> Boolean? = { null }) {
     fun load(key: String, defaultStop: Int): MotionSettings = MotionSettings(
         prefs.getInt("motion.$key.stop", defaultStop).coerceIn(0, 3),
-        MotionQuality.entries.firstOrNull { it.name == prefs.get("motion.$key.quality", "BALANCED") } ?: MotionQuality.BALANCED)
+        MotionQuality.entries.firstOrNull { it.name == prefs.get("motion.$key.quality", null) } ?: MotionQuality.DEFAULT)
     fun save(key: String, settings: MotionSettings) {
         prefs.putInt("motion.$key.stop", settings.stop.coerceIn(0, 3))
         prefs.put("motion.$key.quality", settings.quality.name)

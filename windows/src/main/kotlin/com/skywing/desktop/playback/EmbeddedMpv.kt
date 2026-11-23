@@ -393,7 +393,7 @@ class EmbeddedMpv(
             appendLine("Transfer: ${textProperty("video-params/gamma") ?: "unavailable"}; decoder: ${textProperty("hwdec-current") ?: "unavailable"}")
             appendLine("Selected: ${smoothingMode.label}; state: $state")
             if (smoothingMode == SmoothingMode.MOTION) {
-                appendLine("Engine: open-svpflow deadbad2; quality: ${appliedMotionSettings?.quality?.label ?: "Balanced"}; target: ${motion.target?.label ?: "none"} fps")
+                appendLine("Engine: open-svpflow deadbad2; quality: ${(appliedMotionSettings?.quality ?: MotionQuality.DEFAULT).label}; target: ${motion.target?.label ?: "none"} fps")
                 appendLine("Filter processing throughput: ${retainedBeat?.processingFps ?: "unavailable"} fps (not presented FPS)")
                 appendLine("Filter output callbacks: ${retainedBeat?.completed ?: 0}; observed graph generations: ${motion.rebuilds}")
             }
