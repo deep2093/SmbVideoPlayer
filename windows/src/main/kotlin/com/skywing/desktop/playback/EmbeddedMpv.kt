@@ -8,6 +8,7 @@ import com.sun.jna.ptr.IntByReference
 import java.awt.Canvas
 import java.io.Closeable
 import java.io.File
+import java.util.concurrent.locks.ReentrantReadWriteLock
 
 /**
  * Experimental native Windows x64 libmpv host.
@@ -27,13 +28,16 @@ class EmbeddedMpv(
         fun mpv_get_property(ctx: Pointer, name: String, format: Int, data: DoubleByReference): Int
         fun mpv_get_property(ctx: Pointer, name: String, format: Int, data: IntByReference): Int
         fun mpv_command(ctx: Pointer, args: Array<String?>): Int
+        fun mpv_command_async(ctx: Pointer, userdata: Long, args: Array<String?>): Int
         fun mpv_get_property_string(ctx: Pointer, name: String): Pointer?
         fun mpv_free(data: Pointer)
         fun mpv_terminate_destroy(ctx: Pointer)
     }
 
-    private var api: Api? = null
-    private var instance: Pointer? = null
+    @Volatile private var api: Api? = null
+    @Volatile private var instance: Pointer? = null
+    /** Held for reading by [commandAsync] and for writing by [close], so mpv is never destroyed under a command. */
+    private val lifetime = ReentrantReadWriteLock()
     private var surface: Long? = null
     private var closed = false
     private var rendererPreference = "Automatic"
@@ -58,7 +62,7 @@ class EmbeddedMpv(
     private var engineErrorCount = 0
     private val motionWarnings = java.util.ArrayDeque<String>()
     private val playerEvents = java.util.ArrayDeque<String>()
-    private var lastActionMillis = 0L
+    @Volatile private var lastActionMillis = 0L
     var lastError: String? = null
         private set
     /** A user-facing reason the video that was opened could not be played, or null. */
@@ -149,8 +153,7 @@ class EmbeddedMpv(
         }
     }
 
-    @Synchronized
-    private fun command(vararg args: String): Boolean {
+    private fun noteAction(args: Array<out String>) {
         val action = when {
             args.firstOrNull() == "seek" -> "seek requested"
             args.firstOrNull() == "loadfile" -> "file change requested"
@@ -159,9 +162,32 @@ class EmbeddedMpv(
             else -> null
         }
         if (action != null) recordAction(action)
+    }
+
+    @Synchronized
+    private fun command(vararg args: String): Boolean {
+        noteAction(args)
         val native = api ?: return false
         val context = instance ?: return false
         return native.mpv_command(context, (args.toList() + listOf(null)).toTypedArray()) >= 0
+    }
+
+    /**
+     * Sends a command the user gives from the screen thread without waiting: neither for mpv, which may be busy
+     * rebuilding filters, nor for another call on this player, such as [updateSmoothing] starting motion (B7). True
+     * when mpv queued it; mpv runs queued and waiting commands in the order they were sent. False while closing.
+     */
+    private fun commandAsync(vararg args: String): Boolean {
+        val read = lifetime.readLock()
+        if (!read.tryLock()) return false
+        try {
+            val native = api ?: return false
+            val context = instance ?: return false
+            noteAction(args)
+            return native.mpv_command_async(context, 0L, (args.toList() + listOf(null)).toTypedArray()) >= 0
+        } finally {
+            read.unlock()
+        }
     }
 
     // This measures only how quickly mpv accepts the load request, not first-frame time.
@@ -223,7 +249,8 @@ class EmbeddedMpv(
      * make mpv's small A/V clock corrections; it falls back for unsupported audio outputs. */
     @Synchronized
     fun updateSmoothing(mode: SmoothingMode): SmoothingStatus {
-        motion.lastAction = playerEvents.lastOrNull()?.let { it + " (" + (System.currentTimeMillis() - lastActionMillis) + " ms ago)" } ?: "none"
+        motion.lastAction = synchronized(playerEvents) { playerEvents.lastOrNull() }
+            ?.let { it + " (" + (System.currentTimeMillis() - lastActionMillis) + " ms ago)" } ?: "none"
         val motionWasActive = motion.active
         val filterFailed = drainEvents()
         DisplayVrr.refresh(if (monitorAdapter == "Intel") null else textProperty("display-names/0"))
@@ -413,7 +440,7 @@ class EmbeddedMpv(
                 appendLine("Retained incident throughput: " + incident.heartbeat?.processingFps + " fps; output callbacks: " + incident.heartbeat?.completed)
                 incident.counters.forEach { (key, value) -> appendLine("At incident $key: " + (value ?: "unavailable")) }
             }
-            appendLine("Recent playback actions: " + playerEvents.joinToString("; "))
+            appendLine("Recent playback actions: " + synchronized(playerEvents) { playerEvents.joinToString("; ") })
             appendLine("Last 20 VapourSynth warnings/errors:")
             if (motionWarnings.isEmpty()) appendLine("none") else motionWarnings.forEach { appendLine(it) }
             appendLine("State-duration history: not collected in this preview")
@@ -422,27 +449,36 @@ class EmbeddedMpv(
 
     private fun recordAction(action: String) {
         lastActionMillis = System.currentTimeMillis()
-        playerEvents.addLast(action)
-        while (playerEvents.size > 12) playerEvents.removeFirst()
+        synchronized(playerEvents) {
+            playerEvents.addLast(action)
+            while (playerEvents.size > 12) playerEvents.removeFirst()
+        }
         motion.lastAction = action
     }
 
     /** SkyWing owns fullscreen and its shared chrome/cursor inactivity deadline. */
-    fun setCursorHidden(hidden: Boolean): Boolean = command("set", "cursor-autohide", if (hidden) "always" else "no")
+    fun setCursorHidden(hidden: Boolean): Boolean = commandAsync("set", "cursor-autohide", if (hidden) "always" else "no")
 
     /** Read-only mpv property as text, for diagnostics and tests (for example "aid", "sid", "video-codec"). */
     internal fun diagnosticProperty(name: String): String? = textProperty(name)
+
+    /** Where the video is and whether it is paused or muted, read together. Call off the screen thread. */
+    data class Reading(val position: Double?, val duration: Double?, val paused: Boolean?, val muted: Boolean?)
+
+    @Synchronized
+    fun reading(): Reading = Reading(numberProperty("time-pos"), numberProperty("duration"), flagProperty("pause"), flagProperty("mute"))
 
     fun isPaused(): Boolean? = flagProperty("pause")
     fun isMuted(): Boolean? = flagProperty("mute")
     fun playbackPosition(): Double? = numberProperty("time-pos")
     fun playbackDuration(): Double? = numberProperty("duration")
     fun seekAbsolute(seconds: Double): Boolean =
-        seconds.isFinite() && command("seek", seconds.coerceAtLeast(0.0).toString(), "absolute")
+        seconds.isFinite() && commandAsync("seek", seconds.coerceAtLeast(0.0).toString(), "absolute")
 
-    fun togglePause(): Boolean = command("cycle", "pause")
-    fun pause(): Boolean = command("set", "pause", "yes")
-    fun seek(seconds: Int): Boolean = command("seek", seconds.toString(), "relative")
+    // Pause, seek, volume, mute and the cursor come from the screen thread, so they never wait (B7).
+    fun togglePause(): Boolean = commandAsync("cycle", "pause")
+    fun pause(): Boolean = commandAsync("set", "pause", "yes")
+    fun seek(seconds: Int): Boolean = commandAsync("seek", seconds.toString(), "relative")
     @Synchronized
     fun stop(): Boolean {
         expectedPath = null
@@ -451,21 +487,29 @@ class EmbeddedMpv(
         val restored = motion.end()
         return command("stop") && restored
     }
-    fun volumeUp(): Boolean = command("add", "volume", "5")
-    fun volumeDown(): Boolean = command("add", "volume", "-5")
-    fun toggleMute(): Boolean = command("cycle", "mute")
+    fun volumeUp(): Boolean = commandAsync("add", "volume", "5")
+    fun volumeDown(): Boolean = commandAsync("add", "volume", "-5")
+    fun toggleMute(): Boolean = commandAsync("cycle", "mute")
     fun nextAudioTrack(): Boolean = command("cycle", "aid")
     fun nextSubtitleTrack(): Boolean = command("cycle", "sid")
     fun subtitleOff(): Boolean = command("set", "sid", "no")
-    fun seekPercent(percent: Int): Boolean = command("seek", percent.coerceIn(0, 100).toString(), "absolute-percent")
+    fun seekPercent(percent: Int): Boolean = commandAsync("seek", percent.coerceIn(0, 100).toString(), "absolute-percent")
     @Synchronized
     override fun close() {
         closed = true
-        val native = api
-        val context = instance
-        instance = null
-        api = null
-        surface = null
+        val native: Api?
+        val context: Pointer?
+        lifetime.writeLock().lock()
+        try {
+            native = api
+            context = instance
+            instance = null
+            api = null
+            surface = null
+        } finally {
+            lifetime.writeLock().unlock()
+        }
+        // No command can start now: api and instance are cleared, and one already being sent has finished.
         if (native != null && context != null) native.mpv_terminate_destroy(context)
         motion.cleanup()
     }

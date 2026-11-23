@@ -74,6 +74,35 @@ class EmbeddedPlaybackNativeTest {
     }
 
     @Test(timeout = 120_000)
+    fun controlsOnTheScreenThreadDoNotWaitForABusyPlayer() = withPlayer { player ->
+        assertTrue(player.open(mp4))
+        waitFor("the clip to start playing") { (player.playbackPosition() ?: 0.0) > 0.3 }
+        // Another call holds the player for 2 s, as starting motion smoothing can (B7).
+        val busy = java.util.concurrent.CountDownLatch(1)
+        val holder = Thread {
+            synchronized(player) {
+                busy.countDown()
+                Thread.sleep(2_000)
+            }
+        }.apply { start() }
+        busy.await()
+        var waitedMs = 0L
+        var accepted = emptyList<Boolean>()
+        SwingUtilities.invokeAndWait {
+            val started = System.nanoTime()
+            accepted = listOf(player.togglePause(), player.setCursorHidden(false), player.volumeDown(), player.volumeUp(),
+                player.toggleMute(), player.toggleMute(), player.seek(1), player.seekAbsolute(2.0))
+            waitedMs = (System.nanoTime() - started) / 1_000_000
+        }
+        holder.join()
+        assertEquals(List(8) { true }, accepted, "mpv accepted every control")
+        assertTrue(waitedMs < 300, "the controls waited $waitedMs ms for the busy player")
+        waitFor("the pause to take effect") { player.isPaused() == true }
+        waitFor("the seek to 2 s to take effect") { (player.playbackPosition() ?: 0.0) in 1.8..2.6 }
+        assertEquals(false, player.isMuted(), "the two mute toggles ran in order")
+    }
+
+    @Test(timeout = 120_000)
     fun switchesBetweenTwoAudioTracksAndTwoSubtitleTracks() {
         assumeTrue("ffmpeg is needed to mux the multi-track MKV", TestMedia.ffmpeg != null)
         val clip = TestMedia.multiTrackMkv(Files.createTempDirectory(media.toPath(), "multi").toFile())

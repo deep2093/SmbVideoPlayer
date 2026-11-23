@@ -444,8 +444,9 @@ private fun SkyWingDesktopShell(
     LaunchedEffect(currentFile, closing) {
         val file = currentFile ?: return@LaunchedEffect
         suspend fun savePosition() {
-            val position = embedded.playbackPosition() ?: return
-            val length = embedded.playbackDuration() ?: return
+            val reading = withContext(Dispatchers.IO) { embedded.reading() }
+            val position = reading.position ?: return
+            val length = reading.duration ?: return
             runCatching { withContext(Dispatchers.IO) { historyStore.saveProgress(file, position, length) } }
                 .onSuccess { historyRevision++ }
         }
@@ -458,10 +459,12 @@ private fun SkyWingDesktopShell(
         val saves = HistorySaves(startedAt = System.nanoTime() / 1_000_000)
         while (true) {
             delay(5000)
-            val position = embedded.playbackPosition() ?: continue
-            val length = embedded.playbackDuration() ?: continue
+            // Read off the screen thread: the player may be busy, for example starting motion smoothing (B7).
+            val reading = withContext(Dispatchers.IO) { embedded.reading() }
+            val position = reading.position ?: continue
+            val length = reading.duration ?: continue
             val now = System.nanoTime() / 1_000_000
-            if (!saves.due(now, position, paused = embedded.isPaused() == true)) continue
+            if (!saves.due(now, position, paused = reading.paused == true)) continue
             runCatching { withContext(Dispatchers.IO) { historyStore.saveProgress(file, position, length) } }
                 .onSuccess {
                     saves.saved(now, position)
@@ -487,12 +490,11 @@ private fun SkyWingDesktopShell(
     LaunchedEffect(embedded, closing) {
         if (closing) return@LaunchedEffect
         while (true) {
-            val d = embedded.playbackDuration() ?: 0.0
-            val p = embedded.playbackPosition() ?: 0.0
-            duration = d.coerceAtLeast(0.0)
-            playbackTime = p.coerceAtLeast(0.0)
-            paused = embedded.isPaused() ?: true
-            muted = embedded.isMuted() ?: false
+            val reading = withContext(Dispatchers.IO) { embedded.reading() }
+            duration = (reading.duration ?: 0.0).coerceAtLeast(0.0)
+            playbackTime = (reading.position ?: 0.0).coerceAtLeast(0.0)
+            paused = reading.paused ?: true
+            muted = reading.muted ?: false
             if (!dragging && duration > 0) seekTarget = (playbackTime / duration * 100.0).toFloat().coerceIn(0f, 100f)
             delay(500)
         }
