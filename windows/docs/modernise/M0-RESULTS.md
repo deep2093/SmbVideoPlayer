@@ -154,24 +154,33 @@ HWiNFO isn't part of the runner. Start its logging yourself if it is installed.
 
 ### OneXPlayer 3 (Intel Arc B390)
 
+23 November, 15:46–16:45, with the handheld runner and the installed 0.1.101 (`Build:` line as in section 1). The same two clips as the Claw.
+
 | | Value |
 |---|---|
-| `Preferred motion GPU:` line | |
-| `Renderer:` line | |
-| `Display:` line | |
-| Power or TDP mode | |
-| 1080p clip frame rate | |
+| `Preferred motion GPU:` line | `Intel(R) Arc(TM) B390 GPU; driver: 32.0.101.9175` |
+| `Renderer:` line | `Intel(R) Arc(TM) B390 GPU; preference: Intel D3D11; output: gpu-next` |
+| `Display:` line | `144.00040424002876 Hz; VRR activation: not measured` |
+| Power or TDP mode | Windows power mode Best performance at the start and end of every run. PL1 20 W, PL2 21 W and CPU boost off, set by the owner before the runs and still set after them. |
+| 1080p clip frame rate | 23.976 fps (`source 23.97599983215332 fps`) |
 
 | Clip | Quality | Power | Drops in 5 min | Drops per minute | Restarts | Process CPU (cores) | Private memory, MB (start → end) | Battery drain (W; % per hour) | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1080p | Fast | Plugged in | | | | | | — | |
-| 1080p | Balanced | Plugged in | | | | | | — | |
-| 4K | Fast | Plugged in | | | | | | — | |
-| 4K | Balanced | Plugged in | | | | | | — | |
-| 1080p | Fast | Battery | | | | | | | |
-| 1080p | Balanced | Battery | | | | | | | |
-| 4K | Fast | Battery | | | | | | | |
-| 4K | Balanced | Battery | | | | | | | |
+| 1080p | Fast | Plugged in | 8 | 1.6 | 0 | 0.99 | 1,703 → 1,748 | — | Filter throughput 47.709 fps, target 47.95 fps. The drops came early: see the notes |
+| 1080p | Balanced | Plugged in | 0 | 0.0 | 0 | 1.43 | 1,872 → 1,894 | — | Filter throughput 49.746 fps, target 47.95 fps |
+| 4K | Fast | Plugged in | 0 | 0.0 | 0 | 2.31 | 3,878 → 3,918 | — | Filter throughput 58.36 fps, target 59.94 fps |
+| 4K | Balanced | Plugged in | 0 | 0.0 | 0 | 4.66 | 4,732 → 4,773 | — | Filter throughput 60.288 fps, target 59.94 fps |
+| 1080p | Fast | Battery | 0 | 0.0 | 0 | 1.01 | 1,711 → 1,739 | 11.0; 12.2 | Filter throughput 47.006 fps, target 47.95 fps |
+| 1080p | Balanced | Battery | 0 | 0.0 | 0 | 1.45 | 1,922 → 1,965 | 12.1; 13.4 | Filter throughput 49.139 fps, target 47.95 fps |
+| 4K | Fast | Battery | 0 | 0.0 | 0 | 2.35 | 3,649 → 3,912 | 20.2; 22.3 | Filter throughput 58.017 fps, target 59.94 fps |
+| 4K | Balanced | Battery | 0 | 0.0 | 0 | 4.67 | 4,731 → 4,775 | 23.1; 25.5 | Filter throughput 59.992 fps, target 59.94 fps |
+
+Notes:
+- All eight runs counted. In no window did another program come to the front, full screen drop or any keyboard or mouse input arrive. Every report B showed the run's class, SDR, 2× and quality, a local file and 1 → 1 graph generations. The filter output callbacks ran at 47.8–48.0 a second at 1080p and 59.9–60.0 at 4K.
+- The 8 drops in 1080p Fast plugged in came from a slow start: report A, at the end of the warm-up, showed 34 drops in its last minute, and report B showed none in its last minute. That run was the first after the runner started. The same clip at Balanced, which does more work, and at Fast on battery dropped nothing, so the cause was probably the start rather than too little speed. Rerunning it would confirm that.
+- Every report says `G-SYNC / FreeSync: false`, `lower automatically: false` and `VRR capability: unknown; Display capability unavailable; choice: automatic`. On the Claw the choice was manual and on. At 2×, the 1080p target of 47.95 fps fits the 144 Hz refresh (3 refreshes a frame); the 4K target of 59.94 fps doesn't.
+- Process CPU is about twice the Claw's, but the battery drain is lower: 11.0 W against 14.2 W at 1080p Fast, and 23.1 W against 40.0 W at 4K Balanced. Process CPU counts the time cores are busy, not the work done. Under a 20 W limit with CPU boost off, the cores run at lower clocks, so the same work keeps them busy longer while using less energy. Compare watts between the handhelds, not cores. The two also differ in processor, screen, power limit and boost, so this doesn't separate the causes; the power-limit runs of plan 5.7 item 5 will.
+- At these drains a full battery lasts about 8.2 hours for 1080p Fast and about 3.9 hours for 4K Balanced. Balanced at 1080p took 1.1 W more than Fast.
 
 ### MSI Claw 8
 
@@ -208,6 +217,7 @@ Notes:
 - **Automatic GPU (plan 5.3):** Automatic stays all-Intel unless run A drops frames, or run B holds 2× with clearly fewer drops at an acceptable power cost.
   Result of the laptop runs on 23 November: Automatic stays all-Intel. Run A held 2× without a drop, and run B dropped no fewer while drawing about 6.7 W more (CPU package plus NVIDIA). The owner saw and heard nothing odd in either run.
 - **Handheld default (plan 5.7, item 3):** the quality that holds 2× at 1080p without drops on battery becomes the handheld default. The plan starts from 1080p 2× Fast.
+  Result of the handheld runs on 23 November: Fast and Balanced both held 1080p 2× on battery without a drop on both handhelds. Fast drew 4.3 W less than Balanced on the Claw and 1.1 W less on the OneXPlayer 3. Both also held 4K 2× on battery without a drop. The choice between them is the owner's.
 
 ## 6. How this build picks its GPU
 
