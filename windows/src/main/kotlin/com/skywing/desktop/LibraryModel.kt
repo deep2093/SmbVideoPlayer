@@ -13,6 +13,9 @@ internal class LibraryModel(val store: WindowsMediaIndex) {
     var all by mutableStateOf(emptyList<WindowsMediaEntry>())
     var loading by mutableStateOf(true)
     var revision by mutableStateOf(0)
+    /** Shown on the start page (Folders) when the saved index could not be read as it was saved. */
+    var notice by mutableStateOf<String?>(null)
+        private set
 
     /** Call after sources were scanned, so every screen reloads. */
     fun changed() {
@@ -30,6 +33,7 @@ internal class LibraryModel(val store: WindowsMediaIndex) {
             loaded.distinctBy { it.path.lowercase() }.sortedBy { it.file.name.lowercase() }
         }
         all = distinct
+        notice = store.notice
         loading = false
         PerfMonitor.mark("library loaded", "videos" to distinct.size)
     }

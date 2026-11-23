@@ -31,9 +31,7 @@ class WindowsMediaIndexScaleTest {
             assertTrue(refreshed.none { it.path.endsWith("video-0.mkv") })
             assertTrue(refreshed.any { it.path.endsWith("moved-video.mkv") })
         } finally {
-            Files.deleteIfExists(directory.resolve("media-index.bin.tmp"))
-            Files.deleteIfExists(directory.resolve("media-index.bin"))
-            Files.deleteIfExists(directory)
+            directory.toFile().deleteRecursively()
         }
     }
 }

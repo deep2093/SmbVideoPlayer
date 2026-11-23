@@ -4,7 +4,9 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.EOFException
 import java.io.File
+import java.io.UTFDataFormatException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -24,6 +26,15 @@ internal data class WindowsMediaEntry(
     val file: File get() = File(ShareHosts.reachable(path))
 }
 
+/**
+ * The saved library: every video of every source, in `media-index.bin`. It is read once and kept in memory; every
+ * change goes through this object (one at a time) and is written straight through, followed by a good copy,
+ * `media-index.bak`. An index that can't be read (antivirus lock, half-written file, disk error) is not an empty
+ * library: it is read again a few times, then the good copy is used. With no good copy, a file that couldn't be opened
+ * or read is left alone and nothing is written until SkyWing starts again, so one bad read never wipes the other
+ * sources from the library. A file that was read but is damaged won't read better next time: it is kept as
+ * `media-index.bin.damaged` and the library starts again from the next scan.
+ */
 internal class WindowsMediaIndex(private val testIndexPath: Path? = null) {
     private val indexPath: Path by lazy {
         testIndexPath ?: run {
@@ -31,42 +42,19 @@ internal class WindowsMediaIndex(private val testIndexPath: Path? = null) {
             Paths.get(base, "SkyWing", "library", "media-index.bin")
         }
     }
+    private val copyPath: Path by lazy { indexPath.resolveSibling(indexPath.fileName.toString().substringBeforeLast('.') + ".bak") }
+
+    /** Null until the index is first needed. */
+    private var entries: List<WindowsMediaEntry>? = null
+    /** False when the index or its good copy couldn't be opened and neither was read: then nothing is written. */
+    private var writable = true
+
+    /** What the library pages say about the index; null when it was read as saved (or there is none yet). */
+    @Volatile var notice: String? = null
+        private set
 
     @Synchronized
-    fun load(): List<WindowsMediaEntry> {
-        return try {
-            if (!Files.isRegularFile(indexPath)) {
-                emptyList()
-            } else {
-                DataInputStream(BufferedInputStream(Files.newInputStream(indexPath))).use { input ->
-                    if (input.readInt() != MAGIC || input.readInt() != VERSION) {
-                        emptyList()
-                    } else {
-                        val count = input.readInt()
-                        if (count !in 0..MAX_ENTRIES) {
-                            emptyList()
-                        } else {
-                            buildList(count) {
-                                repeat(count) {
-                                    val path = input.readUTF()
-                                    val sourceId = input.readUTF()
-                                    val sourceType = input.readUTF()
-                                    val sourceName = input.readUTF()
-                                    val size = input.readLong()
-                                    val modified = input.readLong()
-                                    if (path.isNotBlank() && sourceId.isNotBlank() && sourceType in setOf("PC", "SMB")) {
-                                        add(WindowsMediaEntry(path, sourceId, sourceType, sourceName, size, modified))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
+    fun load(): List<WindowsMediaEntry> = entries ?: read().also { entries = it }
 
     @Synchronized
     fun replaceSource(sourceId: String, sourceType: String, sourceName: String, files: List<File>, keep: (String) -> String = { it }, preserve: List<WindowsMediaEntry> = emptyList()): Boolean {
@@ -82,15 +70,17 @@ internal class WindowsMediaIndex(private val testIndexPath: Path? = null) {
         val combined = fresh + preserve.filter { it.sourceId == sourceId && seen.add(it.path.lowercase(Locale.ROOT)) }
         val oldSource = previous.filter { it.sourceId == sourceId }
         if (oldSource.size == combined.size && oldSource.associateBy { it.path.lowercase(Locale.ROOT) } == combined.associateBy { it.path.lowercase(Locale.ROOT) }) return false
-        write(previous.filterNot { it.sourceId == sourceId } + combined)
+        save(previous.filterNot { it.sourceId == sourceId } + combined)
         return true
     }
 
     /** Drops entries matching [unwanted]; returns how many were dropped. */
+    @Synchronized
     fun removeWhere(unwanted: (WindowsMediaEntry) -> Boolean): Int {
         val all = load()
+        if (!writable) return 0
         val kept = all.filterNot(unwanted)
-        if (kept.size != all.size) write(kept)
+        if (kept.size != all.size) save(kept)
         return all.size - kept.size
     }
 
@@ -104,12 +94,90 @@ internal class WindowsMediaIndex(private val testIndexPath: Path? = null) {
                 entry.copy(path = new, size = file.length(), modified = file.lastModified())
             else entry
         }
-        if (changed != current) write(changed)
+        if (changed != current) save(changed)
     }
 
-    private fun write(entries: List<WindowsMediaEntry>) {
-        require(entries.size <= MAX_ENTRIES) { "The library index is too large to save" }
-        val target = indexPath
+    private sealed interface Read {
+        data object Missing : Read
+        /** The file couldn't be opened or read (another program holds it, a disk error): it may read next time. */
+        data object Locked : Read
+        /** The file was read but isn't a whole index: reading it again won't help. */
+        data object Damaged : Read
+        data class Entries(val entries: List<WindowsMediaEntry>) : Read
+    }
+
+    private fun read(): List<WindowsMediaEntry> {
+        val main = readRetrying(indexPath)
+        if (main is Read.Entries) return main.entries
+        val copy = readRetrying(copyPath)
+        if (copy is Read.Entries) return copy.entries.also { notice = RESTORED }
+        val damaged = listOf(indexPath to main, copyPath to copy).filter { it.second == Read.Damaged }.map { it.first }
+        if (main == Read.Locked || copy == Read.Locked || !damaged.all(::keepDamaged)) {
+            writable = false
+            notice = UNREADABLE
+        } else if (damaged.isNotEmpty()) {
+            notice = REBUILT
+        }
+        return emptyList()
+    }
+
+    /** Moves a damaged file out of the way, keeping it as it is; false when it can't be moved. */
+    private fun keepDamaged(file: Path): Boolean = runCatching {
+        Files.move(file, file.resolveSibling(file.fileName.toString() + ".damaged"), StandardCopyOption.REPLACE_EXISTING)
+    }.isSuccess
+
+    /** A file another program holds for a moment (an antivirus scan) gets [READ_ATTEMPTS] tries. */
+    private fun readRetrying(file: Path): Read {
+        repeat(READ_ATTEMPTS - 1) {
+            val result = read(file)
+            if (result != Read.Locked) return result
+            Thread.sleep(READ_RETRY_MS)
+        }
+        return read(file)
+    }
+
+    private fun read(file: Path): Read {
+        if (!Files.exists(file)) return Read.Missing
+        return try {
+            DataInputStream(BufferedInputStream(Files.newInputStream(file))).use { input ->
+                if (input.readInt() != MAGIC || input.readInt() != VERSION) return Read.Damaged
+                val count = input.readInt()
+                if (count !in 0..MAX_ENTRIES) return Read.Damaged
+                val entries = buildList(count) {
+                    repeat(count) {
+                        val path = input.readUTF()
+                        val sourceId = input.readUTF()
+                        val sourceType = input.readUTF()
+                        val sourceName = input.readUTF()
+                        val size = input.readLong()
+                        val modified = input.readLong()
+                        if (path.isNotBlank() && sourceId.isNotBlank() && sourceType in setOf("PC", "SMB")) {
+                            add(WindowsMediaEntry(path, sourceId, sourceType, sourceName, size, modified))
+                        }
+                    }
+                }
+                // Anything after the last entry means the file isn't what was written.
+                if (input.read() != -1) Read.Damaged else Read.Entries(entries)
+            }
+        } catch (_: EOFException) {
+            Read.Damaged // shorter than it says: half-written
+        } catch (_: UTFDataFormatException) {
+            Read.Damaged
+        } catch (_: Exception) {
+            Read.Locked
+        }
+    }
+
+    /** Writes the index, then its good copy, and only then keeps [next] as the library. */
+    private fun save(next: List<WindowsMediaEntry>) {
+        check(writable) { UNREADABLE }
+        require(next.size <= MAX_ENTRIES) { "The library index is too large to save" }
+        write(indexPath, next)
+        write(copyPath, next)
+        entries = next
+    }
+
+    private fun write(target: Path, entries: List<WindowsMediaEntry>) {
         Files.createDirectories(target.parent)
         val temporary = target.resolveSibling(target.fileName.toString() + ".tmp")
         DataOutputStream(BufferedOutputStream(Files.newOutputStream(temporary))).use { output ->
@@ -136,6 +204,11 @@ internal class WindowsMediaIndex(private val testIndexPath: Path? = null) {
         private const val MAGIC = 0x53574C49
         private const val VERSION = 1
         private const val MAX_ENTRIES = 100_000
+        private const val READ_ATTEMPTS = 3
+        private const val READ_RETRY_MS = 200L
+        const val RESTORED = "Library couldn't be read. Restored the last good copy."
+        const val UNREADABLE = "Library couldn't be opened (another program may be using it), so nothing is saved until it can be. Restart SkyWing to try again."
+        const val REBUILT = "Library couldn't be read and had no good copy, so it's being made again from your PC folders; add network drives to it again. The old file is kept as media-index.bin.damaged."
     }
 }
 

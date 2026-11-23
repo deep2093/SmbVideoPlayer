@@ -292,6 +292,7 @@ internal fun FoldersScreen(
                 PageTitle(
                     "Folders",
                     when {
+                        library.notice != null -> library.notice!!
                         library.loading -> "Loading your library…"
                         library.all.isEmpty() -> "Add folders or a network share in Files"
                         else -> plural(library.all.size, "video")

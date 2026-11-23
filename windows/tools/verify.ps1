@@ -82,7 +82,7 @@ $rules = @(
        Tests = @("$pkg.AccessibilitySemanticsTest", "$pkg.SkyUiLogicTest", "$pkg.AccessBridgeTreeTest", "$pkg.automation.SkyWingAutomationTest") }
     @{ Area = 'Library'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(LibraryModel|LibrarySync|LocalFolderLibrary|WindowsLibraryData|VideosScreen|VideoViews|FoldersScreen|FolderOrganizer|FolderPickers|Thumbnails|Covers|VideoRename|ChangeCoverDialog)\.kt$'
-       Tests = @("$pkg.FolderOrganizerTest", "$pkg.WindowsMediaIndexScaleTest", "$pkg.HubBackNavigationTest", "$pkg.automation.LibraryAutomationTest", "$pkg.automation.SkyWingAutomationTest") }
+       Tests = @("$pkg.FolderOrganizerTest", "$pkg.WindowsMediaIndexScaleTest", "$pkg.WindowsMediaIndexSafetyTest", "$pkg.HubBackNavigationTest", "$pkg.automation.LibraryAutomationTest", "$pkg.automation.SkyWingAutomationTest") }
     @{ Area = 'SMB / network shares'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(ShareHosts|WindowsShareBrowser|WindowsShareProfileStore|FilesScreen)\.kt$'
        Tests = @("$pkg.WindowsShareBrowserTest", "$pkg.PortSettingsTest", "$pkg.automation.NetworkAndStabilityAutomationTest") }
