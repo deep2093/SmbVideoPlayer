@@ -46,6 +46,8 @@ class MotionEngineTest {
         // even where the output (60.31 fps) is within 1% of the display.
         val measured = assertNotNull(MotionRate.source(24.123))
         assertEquals("audio", MotionRate.videoSync(measured, MotionStops.rate(measured, 1), 60.0, vrr = false))
+        // Plan 5.8 rule 10: a standard rate whose frames are off its period is a variable rate's average.
+        assertEquals("audio", MotionRate.videoSync(film, output, 59.94, vrr = false, variable = true))
     }
 
     @Test fun restoresOriginalPropertiesAndPreservesOtherFiltersAfterPartialFailure() {
@@ -86,13 +88,16 @@ class MotionEngineTest {
     @Test fun scriptUsesExactOutputDurationsAndEscapedLocalPaths() {
         val script = SvpScript.create(File("C:/SkyWing's runtime/é"), 0x7ff612340000,
             MotionRate(24000,1001), MotionRate(120000,1001))
-        assertTrue(script.contains("out = core.std.AssumeFPS(out, fpsnum=120000, fpsden=1001)"))
+        // Each output frame of a standard rate is its exact period (here 1001/120000 s) when its source frames are within
+        // mpv's rounding tolerance of theirs; a frame further off keeps its own time (plan 5.8 rule 10).
+        assertTrue(script.contains("out = follow_source_times(out, 5, 1, 24000, 1001, True)"), script)
+        assertTrue(script.contains("tolerance = Fraction(31, 10000)"), script)
         assertTrue(script.contains("num:120000,den:1001"))
         assertTrue(script.contains("SkyWing\\'s"))
         assertFalse(script.contains("192.168."))
         assertTrue(script.contains("video_in.set_output()"))
         assertTrue(script.contains("scene:{mode:0}"))
-        assertFalse(script.contains("follow_source_times(out"))
+        assertFalse(script.contains("core.std.AssumeFPS(out"))
     }
 
     @Test fun scriptTimesOtherRatesFromTheSourceFrames() {
@@ -103,7 +108,7 @@ class MotionEngineTest {
         // (2.5×: five output frames for every two source frames), not from one rate the video may not have.
         assertTrue(script.contains("clip = core.std.AssumeFPS(video_in, fpsnum=23061, fpsden=1000)"))
         assertTrue(script.contains("num:23061,den:400"))
-        assertTrue(script.contains("out = follow_source_times(out, 5, 2, 23061, 1000)"))
+        assertTrue(script.contains("out = follow_source_times(out, 5, 2, 23061, 1000, False)"))
         assertFalse(script.contains("core.std.AssumeFPS(out"))
         // Only the smoothing stops (2×, 2.5×, 3× and 4×) are supported multipliers.
         assertFailsWith<IllegalArgumentException> { SvpScript.create(File("C:/runtime"), status, measured, MotionRate(60)) }
@@ -180,6 +185,8 @@ class MotionEngineTest {
             assertNull(session.heartbeat(), "nothing written yet")
             beat(session, 42, 120, 47.5, 1_700_000_000_000)
             assertEquals(MotionHeartbeat("42", 120, 47.5, 1_700_000_000_000), session.heartbeat())
+            beat(session, 42, 144, 47.5, 1_700_000_000_500, irregular = 5)
+            assertEquals(MotionHeartbeat("42", 144, 47.5, 1_700_000_000_500, irregularFrames = 5), session.heartbeat())
             assertTrue(root.listFiles()!!.none { it.name.contains(".status") })
         } finally { session.release(); root.deleteRecursively() }
     }
@@ -234,9 +241,40 @@ class MotionEngineTest {
         } finally { session.release(); root.deleteRecursively() }
     }
 
+    /**
+     * Plan 5.8 rule 10: a phone video can average a standard rate (30 fps) while its frames are not evenly spaced. Once
+     * the script finds frames off the period, the file is smoothed as a variable rate: its frames keep their own times
+     * and play against the audio. One or two odd frames, such as a frame lost in a recording, do not change that.
+     */
+    @Test fun aStandardRateWithFramesOffItsPeriodIsSmoothedAsAVariableRate() {
+        val root = Files.createTempDirectory("motion-variable-").toFile()
+        val props = mapOf("hwdec" to "auto-safe", "video-sync" to "audio", "interpolation" to "no")
+        val session = MotionSession(props::get, { true }, { root }, { null }, { root })
+        try {
+            assertNull(session.begin("phone", MotionRate(30), MotionRate(60)))
+            assertFalse(session.variableRate)
+            beat(session, 1, 30, 60.0, 1_700_000_000_000, irregular = MotionSession.VARIABLE_FRAMES - 1L)
+            assertNotNull(session.heartbeat())
+            assertFalse(session.variableRate, "a frame or two off the period is not a variable rate")
+            beat(session, 1, 60, 60.0, 1_700_000_000_500, irregular = MotionSession.VARIABLE_FRAMES.toLong())
+            assertNotNull(session.heartbeat())
+            assertTrue(session.variableRate)
+            // A seek rebuilds the script, which counts again from none; the file stays a variable rate.
+            beat(session, 2, 10, 60.0, 1_700_000_001_000)
+            assertNotNull(session.heartbeat())
+            assertTrue(session.variableRate)
+            assertTrue(session.end())
+            assertNull(session.begin("film", MotionRate(24), MotionRate(48)))
+            assertFalse(session.variableRate)
+            assertTrue(session.end())
+            assertNull(session.begin("phone", MotionRate(30), MotionRate(60)))
+            assertTrue(session.variableRate, "known for the file before the script counts again")
+        } finally { session.release(); root.deleteRecursively() }
+    }
+
     /** Writes one beat as the script does: the sequence is odd while writing, and [finish] makes it even again. */
     private fun beat(session: MotionSession, generation: Long, completed: Long, fps: Double, updated: Long,
-                     state: Long = HeartbeatMemory.RUNNING, finish: Boolean = true) {
+                     state: Long = HeartbeatMemory.RUNNING, finish: Boolean = true, irregular: Long = 0) {
         val memory = Pointer(assertNotNull(session.heartbeatAddress))
         val writing = memory.getLong(HeartbeatMemory.SEQUENCE).let { if (it % 2 == 1L) it else it + 1 }
         memory.setLong(HeartbeatMemory.SEQUENCE, writing)
@@ -245,6 +283,7 @@ class MotionEngineTest {
         memory.setLong(HeartbeatMemory.COMPLETED, completed)
         memory.setDouble(HeartbeatMemory.FPS, fps)
         memory.setLong(HeartbeatMemory.UPDATED, updated)
+        memory.setLong(HeartbeatMemory.IRREGULAR, irregular)
         if (finish) memory.setLong(HeartbeatMemory.SEQUENCE, writing + 1)
     }
 

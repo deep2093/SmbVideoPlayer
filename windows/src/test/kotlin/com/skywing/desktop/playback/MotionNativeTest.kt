@@ -115,13 +115,6 @@ class MotionNativeTest {
     }
 
     /**
-     * A variable-rate MP4 (23.976 fps with every fifth frame missing, so frames are 42 or 83 ms apart) smoothed 2× and
-     * 2.5×. mpv times the filter's output by adding up frame durations. Each output frame stands for a source position,
-     * a half or two-fifths of a frame after the one before, and must show at that position's time between its source
-     * frames, also after a seek. Retiming to the average rate instead puts frames up to 30 ms off. The fixture has no
-     * B-frames, so each frame's container duration is its display time.
-     */
-    /**
      * Plan 5.8 rule 9, checked in the pinned libmpv: `deinterlace=auto` (SkyWing's setting) deinterlaces only frames
      * flagged interlaced, and `deinterlace-active` or `video-frame-info/interlaced` tells SkyWing so.
      */
@@ -287,25 +280,96 @@ class MotionNativeTest {
         }
     }
 
-    @Test(timeout = 240000) fun variableRateVideoKeepsItsFrameTimesWhenSmoothed() {
+    /**
+     * A variable-rate MP4 (23.976 fps with every fifth frame missing, so frames are 42 or 83 ms apart) smoothed 2× and
+     * 2.5×. mpv times the filter's output by adding up frame durations. Each output frame stands for a source position,
+     * a half or two-fifths of a frame after the one before, and must show at that position's time between its source
+     * frames, also after a seek. Retiming to the average rate instead puts frames up to 30 ms off. The fixture has no
+     * B-frames, so each frame's container duration is its display time.
+     */
+    @Test(timeout = 240000) fun variableRateVideoKeepsItsFrameTimesWhenSmoothed() = withFixtures { folder ->
+        val video = encode(folder, "variable-rate.mp4", "24000/1001", "-vf", "select='not(eq(mod(n,5),4))'",
+            "-fps_mode", "vfr", "-bf", "0")
+        val smoothed = smooth(video, "motion-vfr-native.log") { source, shown, p, q, what -> assertFollows(source, shown, p, q, what) }
+        assertTrue(smoothed.gaps.any { it > 0.08 }, "The fixture has no missing frames: ${smoothed.gaps}")
+        assertFalse(smoothed.rate.standard, "the fixture's average is measured, ${smoothed.rate}")
+    }
+
+    /**
+     * Plan 5.8 rule 10: a phone video can average a standard rate while its frames are not evenly spaced. Here frames
+     * are 50 and 17 ms apart, 30 fps on average, and mpv reports 30 fps for MP4. Smoothed, each output frame must still
+     * show at its source position's time, and SkyWing must learn that the rate varies, to play it against the audio.
+     * Checked in MP4 without and with B-frames: mpv gives each frame the time to the next one's in display order, so
+     * B-frames change nothing. Also checked in Matroska. There mpv reports the default duration ffmpeg writes, 60 fps
+     * (the fastest frames), and frame times rounded to the millisecond: 17 and 16 ms gaps are 1/60 s rounded, and count
+     * as that exact period, while the 50 ms gaps are off it. Output frames are then within a millisecond of the
+     * rounded times.
+     */
+    @Test(timeout = 400000) fun aVariableRateThatAveragesAStandardRateKeepsItsFrameTimes() = withFixtures { folder ->
+        val vary = arrayOf("-vf", "select='not(mod(n,4))+eq(mod(n,4),3)'", "-fps_mode", "vfr")
+        for ((name, bFrames, rate) in listOf(Triple("averages-30.mp4", "0", MotionRate(30)),
+            Triple("averages-30-b-frames.mp4", "3", MotionRate(30)), Triple("averages-30.mkv", "3", MotionRate(60)))) {
+            val video = encode(folder, name, "60", *vary, "-bf", bFrames)
+            val within = if (name.endsWith(".mkv")) 1e-3 else 1e-4
+            val smoothed = smooth(video, "motion-vfr-standard-native.log") { source, shown, p, q, what ->
+                assertFollows(source, shown, p, q, "$name, $what", within)
+            }
+            assertEquals(rate, smoothed.rate, "$name's standard rate")
+            assertTrue(smoothed.gaps.any { it > 0.045 } && smoothed.gaps.any { it < 0.02 }, "$name is not uneven: ${smoothed.gaps}")
+            assertTrue(smoothed.variable, "$name: SkyWing did not learn that its rate varies")
+        }
+    }
+
+    /**
+     * Plan 5.8 rule 10's other side: a constant 23.976 fps Matroska file, whose frame times are rounded to the
+     * millisecond (41 or 42 ms apart), is retimed to its exact period, every output frame 1001/48000 s after the one
+     * before at 2×, and stays a constant rate, so it keeps display-resample's exact cadence.
+     */
+    @Test(timeout = 240000) fun aConstantRateMatroskaFileIsRetimedToItsExactPeriod() = withFixtures { folder ->
+        val video = encode(folder, "constant-23.976.mkv", "24000/1001", "-bf", "3")
+        val smoothed = smooth(video, "motion-mkv-native.log") { _, shown, p, q, what ->
+            val step = q * 1001.0 / (p * 24000.0)
+            shown.forEachIndexed { k, time -> assertEquals(shown[0] + k * step, time, 1e-5, "$what: output frame $k of $shown") }
+        }
+        assertEquals(MotionRate(24000, 1001), smoothed.rate)
+        assertTrue(smoothed.gaps.any { abs(it - 0.041) < 1e-4 } && smoothed.gaps.any { abs(it - 0.042) < 1e-4 },
+            "Matroska rounds frame times to the millisecond: ${smoothed.gaps}")
+        assertFalse(smoothed.variable, "a constant rate's rounded times are not a variable rate")
+    }
+
+    private fun withFixtures(block: (File) -> Unit) {
         assumeTrue(System.getenv("SKYWING_TEST_MPV") == "true")
-        val ffmpeg = TestMedia.ffmpeg
-        assumeTrue("ffmpeg is needed for the variable-rate fixture", ffmpeg != null)
-        val resources = File(System.getProperty("compose.application.resources.dir"))
+        assumeTrue("ffmpeg is needed for the frame-time fixtures", TestMedia.ffmpeg != null)
         assertNotNull(MotionRuntime.directory(), "CI must bundle the portable engine before native tests")
-        val folder = Files.createTempDirectory("skywing-motion-vfr-").toFile()
-        val video = File(folder, "variable-rate.mp4")
-        val encode = ProcessBuilder(ffmpeg!!.absolutePath, "-hide_banner", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=24000/1001:duration=4",
-            "-vf", "select='not(eq(mod(n,5),4))'", "-fps_mode", "vfr",
-            "-c:v", "libx264", "-preset", "veryfast", "-bf", "0", "-pix_fmt", "yuv420p", video.absolutePath,
+        val folder = Files.createTempDirectory("skywing-motion-times-").toFile()
+        try { block(folder) } finally { folder.deleteRecursively() }
+    }
+
+    /** A 4-second generated clip at [rate] fps, encoded by ffmpeg with [options]. */
+    private fun encode(folder: File, name: String, rate: String, vararg options: String): File {
+        val video = File(folder, name)
+        val encode = ProcessBuilder(listOf(TestMedia.ffmpeg!!.absolutePath, "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=$rate:duration=4") + options +
+            listOf("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", video.absolutePath),
         ).redirectErrorStream(true).start()
         val encodeLog = encode.inputStream.bufferedReader().readText()
         assertTrue(encode.waitFor(60, TimeUnit.SECONDS) && encode.exitValue() == 0 && video.isFile, "ffmpeg: $encodeLog")
+        return video
+    }
+
+    /** The rate SkyWing smoothed [video] at, its frames' own gaps, and whether it found the rate varies. */
+    private data class Smoothed(val rate: MotionRate, val gaps: List<Double>, val variable: Boolean)
+
+    /**
+     * Smooths [video] at 2× and 2.5× from the first frame and after a seek, and gives [check] the frames' own times and
+     * the output frames' times, one frame step at a time, with p output frames for every q source frames.
+     */
+    private fun smooth(video: File, logName: String, check: (List<Double>, List<Double>, Int, Int, String) -> Unit): Smoothed {
+        val resources = File(System.getProperty("compose.application.resources.dir"))
         val api = Native.load(File(resources, "libmpv-2.dll").path, Api::class.java,
             mapOf(Library.OPTION_STRING_ENCODING to "UTF-8"))
         val ctx = api.mpv_create()
-        val log = File("build/reports/tests/test/motion-vfr-native.log").absoluteFile
+        val log = File("build/reports/tests/test/$logName").absoluteFile
         log.parentFile.mkdirs()
         fun get(name: String): String? {
             val p = api.mpv_get_property_string(ctx, name) ?: return null
@@ -330,40 +394,20 @@ class MotionNativeTest {
                 add(position())
             }
         }
-        // The time of source position x: whole frames, then a fraction of the next frame's duration.
-        fun timeAt(source: List<Double>, x: Double): Double {
-            val j = x.toInt()
-            return source[j] + (x - j) * (source[j + 1] - source[j])
-        }
-        // p output frames for every q source frames: each output frame is q/p of a source frame after the one before,
-        // counted from the whole frame the filter started at.
-        fun assertFollows(source: List<Double>, shown: List<Double>, p: Int, q: Int, what: String) {
-            val j = source.indexOfLast { it <= shown[0] + 1e-4 }
-            assertTrue(j >= 0 && j + 1 < source.size, "$what: the first frame, at ${shown[0]} s, is outside $source")
-            val position = j + (shown[0] - source[j]) / (source[j + 1] - source[j])
-            assertEquals(Math.round(position * p).toDouble(), position * p, 1e-3 * p,
-                "$what: the first frame, at ${shown[0]} s, is not at an output frame's position")
-            val first = Math.round(position * p).toDouble() / p
-            shown.forEachIndexed { k, time ->
-                val x = first + k * q.toDouble() / p
-                if (x < source.size - 1) assertEquals(timeAt(source, x), time, 1e-4, "$what: output frame $k of $shown against $source")
-            }
-        }
-        val session = MotionSession(::get, ::command, scriptDirectory = { folder })
+        val session = MotionSession(::get, ::command, scriptDirectory = { video.parentFile })
         try {
             listOf("config" to "no", "vo" to "null", "audio" to "no", "keep-open" to "yes", "hwdec" to "no",
                 "pause" to "yes", "log-file" to log.path).forEach { (k, v) -> assertTrue(api.mpv_set_option_string(ctx, k, v) >= 0) }
             assertTrue(api.mpv_initialize(ctx) >= 0)
             assertTrue(command(listOf("loadfile", video.path)))
-            waitFor("The variable-rate fixture did not load") {
+            waitFor("${video.name} did not load") {
                 get("container-fps")?.toDoubleOrNull() != null && get("time-pos")?.toDoubleOrNull() != null
             }
             // Each frame's own time, from playback without the filter.
             val source = frameTimes(24)
-            assertTrue(source.zipWithNext { a, b -> b - a }.any { it > 0.08 }, "The fixture has no missing frames: $source")
             val rate = MotionRate.source(assertNotNull(get("container-fps")?.toDoubleOrNull()))
-            assertNotNull(rate, "SkyWing must smooth the fixture's average rate, " + get("container-fps") + " fps")
-            // 2× and 2.5× (five output frames for every two source frames), the stops for a rate near 24 fps.
+            assertNotNull(rate, "SkyWing must smooth ${video.name}'s average rate, " + get("container-fps") + " fps")
+            // 2× and 2.5× (five output frames for every two source frames), the stops for a rate near 24 or 30 fps.
             for ((stop, p, q) in listOf(Triple(0, 2, 1), Triple(1, 5, 2))) {
                 val label = MotionStops.labels[stop]
                 assertTrue(command(listOf("seek", "0", "absolute+exact")))
@@ -374,21 +418,40 @@ class MotionNativeTest {
                 waitFor("No output from the motion engine at $label: " + session.failure) {
                     (session.heartbeat()?.completed ?: 0) > 0 && get("seeking") == "no"
                 }
-                assertFollows(source, frameTimes((source.size - 2) * p / q), p, q, "$label from the start")
+                check(source, frameTimes((source.size - 2) * p / q), p, q, "$label from the start")
                 // A seek rebuilds the filter, which then times its output from the first frame it gets.
                 val generation = session.heartbeat()?.generation
                 assertTrue(command(listOf("seek", String.format(Locale.ROOT, "%.6f", source[9]), "absolute+exact")))
                 waitFor("Motion did not restart after the seek at $label: " + session.failure) {
                     session.heartbeat()?.generation.let { it != null && it != generation } && get("seeking") == "no"
                 }
-                assertFollows(source, frameTimes(20), p, q, "$label after a seek")
+                check(source, frameTimes(20), p, q, "$label after a seek")
                 assertNull(session.failure)
                 assertTrue(session.end(), "Smoothing at $label did not end")
             }
+            return Smoothed(rate, source.zipWithNext { a, b -> b - a }, session.variableRate)
         } finally {
             api.mpv_terminate_destroy(ctx)
             session.release()
-            folder.deleteRecursively()
+        }
+    }
+
+    // The time of source position x: whole frames, then a fraction of the next frame's duration.
+    private fun timeAt(source: List<Double>, x: Double): Double {
+        val j = x.toInt()
+        return source[j] + (x - j) * (source[j + 1] - source[j])
+    }
+
+    // p output frames for every q source frames: each output frame is q/p of a source frame after the one before,
+    // counted from the whole frame the filter started at.
+    private fun assertFollows(source: List<Double>, shown: List<Double>, p: Int, q: Int, what: String, within: Double = 1e-4) {
+        val j = source.indexOfLast { it <= shown[0] + within }
+        assertTrue(j >= 0 && j + 1 < source.size, "$what: the first frame, at ${shown[0]} s, is outside $source")
+        // The nearest output frame's position; output frame 0 below must show at its time.
+        val first = Math.round((j + (shown[0] - source[j]) / (source[j + 1] - source[j])) * p).toDouble() / p
+        shown.forEachIndexed { k, time ->
+            val x = first + k * q.toDouble() / p
+            if (x < source.size - 1) assertEquals(timeAt(source, x), time, within, "$what: output frame $k of $shown against $source")
         }
     }
 }

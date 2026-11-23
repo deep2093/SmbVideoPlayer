@@ -43,10 +43,11 @@ internal data class MotionRate(val numerator: Int, val denominator: Int = 1) {
          * mpv's video-sync while smoothing to [target]. Resampling to a fixed screen whose refresh is the output rate
          * or a whole multiple of it keeps a standard rate's exact cadence (plan 5.4). Any other rate may be variable,
          * so its frames keep their own times against the audio, as do all frames when [vrr] lets the screen follow.
+         * [variable]: the standard rate is a variable rate's average, found from its frames (plan 5.8 rule 10).
          */
-        fun videoSync(source: MotionRate, target: MotionRate, displayHz: Double?, vrr: Boolean): String {
+        fun videoSync(source: MotionRate, target: MotionRate, displayHz: Double?, vrr: Boolean, variable: Boolean = false): String {
             val even = displayHz?.takeIf { it.isFinite() && it > 0 }?.let { MotionStops.fits(target.fps, it) } == true
-            return if (source.standard && !vrr && even) "display-resample" else "audio"
+            return if (source.standard && !variable && !vrr && even) "display-resample" else "audio"
         }
     }
 }
@@ -97,6 +98,10 @@ internal class MotionSession(
     var rebuilds: Int = 0
         private set
     val active: Boolean get() = previous != null
+    /** Files whose standard rate turned out to be a variable rate's average (plan 5.8 rule 10), kept per file. */
+    private val variableFiles = mutableSetOf<String>()
+    /** The current file's frames were found off its standard rate's period: they keep their own times. */
+    val variableRate: Boolean get() = path in variableFiles
 
     fun begin(file: String, source: MotionRate, rate: MotionRate, quality: MotionQuality = MotionQuality.BALANCED): String? {
         failedFiles[file]?.let { failure = it; return it }
@@ -159,6 +164,7 @@ internal class MotionSession(
             started = nowMillis()
         }
         lastHeartbeat = parsed
+        if (parsed.irregularFrames >= VARIABLE_FRAMES) path?.let(variableFiles::add)
         return parsed
     }
 
@@ -224,6 +230,14 @@ internal class MotionSession(
         heartbeatBlocks.forEach(HeartbeatMemory::free)
         heartbeatBlocks.clear()
     }
+
+    companion object {
+        /**
+         * Source frames off a standard rate's period that make it a variable rate's average. One or two, such as a frame
+         * lost in a recording, still play at the exact cadence; a phone or screen recording has many within seconds.
+         */
+        const val VARIABLE_FRAMES = 3
+    }
 }
 
 /**
@@ -234,13 +248,15 @@ internal class MotionSession(
  * thread's loads, in program order, so no fence is needed on Windows x64.
  */
 internal object HeartbeatMemory {
-    const val SIZE = 48L
+    const val SIZE = 56L
     const val SEQUENCE = 0L
     const val STATE = 8L
     const val GENERATION = 16L
     const val COMPLETED = 24L
     const val FPS = 32L
     const val UPDATED = 40L
+    /** Source frames the script found off a standard rate's period, up to 64 (plan 5.8 rule 10). */
+    const val IRREGULAR = 48L
     const val RUNNING = 1L
     const val FAILED = 2L
 
@@ -259,7 +275,7 @@ internal object HeartbeatMemory {
         if (sequence == 0L || sequence % 2 != 0L) return null
         val state = memory.getLong(STATE)
         val heartbeat = MotionHeartbeat(memory.getLong(GENERATION).toString(), memory.getLong(COMPLETED),
-            memory.getDouble(FPS), memory.getLong(UPDATED))
+            memory.getDouble(FPS), memory.getLong(UPDATED), memory.getLong(IRREGULAR))
         if (memory.getLong(SEQUENCE) != sequence) return null
         return when (state) {
             RUNNING -> Read(false, heartbeat)
@@ -275,26 +291,31 @@ internal data class MotionIncident(
     val counters: Map<String, String?>,
 )
 
-internal data class MotionHeartbeat(val generation: String, val completed: Long, val processingFps: Double, val updatedMillis: Long)
+internal data class MotionHeartbeat(
+    val generation: String, val completed: Long, val processingFps: Double, val updatedMillis: Long,
+    /** Source frames off the standard rate's period in this graph, counted to 64 (plan 5.8 rule 10). */
+    val irregularFrames: Long = 0,
+)
 
 internal object SvpScript {
     private fun literal(value: String): String = "'" + value.replace("\\", "\\\\").replace("'", "\\'")
         .replace("\r", "\\r").replace("\n", "\\n") + "'"
 
     /**
-     * How mpv times the smoothed frames. mpv adds up each output frame's duration from the first source frame, so a
-     * standard rate is retimed to its exact frame period. Any other rate may be a variable rate's average, so each
-     * output frame takes its duration from the source frames it falls between (follow_source_times).
+     * How mpv times the smoothed frames. mpv adds up each output frame's duration from the first source frame, so each
+     * output frame takes its duration from the source frames it falls between (follow_source_times). A standard rate's
+     * frames within mpv's rounding tolerance of its period count as that exact period, so a constant rate keeps its
+     * exact cadence; frames further off keep their own times, as a variable rate averaging that rate needs (plan 5.8
+     * rule 10). Any other rate may be a variable rate's average, so its frames always keep their own times.
      */
     private fun timing(source: MotionRate, target: MotionRate): String {
-        if (source.standard) return "out = core.std.AssumeFPS(out, fpsnum=${target.numerator}, fpsden=${target.denominator})"
         val num = target.numerator.toLong() * source.denominator
         val den = target.denominator.toLong() * source.numerator
         val divisor = gcd(num, den)
         val p = num / divisor
         val q = den / divisor
         require(p <= 8 && q <= p) { "The motion target must be the source rate times a smoothing stop" }
-        return "out = follow_source_times(out, $p, $q, ${source.numerator}, ${source.denominator})"
+        return "out = follow_source_times(out, $p, $q, ${source.numerator}, ${source.denominator}, ${if (source.standard) "True" else "False"})"
     }
 
     /** [heartbeat] is a [HeartbeatMemory] block the script writes its progress to. */
@@ -306,9 +327,12 @@ internal object SvpScript {
         core.num_threads = 8
         class Heartbeat(ctypes.Structure):
             _fields_ = [('sequence', ctypes.c_int64), ('state', ctypes.c_int64), ('generation', ctypes.c_int64),
-                        ('completed', ctypes.c_int64), ('fps', ctypes.c_double), ('updated', ctypes.c_int64)]
+                        ('completed', ctypes.c_int64), ('fps', ctypes.c_double), ('updated', ctypes.c_int64),
+                        ('irregular', ctypes.c_int64)]
         heartbeat = Heartbeat.from_address($heartbeat)
         generation = time.time_ns()
+        # Source frames off a standard rate's period (plan 5.8 rule 10), by number, counted to 64.
+        irregular = set()
         def write_status(state, completed=0, fps=0.0):
             # Odd while writing, even when done. Taking the odd value from what is there keeps the parity right even
             # if a script from before a seek writes at the same time.
@@ -319,8 +343,9 @@ internal object SvpScript {
             heartbeat.completed = completed
             heartbeat.fps = fps
             heartbeat.updated = time.time_ns() // 1000000
+            heartbeat.irregular = len(irregular)
             heartbeat.sequence = writing + 1
-        def follow_source_times(clip, p, q, rate_num, rate_den):
+        def follow_source_times(clip, p, q, rate_num, rate_den, regular):
             # mpv times output frames by adding up their durations from the first source frame. With p output frames
             # for every q source frames, output frame n stands for source position q*n/p, so its duration is the
             # source time from there to the next output frame's position.
@@ -335,11 +360,24 @@ internal object SvpScript {
                 for k in range(1, 9):
                     exact.setdefault(math.floor(period * k * us + Fraction(1, 2)), period * k)
             limit = 2**31 - 1  # mpv reads durations as 32-bit integers
-            def duration(f):
+            # A standard rate's frame within mpv's rounding tolerance of its period (MP_PTS_ROUNDING_TOLERANCE, 3.1 ms:
+            # files round times to 1 ms, and some muxers by 1 ms more) is that exact period. One further off keeps its
+            # own time and is counted, so the player plays the file against the audio (plan 5.8 rule 10).
+            period = Fraction(rate_den, rate_num) if regular else None
+            tolerance = Fraction(31, 10000)
+            def duration(f, number):
                 num, den = f.props.get('_DurationNum', 0), f.props.get('_DurationDen', 0)
                 if num <= 0 or den <= 0:
-                    return 1 / rate  # a source frame without a duration, such as most Matroska frames
-                return exact.get(num, Fraction(num, den)) if den == us else Fraction(num, den)
+                    # mpv gives each frame the time to the next one's, so only the last frame before the end can lack one.
+                    return period if period is not None else 1 / rate
+                d = exact.get(num, Fraction(num, den)) if den == us else Fraction(num, den)
+                if period is None:
+                    return d
+                if abs(d - period) < tolerance:
+                    return period
+                if len(irregular) < 64:
+                    irregular.add(number)
+                return d
             def source_frame(offset):
                 # Frame n of the result is source frame q*(n + offset)//p.
                 spread = core.std.Interleave([video_in] * p, modify_duration=False)[q * offset:]
@@ -347,7 +385,7 @@ internal object SvpScript {
             def retime(n, f):
                 a, b = q * n // p, q * (n + 1) // p
                 start, end = Fraction(q * n, p) - a, Fraction(q * (n + 1), p) - b
-                d = (end - start) * duration(f[1]) if a == b else (1 - start) * duration(f[1]) + end * duration(f[2])
+                d = (end - start) * duration(f[1], a) if a == b else (1 - start) * duration(f[1], a) + end * duration(f[2], b)
                 if d.numerator > limit or d.denominator > limit:
                     d = d.limit_denominator(limit // max(1, math.ceil(d)))
                 frame = f[0].copy()

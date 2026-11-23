@@ -18,24 +18,35 @@ above 60 fps bypass smoothing. Stops above the display rate are unavailable; whe
 mpv cannot report a rate, the fallback limit is 240 Hz. There is no 120 fps cap.
 23.976 × 2.5 is exactly 60000/1001; 25 × 2.5 is 125/2. No output downscaling is used.
 
-Any source rate from 1 fps can be smoothed. A standard rate, a whole number of
-frames per second or 23.976, 29.97, 47.952 or 59.94 (each within 0.005), is
-retimed to its exact frame period. Any other rate mpv reports, such as the average
-of a variable-frame-rate file or an odd container rate, is measured to three
-decimals. The motion engine works at that rate, and each output frame then takes
-its duration from the source frames it falls between. mpv times filter output by
-adding up frame durations, so the output keeps the source's own frame times, also
-after a seek, and stays with the audio. mpv rounds source durations to whole
-microseconds; each is snapped back to the exact period of a standard rate or of
-the container rate, so a long video does not drift. Video below 1 fps shows
-"Can’t smooth video below 1 fps". Until mpv reports a rate, the status is
+Any source rate from 1 fps can be smoothed. A standard rate is a whole number of
+frames per second or 23.976, 29.97, 47.952 or 59.94 (each within 0.005). Any other
+rate mpv reports, such as the average of a variable-frame-rate file or an odd
+container rate, is measured to three decimals. The motion engine works at that
+rate, and each output frame takes its duration from the source frames it falls
+between. mpv times filter output by adding up frame durations, so the output keeps
+the source's own frame times, also after a seek, and stays with the audio. mpv
+gives each source frame the time to the next frame's, in display order, rounded to
+whole microseconds; only the last frame before the end has none and takes the
+rate's period. Each duration is snapped back to the exact period of a standard
+rate or of the container rate, so a long video does not drift. Video below 1 fps
+shows "Can’t smooth video below 1 fps". Until mpv reports a rate, the status is
 "Waiting for source frame rate".
 
-Limits of the measured path: a Matroska file whose frames carry no durations is
-timed at its container rate. A variable-rate MP4 with B-frames has small local
-timing errors where its rate changes, without drift. A variable-rate file whose
-average is a standard rate (a phone video averaging 30 fps) is still retimed to
-that rate (modernise plan 5.8 rule 10).
+A standard rate's frame within mpv's own rounding tolerance of its period
+(`MP_PTS_ROUNDING_TOLERANCE`, 3.1 ms: files round times to 1 ms, some muxers by
+1 ms more) counts as that exact period, so a constant rate keeps its exact cadence,
+also in Matroska, whose times are rounded to the millisecond. A frame further off
+keeps its own time and is counted (modernise plan 5.8 rule 10). After 3 such
+frames the file is a variable rate whose average is a standard rate, such as a
+phone video averaging 30 fps: it plays against the audio instead of with
+display-resample, for the rest of the file, and the report's "Frame times:" line
+says so. One or two odd frames, such as a frame lost in a recording, keep the
+exact cadence. Checked in `MotionNativeTest` with the pinned build, from the start
+and after a seek at 2× and 2.5×: MP4 without and with B-frames (B-frames change
+nothing, as each frame's time is taken in display order) and Matroska. A
+variable-rate Matroska file reports the default duration its muxer wrote, which
+ffmpeg takes from the fastest frames (60 fps for frames 17 and 50 ms apart), so its
+standard rate can be its fastest rate rather than its average.
 
 Both sliders save on release and the worker applies the latest saved values on
 its next poll. A changed filter seeks exactly back to its sampled playback position.
@@ -104,7 +115,7 @@ VapourSynth core rebuilds. Only the named filter is owned; previous decoder/sync
 interpolation settings and other filters are preserved when it ends.
 
 Concurrent requests are automatic, buffer 8; heartbeat writes occur at most every
-0.5 seconds. The script writes its heartbeat into 48 bytes of SkyWing's own memory
+0.5 seconds. The script writes its heartbeat into 56 bytes of SkyWing's own memory
 through ctypes, under a sequence lock (odd while writing, even when done), and the
 player reads it there, with no file in between. A read that catches a write is a
 missed read, not a stall, and the last heartbeat is kept. Each smoothing start gets

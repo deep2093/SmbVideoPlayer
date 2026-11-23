@@ -78,6 +78,7 @@ class EmbeddedMpv(
     private var lastPosition = 0.0
     private var appliedMotionSettings: MotionSettings? = null
     private var appliedVrr: Boolean? = null
+    private var appliedVariable: Boolean? = null
     private var fullscreen = false
     /** The screen showing the video, as [Screens] last read it (plan 5.4). */
     private var screen: ScreenState? = null
@@ -451,11 +452,15 @@ class EmbeddedMpv(
         if (changed && !motion.end()) return status("Could not change motion settings; reopen video")
         val starting = !motion.active
         motion.begin(file, source, target, settings.quality)?.let { return status("Motion smoothing unavailable: $it") }
-        if (starting || appliedMotionSettings != settings || appliedVrr != vrr) {
+        // Plan 5.8 rule 10: once the script finds the standard rate's frames off its period, they play against the audio.
+        val variable = motion.variableRate
+        if (starting || appliedMotionSettings != settings || appliedVrr != vrr || appliedVariable != variable) {
+            if (variable && appliedVariable == false) recordAction("frames off the ${source.label} fps period: variable rate, synced to the audio")
             smoothingHealth.reset()
             appliedMotionSettings = settings
             appliedVrr = vrr
-            command("set", "video-sync", MotionRate.videoSync(source, target, caps.displayHz, vrr))
+            appliedVariable = variable
+            command("set", "video-sync", MotionRate.videoSync(source, target, caps.displayHz, vrr, variable))
             if (position != null) command("seek", position.toString(), "absolute+exact")
         }
         val beat = motion.heartbeat()
@@ -474,7 +479,7 @@ class EmbeddedMpv(
                 engineErrorCount++
                 if (motion.restartAfterStall()) {
                     smoothingHealth.reset()
-                    command("set", "video-sync", MotionRate.videoSync(source, target, caps.displayHz, vrr))
+                    command("set", "video-sync", MotionRate.videoSync(source, target, caps.displayHz, vrr, motion.variableRate))
                     return status("Motion engine restarted")
                 }
                 motion.fail("The motion engine stopped responding after one restart")
@@ -555,6 +560,7 @@ class EmbeddedMpv(
             appendLine("HDR engaged: " + hdrEngaged().text)
             appendLine("VRR active: " + DisplayState.vrrActive(DisplayVrr.current).text)
             appendLine("File: $fileKind; ${caps.resolution}; source ${caps.sourceFps ?: "unavailable"} fps")
+            appendLine("Frame times: " + frameTimes(caps))
             appendLine("Codec: ${textProperty("video-codec") ?: "unavailable"}; pixel format: ${textProperty("video-params/pixelformat") ?: "unavailable"}")
             appendLine("Transfer: ${textProperty("video-params/gamma") ?: "unavailable"}; decoder: ${textProperty("hwdec-current") ?: "unavailable"}")
             appendLine("Interlaced: ${textProperty("video-frame-info/interlaced") ?: "unavailable"}; deinterlacing: ${textProperty("deinterlace-active") ?: "unavailable"}")
@@ -629,6 +635,17 @@ class EmbeddedMpv(
         "; failed for this file: " + decoderFailures.joinToString().ifEmpty { "none" }
 
     /** Plan 5.8 rule 7: each hardware adapter's driver version. */
+    /** Plan 5.8 rule 10: how the smoothed frames are timed, and the video-sync mpv plays them with. */
+    private fun frameTimes(caps: SmoothingCapabilities): String {
+        val source = caps.sourceFps?.let(MotionRate::source) ?: return "source rate unavailable"
+        val timing = when {
+            !source.standard -> "measured rate: each frame keeps its own time"
+            motion.variableRate -> "variable around ${source.label} fps (frames off its period): each frame keeps its own time"
+            else -> "constant ${source.label} fps: retimed to its exact period"
+        }
+        return timing + "; video-sync: " + (textProperty("video-sync") ?: "unavailable")
+    }
+
     private fun drivers(): String =
         inventory.adapters.joinToString("; ") { it.name + " " + (it.driver ?: "(version not reported)") }.ifEmpty { "no hardware adapter listed" }
 
