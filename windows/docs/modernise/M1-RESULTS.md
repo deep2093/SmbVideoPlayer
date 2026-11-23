@@ -35,6 +35,7 @@ The runner is `windows/tools/m1-runner` plus the Gradle task `m1Runner`, which p
 - *Frames per second* counts the frames Compose drew. It is not proof of what the screen showed; that needs PresentMon (M2).
 - *Frame time p95* is the median, over the scroll's seconds, of each second's 95th-percentile time between frames. *Worst second's p95* is the highest.
 - *UI tasks over 8 ms* and *longest UI task* time every task on the UI thread (the AWT event thread, where Compose works).
+- Every number for a window comes from the whole seconds inside it. The scroll's first part-second is left out: it has 3 to 9 tasks over 8 ms (the longest 10 to 13 ms) in both builds, while Java still compiles the card code. Section 4 gives that warm-up separately.
 - *Recompositions per second* counts the frames in which Compose recomposed something.
 - *CPU cores* is SkyWing's CPU time divided by the wall time.
 
@@ -79,7 +80,7 @@ The "before" build is kept with `gradlew -p windows m1KeepBefore` while the chec
 Against the M1 targets:
 - **Cold start:** 1.3 s, under the 2.5 s target before and after. M1 didn't make the start faster; the start-up work it changed (B13) is in plan section 4.4.
 - **Scrolling:** the frame time p95 fell by 15 to 20% and the worst second's by 30 to 50%, larger than the run-to-run noise. Scrolling while thumbnails are made gained most: 11 UI tasks over 8 ms became 4, at about half the CPU.
-- **No UI task over 8 ms: not met.** A 30-second scroll still has a few: 2 plain (longest 8.7 ms), 2 with Adaptive Glow (one of 14.3 ms) and 4 while thumbnails are made. The second measurement of the same build in the JVM-flags run had 0, 1 and 2, so plain scrolling is at the edge of the noise, but Adaptive Glow and thumbnails still give tasks over 8 ms.
+- **No UI task over 8 ms: not met.** A 30-second scroll still has a few: 2 plain (longest 8.7 ms), 2 with Adaptive Glow (one of 14.3 ms) and 4 while thumbnails are made. The second measurement of the same build in the JVM-flags run had 0, 1 and 2, so plain scrolling is at the edge of the noise, but Adaptive Glow and thumbnails still give tasks over 8 ms. Most of them come in the scroll's first second or two; see *Where the tasks over 8 ms are* below.
 
 **Fewer thumbnails per minute, at less CPU.** Both builds make background thumbnails one at a time (three at once only for cards on screen), so the rate is the time per picture. B24 decodes them on the graphics card (`hwdec=auto-copy`, as plan section 3 asks). A throwaway probe made the runner's 50 clips one at a time, three times each way, with kept players:
 
@@ -91,6 +92,13 @@ Against the M1 targets:
 So the kept players alone would be faster than before, and the graphics card costs about 60 ms per picture: the first pictures of 5,000 videos take about 10 minutes instead of 7, at a quarter of the CPU. On the handhelds the processor is slower and 4K HEVC costs it most, so the graphics card is expected to help more there; their runs will show it.
 
 **Memory.** Private memory is 8% higher (1,480 MB). The card pictures are now one budget of at most 256 MB (B10) and it is full after scrolling 5,000 cards: 255 MB against 197 MB before. The Java heap is lower (31 MB).
+
+**Where the tasks over 8 ms are.** Three runs of the after build on 24 November (9 scrolls), and a throwaway build that sampled the UI thread during every slow task:
+- **The scroll's first second or two, in every scroll.** The first part-second has 4 to 9 tasks over 8 ms (the longest 10 to 13 ms), the next second 0 to 3. The samples are spread over all the card, layout and text code with no single slow place, and some are classes being loaded: Java hasn't compiled that code yet. Every scroll the runner measures is the first after a start; it doesn't measure a second scroll in the same session.
+- **After that, 6 of the 9 scrolls had none.** The other three each had one: 8.0 ms (first start), 14.3 ms (Adaptive Glow) and 16.3 ms (while thumbnails were made). None lined up with a garbage collection or with the picture budget filling, and the sampling build caught none, so their cause is not known.
+- **The longest task keeps falling** during the scroll, to about 3 ms in its last second.
+
+Compiling the code sooner doesn't help (see *Compiling sooner* below).
 
 ### JVM flags (plan 4.4), laptop
 
@@ -109,6 +117,21 @@ The plan's four flags (`-XX:+UseG1GC -XX:MaxGCPauseMillis=8 -Xss2m -XX:+UseStrin
 | Memory after scrolling: private / Java heap (MB) | 1,482 / 93 | 1,464 / 37 |
 
 Every difference is within the run-to-run noise, so the flags aren't adopted. G1 is already JDK 17's default here, and a lower Java heap after scrolling is the timing of the last collection, not a saving.
+
+### Compiling sooner, laptop
+
+`-XX:CompileThresholdScaling` makes Java compile code after fewer calls. The after build with it at 0.1 and 0.3, against the same build without it, measured one after the other on 24 November, plugged in, Balanced.
+
+| Measure | 061ea24 | at 0.1 | at 0.3 |
+|---|---|---|---|
+| Start to first page, first / everyday start (s) | 1.31 / 1.25 | 2.24 / 2.16 | 1.50 / 1.48 |
+| Scroll's first part-second, everyday start: UI tasks over 8 ms / longest (ms) | 5 / 10.57 | 5 / 13.50 | 4 / 15.21 |
+| Scrolling Videos: UI tasks over 8 ms / longest (ms) | 0 / 7.82 | 3 / 16.57 | 7 / 15.97 |
+| Adaptive Glow: UI tasks over 8 ms / longest (ms) | 1 / 8.66 | 4 / 16.12 | 10 / 17.55 |
+| While thumbnails are made: UI tasks over 8 ms / longest (ms) | 1 / 16.28 | 12 / 21.35 | 6 / 21.82 |
+| Scrolling Videos: CPU cores | 0.60 | 0.85 | 0.79 |
+
+Both settings start slower and give more and longer tasks over 8 ms, so neither is adopted. The likely reason: compiling sooner compiles far more code, and the compiler threads then compete with the start and the scroll.
 
 ### MSI Claw 8
 
