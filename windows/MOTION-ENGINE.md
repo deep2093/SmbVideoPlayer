@@ -9,7 +9,7 @@ identity are unchanged.
 ## Controls
 
 Motion options contains on/off, four exact source multipliers (2×, 2.5×, 3×, 4×),
-five quality steps, status/Try lower, Copy playback report and Done. Off hides the
+five quality steps, status/Try lower, Copy playback report, Copy test report and Done. Off hides the
 other controls. Old Motion preferences migrate to on; every retired mode migrates
 to off. The blend implementation and fixed-rate/VRR mode buttons are removed.
 
@@ -114,6 +114,44 @@ tracker can be deleted twice or used after it is deleted.
 small node that no one reads from, and frees its frame before that node. The core
 is then destroyed only after the last shared frame is gone. Recheck this when
 VapourSynth is upgraded.
+
+## Measuring
+
+While smoothing runs, the player worker takes one reading each time it updates smoothing (every 0.5 s) and closes a
+row each minute. Each row holds the target and the filter's output rate (from the heartbeat: processing throughput,
+not presented frames), and the minute's change in mpv's `frame-drop-count`, `decoder-frame-drop-count`,
+`vo-delayed-frame-count` and `mistimed-frame-count`. It also holds the largest `vsync-jitter`,
+`estimated-display-fps`, the process CPU in cores, the oldest heartbeat age, and the graph generations, seeks, pauses,
+cache waits, fullscreen changes and recoveries in that minute. It ends with HDR engaged, VRR active and the refresh.
+All of these properties are in the pinned libmpv's property list.
+Rows go to `%LOCALAPPDATA%\SkyWing\playback-logs\playback-<time>.csv`. A new file starts when smoothing starts or
+another video plays; a seek or a settings change stays in the same file. The newest 20 are kept. A last part-minute of at least 5 s is written when smoothing stops; closing the app loses it.
+
+- **HDR engaged** is "yes" only when Windows HDR is on for the screen, the source is PQ or HLG (`video-params/gamma`)
+  and mpv sends PQ or HLG (`video-target-params/gamma`). A "no" names the part that is not HDR. "unknown" names what
+  was not reported.
+- **VRR active** is NVIDIA's `bIsVRREnabled` ("VRR Mode is currently active on given display", nvapi.h). Other GPUs
+  report nothing, so it reads "not measured". Whether NVIDIA's flag follows SkyWing's fullscreen is still to be
+  measured on real screens.
+
+**Copy test report** copies the build, GPU plan, renderer, screen, HDR engaged, VRR active, the VRR control setting,
+the smoothing state, the log file's name and the per-minute table, to compare PCs.
+
+**Benchmark mode** is hidden: `SkyWing.exe --bench <file> [--minutes 10] [--quality Balanced] [--stop 2x] [--start 0]
+[--out <folder>]`. It opens a window of its own, plays full screen from `--start` with those settings (ignoring the
+saved ones and automatic lowering) and measures for `--minutes` once smoothing holds. The video must be at least
+`--start` + `--minutes` + 1 minute long. It writes the CSV and `bench-<time>.txt` (the options, the result and the
+test report), saves nothing to the settings or library, and exits 0 when smoothing held, 1 when it stopped or the
+run ended early, and 2 when the run could not start. Closing its window ends the run early.
+
+`windows/tools/bench.ps1 -Video <file>` runs it (default: this checkout's `createDistributable` image). With
+`-PresentMon` it also runs Intel's PresentMon console app (MIT; installed separately, not shipped) on `SkyWing.exe`,
+and summarises the last `-Minutes` of the capture: presents, frames not displayed, the displayed-frame interval
+(mean, median, 99th percentile, max, intervals over 1.5x the median), present mode and sync interval. PresentMon
+needs an administrator PowerShell or the Performance Log Users group; the script never asks for elevation and
+reports "not measured" without the rights. Presents are not video frames: with display-resample mpv presents once
+per refresh. Reading the present events inside SkyWing would cost more (an ETW consumer, the same rights) for the
+same numbers, so SkyWing itself reports on-screen frame times as not measured.
 
 ## Validation and remaining work
 

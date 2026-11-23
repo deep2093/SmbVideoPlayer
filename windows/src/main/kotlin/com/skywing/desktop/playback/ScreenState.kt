@@ -193,6 +193,11 @@ internal object ScreenSummary {
         variableRefresh(edid, nvidiaPossible),
         "HDR " + hdr.label,
     ).joinToString(" · ")
+
+    /** One screen in verify.ps1's "Display state" (plan 5.6): the Settings line plus whether VRR is active now. */
+    fun state(index: Int, screen: ScreenState, vrr: VrrCapability): String =
+        "Screen ${index + 1}" + screen.path.friendlyName.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty() + ": " +
+            line(screen.path.refreshHz, screen.edid, vrr.supported, screen.hdr) + " · VRR active: " + DisplayState.vrrActive(vrr).text
 }
 
 /** One screen as last read: its display path, HDR state and EDID refresh. */
@@ -229,14 +234,23 @@ internal object Screens {
     fun forWindow(window: Pointer): ScreenState? {
         val gdi = DisplayPaths.monitorName(window) ?: return null
         val path = paths().firstOrNull { it.gdiName.equals(gdi, ignoreCase = true) } ?: return null
-        return states.getOrPut(path.devicePath.ifEmpty { path.gdiName }) {
-            ScreenState(path, DisplayPaths.hdr(path), Edid.read(path.devicePath))
-        }
+        return state(path)
+    }
+
+    private fun state(path: DisplayPath): ScreenState = states.getOrPut(path.devicePath.ifEmpty { path.gdiName }) {
+        ScreenState(path, DisplayPaths.hdr(path), Edid.read(path.devicePath))
     }
 
     /** SkyWing's main window (read on the UI thread). */
     fun appWindow(): Pointer? = Frame.getFrames().firstOrNull { it.isShowing }
         ?.let { runCatching { Native.getWindowPointer(it) }.getOrNull() }
+
+    /** Every active screen, one line each, as Windows and the driver report them now. It asks NVIDIA, so call it off the UI thread. */
+    fun report(): List<String> {
+        val screens = synchronized(this) { paths().map(::state) }
+        if (screens.isEmpty()) return listOf("No active screens reported by Windows")
+        return screens.mapIndexed { i, screen -> ScreenSummary.state(i, screen, DisplayVrr.read(screen.path.gdiName)) }
+    }
 
     /** The Settings line for the screen showing [window]. It asks NVIDIA, so call it off the UI thread. */
     fun describe(window: Pointer): String? = forWindow(window)?.let {
