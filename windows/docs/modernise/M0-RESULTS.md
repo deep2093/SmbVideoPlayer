@@ -229,7 +229,7 @@ Notes:
 
 Notes:
 - In both 1080p windows nothing came to the front, full screen held and no input arrived. Report B showed the run's quality, 0 restarts and 1 → 1 graph generations.
-- Against the battery runs at 30 W: 1080p Fast drew 1.7 W more (15.9 against 14.2 W), and 1080p Balanced drew 2.9 W less (15.6 against 18.5 W) while using more CPU time (0.93 against 0.64 cores). The drain is the whole device's, and the screen brightness wasn't recorded for either set, so these runs don't show how much of the change is the processor.
+- Against the battery runs at 30 W: 1080p Fast drew 1.7 W more (15.9 against 14.2 W), and 1080p Balanced drew 2.9 W less (15.6 against 18.5 W) while using more CPU time (0.93 against 0.64 cores). The screen was at its lowest brightness in both sets (the owner set it), so brightness doesn't explain the difference. The 8 W limit appears to have taken effect: 4K couldn't hold 2×, and Balanced drew less while using more CPU time. Why Fast drew more isn't known. Each figure comes from one 5-minute run, so run-to-run spread isn't measured.
 - In both 4K runs, after the warm-up the player bar read "Smoothing: Off" and Motion options showed the switch off. With "Lower automatically" off and 2× already the lowest stop, SkyWing turns smoothing off by itself only when it can't keep up: "Cannot keep up at 2×; smoothing stopped" (`EmbeddedMpv.kt`). So 4K 2× held neither Fast nor Balanced at this setting. The runner reported a missing "Copy playback report" button instead, and stopped after the second such run.
 
 ## 5. What the numbers decide
