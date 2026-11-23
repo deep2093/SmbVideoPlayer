@@ -48,6 +48,12 @@ class EmbeddedMpv(
     private var openedGpu: String? = null
     /** The decoding methods that failed for the open file, in order (plan 5.8 rule 2). */
     @Volatile private var decoderFailures: List<String> = emptyList()
+    /** Plan 5.8 rule 8: each loss of the graphics device and the step taken for it. */
+    private val deviceLoss = DeviceLoss()
+    /** libplacebo said its device was lost; the next [updateSmoothing] or [open] re-creates the video output. */
+    private var deviceLost = false
+    /** Recovery gave up, so the video output shows nothing until the next video re-creates it. */
+    private var outputLost = false
     private var canvasHandle: Pointer? = null
     private var inventory = GpuInventory(emptyList())
     /** The GPU that drives the window's monitor, for display queries such as VRR, even when SKYWING_GPU is set. */
@@ -262,6 +268,7 @@ class EmbeddedMpv(
         smoothingHealth.reset()
         // Events still queued belong to the previous video; its failure must not be reported for this one.
         drainEvents()
+        if (deviceLost) recoverDevice()
         decoderFailures = emptyList()
         loadEndedWithError = false
         playbackFailure = null
@@ -277,7 +284,7 @@ class EmbeddedMpv(
             gpuChoice = choice
             pendingPlan = null
             // A failed move still opens the video; the Renderer line shows the GPU mpv actually opened.
-            if (!samePlan(plan, requestedPlan) && !restartVideoOutput(plan)) recordAction("GPU change failed")
+            if ((!samePlan(plan, requestedPlan) || outputNeedsGpu()) && !restartVideoOutput(plan)) recordAction("GPU change failed")
         }
         // mpv keeps "pause" across loadfile: a video paused earlier (or by leaving the player) would leave the next one
         // stuck at 0:00. Opening a video means playing it.
@@ -324,6 +331,7 @@ class EmbeddedMpv(
             ?.let { it + " (" + (System.currentTimeMillis() - lastActionMillis) + " ms ago)" } ?: "none"
         val motionWasActive = motion.active
         val filterFailed = drainEvents()
+        if (deviceLost) recoverDevice()
         checkGpus()
         // NvAPI knows only screens on NVIDIA GPUs, and Intel's driver reports nothing; ask it unless another maker's
         // GPU drives the screen.
@@ -381,25 +389,9 @@ class EmbeddedMpv(
                 0 -> return failed
                 2 -> { // mpv_event_log_message; x64 pointer layout
                     val log = event.getPointer(16)
-                    if (log != null) {
-                        val prefix = log.getPointer(0)?.getString(0, "UTF-8").orEmpty()
-                        val level = log.getPointer(8)?.getString(0, "UTF-8").orEmpty()
-                        val rendererMessage = log.getPointer(16)?.getString(0, "UTF-8").orEmpty()
-                        if (prefix.startsWith("vo/") && rendererMessage.trim().startsWith("Device Name:")) {
-                            openedGpu = rendererMessage.substringAfter("Device Name:").trim()
-                            rendererDevice = MotionLog.redact(openedGpu.orEmpty())
-                            native.mpv_request_log_messages(context, "warn")
-                        }
-                        DecoderFallback.failedMethod(prefix, rendererMessage)?.let {
-                            decoderFailures = decoderFailures + it
-                            recordAction("decoder $it failed; mpv went on with the next one")
-                        }
-                        if (prefix.contains("vapoursynth") && level in setOf("fatal", "error", "warn")) {
-                            val message = log.getPointer(16)?.getString(0, "UTF-8").orEmpty()
-                            motionWarnings.addLast("$level: " + MotionLog.redact(message))
-                            while (motionWarnings.size > 20) motionWarnings.removeFirst()
-                            if (level in setOf("fatal", "error")) failed = true
-                        }
+                    if (log != null && logMessage(log.getPointer(0)?.getString(0, "UTF-8").orEmpty(),
+                            log.getPointer(8)?.getString(0, "UTF-8").orEmpty(), log.getPointer(16)?.getString(0, "UTF-8").orEmpty())) {
+                        failed = true
                     }
                 }
                 8 -> recordAction("file loaded")
@@ -413,6 +405,59 @@ class EmbeddedMpv(
         }
         return failed
     }
+
+    /**
+     * One mpv log message; true when it says the motion filter failed. Internal so a test can hand the player the
+     * message libplacebo logs for a lost device, which only a graphics driver reset can cause.
+     */
+    @Synchronized
+    internal fun logMessage(prefix: String, level: String, text: String): Boolean {
+        if (prefix.startsWith("vo/") && text.trim().startsWith("Device Name:")) {
+            openedGpu = text.substringAfter("Device Name:").trim()
+            rendererDevice = MotionLog.redact(openedGpu.orEmpty())
+            instance?.let { context -> api?.mpv_request_log_messages(context, "warn") }
+        }
+        if (DeviceLoss.message(level, text)) deviceLost = true
+        DecoderFallback.failedMethod(prefix, text)?.let {
+            decoderFailures = decoderFailures + it
+            recordAction("decoder $it failed; mpv went on with the next one")
+        }
+        if (!prefix.contains("vapoursynth") || level !in setOf("fatal", "error", "warn")) return false
+        motionWarnings.addLast("$level: " + MotionLog.redact(text))
+        while (motionWarnings.size > 20) motionWarnings.removeFirst()
+        return level in setOf("fatal", "error")
+    }
+
+    /**
+     * Plan 5.8 rule 8: re-creates the video output after libplacebo lost its device, on a fresh plan the first time and
+     * on Windows' choice the second time within a minute. The third time the video is paused and the problem shown.
+     */
+    private fun recoverDevice() {
+        deviceLost = false
+        val now = System.currentTimeMillis()
+        val recovery = deviceLoss.lost(now)
+        recordAction("graphics device lost; " + recovery.label)
+        val plan = when (recovery) {
+            // A driver reset or update can give the GPU a new LUID, and a removed GPU is gone, so list them again.
+            DeviceLoss.Recovery.REPLAN -> { canvasHandle?.let { readGpus(it, now, force = true) }; planFor(gpuChoice) }
+            DeviceLoss.Recovery.WINDOWS_CHOICE -> planFor(gpuChoice).let {
+                it.copy(adapter = null, mpvAdapter = "", reason = it.reason + " · the graphics device was lost twice in a minute: using Windows' choice")
+            }
+            DeviceLoss.Recovery.GIVE_UP -> null
+        }
+        if (plan != null && restartVideoOutput(plan)) return
+        outputLost = true
+        command("set", "pause", "yes")
+        playbackFailure = "The graphics driver stopped responding, so SkyWing paused the video. Update the graphics driver " +
+            "or restart the PC, then play the video again."
+    }
+
+    /**
+     * The next video needs a new video output even on the same plan: recovery gave up, or the output was re-created
+     * while the driver restarted and opened Microsoft's software renderer, although a GPU is listed now.
+     */
+    private fun outputNeedsGpu(): Boolean = outputLost || deviceLoss.count > 0 && GpuAdapters.softwareRenderer(openedGpu) &&
+        inventory.adapters.any { !GpuAdapters.softwareRenderer(it.name) }
 
     private fun updateMotion(caps: SmoothingCapabilities): SmoothingStatus {
         val source = caps.sourceFps?.let(MotionRate::source)
@@ -537,6 +582,7 @@ class EmbeddedMpv(
             appendLine("Renderer: $rendererDevice; preference: $rendererPreference; output: ${textProperty("current-vo") ?: "unavailable"}")
             appendLine("Render path: ${renderPath()}; graphics drivers: ${drivers()}")
             appendLine("Decode path: ${decodePath()}")
+            appendLine("Graphics device lost: ${deviceLoss.summary()}")
             val onBattery = com.skywing.desktop.PowerSource.onBattery()
             appendLine("GPU plan: " + (gpuPlan?.describe(onBattery) ?: "not made yet"))
             appendLine("Graphics for video: ${gpuChoice.label}; Settings: ${MotionSettingsStore.values.gpuChoice.label}; Windows' graphics setting for SkyWing: " +
@@ -607,6 +653,7 @@ class EmbeddedMpv(
             appendLine("Renderer: $rendererDevice; output: ${textProperty("current-vo") ?: "unavailable"}; render path: ${renderPath()}")
             appendLine("Graphics drivers: ${drivers()}")
             appendLine("Decode path: ${decodePath()}")
+            appendLine("Graphics device lost: ${deviceLoss.summary()}")
             appendLine("Screen: " + (shown?.let { ScreenSummary.line(caps.displayHz, it.edid, DisplayVrr.current.supported, it.hdr) } ?: "not reported"))
             appendLine("HDR engaged: " + hdrEngaged().text)
             appendLine("VRR active: " + DisplayState.vrrActive(DisplayVrr.current).text +
@@ -634,7 +681,6 @@ class EmbeddedMpv(
         "; asked for: " + (textProperty("hwdec") ?: "unavailable") +
         "; failed for this file: " + decoderFailures.joinToString().ifEmpty { "none" }
 
-    /** Plan 5.8 rule 7: each hardware adapter's driver version. */
     /** Plan 5.8 rule 10: how the smoothed frames are timed, and the video-sync mpv plays them with. */
     private fun frameTimes(caps: SmoothingCapabilities): String {
         val source = caps.sourceFps?.let(MotionRate::source) ?: return "source rate unavailable"
@@ -646,6 +692,7 @@ class EmbeddedMpv(
         return timing + "; video-sync: " + (textProperty("video-sync") ?: "unavailable")
     }
 
+    /** Plan 5.8 rule 7: each hardware adapter's driver version. */
     private fun drivers(): String =
         inventory.adapters.joinToString("; ") { it.name + " " + (it.driver ?: "(version not reported)") }.ifEmpty { "no hardware adapter listed" }
 
@@ -796,7 +843,7 @@ class EmbeddedMpv(
         // the same output, so alternating them always counts as a change.
         val output = textProperty("current-vo")?.takeIf { it.isNotBlank() } ?: "gpu"
         voSpelling = !voSpelling
-        return command("set", "vo", if (voSpelling) "$output," else output)
+        return command("set", "vo", if (voSpelling) "$output," else output).also { if (it) outputLost = false }
     }
 
     private fun recordAction(action: String) {

@@ -166,4 +166,31 @@ class GpuPolicyTest {
         assertEquals("b", debounce.offer("b", 8_000))
         assertNull(debounce.offer("b", 20_000))
     }
+
+    @Test
+    fun onlyLibplacebosDeviceLostErrorCountsAsALostDevice() {
+        // libplacebo's d3d11/common.c logs this once at PL_ERR when D3D11 says the device was removed, reset or hung.
+        assertTrue(DeviceLoss.message("error", "Device lost!\n"))
+        assertTrue(DeviceLoss.message("fatal", "Device lost!"))
+        assertFalse(DeviceLoss.message("warn", "Device lost!\n"))
+        // mpv logs this for any frame it could not show, whatever the cause.
+        assertFalse(DeviceLoss.message("error", "Failed presenting frame!\n"))
+        assertFalse(DeviceLoss.message("error", "Device lost! Retrying\n"))
+    }
+
+    @Test
+    fun eachLossWithinAMinuteStepsDownOnceAndThenStops() {
+        val loss = DeviceLoss()
+        assertEquals("never", loss.summary())
+        assertEquals(DeviceLoss.Recovery.REPLAN, loss.lost(0))
+        assertEquals(DeviceLoss.Recovery.WINDOWS_CHOICE, loss.lost(10_000))
+        assertEquals(DeviceLoss.Recovery.GIVE_UP, loss.lost(20_000))
+        assertEquals(DeviceLoss.Recovery.GIVE_UP, loss.lost(30_000))
+        assertEquals(4, loss.count)
+        assertTrue(loss.summary().startsWith("4 times; last: "), loss.summary())
+        // A minute after the last loss the ladder starts again: a driver update days apart is a fresh plan each time.
+        assertEquals(DeviceLoss.Recovery.REPLAN, loss.lost(90_000))
+        assertEquals(DeviceLoss.Recovery.REPLAN, loss.lost(160_000))
+        assertEquals(DeviceLoss.Recovery.WINDOWS_CHOICE, loss.lost(219_999))
+    }
 }

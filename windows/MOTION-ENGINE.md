@@ -110,6 +110,18 @@ plays and smoothing is off with "Install your graphics driver for smooth playbac
 version as Device Manager shows it, and a "Decode path:" line (decoder in use, interop, what was asked for and what
 failed for this file). The "Renderer:" line is unchanged.
 
+mpv does not step down when its graphics device is lost while a video plays (a driver reset or update, or the GPU
+removed or hung). libplacebo then logs "Device lost!" at error level and refuses every frame after it; mpv skips those
+frames without a word, so the window would stay black. SkyWing reads that message and, on its next once-a-second
+update, re-creates the video output in the same window, as a GPU change does: smoothing stops and starts again on the
+new output, and the video goes on from where it was. The first loss within a minute lists the GPUs again and uses a
+fresh plan, the second uses Windows' choice of graphics, and the third pauses the video and says the graphics driver
+stopped responding. The next video always gets a new output. An output re-created while the driver is still
+restarting can open Microsoft's software renderer; it stays on it for the rest of that video, and the next video moves
+back to the GPU. The reports add a "Graphics device lost:" line ("never", or how many times and the last step).
+`EmbeddedPlaybackNativeTest` checks the recovery by handing the player libplacebo's message; a real loss needs a
+graphics driver reset on the test machine.
+
 Native DLLs stay loaded for the process lifetime so Rust worker state survives
 VapourSynth core rebuilds. Only the named filter is owned; previous decoder/sync/
 interpolation settings and other filters are preserved when it ends.

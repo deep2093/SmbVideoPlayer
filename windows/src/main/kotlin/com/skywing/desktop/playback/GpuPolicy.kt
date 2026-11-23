@@ -88,6 +88,43 @@ internal object GpuPolicy {
 }
 
 /**
+ * Plan 5.8 rule 8: the graphics device was lost while a video played (a driver reset or update, the GPU removed or
+ * hung). libplacebo then logs "Device lost!" and refuses every frame after it; mpv skips those frames without a word
+ * and never re-creates its output by itself. SkyWing re-creates it, one step lower for each loss within a minute, and
+ * stops after the third so a GPU that keeps failing can't keep it busy.
+ */
+internal class DeviceLoss(private val windowMillis: Long = 60_000) {
+    enum class Recovery(val label: String) {
+        REPLAN("video output re-created on a fresh GPU plan"),
+        WINDOWS_CHOICE("video output re-created on Windows' choice of graphics"),
+        GIVE_UP("not re-created: lost 3 times in a minute, so the video was paused"),
+    }
+
+    private val recent = ArrayDeque<Long>()
+    var count = 0
+        private set
+    private var last: Recovery? = null
+
+    /** The recovery for a loss at [nowMillis]: the n-th loss within [windowMillis] gets the n-th step. */
+    fun lost(nowMillis: Long): Recovery {
+        while (recent.isNotEmpty() && nowMillis - recent.first() >= windowMillis) recent.removeFirst()
+        recent.addLast(nowMillis)
+        count++
+        return Recovery.entries[(recent.size - 1).coerceAtMost(Recovery.entries.lastIndex)].also { last = it }
+    }
+
+    fun summary(): String = last?.let { "$count time" + (if (count == 1) "" else "s") + "; last: " + it.label } ?: "never"
+
+    companion object {
+        /**
+         * True for the message libplacebo logs at PL_ERR when D3D11 reports the device removed, reset or hung
+         * (`pl_d3d11_check_device_removed`). "Failed presenting frame!" is not one: mpv logs it for any frame not shown.
+         */
+        fun message(level: String, text: String): Boolean = level in setOf("error", "fatal") && text.trim() == "Device lost!"
+    }
+}
+
+/**
  * Takes a new value only once it has held for [holdMillis] (plan 5.3: re-plan after 5 s, never on every small
  * change). The first value is taken at once.
  */

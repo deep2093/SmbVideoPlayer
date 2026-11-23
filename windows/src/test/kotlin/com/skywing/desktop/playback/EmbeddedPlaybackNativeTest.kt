@@ -167,6 +167,41 @@ class EmbeddedPlaybackNativeTest {
     }
 
     /**
+     * Plan 5.8 rule 8. Only a graphics driver reset loses the device, and that needs the owner's OK, so the test hands
+     * the player the message libplacebo logs when it happens; everything after that is the player's real recovery.
+     */
+    @Test(timeout = 90_000)
+    fun afterALostGraphicsDeviceTheVideoOutputIsRecreatedAndTheVideoGoesOn() = withPlayer { player ->
+        fun line(prefix: String) = player.updateSmoothing(SmoothingMode.OFF).report.lines().single { it.startsWith(prefix) }
+        fun renderer() = line("Renderer: ").takeUnless { it.startsWith("Renderer: Not yet reported") }
+        fun loseDevice() = player.logMessage("vo/gpu-next/libplacebo", "error", "Device lost!\n")
+        assertTrue(player.open(mp4))
+        waitFor("the video to play") { (player.playbackPosition() ?: 0.0) > 0.3 && renderer() != null }
+        assertEquals("Graphics device lost: never", line("Graphics device lost: "))
+        for ((loss, step) in listOf(1 to "on a fresh GPU plan", 2 to "on Windows' choice of graphics")) {
+            val before = player.playbackPosition()!!
+            loseDevice()
+            waitFor("loss $loss to re-create the output: ${line("Graphics device lost: ")}") {
+                line("Graphics device lost: ").endsWith("re-created $step")
+            }
+            waitFor("mpv to open a GPU again after loss $loss") { renderer() != null }
+            waitFor("the video to go on after loss $loss") { (player.playbackPosition() ?: 0.0) > before + 0.5 }
+            assertEquals(null, player.playbackFailure)
+            println(line("Graphics device lost: ") + " | " + renderer() + " | " + line("GPU plan: "))
+        }
+        assertTrue(line("GPU plan: ").contains("drawing and motion on Windows' choice"), line("GPU plan: "))
+        // A third loss within the minute is not chased: the video pauses and the player says why.
+        loseDevice()
+        waitFor("the third loss to pause the video") { player.playbackFailure != null }
+        assertTrue(line("Graphics device lost: ").startsWith("Graphics device lost: 3 times; last: not re-created"))
+        assertEquals("yes", player.diagnosticProperty("pause"))
+        // The next video gets a new output and plays.
+        assertTrue(player.open(mp4))
+        waitFor("the next video to play on a new output") { (player.playbackPosition() ?: 0.0) > 0.3 && renderer() != null }
+        assertEquals(null, player.playbackFailure)
+    }
+
+    /**
      * On a PC with integrated and dedicated graphics the playing video moves to the other GPU and back (plan 5.3):
      * mpv re-creates its output inside the same Canvas, opens the GPU it was given and the video goes on.
      */
