@@ -1,7 +1,7 @@
 package com.skywing.desktop
 
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.unit.IntSize
 import com.skywing.desktop.playback.ThumbnailExtractor
 import java.io.File
 import java.nio.file.Paths
@@ -24,9 +24,6 @@ internal object ThumbnailStore {
         val base = System.getenv("LOCALAPPDATA")?.takeIf { it.isNotBlank() } ?: System.getProperty("user.home")
         Paths.get(base, "SkyWing", "library", "thumbs").toFile()
     }
-    private val memory = object : LinkedHashMap<String, ImageBitmap>(256, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean = size > 400
-    }
     private val failed = java.util.Collections.synchronizedSet(HashSet<String>())
     private val failureDetails = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val retryAfter = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -39,9 +36,6 @@ internal object ThumbnailStore {
     init {
         PerfMonitor.gauge("Thumbnails waiting") { waiting.get().toLong() }
         PerfMonitor.gauge("Thumbnails made") { made.get().toLong() }
-        PerfMonitor.gauge("Picture memory: thumbnails (MB)") {
-            synchronized(memory) { memory.values.sumOf { it.width.toLong() * it.height * 4 } } / (1024 * 1024)
-        }
     }
 
     /** The name (without .jpg) of the picture file kept for the video at [path] with modification time [stamp]. */
@@ -50,36 +44,32 @@ internal object ThumbnailStore {
         return digest.joinToString("") { "%02x".format(it) }
     }
 
-    private fun decode(picture: File): ImageBitmap? {
-        if (!picture.isFile || picture.length() <= 0) return null
-        return runCatching { org.jetbrains.skia.Image.makeFromEncoded(picture.readBytes()).toComposeImageBitmap() }.getOrNull()
-    }
+    /** The stored picture decoded for a card of [box] size (B10). */
+    private suspend fun decode(key: String, picture: File, box: IntSize): ImageBitmap? =
+        CardPictures.load(picture, key, CardPictures.THUMBNAILS, box)?.bitmap
 
-    private fun remember(key: String, bitmap: ImageBitmap) {
-        synchronized(memory) { memory[key] = bitmap }
-    }
-
-    suspend fun load(video: File, stamp: Long): ImageBitmap? {
+    /**
+     * The thumbnail of [video] for a card of [box] size, made first when there is none. Before the card has a size
+     * only a picture already in memory is given, and nothing is made.
+     */
+    suspend fun load(video: File, stamp: Long, box: IntSize): ImageBitmap? {
         val key = keyOf(video.path, stamp)
-        synchronized(memory) { memory[key] }?.let { return it }
+        val known = CardPictures.memory.get(key)
+        if (known?.fits(box) == true || box.width <= 0 || box.height <= 0) return known?.bitmap
         if (key in failed) return null
         if ((retryAfter[key] ?: 0L) > System.currentTimeMillis()) return null
         val target = File(directory, "$key.jpg")
-        withContext(Dispatchers.IO) { decode(target) }?.let {
-            remember(key, it)
-            return it
-        }
+        decode(key, target, box)?.let { return it }
         waiting.incrementAndGet()
-        return try { make(key, video, target) } finally { waiting.decrementAndGet() }
+        return try { make(key, video, target, box) } finally { waiting.decrementAndGet() }
     }
 
-    private suspend fun make(key: String, video: File, target: File): ImageBitmap? =
+    private suspend fun make(key: String, video: File, target: File, box: IntSize): ImageBitmap? =
         gate.withPermit {
-            synchronized(memory) { memory[key] }?.let { return@withPermit it }
+            CardPictures.memory.get(key)?.takeIf { it.fits(box) }?.let { return@withPermit it.bitmap }
             val made = withContext(Dispatchers.IO) { generate(key, video, target) }
-            val bitmap = if (made) withContext(Dispatchers.IO) { decode(target) } else null
-            if (bitmap != null) remember(key, bitmap)
-            else if (made) { failed.add(key); failureDetails[key] = "The generated JPEG could not be decoded" }
+            val bitmap = if (made) decode(key, target, box) else null
+            if (bitmap == null && made) { failed.add(key); failureDetails[key] = "The generated JPEG could not be decoded" }
             bitmap
         }
 
@@ -151,7 +141,7 @@ internal object ThumbnailStore {
     /** Deletes every stored picture; they are made again when shown. Returns how many were deleted. */
     fun clearCache(): Int {
         stop()
-        synchronized(memory) { memory.clear() }
+        CardPictures.memory.clear(CardPictures.THUMBNAILS)
         failed.clear()
         failureDetails.clear()
         retryAfter.clear()

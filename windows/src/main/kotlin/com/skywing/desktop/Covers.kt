@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -16,10 +17,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asComposeImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -43,28 +42,6 @@ internal class CoverContext(val artwork: ArtworkRepository, val nameRules: Group
 
 internal val LocalCovers = staticCompositionLocalOf<CoverContext?> { null }
 
-/** Decoded pictures shown on cards, kept while there is room. */
-private object PictureCache {
-    private val memory = object : LinkedHashMap<String, ImageBitmap>(128, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean = size > 300
-    }
-
-    init {
-        PerfMonitor.gauge("Picture memory: covers (MB)") {
-            synchronized(memory) { memory.values.sumOf { it.width.toLong() * it.height * 4 } } / (1024 * 1024)
-        }
-    }
-
-    fun get(file: File): ImageBitmap? = synchronized(memory) { memory[file.path] }
-
-    fun load(file: File): ImageBitmap? {
-        get(file)?.let { return it }
-        val bitmap = runCatching { org.jetbrains.skia.Image.makeFromEncoded(file.readBytes()).toComposeImageBitmap() }.getOrNull() ?: return null
-        synchronized(memory) { memory[file.path] = bitmap }
-        return bitmap
-    }
-}
-
 /** "name.strip8.jpg": eight frames stacked top to bottom. */
 private val STRIP = Regex("\\.strip(\\d+)\\.jpg$", RegexOption.IGNORE_CASE)
 
@@ -77,9 +54,14 @@ internal fun CoverImage(file: File, modifier: Modifier = Modifier) {
         name.endsWith(".gif", ignoreCase = true) -> AnimatedGif(file, modifier)
         strip != null && strip > 1 -> FlipBookImage(file, strip, modifier)
         else -> {
-            val picture by produceState(PictureCache.get(file), file) { value = withContext(Dispatchers.IO) { PictureCache.load(file) } }
+            var box by remember { mutableStateOf(IntSize.Zero) }
+            val picture by produceState(CardPictures.memory.get(file.path)?.bitmap, file, box) {
+                value = CardPictures.load(file, file.path, CardPictures.COVERS, box)?.bitmap
+            }
             ReportScreenColor(file.path, picture)
-            picture?.let { Image(it, null, modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            Box(modifier.fillMaxSize().onSizeChanged { box = it }) {
+                picture?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            }
         }
     }
 }
@@ -87,23 +69,15 @@ internal fun CoverImage(file: File, modifier: Modifier = Modifier) {
 /** Plays a moving GIF cover, cropped to fill like a still one. */
 @Composable
 private fun AnimatedGif(file: File, modifier: Modifier) {
-    val frames by produceState<List<Pair<ImageBitmap, Int>>?>(null, file) {
-        value = withContext(Dispatchers.IO) {
-            runCatching {
-                val codec = org.jetbrains.skia.Codec.makeFromData(org.jetbrains.skia.Data.makeFromBytes(file.readBytes()))
-                val infos = codec.framesInfo
-                List(minOf(codec.frameCount, 200)) { i ->
-                    val bitmap = org.jetbrains.skia.Bitmap()
-                    bitmap.allocPixels(codec.imageInfo)
-                    codec.readPixels(bitmap, i)
-                    bitmap.setImmutable()
-                    bitmap.asComposeImageBitmap() to (infos.getOrNull(i)?.duration ?: 100).coerceAtLeast(20)
-                }
-            }.getOrNull()
+    var box by remember { mutableStateOf(IntSize.Zero) }
+    val animation by produceState<CardAnimation?>(null, file, box) {
+        if (box == IntSize.Zero || value?.fits(file, box) == true) return@produceState
+        value = withContext(CardPictures.decoding) {
+            runCatching { file.readBytes() }.getOrNull()?.let { CardPictures.decodeAnimation(file, it, box) }
         }
     }
     var index by remember(file) { mutableIntStateOf(0) }
-    val list = frames
+    val list = animation?.takeIf { it.file == file }?.frames
     LaunchedEffect(list) {
         if (list == null || list.size < 2) return@LaunchedEffect
         while (true) {
@@ -111,13 +85,18 @@ private fun AnimatedGif(file: File, modifier: Modifier) {
             index = (index + 1) % list.size
         }
     }
-    list?.getOrNull(index % list.size.coerceAtLeast(1))?.let { Image(it.first, null, modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+    Box(modifier.fillMaxSize().onSizeChanged { box = it }) {
+        list?.getOrNull(index % list.size.coerceAtLeast(1))?.let { Image(it.first, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+    }
 }
 
 /** Plays a strip of frames as a flip-book, one frame every 450 ms, like Android. */
 @Composable
 private fun FlipBookImage(file: File, frames: Int, modifier: Modifier) {
-    val image by produceState(PictureCache.get(file), file) { value = withContext(Dispatchers.IO) { PictureCache.load(file) } }
+    var box by remember { mutableStateOf(IntSize.Zero) }
+    val image by produceState(CardPictures.memory.get(file.path)?.bitmap, file, box) {
+        value = CardPictures.load(file, file.path, CardPictures.COVERS, box, frames)?.bitmap
+    }
     var frame by remember(file) { mutableIntStateOf(0) }
     LaunchedEffect(file, frames) {
         while (true) {
@@ -125,7 +104,7 @@ private fun FlipBookImage(file: File, frames: Int, modifier: Modifier) {
             frame = (frame + 1) % frames
         }
     }
-    Canvas(modifier.fillMaxSize()) {
+    Canvas(modifier.fillMaxSize().onSizeChanged { box = it }) {
         val img = image ?: return@Canvas
         val frameHeight = img.height / frames
         if (frameHeight <= 0 || size.width <= 0f || size.height <= 0f) return@Canvas
