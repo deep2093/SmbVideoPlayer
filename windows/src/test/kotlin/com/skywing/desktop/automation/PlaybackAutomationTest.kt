@@ -87,6 +87,33 @@ class PlaybackAutomationTest {
         assertEquals(true, app.exitedGracefully)
     }
 
+    /** B37: files dragged from Explorer play the first video, dropped on the library and then on the playing video. */
+    @Test
+    fun aDroppedVideoPlaysOnTheLibraryAndOnTheVideo() = SkyWingTestApp.launch("drop").use { app ->
+        val window = app.mainWindow()
+        val player = PlayerControls(app)
+        val notes = File(media, "notes.txt").apply { writeText("not a video") }
+        fun dropAtCentre(files: List<File>, what: String) {
+            val area = Win32.bounds(window)
+            val x = (area.left + area.right) / 2
+            val y = (area.top + area.bottom) / 2
+            Win32.raise(window)
+            Thread.sleep(300)
+            val under = Win32.processAt(x, y)
+            assertTrue(under in app.processIds(), "SkyWing is the window under the centre of $what (found process $under, " +
+                "SkyWing ${app.processIds()}, this test ${ProcessHandle.current().pid()})")
+            FileDrag.drop(files, x, y)
+        }
+        dropAtCentre(listOf(notes, mkv, mp4), "the library")
+        player.waitTitle(mkv.nameWithoutExtension)
+        player.waitAdvancing("${mkv.name} dropped on the library")
+        dropAtCentre(listOf(mp4), "the playing video")
+        player.waitTitle(mp4.nameWithoutExtension)
+        player.waitAdvancing("${mp4.name} dropped on the video")
+        app.close()
+        assertEquals(true, app.exitedGracefully)
+    }
+
     private fun transport(clip: File) = SkyWingTestApp.launch("transport-${clip.extension}", args = listOf(clip.absolutePath)).use { app ->
         val player = PlayerControls(app)
         player.waitTitle(clip.nameWithoutExtension)

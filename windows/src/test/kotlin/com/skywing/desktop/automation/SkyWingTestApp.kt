@@ -357,6 +357,8 @@ internal object Win32 {
         fun GetLastInputInfo(info: LastInputInfo): Boolean
         /** [point] is a POINT passed by value on x64: y in the high 32 bits, x in the low. */
         fun WindowFromPoint(point: Long): Pointer?
+        fun SetCursorPos(x: Int, y: Int): Boolean
+        fun SetWindowPos(hwnd: Pointer, after: Pointer?, x: Int, y: Int, cx: Int, cy: Int, flags: Int): Boolean
     }
 
     @Structure.FieldOrder("cbSize", "dwTime")
@@ -476,6 +478,19 @@ internal object Win32 {
 
     /** The window's screen rectangle, read without moving or focusing it. */
     fun bounds(hwnd: Long): Bounds = Rect().also { check(user32.GetWindowRect(Pointer(hwnd), it)) }.bounds()
+
+    /** Moves the real pointer, in the same coordinates as [bounds] and [processAt]. */
+    fun moveCursor(x: Int, y: Int) = check(user32.SetCursorPos(x, y)) { "SetCursorPos failed" }
+
+    /**
+     * Puts a window above the other ordinary windows without activating it. A test can't give another process the
+     * foreground, but it can change where its window sits.
+     */
+    fun raise(hwnd: Long) {
+        val flags = 0x0001 or 0x0002 or 0x0010 // SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE
+        check(user32.SetWindowPos(Pointer(hwnd), Pointer(-1), 0, 0, 0, 0, flags)) { "SetWindowPos (top-most) failed" }
+        check(user32.SetWindowPos(Pointer(hwnd), Pointer(-2), 0, 0, 0, 0, flags)) { "SetWindowPos (not top-most) failed" }
+    }
 
     /** The full rectangle of the monitor the window is on (MONITOR_DEFAULTTONEAREST). */
     fun monitorBounds(hwnd: Long): Bounds {

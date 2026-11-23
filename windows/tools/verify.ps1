@@ -66,7 +66,8 @@ $upgradeUuid = 'f40c59ef-e520-4e10-b7a2-b86e7458f923'
 $rules = @(
     @{ Area = 'Playback / libmpv'; Escalate = $true
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(EmbeddedMpv|GpuOverride|GpuAdapters|LocalPlayback|ThumbnailExtractor)\.kt|PlayerPage\.kt|PlaybackProblemDialog\.kt|LocalVideoDropHandler\.kt)$'
-       Tests = @("$pkg.playback.EmbeddedPlaybackNativeTest", "$pkg.playback.ThumbnailExtractorNativeTest", "$pkg.playback.GpuAdaptersTest", "$pkg.automation.PlaybackAutomationTest") }
+       Tests = @("$pkg.playback.EmbeddedPlaybackNativeTest", "$pkg.playback.ThumbnailExtractorNativeTest", "$pkg.playback.GpuAdaptersTest", "$pkg.VideoDropTest",
+                 "$pkg.automation.PlaybackAutomationTest") }
     @{ Area = 'Motion interpolation / smoothing'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(Motion\w*|Smoothing|RecentDrops|DisplayVrr|WindowsDisplayAdapter)\.kt|SmoothingDialog\.kt)$|windows/tools/(build_motion\.py|open-svpflow-windows\.patch)$'
        Tests = @("$pkg.playback.MotionEngineTest", "$pkg.playback.SmoothingTest", "$pkg.playback.MotionNativeTest", "$pkg.automation.MotionAutomationTest") }

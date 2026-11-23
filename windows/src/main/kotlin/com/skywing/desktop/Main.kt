@@ -1,6 +1,7 @@
 package com.skywing.desktop
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -32,7 +33,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.awtTransferable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -56,6 +61,7 @@ import java.awt.Frame
 import java.awt.KeyEventDispatcher
 import java.awt.KeyboardFocusManager
 import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
 import java.awt.dnd.DnDConstants
 import java.awt.dnd.DropTarget
 import java.awt.event.AWTEventListener
@@ -442,19 +448,26 @@ private fun SkyWingDesktopShell(
         files.getOrNull(index)?.let { openVideo(it, files) }
     }
     val latestOpenVideo by rememberUpdatedState<(File) -> Unit>({ file -> openVideo(file) })
-    // The Canvas is a heavyweight child; both it and the frame need drop targets.
-    DisposableEffect(awtWindow, videoCanvas) {
+    // Compose puts its own drop target on the window content, so drops there come through Compose (B37). The video
+    // Canvas is a native window of its own that Compose doesn't reach, so it keeps an AWT drop target.
+    @OptIn(ExperimentalComposeUiApi::class)
+    val videoDrop = remember {
+        object : DragAndDropTarget {
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                val file = droppedVideo(event.awtTransferable) ?: return false
+                latestOpenVideo(file)
+                return true
+            }
+        }
+    }
+    DisposableEffect(videoCanvas) {
+        val canvas = videoCanvas ?: return@DisposableEffect onDispose { }
         val listener = LocalVideoDropHandler { file -> latestOpenVideo(file) }
-        val oldWindowTarget = awtWindow.dropTarget
-        val target = DropTarget(awtWindow, DnDConstants.ACTION_COPY, listener, true)
-        val canvas = videoCanvas
-        val oldCanvasTarget = canvas?.dropTarget
-        val canvasTarget = canvas?.let { DropTarget(it, DnDConstants.ACTION_COPY, listener, true) }
+        val oldCanvasTarget = canvas.dropTarget
+        val canvasTarget = DropTarget(canvas, DnDConstants.ACTION_COPY, listener, true)
         onDispose {
-            awtWindow.dropTarget = oldWindowTarget
-            canvas?.dropTarget = oldCanvasTarget
-            target.removeDropTargetListener(listener)
-            canvasTarget?.removeDropTargetListener(listener)
+            canvas.dropTarget = oldCanvasTarget
+            canvasTarget.removeDropTargetListener(listener)
         }
     }
     LaunchedEffect(currentFile, closing) {
@@ -598,7 +611,9 @@ private fun SkyWingDesktopShell(
     }
     val playerShown = selected == "Now Playing"
 
-    Box(Modifier.fillMaxSize().skyWallpaper(theme)) {
+    @OptIn(ExperimentalComposeUiApi::class)
+    val takesDrop: (DragAndDropEvent) -> Boolean = { it.awtTransferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor) }
+    Box(Modifier.fillMaxSize().skyWallpaper(theme).dragAndDropTarget(shouldStartDragAndDrop = takesDrop, target = videoDrop)) {
         Row(Modifier.fillMaxSize()) {
             if (!fullscreen) {
                 Sidebar(
