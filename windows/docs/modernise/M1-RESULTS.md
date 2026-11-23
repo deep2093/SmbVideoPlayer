@@ -52,31 +52,63 @@ The "before" build is kept with `gradlew -p windows m1KeepBefore` while the chec
 
 ### Laptop (RTX 5070 Ti)
 
-2560 × 1600 at 240 Hz, plugged in, Windows power mode Balanced. Before: build b9ea781, 23 November. After: not measured yet.
+2560 × 1600 at 240 Hz, plugged in, Windows power mode Balanced. Before: build b9ea781, 23 November. After: build 061ea24, 24 November, with no rerun needed.
 
 | Measure | before | after |
 |---|---|---|
-| Start to first page, first start (s) | 1.31 | |
-| Start to first page, everyday start (s) | 1.28 | |
-| First scan of 5,000 videos (s) | 0.33 | |
-| Startup check of 5,000 videos (s) | 0.35 | |
-| Thumbnails made per minute | 732 | |
-| CPU cores while making thumbnails | 2.60 | |
-| Idle on the start page: CPU cores / UI thread busy | 0.01 / 0.6% | |
-| Scrolling Videos: frames per second | 231.9 | |
-| Scrolling Videos: frame time p95 / worst second (ms) | 5.17 / 9.06 | |
-| Scrolling Videos: UI tasks over 8 ms / longest (ms) | 2 / 8.13 | |
-| Scrolling Videos: UI thread busy / CPU cores | 17.0% / 0.70 | |
-| Adaptive Glow: frames per second | 229.7 | |
-| Adaptive Glow: frame time p95 / worst second (ms) | 6.05 / 8.71 | |
-| Adaptive Glow: UI tasks over 8 ms / longest (ms) | 3 / 11.84 | |
-| While thumbnails are made: frames per second | 227.1 | |
-| While thumbnails are made: frame time p95 / worst second (ms) | 6.07 / 10.30 | |
-| While thumbnails are made: UI tasks over 8 ms / longest (ms) | 11 / 11.10 | |
-| While thumbnails are made: CPU cores | 3.28 | |
-| Memory after scrolling: private / Java heap / pictures (MB) | 1,374 / 54 / 197 | |
+| Start to first page, first start (s) | 1.31 | 1.32 |
+| Start to first page, everyday start (s) | 1.28 | 1.25 |
+| First scan of 5,000 videos (s) | 0.33 | 0.11 |
+| Startup check of 5,000 videos (s) | 0.35 | 0.13 |
+| Thumbnails made per minute | 732 | 502 |
+| CPU cores while making thumbnails | 2.60 | 0.79 |
+| Idle on the start page: CPU cores / UI thread busy | 0.01 / 0.6% | 0.01 / 0.4% |
+| Scrolling Videos: frames per second | 231.9 | 237.5 |
+| Scrolling Videos: frame time p95 / worst second (ms) | 5.17 / 9.06 | 4.41 / 6.37 |
+| Scrolling Videos: UI tasks over 8 ms / longest (ms) | 2 / 8.13 | 2 / 8.73 |
+| Scrolling Videos: UI thread busy / CPU cores | 17.0% / 0.70 | 17.1% / 0.46 |
+| Adaptive Glow: frames per second | 229.7 | 236.3 |
+| Adaptive Glow: frame time p95 / worst second (ms) | 6.05 / 8.71 | 4.84 / 6.20 |
+| Adaptive Glow: UI tasks over 8 ms / longest (ms) | 3 / 11.84 | 2 / 14.31 |
+| While thumbnails are made: frames per second | 227.1 | 239.3 |
+| While thumbnails are made: frame time p95 / worst second (ms) | 6.07 / 10.30 | 4.85 / 5.24 |
+| While thumbnails are made: UI tasks over 8 ms / longest (ms) | 11 / 11.10 | 4 / 8.77 |
+| While thumbnails are made: CPU cores | 3.28 | 1.76 |
+| Memory after scrolling: private / Java heap / pictures (MB) | 1,374 / 54 / 197 | 1,480 / 31 / 255 |
 
-Against the M1 targets: the cold start (1.3 s) is already under 2.5 s; scrolling has UI tasks over 8 ms (2 plain, 3 with Adaptive Glow, 11 while thumbnails are made), so the "no task over 8 ms" target isn't met yet.
+Against the M1 targets:
+- **Cold start:** 1.3 s, under the 2.5 s target before and after. M1 didn't make the start faster; the start-up work it changed (B13) is in plan section 4.4.
+- **Scrolling:** the frame time p95 fell by 15 to 20% and the worst second's by 30 to 50%, larger than the run-to-run noise. Scrolling while thumbnails are made gained most: 11 UI tasks over 8 ms became 4, at about half the CPU.
+- **No UI task over 8 ms: not met.** A 30-second scroll still has a few: 2 plain (longest 8.7 ms), 2 with Adaptive Glow (one of 14.3 ms) and 4 while thumbnails are made. The second measurement of the same build in the JVM-flags run had 0, 1 and 2, so plain scrolling is at the edge of the noise, but Adaptive Glow and thumbnails still give tasks over 8 ms.
+
+**Fewer thumbnails per minute, at less CPU.** Both builds make background thumbnails one at a time (three at once only for cards on screen), so the rate is the time per picture. B24 decodes them on the graphics card (`hwdec=auto-copy`, as plan section 3 asks). A throwaway probe made the runner's 50 clips one at a time, three times each way, with kept players:
+
+| Decoding | Per picture (ms) | Per minute | CPU cores |
+|---|---|---|---|
+| Graphics card (`auto-copy`, the after build) | 125 | 479 | 0.70 |
+| Processor (`no`) | 67 | 900 | 2.80 |
+
+So the kept players alone would be faster than before, and the graphics card costs about 60 ms per picture: the first pictures of 5,000 videos take about 10 minutes instead of 7, at a quarter of the CPU. On the handhelds the processor is slower and 4K HEVC costs it most, so the graphics card is expected to help more there; their runs will show it.
+
+**Memory.** Private memory is 8% higher (1,480 MB). The card pictures are now one budget of at most 256 MB (B10) and it is full after scrolling 5,000 cards: 255 MB against 197 MB before. The Java heap is lower (31 MB).
+
+### JVM flags (plan 4.4), laptop
+
+The plan's four flags (`-XX:+UseG1GC -XX:MaxGCPauseMillis=8 -Xss2m -XX:+UseStringDeduplication`) in the after build's launcher settings, against the same build without them, measured right after the run above with the same runner. 24 November, plugged in, Balanced.
+
+| Measure | 061ea24 | 061ea24 with the flags |
+|---|---|---|
+| Start to first page, first / everyday start (s) | 1.31 / 1.23 | 1.28 / 1.25 |
+| Thumbnails made per minute / CPU cores | 507 / 0.77 | 501 / 0.79 |
+| Scrolling Videos: frame time p95 / worst second (ms) | 4.43 / 6.02 | 4.34 / 5.94 |
+| Scrolling Videos: UI tasks over 8 ms / longest (ms) | 0 / 7.73 | 0 / 7.40 |
+| Adaptive Glow: frame time p95 / worst second (ms) | 4.78 / 6.83 | 4.94 / 6.24 |
+| Adaptive Glow: UI tasks over 8 ms / longest (ms) | 1 / 8.93 | 1 / 8.58 |
+| While thumbnails are made: frame time p95 / worst second (ms) | 4.88 / 5.22 | 4.81 / 5.58 |
+| While thumbnails are made: UI tasks over 8 ms / longest (ms) | 2 / 8.39 | 2 / 9.71 |
+| Memory after scrolling: private / Java heap (MB) | 1,482 / 93 | 1,464 / 37 |
+
+Every difference is within the run-to-run noise, so the flags aren't adopted. G1 is already JDK 17's default here, and a lower Java heap after scrolling is the timing of the last collection, not a saving.
 
 ### MSI Claw 8
 
