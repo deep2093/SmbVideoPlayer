@@ -575,7 +575,7 @@ private fun SkyWingDesktopShell(
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         CompositionLocalProvider(LocalCovers provides covers) { when (selected) {
                             "Folders" -> FoldersScreen(library, organizer, hub, history, playOne, { renameTarget = it })
-                            "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it })
+                            "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it }) { go("Files") }
                             "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
                             else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,
                                 smoothingMode, smoothingStatus, ::selectSmoothing) { go("Files") }

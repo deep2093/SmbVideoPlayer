@@ -327,10 +327,13 @@ internal fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun EmptyNote(text: String, modifier: Modifier = Modifier) {
+internal fun EmptyNote(text: String, modifier: Modifier = Modifier, action: MenuAction? = null) {
     val theme = LocalSkyTheme.current
     Box(modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
-        Text(text, color = theme.muted, style = MaterialTheme.typography.bodyMedium)
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(text, color = theme.muted, style = MaterialTheme.typography.bodyMedium)
+            if (action != null) SkyButton(action.label, action.action, enabled = action.enabled, icon = action.icon)
+        }
     }
 }
 
