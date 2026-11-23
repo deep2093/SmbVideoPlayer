@@ -63,12 +63,12 @@ every test class that uses it. "Full" means a passing focused run is not enough:
 
 | Area | Files | Focused tests | Then |
 |---|---|---|---|
-| Playback / libmpv | `playback/EmbeddedMpv`, `LocalPlayback`, `ThumbnailExtractor`, `PlayerPage`, `PlaybackProblemDialog`, `LocalVideoDropHandler` | `EmbeddedPlaybackNativeTest`, `PlaybackAutomationTest` | Full |
+| Playback / libmpv | `playback/EmbeddedMpv`, `GpuAdapters`, `LocalPlayback`, `ThumbnailExtractor`, `PlayerPage`, `PlaybackProblemDialog`, `LocalVideoDropHandler` | `EmbeddedPlaybackNativeTest`, `ThumbnailExtractorNativeTest`, `GpuAdaptersTest`, `PlaybackAutomationTest` | Full |
 | Motion / smoothing | `playback/Motion*`, `Smoothing`, `RecentDrops`, `DisplayVrr`, `WindowsDisplayAdapter`, `SmoothingDialog`, `tools/build_motion.py`, the open-svpflow patch | `MotionEngineTest`, `SmoothingTest`, `MotionNativeTest`, `MotionAutomationTest` | |
 | Full screen / window chrome | `BorderlessFullscreen`, `FullscreenChrome`, `PlayerChrome`, `WindowChrome` | `FullscreenWindowTest`, `PlayerChromeTest`, `FullscreenAutomationTest` | Full |
 | App shell | `Main.kt` | full screen, playback and navigation tests | Full |
 | Accessibility / shared UI | `SkyUi`, `SkyTheme`, `AdaptiveTheme`, `SkyIcons`, `GridSelection` | `AccessibilitySemanticsTest`, `SkyUiLogicTest`, `AccessBridgeTreeTest`, `SkyWingAutomationTest` | |
-| Library | `LibraryModel`, `LibrarySync`, `LocalFolderLibrary`, `VideoFiles`, `WindowsLibraryData`, `VideosScreen`, `VideoViews`, `FoldersScreen`, `FolderOrganizer`, `FolderPickers`, `Thumbnails`, `Covers`, `VideoRename`, `ChangeCoverDialog` | `FolderOrganizerTest`, `WindowsMediaIndexScaleTest`, `WindowsMediaIndexSafetyTest`, `VideoScanTest`, `HubBackNavigationTest`, `LibraryAutomationTest`, `SkyWingAutomationTest` | |
+| Library | `LibraryModel`, `LibrarySync`, `LocalFolderLibrary`, `VideoFiles`, `WindowsLibraryData`, `VideosScreen`, `VideoViews`, `FoldersScreen`, `FolderOrganizer`, `FolderPickers`, `Thumbnails`, `ThumbnailWork`, `PowerSource`, `Covers`, `VideoRename`, `ChangeCoverDialog` | `FolderOrganizerTest`, `WindowsMediaIndexScaleTest`, `WindowsMediaIndexSafetyTest`, `VideoScanTest`, `HubBackNavigationTest`, `ThumbnailWorkTest`, `ThumbnailExtractorNativeTest`, `LibraryAutomationTest`, `SkyWingAutomationTest` | |
 | SMB / shares | `ShareHosts`, `WindowsShareBrowser`, `WindowsShareProfileStore`, `FilesScreen` | `WindowsShareBrowserTest`, `PortSettingsTest`, `NetworkAndStabilityAutomationTest` | |
 | Settings | `SettingsScreen`, `ArtworkSettingsPage` | `HubBackNavigationTest`, `SkyWingAutomationTest`, `LibraryAutomationTest` | |
 | Artwork / matching | `artwork/*`, `matching/*`, `EmbeddedGoogleImages` | `ArtworkTest`, `PerformerMatcherTest` | |

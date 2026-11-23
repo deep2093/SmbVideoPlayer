@@ -1,5 +1,6 @@
 package com.skywing.desktop.playback
 
+import com.skywing.desktop.PerfMonitor
 import com.sun.jna.Library
 import com.sun.jna.Native
 import com.sun.jna.Pointer
@@ -7,18 +8,31 @@ import com.sun.jna.ptr.DoubleByReference
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Grabs one picture from a video with a short-lived, windowless libmpv (the same DLL that plays videos),
- * so cards can show a real thumbnail like the Android app. No extra program is needed.
+ * Grabs one picture from a video with a windowless libmpv (the same DLL that plays videos), so cards can show a real
+ * thumbnail like the Android app. No extra program is needed.
+ *
+ * B24: each worker keeps its player for many pictures instead of starting a new one per picture, decodes on the
+ * graphics card where it can (`hwdec=auto-copy`, which falls back to the processor by itself), and tone maps HDR
+ * videos so their pictures are not washed out.
  */
 internal object ThumbnailExtractor {
     private interface Api : Library {
         fun mpv_create(): Pointer?
         fun mpv_set_option_string(ctx: Pointer, name: String, value: String): Int
+        fun mpv_set_property_string(ctx: Pointer, name: String, value: String): Int
         fun mpv_initialize(ctx: Pointer): Int
         fun mpv_command(ctx: Pointer, args: Array<String?>): Int
         fun mpv_get_property(ctx: Pointer, name: String, format: Int, value: DoubleByReference): Int
+        fun mpv_get_property_string(ctx: Pointer, name: String): Pointer?
+        fun mpv_free(data: Pointer)
+        fun mpv_hook_add(ctx: Pointer, userdata: Long, name: String, priority: Int): Int
+        fun mpv_hook_continue(ctx: Pointer, id: Long): Int
         fun mpv_wait_event(ctx: Pointer, timeout: Double): Pointer?
         fun mpv_error_string(error: Int): Pointer?
         fun mpv_terminate_destroy(ctx: Pointer)
@@ -36,6 +50,8 @@ internal object ThumbnailExtractor {
 
     private const val EVENT_SHUTDOWN = 1
     private const val EVENT_END_FILE = 7
+    private const val EVENT_HOOK = 25
+    private const val END_REASON_ERROR = 4
     private const val FORMAT_DOUBLE = 5
 
     /** Reads the timeline length for second-by-second frame picking without starting visible playback. */
@@ -69,25 +85,170 @@ internal object ThumbnailExtractor {
      * [start] is an mpv position ("10%" or seconds); [exact] decodes the precise frame (slower, for a frame the user
      * picks); [width] is the picture width. Returns true when it was written.
      */
-    data class Result(val success: Boolean, val reason: String, val elapsedMs: Long, val timedOut: Boolean = false)
+    data class Result(
+        val success: Boolean,
+        val reason: String,
+        val elapsedMs: Long,
+        val timedOut: Boolean = false,
+        /** True when the video is HDR and the picture went through the tone-mapping pass. */
+        val toneMapped: Boolean = false,
+    )
 
     fun extract(video: File, target: File, start: String = "10%", exact: Boolean = false, width: Int = 480): Boolean =
         extractDetailed(video, target, start, exact, width).success
 
     fun extractDetailed(video: File, target: File, start: String = "10%", exact: Boolean = false, width: Int = 480, timeoutMs: Long = 45_000): Result {
         val begun = System.nanoTime()
-        fun result(success: Boolean, reason: String, timedOut: Boolean = false) =
-            Result(success, reason, (System.nanoTime() - begun) / 1_000_000, timedOut)
+        fun result(success: Boolean, reason: String, timedOut: Boolean = false, toneMapped: Boolean = false) =
+            Result(success, reason, (System.nanoTime() - begun) / 1_000_000, timedOut, toneMapped)
         val native = api ?: return result(false, "libmpv-2.dll could not be loaded")
         if (!video.isFile) return result(false, "Video file is unavailable")
-        val work = runCatching { Files.createTempDirectory("skywing-thumb").toFile() }.getOrNull()
-            ?: return result(false, "Could not create temporary thumbnail folder")
-        var context: Pointer? = null
-        var failure = "mpv produced no JPEG"
-        var timedOut = false
+        val player = try {
+            borrow(native)
+        } catch (e: Exception) {
+            return result(false, e.message ?: e.javaClass.simpleName)
+        }
+        var healthy = false
         try {
-            val ctx: Pointer = native.mpv_create() ?: throw IllegalStateException("mpv_create failed")
-            context = ctx
+            val scale = "scale=${width.coerceIn(64, 1920)}:-2"
+            val first = player.grab(video, start, exact, "lavfi=[$scale]", timeoutMs)
+            healthy = !first.broken
+            val picture = first.picture ?: return result(false, first.failure, first.timedOut)
+            target.parentFile?.mkdirs()
+            Files.move(picture.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            if (first.gamma !in HDR_CURVES) return result(true, "ok")
+            // HDR: grab the same frame again through zscale's tone mapping. The first picture stays when that fails.
+            val mapped = player.grab(video, start, exact, "lavfi=[$TONE_MAP,$scale]", timeoutMs)
+            healthy = !mapped.broken
+            val toned = mapped.picture
+                ?.takeIf { !it.readBytes().contentEquals(target.readBytes()) }
+                ?: return result(true, "ok; tone mapping failed: ${mapped.failure}")
+            Files.move(toned.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            return result(true, "ok", toneMapped = true)
+        } catch (e: Exception) {
+            return result(false, "Could not save JPEG: ${e.message ?: e.javaClass.simpleName}")
+        } finally {
+            giveBack(player, healthy)
+        }
+    }
+
+    /** Transfer curves mpv reports for HDR video (video-params/gamma). */
+    private val HDR_CURVES = setOf("pq", "hlg")
+
+    /**
+     * HDR to SDR for a still picture: to linear light (100 nits as reference white), BT.2020 to BT.709 colours, the
+     * Hable curve, then back to BT.709. The plan's chain plus the primaries step, without which colours are oversaturated.
+     */
+    private const val TONE_MAP = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709," +
+        "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
+
+    /** One picture's outcome. [broken] means the player must not be used again. */
+    private class Grab(val picture: File?, val failure: String, val timedOut: Boolean, val broken: Boolean, val gamma: String?)
+
+    /** A windowless player kept for many pictures, with its own folder for the image output. */
+    private class Player(private val native: Api, val ctx: Pointer, val folder: File) {
+        private fun error(code: Int) = native.mpv_error_string(code)?.getString(0) ?: "error $code"
+
+        fun grab(video: File, start: String, exact: Boolean, vf: String, timeoutMs: Long): Grab {
+            folder.listFiles()?.forEach { it.delete() }
+            for ((name, value) in listOf("start" to start, "hr-seek" to if (exact) "yes" else "no", "vf" to vf)) {
+                val code = native.mpv_set_property_string(ctx, name, value)
+                if (code < 0) return Grab(null, "mpv option $name: ${error(code)}", false, false, null)
+            }
+            val loaded = native.mpv_command(ctx, arrayOf("loadfile", video.absolutePath, "replace", null))
+            if (loaded < 0) return Grab(null, "mpv loadfile: ${error(loaded)}", false, false, null)
+            var failure = "mpv produced no JPEG"
+            var gamma: String? = null
+            var ended = false
+            var broken = false
+            val deadline = System.nanoTime() + timeoutMs * 1_000_000
+            while (!ended && System.nanoTime() < deadline) {
+                val event = native.mpv_wait_event(ctx, 0.25) ?: continue
+                when (event.getInt(0)) {
+                    EVENT_HOOK -> {
+                        // on_unload: the file is about to close but its video is still set up, so its colours can be read.
+                        val hook = event.getPointer(16)
+                        try {
+                            gamma = native.mpv_get_property_string(ctx, "video-params/gamma")?.let { text ->
+                                try { text.getString(0, "UTF-8") } finally { native.mpv_free(text) }
+                            }
+                        } finally {
+                            if (hook != null) native.mpv_hook_continue(ctx, hook.getLong(8))
+                        }
+                    }
+                    EVENT_END_FILE -> {
+                        ended = true
+                        val end = event.getPointer(16)
+                        val code = if (end != null && end.getInt(0) == END_REASON_ERROR) end.getInt(4) else event.getInt(4)
+                        if (code < 0) failure = "mpv playback: ${error(code)}"
+                    }
+                    EVENT_SHUTDOWN -> {
+                        ended = true
+                        broken = true
+                    }
+                }
+            }
+            if (!ended) return Grab(null, "Timed out after ${timeoutMs / 1000}s", timedOut = true, broken = true, gamma = gamma)
+            val picture = folder.listFiles()?.filter { it.isFile && it.extension.equals("jpg", ignoreCase = true) && it.length() > 0 }
+                ?.minByOrNull { it.name }
+            return Grab(picture, failure, false, broken, gamma)
+        }
+
+        fun close() {
+            runCatching { native.mpv_terminate_destroy(ctx) }
+            runCatching { folder.deleteRecursively() }
+        }
+    }
+
+    private val idle = ArrayDeque<Player>()
+    private var inUse = 0
+    private var closing: ScheduledFuture<*>? = null
+    private val started = AtomicInteger()
+    private const val MAX_IDLE = 3
+    private const val IDLE_CLOSE_MS = 30_000L
+    private val closer = Executors.newSingleThreadScheduledExecutor { task ->
+        Thread(task, "SkyWing thumbnail players").apply { isDaemon = true }
+    }
+
+    /** How many players were started since SkyWing began. */
+    val playersStarted: Int get() = started.get()
+
+    init {
+        PerfMonitor.gauge("Thumbnail players started") { started.get().toLong() }
+        PerfMonitor.gauge("Thumbnail players open") { synchronized(this) { (idle.size + inUse).toLong() } }
+    }
+
+    @Synchronized
+    private fun borrow(native: Api): Player {
+        closing?.cancel(false)
+        closing = null
+        val player = idle.removeFirstOrNull() ?: open(native)
+        inUse++
+        return player
+    }
+
+    @Synchronized
+    private fun giveBack(player: Player, healthy: Boolean) {
+        inUse--
+        if (healthy && idle.size < MAX_IDLE) idle.addLast(player) else player.close()
+        // Players left idle are closed after a while, so a finished run keeps no player threads or memory.
+        if (inUse == 0 && idle.isNotEmpty()) closing = closer.schedule({ closeIdle() }, IDLE_CLOSE_MS, TimeUnit.MILLISECONDS)
+    }
+
+    /** Closes the players that are not making a picture now. */
+    @Synchronized
+    fun closeIdle() {
+        while (idle.isNotEmpty()) idle.removeFirst().close()
+    }
+
+    private fun open(native: Api): Player {
+        val folder = Files.createTempDirectory("skywing-thumb").toFile()
+        val ctx = native.mpv_create()
+        if (ctx == null) {
+            folder.deleteRecursively()
+            throw IllegalStateException("mpv_create failed")
+        }
+        try {
             fun error(code: Int) = native.mpv_error_string(code)?.getString(0) ?: "error $code"
             fun set(name: String, value: String) {
                 val code = native.mpv_set_option_string(ctx, name, value)
@@ -100,60 +261,34 @@ internal object ThumbnailExtractor {
             set("ytdl", "no")
             set("input-default-bindings", "no")
             set("input-vo-keyboard", "no")
+            set("idle", "yes")
             set("vo", "image")
             set("vo-image-format", "jpg")
             set("vo-image-jpeg-quality", "85")
-            set("vo-image-outdir", work.absolutePath)
+            set("vo-image-outdir", folder.absolutePath)
             set("ao", "null")
             set("aid", "no")
             set("sid", "no")
-            set("hwdec", "no")
+            set("hwdec", "auto-copy")
             set("frames", "1")
-            set("start", start)
             // Like the Android app: jump to the nearest key frame instead of decoding up to the exact moment, and
             // read only what the decoder needs (no read-ahead), so a network file costs a few small reads.
-            set("hr-seek", if (exact) "yes" else "no")
             set("cache", "no")
             set("demuxer-readahead-secs", "0")
             set("demuxer-max-bytes", "4MiB")
             set("demuxer-max-back-bytes", "0")
             set("vd-lavc-skiploopfilter", "all")
             set("vd-lavc-fast", "yes")
-            set("vf", "lavfi=[scale=${width.coerceIn(64, 1920)}:-2]")
             val initialized = native.mpv_initialize(ctx)
             if (initialized < 0) throw IllegalStateException("mpv_initialize: ${error(initialized)}")
-            val loaded = native.mpv_command(ctx, arrayOf("loadfile", video.absolutePath, "replace", null))
-            if (loaded < 0) throw IllegalStateException("mpv loadfile: ${error(loaded)}")
-            val deadline = System.nanoTime() + timeoutMs * 1_000_000
-            while (System.nanoTime() < deadline) {
-                val event = native.mpv_wait_event(ctx, 0.25) ?: continue
-                val id = event.getInt(0)
-                if (id == EVENT_END_FILE || id == EVENT_SHUTDOWN) {
-                    val code = event.getInt(4)
-                    if (code < 0) failure = "mpv playback: ${error(code)}"
-                    break
-                }
-            }
-            timedOut = System.nanoTime() >= deadline
-            if (timedOut) failure = "Timed out after ${timeoutMs / 1000}s"
-        } catch (e: Throwable) {
-            failure = e.message ?: e.javaClass.simpleName
-        } finally {
-            val handle = context
-            if (handle != null) runCatching { native.mpv_terminate_destroy(handle) }
-        }
-        return try {
-            val picture = work.listFiles()?.filter { it.isFile && it.extension.equals("jpg", ignoreCase = true) }
-                ?.minByOrNull { it.name }
-            if (picture != null && picture.length() > 0) {
-                target.parentFile?.mkdirs()
-                Files.move(picture.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                result(true, "ok")
-            } else result(false, failure, timedOut)
+            val hooked = native.mpv_hook_add(ctx, 0, "on_unload", 0)
+            if (hooked < 0) throw IllegalStateException("mpv hook: ${error(hooked)}")
         } catch (e: Exception) {
-            result(false, "Could not save JPEG: ${e.message ?: e.javaClass.simpleName}")
-        } finally {
-            runCatching { work.deleteRecursively() }
+            runCatching { native.mpv_terminate_destroy(ctx) }
+            folder.deleteRecursively()
+            throw e
         }
+        started.incrementAndGet()
+        return Player(native, ctx, folder)
     }
 }

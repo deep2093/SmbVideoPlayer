@@ -30,6 +30,10 @@ internal object TestMedia {
         val width: Int = 320,
         val height: Int = 240,
         val toneHz: Int = 440,
+        /** An mpv video filter applied before encoding, for example to tag the colours as HDR. */
+        val vf: String? = null,
+        /** Encoder options (mpv's ovcopts), for example x265's colour description. */
+        val ovcopts: String? = null,
     )
 
     val MP4_H264 = Spec("clip-h264.mp4", "libx264", "aac")
@@ -59,6 +63,8 @@ internal object TestMedia {
             set("config", "no")
             set("o", out.absolutePath)
             set("ovc", spec.videoCodec)
+            spec.vf?.let { set("vf", it) }
+            spec.ovcopts?.let { set("ovcopts", it) }
             if (spec.audioCodec != null) {
                 set("oac", spec.audioCodec)
                 set("audio-files", "av://lavfi:sine=frequency=${spec.toneHz}:sample_rate=48000:duration=${spec.seconds}")

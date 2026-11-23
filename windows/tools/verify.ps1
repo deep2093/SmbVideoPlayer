@@ -65,8 +65,8 @@ $upgradeUuid = 'f40c59ef-e520-4e10-b7a2-b86e7458f923'
 # ---------------------------------------------------------------------------------------------------------------
 $rules = @(
     @{ Area = 'Playback / libmpv'; Escalate = $true
-       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(EmbeddedMpv|GpuOverride|LocalPlayback|ThumbnailExtractor)\.kt|PlayerPage\.kt|PlaybackProblemDialog\.kt|LocalVideoDropHandler\.kt)$'
-       Tests = @("$pkg.playback.EmbeddedPlaybackNativeTest", "$pkg.automation.PlaybackAutomationTest") }
+       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(EmbeddedMpv|GpuOverride|GpuAdapters|LocalPlayback|ThumbnailExtractor)\.kt|PlayerPage\.kt|PlaybackProblemDialog\.kt|LocalVideoDropHandler\.kt)$'
+       Tests = @("$pkg.playback.EmbeddedPlaybackNativeTest", "$pkg.playback.ThumbnailExtractorNativeTest", "$pkg.playback.GpuAdaptersTest", "$pkg.automation.PlaybackAutomationTest") }
     @{ Area = 'Motion interpolation / smoothing'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(Motion\w*|Smoothing|RecentDrops|DisplayVrr|WindowsDisplayAdapter)\.kt|SmoothingDialog\.kt)$|windows/tools/(build_motion\.py|open-svpflow-windows\.patch)$'
        Tests = @("$pkg.playback.MotionEngineTest", "$pkg.playback.SmoothingTest", "$pkg.playback.MotionNativeTest", "$pkg.automation.MotionAutomationTest") }
@@ -81,8 +81,9 @@ $rules = @(
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(SkyUi|SkyTheme|AdaptiveTheme|SkyIcons|GridSelection)\.kt$'
        Tests = @("$pkg.AccessibilitySemanticsTest", "$pkg.SkyUiLogicTest", "$pkg.AccessBridgeTreeTest", "$pkg.automation.SkyWingAutomationTest") }
     @{ Area = 'Library'; Escalate = $false
-       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(LibraryModel|LibrarySync|LocalFolderLibrary|VideoFiles|WindowsLibraryData|VideosScreen|VideoViews|FoldersScreen|FolderOrganizer|FolderPickers|Thumbnails|Covers|VideoRename|ChangeCoverDialog)\.kt$'
-       Tests = @("$pkg.FolderOrganizerTest", "$pkg.WindowsMediaIndexScaleTest", "$pkg.WindowsMediaIndexSafetyTest", "$pkg.VideoScanTest", "$pkg.HubBackNavigationTest", "$pkg.automation.LibraryAutomationTest", "$pkg.automation.SkyWingAutomationTest") }
+       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(LibraryModel|LibrarySync|LocalFolderLibrary|VideoFiles|WindowsLibraryData|VideosScreen|VideoViews|FoldersScreen|FolderOrganizer|FolderPickers|Thumbnails|ThumbnailWork|PowerSource|Covers|VideoRename|ChangeCoverDialog)\.kt$'
+       Tests = @("$pkg.FolderOrganizerTest", "$pkg.WindowsMediaIndexScaleTest", "$pkg.WindowsMediaIndexSafetyTest", "$pkg.VideoScanTest", "$pkg.HubBackNavigationTest",
+                 "$pkg.ThumbnailWorkTest", "$pkg.playback.ThumbnailExtractorNativeTest", "$pkg.automation.LibraryAutomationTest", "$pkg.automation.SkyWingAutomationTest") }
     @{ Area = 'SMB / network shares'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(ShareHosts|WindowsShareBrowser|WindowsShareProfileStore|FilesScreen)\.kt$'
        Tests = @("$pkg.WindowsShareBrowserTest", "$pkg.PortSettingsTest", "$pkg.automation.NetworkAndStabilityAutomationTest") }
@@ -103,7 +104,7 @@ $rules = @(
 $toolTestsPattern = '^windows/tools/[^/]+\.py$'
 # Tests that open windows, go full screen or launch SkyWing. Everything else runs off screen.
 $focusTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|AccessBridgeTreeTest|playback\.EmbeddedPlaybackNativeTest|playback\.MotionNativeTest)$'
-$nativeTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|playback\.EmbeddedPlaybackNativeTest|playback\.MotionNativeTest)$'
+$nativeTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|playback\.(EmbeddedPlaybackNativeTest|MotionNativeTest|ThumbnailExtractorNativeTest))$'
 $ffmpegTests = '^com\.skywing\.desktop\.(automation\.MotionAutomationTest|playback\.(EmbeddedPlaybackNativeTest|MotionNativeTest))$'
 $notMeasured = 'HDR output and tone mapping, VRR activation, displayed frame pacing (the engine reports its configured rate), ' +
     'multi-monitor, real Alt+Tab, a real NAS or a dropped SMB connection, fresh install and uninstall on a clean PC.'

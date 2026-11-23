@@ -2,22 +2,22 @@ package com.skywing.desktop
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.IntSize
+import com.skywing.desktop.playback.GpuAdapters
 import com.skywing.desktop.playback.ThumbnailExtractor
 import java.io.File
 import java.nio.file.Paths
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
  * Thumbnails for video cards. A picture is made once per video (a frame about a tenth of the way in),
- * kept on disk, and shown from memory afterwards. Cards on screen are made first, three at a time; the rest of the
- * library is worked through one by one in the background while nothing on screen is waiting, like the Android app
- * does after a scan.
+ * kept on disk, and shown from memory afterwards. Cards on screen are made first; the rest of the library is worked
+ * through one by one in the background while nothing on screen is waiting, like the Android app does after a scan.
+ * How many are made at once follows the PC and its power ([thumbnailWorkers]); while a video plays, one card picture
+ * is made at a time and the background run waits (B24).
  */
 internal object ThumbnailStore {
     private val directory: File by lazy {
@@ -27,7 +27,11 @@ internal object ThumbnailStore {
     private val failed = java.util.Collections.synchronizedSet(HashSet<String>())
     private val failureDetails = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val retryAfter = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val gate = Semaphore(3)
+    private fun workers() = thumbnailWorkers(PowerSource.onBattery(), GpuAdapters.hasDedicated, playing)
+    private val gate = WorkLimit(::workers)
+
+    /** True while a video plays: the background run waits and cards get one picture at a time. */
+    @Volatile var playing = false
     private val waiting = java.util.concurrent.atomic.AtomicInteger()
     private val background = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     private var backgroundJob: kotlinx.coroutines.Job? = null
@@ -36,6 +40,8 @@ internal object ThumbnailStore {
     init {
         PerfMonitor.gauge("Thumbnails waiting") { waiting.get().toLong() }
         PerfMonitor.gauge("Thumbnails made") { made.get().toLong() }
+        PerfMonitor.gauge("Thumbnails being made") { gate.active.toLong() }
+        PerfMonitor.gauge("Thumbnails at once") { workers().toLong() }
     }
 
     /** The name (without .jpg) of the picture file kept for the video at [path] with modification time [stamp]. */
@@ -150,7 +156,7 @@ internal object ThumbnailStore {
 
     /**
      * Makes the missing pictures of [videos] in the background, one at a time and only while no card on screen is
-     * waiting. A newer call replaces the previous run.
+     * waiting and no video plays. A newer call replaces the previous run.
      */
     fun prefetch(videos: List<Pair<File, Long>>) {
         backgroundJob?.cancel()
@@ -175,7 +181,7 @@ internal object ThumbnailStore {
                     if (key in failed || (retryAfter[key] ?: 0L) > System.currentTimeMillis()) continue
                     val target = File(directory, "$key.jpg")
                     if (target.isFile && target.length() > 0) continue
-                    while (waiting.get() > 0) kotlinx.coroutines.delay(400)
+                    while (waiting.get() > 0 || playing) kotlinx.coroutines.delay(400)
                     gate.withPermit { withContext(Dispatchers.IO) { generate(key, video, target) } }
                 }
                 if (retryAfter.isEmpty()) return@run

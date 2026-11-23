@@ -288,6 +288,8 @@ private fun SkyWingDesktopShell(
     LaunchedEffect(library.all) {
         if (library.revision > 0) ThumbnailStore.prefetch(library.all.map { it.file to it.modified })
     }
+    // While a video plays, thumbnails wait so they don't take the processor or disk from it (B24).
+    LaunchedEffect(currentFile != null) { ThumbnailStore.playing = currentFile != null }
     val organizer = remember { Organizer(FolderOrganizerStore()) { WindowsCustomFolderStore().load() } }
     // Once folders.bin holds the custom folders, their old registry copy goes (B20). It can hold one value per video,
     // so it is removed off the screen thread.
