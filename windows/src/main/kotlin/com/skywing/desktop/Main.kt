@@ -72,7 +72,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-fun main(args: Array<String>) = application {
+fun main(args: Array<String>) {
+    PerfMonitor.startIfLogging()
+    skyWingApplication(args)
+}
+
+private fun skyWingApplication(args: Array<String>) = application {
     val state = rememberWindowState(width = 1280.dp, height = 800.dp)
     var closing by remember { mutableStateOf(false) }
     val embedded = remember { EmbeddedMpv() }
@@ -490,6 +495,9 @@ private fun SkyWingDesktopShell(
                 // Escape must work even when a text field or a slider owns focus.
                 currentFullscreenChange(false)
                 true
+            } else if (event.keyCode == KeyEvent.VK_F12 && event.isControlDown && event.isShiftDown && !event.isAltDown) {
+                PerfMonitor.toggleOverlay()
+                true
             } else if (
                 event.isControlDown || event.isAltDown || event.isMetaDown ||
                 manager.focusOwner is JTextComponent
@@ -630,7 +638,9 @@ private fun SkyWingDesktopShell(
                 }
             }
         }
+        PerfOverlay(Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 20.dp))
     }
+    PerfFrameProbe()
     playbackProblem?.let { PlaybackProblemDialog(it) { playbackProblem = null } }
     if (smoothingMenu) SmoothingDialog(smoothingMode, smoothingStatus, ::selectSmoothing) { smoothingMenu = false }
     renameTarget?.let { file ->

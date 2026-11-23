@@ -49,6 +49,12 @@ private object PictureCache {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageBitmap>?): Boolean = size > 300
     }
 
+    init {
+        PerfMonitor.gauge("Picture memory: covers (MB)") {
+            synchronized(memory) { memory.values.sumOf { it.width.toLong() * it.height * 4 } } / (1024 * 1024)
+        }
+    }
+
     fun get(file: File): ImageBitmap? = synchronized(memory) { memory[file.path] }
 
     fun load(file: File): ImageBitmap? {

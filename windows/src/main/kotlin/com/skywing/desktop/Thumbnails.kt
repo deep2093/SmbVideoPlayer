@@ -9,6 +9,7 @@ import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -33,6 +34,15 @@ internal object ThumbnailStore {
     private val waiting = java.util.concurrent.atomic.AtomicInteger()
     private val background = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     private var backgroundJob: kotlinx.coroutines.Job? = null
+    private val made = java.util.concurrent.atomic.AtomicInteger()
+
+    init {
+        PerfMonitor.gauge("Thumbnails waiting") { waiting.get().toLong() }
+        PerfMonitor.gauge("Thumbnails made") { made.get().toLong() }
+        PerfMonitor.gauge("Picture memory: thumbnails (MB)") {
+            synchronized(memory) { memory.values.sumOf { it.width.toLong() * it.height * 4 } } / (1024 * 1024)
+        }
+    }
 
     private fun keyOf(path: String, stamp: Long): String {
         val digest = MessageDigest.getInstance("SHA-1").digest((path.lowercase() + "|" + stamp).toByteArray(Charsets.UTF_8))
@@ -78,6 +88,7 @@ internal object ThumbnailStore {
         val fallback = if (!first.success) ThumbnailExtractor.extractDetailed(video, target, start = "0") else null
         val worked = first.success || fallback?.success == true
         if (worked) {
+            made.incrementAndGet()
             retryAfter.remove(key)
             failureDetails.remove(key)
             failed.remove(key)
@@ -153,6 +164,19 @@ internal object ThumbnailStore {
     fun prefetch(videos: List<Pair<File, Long>>) {
         backgroundJob?.cancel()
         backgroundJob = background.launch {
+            val startedNanos = System.nanoTime()
+            val madeBefore = made.get()
+            PerfMonitor.mark("thumbnails started", "videos" to videos.size)
+            try { prefetchPasses(videos) }
+            finally {
+                PerfMonitor.mark("thumbnails stopped", "seconds" to (System.nanoTime() - startedNanos) / 1e9,
+                    "made" to made.get() - madeBefore, "finished" to if (isActive) 1 else 0)
+            }
+        }
+    }
+
+    private suspend fun prefetchPasses(videos: List<Pair<File, Long>>) {
+        run {
             repeat(2) { pass ->
                 if (pass > 0) kotlinx.coroutines.delay(RETRY_DELAY_MS)
                 for ((video, stamp) in videos) {
@@ -163,7 +187,7 @@ internal object ThumbnailStore {
                     while (waiting.get() > 0) kotlinx.coroutines.delay(400)
                     gate.withPermit { withContext(Dispatchers.IO) { generate(key, video, target) } }
                 }
-                if (retryAfter.isEmpty()) return@launch
+                if (retryAfter.isEmpty()) return@run
             }
         }
     }

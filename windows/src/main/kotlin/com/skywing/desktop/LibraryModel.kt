@@ -31,6 +31,7 @@ internal class LibraryModel(val store: WindowsMediaIndex) {
         }
         all = distinct
         loading = false
+        PerfMonitor.mark("library loaded", "videos" to distinct.size)
     }
 }
 
