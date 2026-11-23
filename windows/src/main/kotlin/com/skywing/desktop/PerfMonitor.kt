@@ -233,6 +233,9 @@ internal object PerfMonitor {
             "recompositions ${it.recompositions}/s; Java heap ${it.heapUsedMb} MB"
     }
 
+    /** Compose's running count of recompositions that changed something, over every window. */
+    internal fun recompositionTotal(): Long = Recomposer.runningRecomposers.value.sumOf { it.changeCount }
+
     internal fun frameLoopStarted() = synchronized(window) { window.frameLoopStarted() }
 
     internal fun frame(nanos: Long) = synchronized(window) { window.frame(nanos) }
@@ -251,7 +254,7 @@ internal object PerfMonitor {
                 Thread.sleep(1_000)
                 val runtime = Runtime.getRuntime()
                 val values = gauges.entries.sortedBy { it.key }.associate { (name, read) -> name to runCatching(read).getOrDefault(-1L) }
-                val recompositions = Recomposer.runningRecomposers.value.sumOf { it.changeCount }
+                val recompositions = recompositionTotal()
                 val second = synchronized(window) {
                     window.roll(now(), (runtime.totalMemory() - runtime.freeMemory()) / MB, runtime.maxMemory() / MB, values, recompositions)
                 }
