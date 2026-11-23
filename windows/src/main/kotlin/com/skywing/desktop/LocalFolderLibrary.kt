@@ -19,16 +19,82 @@ internal object NetworkPaths {
         fun GetDriveTypeW(root: com.sun.jna.WString): Int
     }
 
+    private interface Mpr : com.sun.jna.Library {
+        fun WNetGetConnectionW(localName: com.sun.jna.WString, remoteName: CharArray, length: com.sun.jna.ptr.IntByReference): Int
+    }
+
     private val kernel: Kernel32? by lazy { runCatching { com.sun.jna.Native.load("kernel32", Kernel32::class.java) }.getOrNull() }
-    private val drives = java.util.concurrent.ConcurrentHashMap<Char, Boolean>()
+    private val mpr: Mpr? by lazy { runCatching { com.sun.jna.Native.load("mpr", Mpr::class.java) }.getOrNull() }
     private const val DRIVE_REMOTE = 4
+    private const val NO_ERROR = 0
+    private const val ERROR_CONNECTION_UNAVAIL = 1201
+
+    private val drives = DriveLetters(
+        isRemote = { letter -> kernel?.GetDriveTypeW(com.sun.jna.WString("$letter:\\")) == DRIVE_REMOTE },
+        shareOf = ::connectionOf,
+    )
+
+    fun isNetwork(path: String): Boolean = drives.isNetwork(path)
+
+    /** "network share", "local file" or "none", for reports. */
+    fun kindOf(path: String?): String = drives.kindOf(path)
+
+    /** [path] on a mapped drive letter, under the share's own address (`\\server\share\…`); null for any other path. */
+    fun uncOf(path: String): String? = drives.uncOf(path)
+
+    /** The share a drive letter is mapped to. Windows reads it from its own list; the share itself isn't contacted. */
+    private fun connectionOf(letter: Char): String? {
+        val api = mpr ?: return null
+        val name = CharArray(1024)
+        val result = runCatching { api.WNetGetConnectionW(com.sun.jna.WString("$letter:"), name, com.sun.jna.ptr.IntByReference(name.size)) }
+            .getOrNull()
+        // A remembered mapping that isn't connected now still names its share.
+        if (result != NO_ERROR && result != ERROR_CONNECTION_UNAVAIL) return null
+        return com.sun.jna.Native.toString(name).takeIf { it.startsWith("\\\\") }
+    }
+}
+
+/**
+ * What each drive letter is: on a network share or not, and which share a mapped letter shows (B29). Windows is asked
+ * again after [keepMillis], so a letter mapped, disconnected or freed while SkyWing runs is seen within seconds.
+ */
+internal class DriveLetters(
+    private val isRemote: (Char) -> Boolean,
+    private val shareOf: (Char) -> String?,
+    private val keepMillis: Long = 5_000,
+    private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
+) {
+    private class Known(val network: Boolean, val share: String?, val at: Long)
+
+    private val known = java.util.concurrent.ConcurrentHashMap<Char, Known>()
 
     fun isNetwork(path: String): Boolean {
         val p = path.trim()
         if (p.startsWith("\\\\") || p.startsWith("//")) return true
-        if (p.length < 2 || p[1] != ':' || !p[0].isLetter()) return false
-        val letter = p[0].uppercaseChar()
-        return drives.getOrPut(letter) { kernel?.GetDriveTypeW(com.sun.jna.WString("$letter:\\")) == DRIVE_REMOTE }
+        return letterOf(p)?.let { of(it).network } ?: false
+    }
+
+    fun kindOf(path: String?): String = when {
+        path == null -> "none"
+        isNetwork(path) -> "network share"
+        else -> "local file"
+    }
+
+    fun uncOf(path: String): String? {
+        val p = path.trim()
+        val share = letterOf(p)?.let { of(it).share }?.trimEnd('\\') ?: return null
+        val rest = p.substring(2).replace('/', '\\').trimStart('\\')
+        return if (rest.isEmpty()) share else share + "\\" + rest
+    }
+
+    private fun letterOf(p: String): Char? = if (p.length >= 2 && p[1] == ':' && p[0].isLetter()) p[0].uppercaseChar() else null
+
+    private fun of(letter: Char): Known {
+        val now = clock()
+        known[letter]?.takeIf { now - it.at < keepMillis }?.let { return it }
+        // A remembered mapping that isn't connected may not be a network drive to Windows, but its videos are on the share.
+        val share = shareOf(letter)
+        return Known(share != null || isRemote(letter), share, now).also { known[letter] = it }
     }
 }
 

@@ -79,6 +79,8 @@ internal object ShareHosts {
 
     /** [path] as the library keeps it: under the main address, even when it was read through another one. */
     fun canonical(path: String): String {
+        // A mapped drive letter shows a share the library keeps under its own address (B29).
+        NetworkPaths.uncOf(path)?.let { return canonical(it) }
         val host = hostOf(path) ?: return path
         val main = answered.entries.firstOrNull { it.value.equals(host, ignoreCase = true) }?.key
             ?: others.entries.firstOrNull { (_, list) -> list.any { it.equals(host, ignoreCase = true) } }?.key

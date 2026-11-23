@@ -379,7 +379,8 @@ class EmbeddedMpv(
         val elapsed = ((now - oldest.first) / 1000).coerceAtMost(60)
         val deltas = totals.zip(oldest.second).map { (a, b) -> if (a != null && b != null && a >= b) (a-b).toString() else "unavailable" }
         val build = BuildIdentity.current
-        val fileKind = expectedPath?.let { if (it.startsWith("\\\\") || it.startsWith("//")) "network share" else "local file" } ?: "none"
+        // A mapped drive letter is a network share too (B29).
+        val fileKind = com.skywing.desktop.NetworkPaths.kindOf(expectedPath)
         return buildString {
             appendLine("SkyWing ${build.version} · Windows x64 motion preview")
             appendLine(build.reportLine())
