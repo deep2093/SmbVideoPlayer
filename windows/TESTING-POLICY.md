@@ -46,7 +46,7 @@ The runner is `windows/tools/verify.ps1`. Its change-to-test table must match th
 | JDK 17 (`JAVA_HOME` or `PATH`) | everything | `java -version` |
 | `libmpv-2.dll` in `SKYWING_TEST_MPV_DIR` | native and UI tests | file exists. Default: `windows/build/native-resources/windows`, where the CI workflow puts the pinned libmpv (for a local setup see `FULLSCREEN-REGRESSION.md`); or the installed `app\resources` |
 | Vulkan loader `vulkan-1.dll` | native and UI tests | System32 or the libmpv folder. The pinned libmpv imports it; GPU drivers install it. A PC without it cannot load libmpv |
-| `ffmpeg` on `PATH` | `MotionAutomationTest`, `EmbeddedPlaybackNativeTest` | `Get-Command ffmpeg`. Builds the multi-track MKV and 24 fps fixtures |
+| `ffmpeg` on `PATH` | `MotionAutomationTest`, `EmbeddedPlaybackNativeTest`, `MotionNativeTest` | `Get-Command ffmpeg`. Builds the multi-track MKV, 24 fps and variable-rate fixtures |
 | `\\localhost\C$` readable | `NetworkAndStabilityAutomationTest` | `Test-Path`. Plays a fixture over SMB loopback, read-only |
 | Packaged app image | UI automation tests | `verify.ps1` runs `createDistributable` first, or tests the existing build that `-Image` names (section 4) |
 | `.claude/skills` identical to `.agents/skills` | always | file hashes. Copy `.agents/skills` over `.claude/skills` after editing a skill |

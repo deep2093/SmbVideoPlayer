@@ -104,7 +104,7 @@ $toolTestsPattern = '^windows/tools/[^/]+\.py$'
 # Tests that open windows, go full screen or launch SkyWing. Everything else runs off screen.
 $focusTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|AccessBridgeTreeTest|playback\.EmbeddedPlaybackNativeTest|playback\.MotionNativeTest)$'
 $nativeTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|playback\.EmbeddedPlaybackNativeTest|playback\.MotionNativeTest)$'
-$ffmpegTests = '^com\.skywing\.desktop\.(automation\.MotionAutomationTest|playback\.EmbeddedPlaybackNativeTest)$'
+$ffmpegTests = '^com\.skywing\.desktop\.(automation\.MotionAutomationTest|playback\.(EmbeddedPlaybackNativeTest|MotionNativeTest))$'
 $notMeasured = 'HDR output and tone mapping, VRR activation, displayed frame pacing (the engine reports its configured rate), ' +
     'multi-monitor, real Alt+Tab, a real NAS or a dropped SMB connection, fresh install and uninstall on a clean PC.'
 
@@ -189,7 +189,7 @@ function Test-Prerequisites([string[]]$tests, [string]$mode, [string]$mpv) {
     $vulkan = (Test-Path "$env:WINDIR\System32\vulkan-1.dll") -or ($mpv -and (Test-Path -LiteralPath (Join-Path $mpv 'vulkan-1.dll')))
     $checks += [pscustomobject]@{ Name = 'Vulkan loader (libmpv imports vulkan-1.dll)'; Required = $needNative; Ok = $vulkan; Detail = 'System32 or the libmpv folder' }
     $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
-    $checks += [pscustomobject]@{ Name = 'ffmpeg on PATH (multi-track MKV and 24 fps fixtures)'; Required = $needFfmpeg; Ok = [bool]$ffmpeg; Detail = $(if ($ffmpeg) { $ffmpeg.Source } else { '' }) }
+    $checks += [pscustomobject]@{ Name = 'ffmpeg on PATH (multi-track MKV, 24 fps and variable-rate fixtures)'; Required = $needFfmpeg; Ok = [bool]$ffmpeg; Detail = $(if ($ffmpeg) { $ffmpeg.Source } else { '' }) }
     $loopback = Test-Path '\\localhost\C$\Windows' -ErrorAction SilentlyContinue
     $checks += [pscustomobject]@{ Name = 'Loopback admin share \\localhost\C$ (read-only playback)'; Required = $needLoopback; Ok = $loopback; Detail = '' }
     if ($Image) {
