@@ -233,6 +233,28 @@ Notes:
 - Against the battery runs at 30 W: 1080p Fast drew 1.7 W more (15.9 against 14.2 W), and 1080p Balanced drew 2.9 W less (15.6 against 18.5 W) while using more CPU time (0.93 against 0.64 cores). The screen was at its lowest brightness in both sets (the owner set it), so brightness doesn't explain the difference. The 8 W limit appears to have taken effect: 4K couldn't hold 2×, and Balanced drew less while using more CPU time. Why Fast drew more isn't known. Each figure comes from one 5-minute run, so run-to-run spread isn't measured.
 - In both 4K runs, after the warm-up the player bar read "Smoothing: Off" and Motion options showed the switch off. With "Lower automatically" off and 2× already the lowest stop, SkyWing turns smoothing off by itself only when it can't keep up: "Cannot keep up at 2×; smoothing stopped" (`EmbeddedMpv.kt`). So 4K 2× held neither Fast nor Balanced at this setting. The runner reported a missing "Copy playback report" button instead, and stopped after the second such run.
 
+#### Claw 8 on battery at 15 W in Best power efficiency (plan 5.7, item 5)
+
+23 November, 17:25–17:54: the four battery runs again, with the same build, clips and runner. The owner moved the 8 W battery folders out first, so all four ran. The plugged-in rows above were kept.
+
+| | Value |
+|---|---|
+| Power or TDP mode | MSI's limits PL1 15 W and PL2 16 W, set by the owner. Windows power mode Best power efficiency, as the owner chose it; the runner read it for battery at the start and end of every run. Screen at its lowest brightness, as in the other battery sets. |
+
+| Clip | Quality | Power | Drops in 5 min | Drops per minute | Restarts | Process CPU (cores) | Private memory, MB (start → end) | Battery drain (W; % per hour) | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| 1080p | Fast | Battery | 0 | 0.0 | 0 | 1.30 | 1,559 → 1,576 | 8.4; 12.0 | Filter throughput 49.096 fps, target 47.95 fps |
+| 1080p | Balanced | Battery | 0 | 0.0 | 0 | 1.67 | 1,766 → 1,777 | 9.7; 13.8 | Filter throughput 47.175 fps, target 47.95 fps |
+| 4K | Fast | Battery | 0 | 0.0 | 0 | 2.45 | 2,966 → 2,986 | 20.0; 28.6 | Filter throughput 61.29 fps, target 59.94 fps |
+| 4K | Balanced | Battery | 0 | 0.0 | 0 | 4.69 | 4,129 → 4,167 | 21.1; 30.1 | Filter throughput 56.056 fps, target 59.94 fps |
+
+Notes:
+- All four runs counted. In no window did another program come to the front, full screen drop or any input arrive. Every report B showed the run's quality, 0 restarts and 1 → 1 graph generations.
+- Against the battery runs at 30 W in Best performance, the drain fell by 41 % at 1080p Fast (8.4 against 14.2 W), 48 % at 1080p Balanced (9.7 against 18.5 W), 29 % at 4K Fast (20.0 against 28.2 W) and 47 % at 4K Balanced (21.1 against 40.0 W). A full battery would last about 8.3 hours at 1080p Fast instead of 4.9, and about 3.3 hours at 4K Balanced instead of 1.7.
+- Process CPU rose (1.30 against 0.47 cores at 1080p Fast) while the drain fell: at lower clocks the cores are busy for longer. Process CPU is not a power figure.
+- Both 4K runs dropped frames during the warm-up only: `frame-drop-count` was already 1 (Fast) and 2 (Balanced) at report A and didn't move in the window. 4K Balanced's report B throughput read 56.056 fps, below its target, yet the filter delivered 60.1 frames a second over the window and nothing dropped.
+- Two settings changed together against the 30 W runs: MSI's limit and the Windows power mode. These runs can't say how much of the saving each gave. The 8 W runs, which the runner read as Best performance, drew more at 1080p (15.9 and 15.6 W), which suggests the Windows mode matters more than the limit there.
+
 ## 5. What the numbers decide
 
 - **Automatic GPU (plan 5.3):** Automatic stays all-Intel unless run A drops frames, or run B holds 2× with clearly fewer drops at an acceptable power cost.
