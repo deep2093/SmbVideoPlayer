@@ -127,6 +127,22 @@ class SkyWingAutomationTest {
         assertEquals(registryBefore, registry(LOCAL_FOLDERS_KEY), "the user's registry preferences were not touched")
     }
 
+    /** B13: the Google Images browser (JCEF, about 150 MB) loads only when that tab of Change cover opens. */
+    @Test
+    fun theGoogleImagesBrowserIsNotLoadedAtStartOrOnOtherPages() = SkyWingTestApp.launch("no-browser").use { app ->
+        app.find("Add", BUTTON)
+        listOf("Videos", "Settings", "Folders").forEach { page ->
+            app.activate(page, TAB)
+            app.waitUntil("$page to be selected") { s -> ControlQuery.single(s.nodes, page, TAB).selected }
+        }
+        Thread.sleep(2_000)
+        val modules = app.loadedModules()
+        assertTrue("jvm.dll" in modules, "the module list is SkyWing's own: $modules")
+        assertEquals(emptySet(), modules intersect BROWSER_DLLS, "browser DLLs loaded without the Google Images tab")
+        val unpacked = app.dataDir.resolve("LocalAppData").resolve("SkyWing").resolve("browser").toFile()
+        assertFalse(unpacked.exists(), "the browser was unpacked without the Google Images tab")
+    }
+
     private fun SkyWingTestApp.openPlayback() {
         activate("Settings", TAB)
         activate("Playback", BUTTON)
@@ -156,6 +172,7 @@ class SkyWingAutomationTest {
         const val BUTTON = "push button"
         const val CHECK_BOX = "check box"
         const val LABEL = "label"
+        val BROWSER_DLLS = setOf("jcef.dll", "libcef.dll", "chrome_elf.dll")
 
         const val PLAYBACK_NODE = "com/skywing/desktop/playback"
         const val LOCAL_FOLDERS_NODE = "com/skywing/desktop/local-library-folders"

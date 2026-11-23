@@ -11,6 +11,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.prefs.Preferences
 import kotlin.io.path.absolutePathString
@@ -75,6 +76,16 @@ internal class SkyWingTestApp private constructor(
     fun processIds(): Set<Long> = buildSet {
         add(process.pid())
         process.descendants().forEach { add(it.pid()) }
+    }
+
+    /** The DLLs (in lower case) loaded in the launched process and its children, as tasklist lists them. */
+    fun loadedModules(): Set<String> = processIds().flatMapTo(sortedSetOf()) { pid ->
+        val tasklist = ProcessBuilder("tasklist", "/m", "/fi", "PID eq $pid", "/fo", "csv", "/nh").redirectErrorStream(true).start()
+        val output = tasklist.inputStream.bufferedReader().use { it.readText() }
+        check(tasklist.waitFor(30, TimeUnit.SECONDS)) { "tasklist didn't finish" }
+        // One line: "image","pid","module,module,...". A process that ended in between lists nothing.
+        Regex("\"([^\"]*)\"").findAll(output).map { it.groupValues[1] }.drop(2).firstOrNull()
+            ?.split(',')?.map { it.trim().lowercase(Locale.ROOT) }?.filter { it.endsWith(".dll") }.orEmpty()
     }
 
     /** Visible top-level Java windows owned by the launched process or its children. */
