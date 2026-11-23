@@ -182,7 +182,7 @@ The Claw 8 AI+ (A2VM), 23 November, 15:10–16:07, with the handheld runner and 
 | `Preferred motion GPU:` line | `Intel(R) Arc(TM) 140V GPU (16GB); driver: 32.0.101.9175` |
 | `Renderer:` line | `Intel(R) Arc(TM) 140V GPU (16GB); preference: Intel D3D11; output: gpu-next` |
 | `Display:` line | `120.0021299902629 Hz; VRR activation: not measured` |
-| Power or TDP mode | Windows power mode Best performance at the start and end of every run. MSI's own mode wasn't recorded. |
+| Power or TDP mode | Windows power mode Best performance at the start and end of every run. MSI's mode was 30 W when the owner checked after the runs. Nobody set it for the runs (the runner only reads the Windows power mode), and whether it stayed 30 W on battery wasn't logged. |
 | 1080p clip frame rate | 23.976 fps (`source 23.97599983215332 fps`) |
 
 | Clip | Quality | Power | Drops in 5 min | Drops per minute | Restarts | Process CPU (cores) | Private memory, MB (start → end) | Battery drain (W; % per hour) | Notes |
