@@ -10,6 +10,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -102,10 +103,10 @@ internal object ThumbnailExtractor {
         val begun = System.nanoTime()
         fun result(success: Boolean, reason: String, timedOut: Boolean = false, toneMapped: Boolean = false) =
             Result(success, reason, (System.nanoTime() - begun) / 1_000_000, timedOut, toneMapped)
-        val native = api ?: return result(false, "libmpv-2.dll could not be loaded")
+        if (api == null) return result(false, "libmpv-2.dll could not be loaded")
         if (!video.isFile) return result(false, "Video file is unavailable")
         val player = try {
-            borrow(native)
+            players.borrow()
         } catch (e: Exception) {
             return result(false, e.message ?: e.javaClass.simpleName)
         }
@@ -129,7 +130,7 @@ internal object ThumbnailExtractor {
         } catch (e: Exception) {
             return result(false, "Could not save JPEG: ${e.message ?: e.javaClass.simpleName}")
         } finally {
-            giveBack(player, healthy)
+            players.giveBack(player, healthy)
         }
     }
 
@@ -202,15 +203,13 @@ internal object ThumbnailExtractor {
         }
     }
 
-    private val idle = ArrayDeque<Player>()
-    private var inUse = 0
-    private var closing: ScheduledFuture<*>? = null
     private val started = AtomicInteger()
     private const val MAX_IDLE = 3
     private const val IDLE_CLOSE_MS = 30_000L
     private val closer = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "SkyWing thumbnail players").apply { isDaemon = true }
     }
+    private val players = KeptPlayers(MAX_IDLE, IDLE_CLOSE_MS, closer, start = { open(checkNotNull(api)) }, stop = Player::close)
 
     /**
      * The image folder of every open player. SkyWing can close while players wait idle (they close only after
@@ -223,32 +222,12 @@ internal object ThumbnailExtractor {
 
     init {
         PerfMonitor.gauge("Thumbnail players started") { started.get().toLong() }
-        PerfMonitor.gauge("Thumbnail players open") { synchronized(this) { (idle.size + inUse).toLong() } }
+        PerfMonitor.gauge("Thumbnail players open") { players.count.toLong() }
         Runtime.getRuntime().addShutdownHook(Thread({ folders.forEach { runCatching { it.deleteRecursively() } } }, "SkyWing thumbnail folders"))
     }
 
-    @Synchronized
-    private fun borrow(native: Api): Player {
-        closing?.cancel(false)
-        closing = null
-        val player = idle.removeFirstOrNull() ?: open(native)
-        inUse++
-        return player
-    }
-
-    @Synchronized
-    private fun giveBack(player: Player, healthy: Boolean) {
-        inUse--
-        if (healthy && idle.size < MAX_IDLE) idle.addLast(player) else player.close()
-        // Players left idle are closed after a while, so a finished run keeps no player threads or memory.
-        if (inUse == 0 && idle.isNotEmpty()) closing = closer.schedule({ closeIdle() }, IDLE_CLOSE_MS, TimeUnit.MILLISECONDS)
-    }
-
     /** Closes the players that are not making a picture now. */
-    @Synchronized
-    fun closeIdle() {
-        while (idle.isNotEmpty()) idle.removeFirst().close()
-    }
+    fun closeIdle() = players.closeIdle()
 
     private fun open(native: Api): Player {
         val folder = Files.createTempDirectory("skywing-thumb").toFile().also { folders += it }
@@ -301,5 +280,65 @@ internal object ThumbnailExtractor {
         }
         started.incrementAndGet()
         return Player(native, ctx, folder)
+    }
+}
+
+/**
+ * The players kept between pictures (B24): at most [maxIdle] wait idle, and those are closed [idleCloseMs] after the
+ * last picture, so a finished run keeps no player threads or memory. Players are started and closed outside the lock:
+ * one whose video hangs on a network read can take long to close, and the other workers must not wait for it.
+ */
+internal class KeptPlayers<P : Any>(
+    private val maxIdle: Int,
+    private val idleCloseMs: Long,
+    private val scheduler: ScheduledExecutorService,
+    private val start: () -> P,
+    private val stop: (P) -> Unit,
+) {
+    private val idle = ArrayDeque<P>()
+    /** Players making a picture now, and players being started for one. */
+    private var inUse = 0
+    private var closing: ScheduledFuture<*>? = null
+
+    /** Players open now: the idle ones and those making a picture. */
+    val count: Int @Synchronized get() = idle.size + inUse
+
+    fun borrow(): P {
+        val kept = synchronized(this) {
+            closing?.cancel(false)
+            closing = null
+            inUse++
+            idle.removeFirstOrNull()
+        }
+        if (kept != null) return kept
+        return try {
+            start()
+        } catch (e: Exception) {
+            synchronized(this) { returned() }
+            throw e
+        }
+    }
+
+    /** Takes [player] back; one that isn't [healthy], or one more than [maxIdle], is closed. */
+    fun giveBack(player: P, healthy: Boolean) {
+        val kept = synchronized(this) {
+            (healthy && idle.size < maxIdle).also { keep ->
+                if (keep) idle.addLast(player)
+                returned()
+            }
+        }
+        if (!kept) stop(player)
+    }
+
+    /** Closes the players that are not making a picture now. */
+    fun closeIdle() {
+        val players = synchronized(this) { idle.toList().also { idle.clear() } }
+        players.forEach(stop)
+    }
+
+    /** One player less is in use; once none is, the idle ones are closed after [idleCloseMs]. Call with the lock. */
+    private fun returned() {
+        inUse--
+        if (inUse == 0 && idle.isNotEmpty()) closing = scheduler.schedule({ closeIdle() }, idleCloseMs, TimeUnit.MILLISECONDS)
     }
 }
