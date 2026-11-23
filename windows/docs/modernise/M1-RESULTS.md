@@ -40,7 +40,7 @@ The runner is `windows/tools/m1-runner` plus the Gradle task `m1Runner`, which p
 
 ## 3. How to run it
 
-On the laptop, Claude builds and runs it (`gradlew -p windows m1Runner`, then `Run M1.cmd` in the runner folder). It takes the desktop for about 15 minutes, so it needs the owner's go-ahead each time, and nobody may touch the PC while it runs.
+On the laptop, Claude builds and runs it (`gradlew -p windows m1Runner`, then `Run M1.cmd` in the runner folder). It takes the desktop for about 6 minutes per build, so it needs the owner's go-ahead each time, and nobody may touch the PC while it runs.
 
 On a handheld, copy the runner folder to the device's own drive and follow `README.txt`: plug in, close SkyWing, double-click `Run M1.cmd` and leave the device alone until it beeps. Bring back `results\<device>`.
 
@@ -48,9 +48,35 @@ The "before" build is kept with `gradlew -p windows m1KeepBefore` while the chec
 
 ## 4. Results
 
-Not measured yet.
+**Run-to-run noise.** The trial on 23 November measured the same build twice with short windows (8 s of scrolling). Frame rates and p95 times differed by up to 10%, and the row "scrolling while thumbnails are made" by more (181 to 201 frames per second; longest UI task 10.5 to 21.6 ms). A difference smaller than that, or one or two UI tasks over 8 ms, is not a change.
 
 ### Laptop (RTX 5070 Ti)
+
+2560 × 1600 at 240 Hz, plugged in, Windows power mode Balanced. Before: build b9ea781, 23 November. After: not measured yet.
+
+| Measure | before | after |
+|---|---|---|
+| Start to first page, first start (s) | 1.31 | |
+| Start to first page, everyday start (s) | 1.28 | |
+| First scan of 5,000 videos (s) | 0.33 | |
+| Startup check of 5,000 videos (s) | 0.35 | |
+| Thumbnails made per minute | 732 | |
+| CPU cores while making thumbnails | 2.60 | |
+| Idle on the start page: CPU cores / UI thread busy | 0.01 / 0.6% | |
+| Scrolling Videos: frames per second | 231.9 | |
+| Scrolling Videos: frame time p95 / worst second (ms) | 5.17 / 9.06 | |
+| Scrolling Videos: UI tasks over 8 ms / longest (ms) | 2 / 8.13 | |
+| Scrolling Videos: UI thread busy / CPU cores | 17.0% / 0.70 | |
+| Adaptive Glow: frames per second | 229.7 | |
+| Adaptive Glow: frame time p95 / worst second (ms) | 6.05 / 8.71 | |
+| Adaptive Glow: UI tasks over 8 ms / longest (ms) | 3 / 11.84 | |
+| While thumbnails are made: frames per second | 227.1 | |
+| While thumbnails are made: frame time p95 / worst second (ms) | 6.07 / 10.30 | |
+| While thumbnails are made: UI tasks over 8 ms / longest (ms) | 11 / 11.10 | |
+| While thumbnails are made: CPU cores | 3.28 | |
+| Memory after scrolling: private / Java heap / pictures (MB) | 1,374 / 54 / 197 | |
+
+Against the M1 targets: the cold start (1.3 s) is already under 2.5 s; scrolling has UI tasks over 8 ms (2 plain, 3 with Adaptive Glow, 11 while thumbnails are made), so the "no task over 8 ms" target isn't met yet.
 
 ### MSI Claw 8
 
