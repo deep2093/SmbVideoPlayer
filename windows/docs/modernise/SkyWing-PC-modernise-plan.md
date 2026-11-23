@@ -370,7 +370,22 @@ The profile shows the full-resolution motion search is about 70% of the analysis
 1. **PotPlayer-equivalent preset (test only):** copy the exact MVTools settings from my PotPlayer AviSynth script (archive the script first) into a hidden preset, so the two players can finally be compared like for like.
 2. **Luma-only scoring:** **verify** whether open-svpflow can skip chroma in the search (as MVTools' `chroma=false` does). If yes, compare CPU and pictures against Balanced; adopt only if it looks the same to me.
 3. **Handheld defaults:** measure Fast vs Balanced on the Claw and the OneXPlayer 3 (5.6 benchmark). Use whichever holds 2× at 1080p without drops on battery as the handheld default.
-Every experiment keeps full-resolution output (no downscale and upscale; that was ruled out).
+4. **Smooth at screen size (owner decision, 23 November):** a "Smooth at screen size" switch in Settings → Playback, under smoothing. When a video is larger than the screen, SkyWing shrinks it to the screen's size before the motion search, instead of smoothing every 4K frame and letting mpv shrink it afterwards. At 4K on the Claw's 1920 × 1200 screen, that is about 4× fewer pixels.
+   - Size: the current mode of the monitor showing the window, in physical pixels, at any resolution. The video fits inside it at its own aspect ratio, rounded down to sizes open-svpflow accepts (**verify**; at least even numbers). A video that already fits is never scaled up. Examples: 4K on 1920 × 1200 → 1920 × 1080; 4K on 2560 × 1600 → 2560 × 1440; 1080p on 1366 × 768 → 1364 × 768.
+   - In a window too, the size is the monitor's full-screen size. It is worked out again only on `WM_DISPLAYCHANGE` or a move to another monitor (5.4), so resizing the window never rebuilds the graph.
+   - Where: on the GPU before decoded frames are copied to the CPU, which also saves the 4K copies (mpv's `d3d11vpp` scaling; **verify** that the pinned mpv has it). Otherwise, resize in VapourSynth before `Super`, and measure what that resize costs.
+   - Subtitles and the controls are drawn afterwards, so they stay sharp. HDR smoothing stays bypassed. Presets, stops and per-file settings don't change.
+   - The playback report adds "Smoothing size: 1920 × 1080 (screen 1920 × 1200)".
+   - Off by default. The owner compares it by eye on the Claw at 4K Fast and Balanced. If it looks the same, it becomes on by default. Measure process CPU and battery drain with the handheld runner; the M0 rows are the "before".
+   - Tests: the fit size for 4K, 1080p and portrait video on 1920 × 1200, 2560 × 1600, 3840 × 2160, 1366 × 768 and 3440 × 1440 screens; a native test that a 4K source on a 1920 × 1200 screen is smoothed at 1920 × 1080 with exact frame times.
+5. **Efficiency floor (owner runs, no code):** on the Claw, 1080p Fast on battery with MSI's limit at 20 W and then 15 W, in Windows Best performance. Then repeat the lowest limit that kept 0 drops in Windows Balanced. M0 measured 14.2 W of battery drain at 30 W and Best performance. Then do the same on the OneXPlayer 3.
+   - Use the handheld runner one run at a time: move the old `…-1080p-fast-battery` folder out of `results`, and the runner redoes only that run (about 7 minutes).
+   - Keep the screen brightness the same for every run, because the runner's `Battery:` line is the whole device's draw. The runner records the Windows power mode but not MSI's limit, so name each run's folder after its limit.
+   - Record the rows in M0-RESULTS section 4.
+6. **Baselines:** on the Claw on battery, at one power setting, play the same 1080p and 4K clips with smoothing off, and in PotPlayer with its 2× script. That shows what smoothing itself costs, and how SkyWing compares on a handheld. The runner always turns motion on, so these use the section 2 snippet, or a "smoothing off" run added to the runner.
+7. **Fewer copies:** each output frame is drawn on the GPU (`SmoothFps` with `gpu:1`), read back to the CPU for VapourSynth, then uploaded again by mpv, and decoded frames are copied back first. **Verify** whether open-svpflow can keep frames on the GPU, or whether frame sharing can hand mpv a GPU surface. Measure the copies at 4K before any work.
+
+Apart from item 4, every experiment keeps full-resolution output.
 
 ### 5.8 GPU compatibility matrix (most integrated and dedicated GPUs)
 
@@ -411,7 +426,7 @@ The "Default smoothing" column only sets the first-use **quality** and the resol
 ### 5.9 Any processor (Intel or AMD)
 - **Features, not brands:** nothing may check whether the CPU is Intel or AMD. Only its features count.
 - **Instruction sets:** list the minimum each bundled native DLL needs (libmpv and ffmpeg, VapourSynth, Python, open-svpflow, MVTools; **verify** from their build flags). At start-up, check the CPU (`IsProcessorFeaturePresent`, or CPUID). If a DLL needs more than the CPU has (for example AVX2 on some Celeron and Pentium chips), switch that feature off with a plain reason. Never crash with an illegal instruction.
-- **Hybrid cores** (Intel P-cores, E-cores and low-power E-cores; AMD Zen 5 and Zen 5c): Windows can slow a process it treats as background work (power throttling, "EcoQoS"). Measure drops with SkyWing in focus and out of focus, on the laptop and a handheld. Only if they rise, opt SkyWing out while a video plays (`SetProcessInformation` with `ProcessPowerThrottling`), and restore it when playback stops.
+- **Hybrid cores** (Intel P-cores, E-cores and low-power E-cores; AMD Zen 5 and Zen 5c): Windows can slow a process it treats as background work (power throttling, "EcoQoS"). Measure drops with SkyWing in focus and out of focus, on the laptop and a handheld. Only if they rise, opt SkyWing out while a video plays (`SetProcessInformation` with `ProcessPowerThrottling`), and restore it when playback stops. Also measure the other way round: on a handheld on battery, mark the motion worker threads as efficiency work (EcoQoS, which Windows runs on its low-power cores) at 1080p Fast. Keep it only if battery drain falls and there are still 0 drops.
 - **Report:** the CPU name, its core types and the instruction sets that matter.
 - **ARM64 PCs (Snapdragon):** out of scope while SkyWing is x64 only. **Verify** once what happens there: the x64 build either runs under Windows' emulation with smoothing off and a plain reason, or the installer says ARM64 isn't supported.
 
