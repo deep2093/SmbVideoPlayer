@@ -49,7 +49,7 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
     val source = caps.sourceFps?.let(MotionRate::source)
     if (source != null) {
         val key = MotionStops.type(caps)
-        val settings = status.settings ?: MotionSettingsStore.values.load(key, MotionStops.default(source))
+        val settings = status.settings ?: MotionSettingsStore.values.load(key, MotionStops.default(source, caps.displayHz, MotionSettingsStore.values.vrr))
         val allowed = MotionStops.allowed(source, caps.displayHz)
         var rate by remember(key, settings.stop) { mutableStateOf(settings.stop.toFloat()) }
         var quality by remember(key, settings.quality) { mutableStateOf(settings.quality.ordinal.toFloat()) }
@@ -68,6 +68,10 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
                     color = if (stop in allowed) theme.ink else theme.muted.copy(alpha = 0.45f),
                     style = MaterialTheme.typography.labelSmall)
             }
+        }
+        // B31: a stop a fixed screen can't show evenly says so; the four stops stay the only choices.
+        MotionStops.note(source, rate.roundToInt(), caps.displayHz, MotionSettingsStore.values.vrr)?.let {
+            Text(it, color = theme.muted, style = MaterialTheme.typography.bodySmall)
         }
         Text("Quality · " + MotionQuality.entries[quality.roundToInt()].label, color = theme.ink)
         Slider(value = quality, onValueChange = { quality = it }, valueRange = 0f..4f, steps = 3,
@@ -123,22 +127,20 @@ internal fun GraphicsForVideoSetting() {
 
 @Composable
 internal fun MotionPlaybackSettings() {
-    var vrrChoice by remember { mutableStateOf(MotionSettingsStore.values.vrrOverride) }
-    val capability = DisplayVrr.current
-    val vrr = vrrChoice ?: (capability.supported == true)
+    var vrr by remember { mutableStateOf(MotionSettingsStore.values.vrr) }
     var lower by remember { mutableStateOf(MotionSettingsStore.values.lowerAutomatically) }
     val theme = LocalSkyTheme.current
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Text("My screen uses G-SYNC / FreeSync", color = theme.ink)
-        SkySwitch(vrr, { vrrChoice = it; MotionSettingsStore.values.vrr = it }, "My screen uses G-SYNC / FreeSync")
-    }
-    Text(if (vrrChoice != null) "Your saved choice takes priority." else when (capability.supported) {
-        true -> "On by default: the display reports VRR support."
-        false -> "Off by default: the display reports no VRR support."
-        null -> "VRR capability unavailable. Turn this on if your screen uses G-SYNC / FreeSync."
-    }, color = theme.muted, style = MaterialTheme.typography.bodySmall)
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Lower automatically when needed", color = theme.ink)
         SkySwitch(lower, { lower = it; MotionSettingsStore.values.lowerAutomatically = it }, "Lower automatically when needed")
     }
+    // Plan 5.4: an advanced option, off by default on every screen. It does what "My screen uses G-SYNC / FreeSync"
+    // did; the driver, not SkyWing, turns VRR on.
+    Text("Advanced", color = theme.ink, style = MaterialTheme.typography.titleMedium)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Let VRR control refresh (fullscreen)", color = theme.ink)
+        SkySwitch(vrr, { vrr = it; MotionSettingsStore.values.vrr = it }, "Let VRR control refresh (fullscreen)")
+    }
+    Text("Off: SkyWing paces smoothed video to the screen's refresh. On: in fullscreen the video's own timing leads, " +
+        "for G-SYNC and FreeSync screens whose driver has VRR turned on.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
 }

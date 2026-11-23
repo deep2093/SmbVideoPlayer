@@ -181,7 +181,7 @@ class SkyWingAutomationTest {
         const val LOWER = "motion.lowerAutomatically"
         const val VRR = "motion.vrr"
         const val LOWER_LABEL = "Lower automatically when needed"
-        const val VRR_LABEL = "My screen uses G-SYNC / FreeSync"
+        const val VRR_LABEL = "Let VRR control refresh (fullscreen)"
         const val SUBFOLDERS_LABEL = "Include sub folders"
         val PLAYBACK_SWITCHES = setOf("Motion smoothing", VRR_LABEL, LOWER_LABEL)
     }

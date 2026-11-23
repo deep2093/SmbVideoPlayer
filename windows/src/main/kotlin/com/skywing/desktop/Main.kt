@@ -294,10 +294,11 @@ private fun SkyWingDesktopShell(
     val (chromeVisible, showPlayerChrome) = rememberPlayerChrome(awtWindow, fullscreen,
         paused || dragging || smoothingMenu || topHovered || bottomHovered) { visible -> embedded.setCursorHidden(!visible) }
     val currentShowPlayerChrome by rememberUpdatedState(showPlayerChrome)
+    val playerFullscreen by rememberUpdatedState(fullscreen)
     LaunchedEffect(embedded, smoothingMode, currentFile, closing) {
         if (closing) return@LaunchedEffect
         while (true) {
-            smoothingStatus = withContext(Dispatchers.IO) { embedded.updateSmoothing(smoothingMode) }
+            smoothingStatus = withContext(Dispatchers.IO) { embedded.updateSmoothing(smoothingMode, playerFullscreen) }
             embedded.playbackFailure?.takeIf { it != reportedFailure }?.let { failure ->
                 reportedFailure = failure
                 message = failure

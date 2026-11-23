@@ -2,6 +2,7 @@ package com.skywing.desktop.playback
 
 import java.util.prefs.Preferences
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Parameters verified against the pinned open-svpflow parsers. Output is never downscaled. */
 enum class MotionQuality(val label: String, val superOptions: String, val analyse: String, val smooth: String) {
@@ -29,11 +30,33 @@ internal object MotionStops {
         val divisor = gcd(n.toLong(), d.toLong()).toInt()
         return MotionRate(n / divisor, d / divisor)
     }
-    fun allowed(source: MotionRate, hz: Double?): List<Int> = (0..3).filter {
-        rate(source, it).fps <= (hz?.takeIf { v -> v.isFinite() && v > 0 } ?: 240.0) + 0.01
+    /** The refresh to plan for: the screen's current mode, else 60 Hz, never a guess above it (B30). */
+    private fun refresh(hz: Double?): Double = hz?.takeIf { it.isFinite() && it > 0 } ?: 60.0
+    fun allowed(source: MotionRate, hz: Double?): List<Int> = (0..3).filter { rate(source, it).fps <= refresh(hz) + 0.01 }
+    /**
+     * A rate a fixed screen shows evenly: its refresh or a whole divisor of it, within the 1% mpv's display-resample
+     * corrects (60 fps on 120 Hz, 48 or 60 fps on 240 Hz).
+     */
+    fun fits(fps: Double, hz: Double): Boolean {
+        val frames = (hz / fps).roundToInt()
+        return frames >= 1 && abs(hz / frames - fps) / fps < 0.01
     }
-    fun default(source: MotionRate): Int = if (source.fps >= 49.9) 0 else
-        (0..3).minBy { abs(rate(source, it).fps - 60.0) }
+    /**
+     * The first-use stop: 2× from 50 fps up, otherwise the stop closest to 60 fps. On a fixed screen ([vrr] false) a
+     * stop that the screen shows evenly goes first when there is one (B31).
+     */
+    fun default(source: MotionRate, hz: Double? = null, vrr: Boolean = false): Int {
+        if (source.fps >= 49.9) return 0
+        val even = if (vrr) emptyList() else allowed(source, hz).filter { fits(rate(source, it).fps, refresh(hz)) }
+        return even.ifEmpty { (0..3).toList() }.minBy { abs(rate(source, it).fps - 60.0) }
+    }
+    /** "May judder on this N Hz screen" for an allowed stop a fixed screen can't show evenly (B31); null otherwise. */
+    fun note(source: MotionRate, stop: Int, hz: Double?, vrr: Boolean): String? {
+        val screen = hz?.takeIf { it.isFinite() && it > 0 } ?: return null
+        val fps = rate(source, stop).fps
+        if (vrr || fps > screen + 0.01 || fits(fps, screen)) return null
+        return "May judder on this ${screen.roundToInt()} Hz screen"
+    }
     fun type(caps: SmoothingCapabilities): String {
         val short = minOf(caps.width ?: 0, caps.height ?: 0)
         val long = maxOf(caps.width ?: 0, caps.height ?: 0)
@@ -42,7 +65,7 @@ internal object MotionStops {
     }
 }
 
-internal class MotionPreferences(private val prefs: Preferences, private val detectedVrr: () -> Boolean? = { null }) {
+internal class MotionPreferences(private val prefs: Preferences) {
     fun load(key: String, defaultStop: Int): MotionSettings = MotionSettings(
         prefs.getInt("motion.$key.stop", defaultStop).coerceIn(0, 3),
         MotionQuality.entries.firstOrNull { it.name == prefs.get("motion.$key.quality", null) } ?: MotionQuality.DEFAULT)
@@ -51,8 +74,12 @@ internal class MotionPreferences(private val prefs: Preferences, private val det
         prefs.put("motion.$key.quality", settings.quality.name)
     }
     val vrrOverride: Boolean? get() = prefs.get("motion.vrr", null)?.toBooleanStrictOrNull()
+    /**
+     * "Let VRR control refresh (fullscreen)" (plan 5.4): off unless chosen, on every screen. A choice saved with the
+     * old "My screen uses G-SYNC / FreeSync" switch, under the same key, is kept.
+     */
     var vrr: Boolean
-        get() = vrrOverride ?: (detectedVrr() == true)
+        get() = vrrOverride ?: false
         set(value) { prefs.putBoolean("motion.vrr", value) }
     var lowerAutomatically: Boolean
         get() = prefs.getBoolean("motion.lowerAutomatically", false)
@@ -69,5 +96,5 @@ internal class MotionPreferences(private val prefs: Preferences, private val det
 }
 
 internal object MotionSettingsStore {
-    val values by lazy { MotionPreferences(Preferences.userRoot().node("com/skywing/desktop/playback")) { DisplayVrr.current.supported } }
+    val values by lazy { MotionPreferences(Preferences.userRoot().node("com/skywing/desktop/playback")) }
 }

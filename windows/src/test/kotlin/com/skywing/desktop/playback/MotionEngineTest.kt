@@ -35,7 +35,11 @@ class MotionEngineTest {
         assertEquals("display-resample", MotionRate.videoSync(film, output, 59.94, vrr = false))
         assertEquals("display-resample", MotionRate.videoSync(film, output, 60.0, vrr = false))
         assertEquals("audio", MotionRate.videoSync(film, output, 59.94, vrr = true))
-        assertEquals("audio", MotionRate.videoSync(film, output, 120.0, vrr = false))
+        // Plan 5.4: a fixed screen resamples every target that is its refresh or a whole divisor of it.
+        assertEquals("display-resample", MotionRate.videoSync(film, output, 120.0, vrr = false))
+        assertEquals("display-resample", MotionRate.videoSync(film, output, 240.0002, vrr = false))
+        assertEquals("audio", MotionRate.videoSync(film, output, 144.0, vrr = false))
+        assertEquals("audio", MotionRate.videoSync(film, MotionStops.rate(film, 0), 60000 / 1001.0, vrr = false))
         assertEquals("audio", MotionRate.videoSync(film, output, null, vrr = false))
         // A measured rate may be a variable rate's average, so its frames keep their own times against the audio,
         // even where the output (60.31 fps) is within 1% of the display.

@@ -35,18 +35,18 @@ internal data class MotionRate(val numerator: Int, val denominator: Int = 1) {
             val divisor = gcd(thousandths, 1000)
             return MotionRate((thousandths / divisor).toInt(), (1000 / divisor).toInt())
         }
-        fun target(source: MotionRate, displayHz: Double?, stop: Int = MotionStops.default(source)): MotionRate? {
+        fun target(source: MotionRate, displayHz: Double?, stop: Int = MotionStops.default(source, displayHz)): MotionRate? {
             if (source.fps > 60.001) return null
             return MotionStops.rate(source, stop).takeIf { stop in MotionStops.allowed(source, displayHz) }
         }
         /**
-         * mpv's video-sync while smoothing to [target]. Resampling to a display that runs at the output rate keeps a
-         * standard rate's exact cadence. Any other rate may be variable, so its frames keep their own times against
-         * the audio.
+         * mpv's video-sync while smoothing to [target]. Resampling to a fixed screen whose refresh is the output rate
+         * or a whole multiple of it keeps a standard rate's exact cadence (plan 5.4). Any other rate may be variable,
+         * so its frames keep their own times against the audio, as do all frames when [vrr] lets the screen follow.
          */
         fun videoSync(source: MotionRate, target: MotionRate, displayHz: Double?, vrr: Boolean): String {
-            val matchingDisplay = displayHz?.let { abs(it - target.fps) / target.fps < 0.01 } == true
-            return if (source.standard && !vrr && matchingDisplay) "display-resample" else "audio"
+            val even = displayHz?.takeIf { it.isFinite() && it > 0 }?.let { MotionStops.fits(target.fps, it) } == true
+            return if (source.standard && !vrr && even) "display-resample" else "audio"
         }
     }
 }

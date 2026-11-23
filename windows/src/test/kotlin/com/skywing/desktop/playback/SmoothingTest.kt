@@ -120,25 +120,56 @@ class SmoothingTest {
         val health = SmoothingHealth()
         for (second in 0..20) assertFalse(health.sample(second * 1000L, 10000, true, 55.0, 100.0))
     }
-    @Test fun vrrCapabilityDefaultNeverOverridesManualChoice() {
+    @Test fun letVrrControlRefreshIsOffUntilChosenAndKeepsTheOldSwitchsChoice() {
+        // Owner decision (plan 5.4): off on every screen, with no default from the capability queries.
         val node = java.util.prefs.Preferences.userRoot().node("skywing-vrr-test-" + java.util.UUID.randomUUID())
         try {
-            var supported: Boolean? = null
-            val prefs = MotionPreferences(node) { supported }
+            val prefs = MotionPreferences(node)
             assertFalse(prefs.vrr)
             assertNull(prefs.vrrOverride)
-            supported = true
-            assertTrue(prefs.vrr)
-            assertNull(prefs.vrrOverride) // Detection must never persist a manual preference.
+            // A choice saved with the old "My screen uses G-SYNC / FreeSync" switch is kept.
+            node.put("motion.vrr", "true")
+            assertTrue(MotionPreferences(node).vrr)
             prefs.vrr = false
-            assertFalse(prefs.vrr)
+            assertFalse(MotionPreferences(node).vrr)
             assertEquals(false, prefs.vrrOverride)
-            supported = null
-            prefs.vrr = true
-            assertTrue(prefs.vrr)
-            supported = false
-            assertTrue(prefs.vrr)
-            assertTrue(MotionPreferences(node) { false }.vrr) // Survives app restart.
         } finally { node.removeNode() }
+    }
+    @Test fun anUnknownRefreshNeverAllowsStopsAboveSixtyHz() {
+        // B30: Windows' current mode is the refresh; without one SkyWing assumes 60 Hz, never 240.
+        val film = MotionRate(24000, 1001)
+        assertEquals(listOf(0, 1), MotionStops.allowed(film, null))
+        assertEquals(listOf(0, 1), MotionStops.allowed(film, Double.NaN))
+        assertNull(MotionRate.target(MotionRate(30), null, 1))
+        assertEquals(MotionRate(60), MotionRate.target(MotionRate(30), null, 0))
+    }
+    @Test fun aStopFitsWhenTheScreenShowsItEvenly() {
+        assertTrue(MotionStops.fits(60000 / 1001.0, 120.0))
+        assertTrue(MotionStops.fits(48000 / 1001.0, 240.0002))
+        assertTrue(MotionStops.fits(60.0, 60000 / 1001.0))
+        assertFalse(MotionStops.fits(60000 / 1001.0, 144.0))
+        assertFalse(MotionStops.fits(74.93, 120.0))
+        assertFalse(MotionStops.fits(130.0, 120.0))
+    }
+    @Test fun firstUsePrefersAStopTheFixedScreenShowsEvenly() {
+        // B31: the default stays closest to 60 fps, but a stop that fits the screen goes first.
+        val film = MotionRate(24)
+        assertEquals(1, MotionStops.default(film, 60.0))
+        assertEquals(1, MotionStops.default(film, 120.0))
+        assertEquals(0, MotionStops.default(film, 144.0))
+        assertEquals(1, MotionStops.default(film, 144.0, vrr = true))
+        // Nothing fits: closest to 60 fps as before (the display limit then lowers it).
+        assertEquals(1, MotionStops.default(MotionRate(25), 60.0))
+        listOf(30, 50, 60).forEach { assertEquals(0, MotionStops.default(MotionRate(it), 144.0)) }
+    }
+    @Test fun aStopThatDoesNotFitAFixedScreenSaysItMayJudder() {
+        val film = MotionRate(24000, 1001)
+        assertEquals("May judder on this 144 Hz screen", MotionStops.note(film, 1, 144.0, vrr = false))
+        assertNull(MotionStops.note(film, 1, 120.0, vrr = false))
+        assertNull(MotionStops.note(film, 1, 144.0, vrr = true))
+        // Above the refresh the stop is turned off instead.
+        assertNull(MotionStops.note(film, 3, 60.0, vrr = false))
+        // No refresh, no claim about it.
+        assertNull(MotionStops.note(film, 1, null, vrr = false))
     }
 }

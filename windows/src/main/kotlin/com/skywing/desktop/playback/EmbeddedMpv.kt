@@ -74,6 +74,7 @@ class EmbeddedMpv(
     private var lastPosition = 0.0
     private var appliedMotionSettings: MotionSettings? = null
     private var appliedVrr: Boolean? = null
+    private var fullscreen = false
     private var motionNotice = ""
     private var motionNoticeUntil = 0L
     private val recentDrops = RecentDrops()
@@ -279,7 +280,8 @@ class EmbeddedMpv(
      * container FPS, HDR transforms, the Canvas peer, or the renderer. display-resample may
      * make mpv's small A/V clock corrections; it falls back for unsupported audio outputs. */
     @Synchronized
-    fun updateSmoothing(mode: SmoothingMode): SmoothingStatus {
+    fun updateSmoothing(mode: SmoothingMode, fullscreen: Boolean = false): SmoothingStatus {
+        this.fullscreen = fullscreen
         motion.lastAction = synchronized(playerEvents) { playerEvents.lastOrNull() }
             ?.let { it + " (" + (System.currentTimeMillis() - lastActionMillis) + " ms ago)" } ?: "none"
         val motionWasActive = motion.active
@@ -362,7 +364,7 @@ class EmbeddedMpv(
     private fun updateMotion(caps: SmoothingCapabilities): SmoothingStatus {
         val source = caps.sourceFps?.let(MotionRate::source)
         val key = MotionStops.type(caps)
-        val stored = source?.let { MotionSettingsStore.values.load(key, MotionStops.default(it)) }
+        val stored = source?.let { MotionSettingsStore.values.load(key, MotionStops.default(it, caps.displayHz, MotionSettingsStore.values.vrr)) }
         val allowed = source?.let { MotionStops.allowed(it, caps.displayHz) }.orEmpty()
         val settings = stored?.copy(stop = allowed.lastOrNull { it <= stored.stop } ?: allowed.firstOrNull() ?: stored.stop)
         fun status(detail: String, active: Boolean = false, beat: MotionHeartbeat? = null, lower: Int? = null) =
@@ -385,8 +387,10 @@ class EmbeddedMpv(
         }
         val target = MotionRate.target(source, caps.displayHz, settings.stop)
             ?: return status("No smoothing rate fits this display")
-        val vrr = MotionSettingsStore.values.vrr
-        val changed = motion.active && (appliedMotionSettings != settings || appliedVrr != vrr)
+        // "Let VRR control refresh (fullscreen)": in a window SkyWing paces to the screen, as many drivers use VRR
+        // only in fullscreen. Changing it sets video-sync alone; only new settings rebuild the filter.
+        val vrr = MotionSettingsStore.values.vrr && fullscreen
+        val changed = motion.active && appliedMotionSettings != settings
         val position = if (changed) numberProperty("time-pos") else null
         if (changed && !motion.end()) return status("Could not change motion settings; reopen video")
         val starting = !motion.active
@@ -476,7 +480,7 @@ class EmbeddedMpv(
                 })
             pendingPlan?.let { appendLine("Next video: " + it.describe(onBattery)) }
             appendLine("Display: ${caps.displayHz ?: "unavailable"} Hz; VRR activation: not measured")
-            appendLine("VRR capability: " + (DisplayVrr.current.supported?.toString() ?: "unknown") + "; " + DisplayVrr.current.detail + "; choice: " + if (MotionSettingsStore.values.vrrOverride == null) "automatic" else "manual")
+            appendLine("VRR capability: " + (DisplayVrr.current.supported?.toString() ?: "unknown") + "; " + DisplayVrr.current.detail + "; VRR control: " + if (MotionSettingsStore.values.vrrOverride == null) "off by default" else "chosen in Settings")
             appendLine("File: $fileKind; ${caps.resolution}; source ${caps.sourceFps ?: "unavailable"} fps")
             appendLine("Codec: ${textProperty("video-codec") ?: "unavailable"}; pixel format: ${textProperty("video-params/pixelformat") ?: "unavailable"}")
             appendLine("Transfer: ${textProperty("video-params/gamma") ?: "unavailable"}; decoder: ${textProperty("hwdec-current") ?: "unavailable"}")
@@ -486,7 +490,7 @@ class EmbeddedMpv(
                 appendLine("Filter processing throughput: ${retainedBeat?.processingFps ?: "unavailable"} fps (not presented FPS)")
                 appendLine("Filter output callbacks: ${retainedBeat?.completed ?: 0}; observed graph generations: ${motion.rebuilds}")
             }
-            appendLine("Multiplier: " + (appliedMotionSettings?.let { MotionStops.labels[it.stop] } ?: "none") + "; G-SYNC / FreeSync: " + MotionSettingsStore.values.vrr + "; lower automatically: " + MotionSettingsStore.values.lowerAutomatically)
+            appendLine("Multiplier: " + (appliedMotionSettings?.let { MotionStops.labels[it.stop] } ?: "none") + "; let VRR control refresh: " + MotionSettingsStore.values.vrr + " (fullscreen: " + fullscreen + "); lower automatically: " + MotionSettingsStore.values.lowerAutomatically)
             appendLine("Drops in last 60 seconds (video + decoder): " + (lastMinuteDrops ?: "unavailable"))
             appendLine("Presented FPS: not measured (pinned mpv estimated-vf-fps can report the source rate)")
             names.forEachIndexed { i, name -> appendLine("$name: ${totals[i] ?: "unavailable"}; last ${elapsed}s: ${deltas[i]}") }
