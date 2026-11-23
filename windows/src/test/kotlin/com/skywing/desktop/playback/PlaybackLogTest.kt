@@ -40,11 +40,12 @@ class PlaybackLogTest {
 
     private fun sample(at: Long, frameDrops: Long = 0, cpuMs: Long = 0, fps: Double? = 48.0, paused: Boolean = false,
                        cache: Boolean = false, fullscreen: Boolean = true, seeks: Int = 0, restarts: Int = 0,
-                       generations: Int = 1, age: Long? = 300, jitter: Double? = 0.01) = PlaybackSample(
+                       generations: Int = 1, age: Long? = 300, jitter: Double? = 0.01, focused: Boolean? = true) = PlaybackSample(
         atMillis = at, target = "48", outputFps = fps, counters = listOf(frameDrops, 0L, 2L, null),
         vsyncJitter = jitter, displayFps = 59.94, cpuNanos = cpuMs * 1_000_000, heartbeatAgeMillis = age,
         generations = generations, seeks = seeks, restarts = restarts, paused = paused, cacheWait = cache,
-        fullscreen = fullscreen, hdr = ScreenReading("no", "source is SDR (bt.1886)"), vrr = ScreenReading("not measured", "x"), refreshHz = 59.94)
+        fullscreen = fullscreen, hdr = ScreenReading("no", "source is SDR (bt.1886)"), vrr = ScreenReading("not measured", "x"), refreshHz = 59.94,
+        focused = focused)
 
     @Test fun samplesBecomeOneRowPerMinuteWithDeltasAndEvents() {
         val rows = mutableListOf<PlaybackMinute>()
@@ -58,7 +59,7 @@ class PlaybackLogTest {
                 paused = elapsed in 70_000..74_999, cache = elapsed in 80_000..80_999,
                 fullscreen = elapsed !in 90_000..95_000, seeks = if (elapsed >= 100_000) 2 else 0,
                 restarts = if (elapsed >= 110_000) 1 else 0, generations = if (elapsed >= 100_000) 3 else 1,
-                age = if (elapsed == 30_000L) 9_000 else 300))
+                age = if (elapsed == 30_000L) 9_000 else 300, focused = elapsed < 100_000))
         }
         assertEquals(2, rows.size)
         val first = rows[0]
@@ -72,6 +73,7 @@ class PlaybackLogTest {
         assertEquals(30.0, first.outputFpsMin)
         assertEquals(9_000L, first.heartbeatAgeMaxMillis)
         assertEquals(0, first.generations)
+        assertEquals("yes", first.focused, "in focus for the whole minute")
         val second = rows[1]
         assertEquals(2, second.minute)
         assertEquals(0L, second.counters[0], "minute 2 starts where minute 1 ended")
@@ -82,9 +84,11 @@ class PlaybackLogTest {
         assertEquals(2, second.seeks)
         assertEquals(1, second.recoveries)
         assertEquals(2, second.generations)
+        assertEquals("mixed", second.focused, "another window took the focus during the minute")
         log.finish()
         assertEquals(3, rows.size, "the last 30 s are a row of their own")
         assertEquals(30.0, rows[2].seconds)
+        assertEquals("no", rows[2].focused)
         log.add(sample(5_000_000))
         log.add(sample(5_003_000))
         log.finish()
@@ -99,8 +103,12 @@ class PlaybackLogTest {
         assertEquals(PlaybackMinute.HEADER.split(',').size, row.csv().split(',').size)
         assertEquals("minute,seconds,target_fps,output_fps_mean,output_fps_min,frame_drops,decoder_drops,vo_delayed," +
             "mistimed,vsync_jitter_max,estimated_display_fps,cpu_cores,heartbeat_age_max_ms,graph_generations,seeks," +
-            "pauses,cache_waits,fullscreen_changes,recoveries,hdr_engaged,vrr_active,refresh_hz", PlaybackMinute.HEADER)
-        assertEquals("1,60.0,48,48.00,48.00,0,0,0,,,59.940,1.00,300,0,0,0,0,0,0,no,not measured,59.94", row.csv())
+            "pauses,cache_waits,fullscreen_changes,recoveries,hdr_engaged,vrr_active,refresh_hz,focused", PlaybackMinute.HEADER)
+        assertEquals("1,60.0,48,48.00,48.00,0,0,0,,,59.940,1.00,300,0,0,0,0,0,0,no,not measured,59.94,yes", row.csv())
+        val unknown = mutableListOf<PlaybackMinute>()
+        PlaybackMinutes(unknown::add).let { minutes -> for (i in 0..120) minutes.add(sample(i * 500L, focused = null)) }
+        assertNull(unknown.single().focused, "Windows did not say which window has the focus")
+        assertTrue(unknown.single().csv().endsWith(",59.94,"), unknown.single().csv())
     }
 
     @Test fun logFilesAreNewPerSessionAndOnlyTheNewestAreKept() {
@@ -129,9 +137,9 @@ class PlaybackLogTest {
         val log = PlaybackMinutes(rows::add)
         for (i in 0..240) log.add(sample(i * 500L, cpuMs = i * 500L))
         val table = PlaybackMinute.table(rows)
-        assertEquals("Minute  Seconds  Output fps (mean/min)  Drops (video/decoder/delayed/mistimed)  CPU cores  Heartbeat max  HDR  VRR", table.first())
+        assertEquals("Minute  Seconds  Output fps (mean/min)  Drops (video/decoder/delayed/mistimed)  CPU cores  Heartbeat max  HDR  VRR  Focus", table.first())
         assertEquals(3, table.size)
-        assertEquals("1       60       48.0/48.0              0/0/0/–                                 1.00       300 ms         no   not measured", table[1])
+        assertEquals("1       60       48.0/48.0              0/0/0/–                                 1.00       300 ms         no   not measured  yes", table[1])
         assertEquals(listOf("No full minute of smoothing yet"), PlaybackMinute.table(emptyList()))
     }
 }

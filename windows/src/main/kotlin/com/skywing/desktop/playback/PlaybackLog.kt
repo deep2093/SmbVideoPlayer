@@ -64,6 +64,8 @@ internal data class PlaybackSample(
     val hdr: ScreenReading,
     val vrr: ScreenReading,
     val refreshHz: Double?,
+    /** Whether SkyWing's window is the one in front; null when Windows did not say. */
+    val focused: Boolean?,
 )
 
 /** One row of the per-minute log: what changed from its first sample to its last. Null: unavailable. */
@@ -87,22 +89,24 @@ internal data class PlaybackMinute(
     val hdr: ScreenReading,
     val vrr: ScreenReading,
     val refreshHz: Double?,
+    /** "yes" or "no" when SkyWing's window was in front all minute or never, "mixed" when it changed; null: unknown. */
+    val focused: String?,
 ) {
     fun csv(): String = listOf(
         minute.toString(), format(seconds, 1), target.orEmpty(), format(outputFpsMean, 2), format(outputFpsMin, 2),
         *counters.map { it?.toString().orEmpty() }.toTypedArray(), format(vsyncJitterMax, 4), format(displayFps, 3),
         format(cpuCores, 2), heartbeatAgeMaxMillis?.toString().orEmpty(), generations.toString(), seeks.toString(),
         pauses.toString(), cacheWaits.toString(), fullscreenChanges.toString(), recoveries.toString(),
-        hdr.value, vrr.value, refreshHz?.let(ScreenSummary::hz).orEmpty(),
+        hdr.value, vrr.value, refreshHz?.let(ScreenSummary::hz).orEmpty(), focused.orEmpty(),
     ).joinToString(",", transform = ::quote)
 
     companion object {
         const val HEADER = "minute,seconds,target_fps,output_fps_mean,output_fps_min,frame_drops,decoder_drops," +
             "vo_delayed,mistimed,vsync_jitter_max,estimated_display_fps,cpu_cores,heartbeat_age_max_ms," +
-            "graph_generations,seeks,pauses,cache_waits,fullscreen_changes,recoveries,hdr_engaged,vrr_active,refresh_hz"
+            "graph_generations,seeks,pauses,cache_waits,fullscreen_changes,recoveries,hdr_engaged,vrr_active,refresh_hz,focused"
 
         private val COLUMNS = listOf("Minute", "Seconds", "Output fps (mean/min)", "Drops (video/decoder/delayed/mistimed)",
-            "CPU cores", "Heartbeat max", "HDR", "VRR")
+            "CPU cores", "Heartbeat max", "HDR", "VRR", "Focus")
 
         /** The test report's table: a header line, then one line per minute. */
         fun table(rows: List<PlaybackMinute>): List<String> {
@@ -115,7 +119,7 @@ internal data class PlaybackMinute(
                     (format(row.outputFpsMean, 1) ?: "–") + "/" + (format(row.outputFpsMin, 1) ?: "–"),
                     row.counters.joinToString("/") { it?.toString() ?: "–" },
                     format(row.cpuCores, 2) ?: "–", row.heartbeatAgeMaxMillis?.let { "$it ms" } ?: "–",
-                    row.hdr.value, row.vrr.value))
+                    row.hdr.value, row.vrr.value, row.focused ?: "–"))
             }
         }
 
@@ -183,6 +187,9 @@ internal class PlaybackMinutes(private val emit: (PlaybackMinute) -> Unit) {
             hdr = last.hdr,
             vrr = last.vrr,
             refreshHz = last.refreshHz,
+            focused = samples.mapNotNull { it.focused }.distinct().let {
+                when (it.size) { 0 -> null; 1 -> if (it.single()) "yes" else "no"; else -> "mixed" }
+            },
         ))
     }
 }

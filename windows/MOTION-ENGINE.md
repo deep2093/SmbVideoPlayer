@@ -181,7 +181,10 @@ row each minute. Each row holds the target and the filter's output rate (from th
 not presented frames), and the minute's change in mpv's `frame-drop-count`, `decoder-frame-drop-count`,
 `vo-delayed-frame-count` and `mistimed-frame-count`. It also holds the largest `vsync-jitter`,
 `estimated-display-fps`, the process CPU in cores, the oldest heartbeat age, and the graph generations, seeks, pauses,
-cache waits, fullscreen changes and recoveries in that minute. It ends with HDR engaged, VRR active and the refresh.
+cache waits, fullscreen changes and recoveries in that minute. It ends with HDR engaged, VRR active, the refresh and
+whether SkyWing's window was in front: yes, no or mixed (plan 5.9). Windows may give a window that is not in front
+less processor time, or move its threads to slower cores on a hybrid processor; this column tells those minutes
+apart.
 All of these properties are in the pinned libmpv's property list.
 Rows go to `%LOCALAPPDATA%\SkyWing\playback-logs\playback-<time>.csv`. A new file starts when smoothing starts or
 another video plays; a seek or a settings change stays in the same file. The newest 20 are kept. A last part-minute of at least 5 s is written when smoothing stops; closing the app loses it.

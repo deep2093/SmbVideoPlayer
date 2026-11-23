@@ -714,6 +714,7 @@ class EmbeddedMpv(
             generations = motion.rebuilds, seeks = seekCount, restarts = motion.restarts,
             paused = paused, cacheWait = cacheWait, fullscreen = fullscreen,
             hdr = hdrEngaged(), vrr = DisplayState.vrrActive(DisplayVrr.current), refreshHz = caps.displayHz,
+            focused = canvasHandle?.let(WindowFocus::inFront),
         ))
     }
 
