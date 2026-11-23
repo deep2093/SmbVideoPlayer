@@ -8,6 +8,7 @@ import com.sun.jna.ptr.DoubleByReference
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -197,6 +198,7 @@ internal object ThumbnailExtractor {
         fun close() {
             runCatching { native.mpv_terminate_destroy(ctx) }
             runCatching { folder.deleteRecursively() }
+            folders -= folder
         }
     }
 
@@ -210,12 +212,19 @@ internal object ThumbnailExtractor {
         Thread(task, "SkyWing thumbnail players").apply { isDaemon = true }
     }
 
+    /**
+     * The image folder of every open player. SkyWing can close while players wait idle (they close only after
+     * [IDLE_CLOSE_MS]), so the folders left are removed at exit. The set takes no lock: the exit must never wait.
+     */
+    private val folders: MutableSet<File> = ConcurrentHashMap.newKeySet()
+
     /** How many players were started since SkyWing began. */
     val playersStarted: Int get() = started.get()
 
     init {
         PerfMonitor.gauge("Thumbnail players started") { started.get().toLong() }
         PerfMonitor.gauge("Thumbnail players open") { synchronized(this) { (idle.size + inUse).toLong() } }
+        Runtime.getRuntime().addShutdownHook(Thread({ folders.forEach { runCatching { it.deleteRecursively() } } }, "SkyWing thumbnail folders"))
     }
 
     @Synchronized
@@ -242,10 +251,11 @@ internal object ThumbnailExtractor {
     }
 
     private fun open(native: Api): Player {
-        val folder = Files.createTempDirectory("skywing-thumb").toFile()
+        val folder = Files.createTempDirectory("skywing-thumb").toFile().also { folders += it }
         val ctx = native.mpv_create()
         if (ctx == null) {
             folder.deleteRecursively()
+            folders -= folder
             throw IllegalStateException("mpv_create failed")
         }
         try {
@@ -286,6 +296,7 @@ internal object ThumbnailExtractor {
         } catch (e: Exception) {
             runCatching { native.mpv_terminate_destroy(ctx) }
             folder.deleteRecursively()
+            folders -= folder
             throw e
         }
         started.incrementAndGet()
