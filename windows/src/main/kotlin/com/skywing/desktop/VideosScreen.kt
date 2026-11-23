@@ -54,7 +54,7 @@ internal fun VideosScreen(
             }
         }.also { hub.keepResult(VIDEOS_PAGE, it) }
     }
-    val byPath = remember(library.all) { library.all.associateBy { it.path.lowercase() } }
+    val byPath = library.byPath
     val artworkOn = LocalCovers.current?.artwork?.settings?.enabled == true
     var cover by remember { mutableStateOf<CoverTarget?>(null) }
     var filing by remember { mutableStateOf<Pair<Boolean, String>?>(null) }

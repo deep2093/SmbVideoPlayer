@@ -80,7 +80,14 @@ private fun SourceRow(icon: SkyIcon, title: String, detail: String? = null, trai
 private fun LocalSources(library: LibraryModel) {
     val store = remember { LocalFolderStore() }
     val scope = rememberCoroutineScope()
-    var folders by remember { mutableStateOf(runCatching { store.load() }.getOrDefault(emptyList())) }
+    // Null until the saved folders are read, off the screen thread (B8).
+    var saved by remember { mutableStateOf<List<String>?>(null) }
+    LaunchedEffect(store) {
+        val loaded = withContext(Dispatchers.IO) { runCatching { store.load() }.getOrDefault(emptyList()) }
+        // A folder added meanwhile was added to what the store holds, so that list wins.
+        if (saved == null) saved = loaded
+    }
+    val folders = saved.orEmpty()
     var message by remember { mutableStateOf("Choose folders on this PC. SkyWing only scans the folders you add.") }
     var scanning by remember { mutableStateOf(false) }
 
@@ -118,8 +125,9 @@ private fun LocalSources(library: LibraryModel) {
                 }
                 if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
                     try {
-                        folders = store.add(chooser.selectedFile.absolutePath)
-                        scan(folders)
+                        val added = store.add(chooser.selectedFile.absolutePath)
+                        saved = added
+                        scan(added)
                     } catch (error: Exception) {
                         message = error.message ?: "Could not add folder"
                     }
@@ -128,21 +136,22 @@ private fun LocalSources(library: LibraryModel) {
             SkyButton("Scan again", { scan(folders) }, enabled = !scanning && folders.isNotEmpty(), primary = false, icon = SkyIcon.Refresh)
         }
         StatusLine(message)
-        if (folders.isEmpty()) {
+        if (saved?.isEmpty() == true) {
             EmptyNote("No folders added yet.")
         }
         folders.forEach { folder ->
             SourceRow(SkyIcon.Computer, File(folder).name.ifBlank { folder }, folder) {
                 SkyIconButton(SkyIcon.Delete, "Remove folder", {
                     try {
-                        folders = store.remove(folder)
-                        if (folders.isEmpty()) {
+                        val left = store.remove(folder)
+                        saved = left
+                        if (left.isEmpty()) {
                             scope.launch {
                                 withContext(Dispatchers.IO) { library.store.replaceSource("PC", "PC", "This PC", emptyList()) }
                                 library.changed()
                             }
                             message = "No folders selected."
-                        } else scan(folders)
+                        } else scan(left)
                     } catch (error: Exception) {
                         message = error.message ?: "Could not remove folder"
                     }

@@ -26,6 +26,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -320,7 +321,10 @@ private fun SkyWingDesktopShell(
     val hub = remember { HubState() }
     val selection = remember { SelectionState() }
     val filesBack = remember { mutableStateOf<(() -> Boolean)?>(null) }
-    val history = remember(historyRevision) { historyStore.load().associateBy { it.path.lowercase() } }
+    // Read off the screen thread (B8). The pages keep the last history until the new one is read.
+    val history by produceState(emptyMap<String, WindowsWatchRecord>(), historyRevision) {
+        value = withContext(Dispatchers.IO) { historyStore.load().associateBy { it.path.lowercase() } }
+    }
 
     fun go(section: String) {
         if (section == selected) return
