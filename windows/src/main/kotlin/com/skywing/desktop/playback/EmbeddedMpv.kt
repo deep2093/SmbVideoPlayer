@@ -82,6 +82,31 @@ class EmbeddedMpv(
     private val recentDrops = RecentDrops()
     private var lastMinuteDrops: Long? = null
     private val reportSamples = java.util.ArrayDeque<Pair<Long, List<Long?>>>()
+    /** The per-minute log while smoothing (plan 5.6): this session's rows, for the test report, and its CSV. */
+    private val minuteRows = java.util.ArrayDeque<PlaybackMinute>()
+    private var playbackCsv: PlaybackCsv? = null
+    private var playbackCsvTried = false
+    /** The newest per-minute CSV this player wrote, for the benchmark's report. */
+    private var lastLogFile: File? = null
+    private val minutes = PlaybackMinutes { row ->
+        // The CSV is made with the first row, so a few seconds of smoothing leave no file.
+        if (!playbackCsvTried) {
+            playbackCsvTried = true
+            playbackCsv = PlaybackCsv.create(logFolder)
+            lastLogFile = playbackCsv?.file
+        }
+        playbackCsv?.append(row)
+        minuteRows.addLast(row)
+        while (minuteRows.size > 120) minuteRows.removeFirst()
+    }
+    private var logPath: String? = null
+    private var seekCount = 0
+    private val cpu = java.lang.management.ManagementFactory.getOperatingSystemMXBean() as? com.sun.management.OperatingSystemMXBean
+    /** Where per-minute logs go; the benchmark can choose its own folder. */
+    internal var logFolder: File = PlaybackCsv.folder()
+    /** The benchmark's fixed smoothing settings: used in place of the saved ones, and never saved. */
+    internal var benchSettings: MotionSettings? = null
+    private var lastCaps = SmoothingCapabilities()
     private var engineErrorCount = 0
     private val motionWarnings = java.util.ArrayDeque<String>()
     private val playerEvents = java.util.ArrayDeque<String>()
@@ -321,9 +346,12 @@ class EmbeddedMpv(
             width = numberProperty("video-params/w")?.toInt(),
             height = numberProperty("video-params/h")?.toInt(),
         )
-        if (mode == SmoothingMode.MOTION) return updateMotion(caps)
+        lastCaps = caps
+        if (mode == SmoothingMode.MOTION) return updateMotion(caps).also { if (!motion.active) endLog() }
+        endLog()
         if (!motion.end()) return SmoothingStatus(caps, "Could not stop motion smoothing; reopen video")
-        return SmoothingStatus(caps, "Smoothing off", report = playbackReport(caps, "Smoothing off"))
+        return SmoothingStatus(caps, "Smoothing off", report = playbackReport(caps, "Smoothing off"),
+            testReport = testReport(caps, "Smoothing off"))
     }
 
     /** Drain events before enabling a filter so stale errors cannot reject a new session. */
@@ -355,7 +383,7 @@ class EmbeddedMpv(
                     }
                 }
                 8 -> recordAction("file loaded")
-                20 -> { recordAction("seek started"); smoothingHealth.reset() }
+                20 -> { recordAction("seek started"); seekCount++; smoothingHealth.reset() }
                 21 -> { recordAction("playback resumed after reconfiguration"); smoothingHealth.reset() }
                 7 -> {
                     val end = event.getPointer(16)
@@ -369,11 +397,13 @@ class EmbeddedMpv(
     private fun updateMotion(caps: SmoothingCapabilities): SmoothingStatus {
         val source = caps.sourceFps?.let(MotionRate::source)
         val key = MotionStops.type(caps)
-        val stored = source?.let { MotionSettingsStore.values.load(key, MotionStops.default(it, caps.displayHz, MotionSettingsStore.values.vrr)) }
+        val bench = benchSettings
+        val stored = source?.let { bench ?: MotionSettingsStore.values.load(key, MotionStops.default(it, caps.displayHz, MotionSettingsStore.values.vrr)) }
         val allowed = source?.let { MotionStops.allowed(it, caps.displayHz) }.orEmpty()
         val settings = stored?.copy(stop = allowed.lastOrNull { it <= stored.stop } ?: allowed.firstOrNull() ?: stored.stop)
         fun status(detail: String, active: Boolean = false, beat: MotionHeartbeat? = null, lower: Int? = null) =
-            SmoothingStatus(caps, detail, motionActive = active, report = playbackReport(caps, detail, beat), settings = settings, nextLowerStop = lower,
+            SmoothingStatus(caps, detail, motionActive = active, report = playbackReport(caps, detail, beat),
+                testReport = testReport(caps, detail), settings = settings, nextLowerStop = lower,
                 gpuOffer = dedicatedOffer?.takeIf { gpuChoice == GpuChoice.AUTOMATIC }?.let(GpuPolicy::offerLabel))
         val file = expectedPath
         if (file == null || !file.equals(textProperty("path"), true)) return status("Waiting for the selected video")
@@ -408,8 +438,11 @@ class EmbeddedMpv(
             if (position != null) command("seek", position.toString(), "absolute+exact")
         }
         val beat = motion.heartbeat()
-        val playing = isPaused() == false && flagProperty("seeking") == false &&
-            flagProperty("paused-for-cache") == false && flagProperty("eof-reached") == false
+        val paused = isPaused()
+        val cacheWait = flagProperty("paused-for-cache")
+        val playing = paused == false && flagProperty("seeking") == false &&
+            cacheWait == false && flagProperty("eof-reached") == false
+        if (motion.active) logSample(file, target, beat, paused, cacheWait, caps)
         val drops = numberProperty("frame-drop-count")
         val decoderDrops = numberProperty("decoder-frame-drop-count")
         if (motion.active) {
@@ -437,7 +470,7 @@ class EmbeddedMpv(
                     }
                     motion.fail("Cannot keep up at 2×; smoothing stopped")
                     return status("Cannot keep up at 2×; smoothing stopped").copy(requestOff = true)
-                } else if (MotionSettingsStore.values.lowerAutomatically) {
+                } else if (bench == null && MotionSettingsStore.values.lowerAutomatically) {
                     MotionSettingsStore.values.save(key, settings.copy(stop = lower))
                     motionNotice = "Lowered to " + MotionStops.rate(source, lower).label + " fps (" + MotionStops.labels[lower] + ") to keep up"
                     motionNoticeUntil = System.currentTimeMillis() + 8000
@@ -495,6 +528,8 @@ class EmbeddedMpv(
             appendLine("VRR capability: " + (DisplayVrr.current.supported?.toString() ?: "unknown") + "; " + DisplayVrr.current.detail +
                 "; " + (DisplayVrr.current.nvidia?.label ?: "VRR active now: not reported") +
                 "; VRR control: " + if (MotionSettingsStore.values.vrrOverride == null) "off by default" else "chosen in Settings")
+            appendLine("HDR engaged: " + hdrEngaged().text)
+            appendLine("VRR active: " + DisplayState.vrrActive(DisplayVrr.current).text)
             appendLine("File: $fileKind; ${caps.resolution}; source ${caps.sourceFps ?: "unavailable"} fps")
             appendLine("Codec: ${textProperty("video-codec") ?: "unavailable"}; pixel format: ${textProperty("video-params/pixelformat") ?: "unavailable"}")
             appendLine("Transfer: ${textProperty("video-params/gamma") ?: "unavailable"}; decoder: ${textProperty("hwdec-current") ?: "unavailable"}")
@@ -509,7 +544,7 @@ class EmbeddedMpv(
             appendLine("Presented FPS: not measured (pinned mpv estimated-vf-fps can report the source rate)")
             names.forEachIndexed { i, name -> appendLine("$name: ${totals[i] ?: "unavailable"}; last ${elapsed}s: ${deltas[i]}") }
             appendLine("Engine errors: $engineErrorCount; last failure: ${motion.failure ?: "none"}")
-            appendLine("Queue: concurrent=auto; buffered=8; status interval=0.5 s")
+            appendLine("Queue: concurrent=auto; buffered=8; heartbeat interval=0.5 s (in memory)")
             appendLine("Last heartbeat age: " + (retainedBeat?.let { now - it.updatedMillis } ?: "unavailable") + " ms")
             appendLine("Stall recovery attempts: " + motion.restarts)
             if (incident != null) {
@@ -519,12 +554,87 @@ class EmbeddedMpv(
                 appendLine("Retained incident throughput: " + incident.heartbeat?.processingFps + " fps; output callbacks: " + incident.heartbeat?.completed)
                 incident.counters.forEach { (key, value) -> appendLine("At incident $key: " + (value ?: "unavailable")) }
             }
+            appendLine("Per-minute log: " + logLine())
             appendLine("Recent playback actions: " + synchronized(playerEvents) { playerEvents.joinToString("; ") })
             appendLine("Last 20 VapourSynth warnings/errors:")
             if (motionWarnings.isEmpty()) appendLine("none") else motionWarnings.forEach { appendLine(it) }
             appendLine("State-duration history: not collected in this preview")
         }
     }
+
+    /**
+     * "Copy test report" (plan 5.6): what a test run needs to compare PCs. The build with its runtime and sharing
+     * state, the GPU plan, the screen with its HDR and VRR state, and the per-minute table.
+     */
+    private fun testReport(caps: SmoothingCapabilities, state: String): String {
+        val build = BuildIdentity.current
+        val shown = screen
+        return buildString {
+            appendLine("SkyWing ${build.version} · Windows x64 test report")
+            appendLine(build.reportLine())
+            appendLine("GPU plan: " + (gpuPlan?.describe(com.skywing.desktop.PowerSource.onBattery()) ?: "not made yet"))
+            appendLine("Renderer: $rendererDevice; output: ${textProperty("current-vo") ?: "unavailable"}")
+            appendLine("Screen: " + (shown?.let { ScreenSummary.line(caps.displayHz, it.edid, DisplayVrr.current.supported, it.hdr) } ?: "not reported"))
+            appendLine("HDR engaged: " + hdrEngaged().text)
+            appendLine("VRR active: " + DisplayState.vrrActive(DisplayVrr.current).text +
+                "; let VRR control refresh: " + MotionSettingsStore.values.vrr + " (fullscreen: " + fullscreen + ")")
+            appendLine("File: ${com.skywing.desktop.NetworkPaths.kindOf(expectedPath)}; ${caps.resolution}; source ${caps.sourceFps ?: "unavailable"} fps" +
+                "; transfer ${textProperty("video-params/gamma") ?: "unavailable"}; decoder ${textProperty("hwdec-current") ?: "unavailable"}")
+            appendLine("Smoothing: ${smoothingMode.label}; quality: ${(appliedMotionSettings?.quality ?: MotionQuality.DEFAULT).label}" +
+                "; multiplier: " + (appliedMotionSettings?.let { MotionStops.labels[it.stop] } ?: "none") +
+                "; target: ${motion.target?.label ?: "none"} fps; state: $state" + if (benchSettings != null) "; benchmark" else "")
+            appendLine("Per-minute log: " + logLine())
+            PlaybackMinute.table(minuteRows.toList()).forEach(::appendLine)
+        }
+    }
+
+    /** One sample for the per-minute log; a new file starts a new session. */
+    private fun logSample(file: String, target: MotionRate, beat: MotionHeartbeat?, paused: Boolean?, cacheWait: Boolean?,
+                          caps: SmoothingCapabilities) {
+        if (logPath != file) { endLog(); logPath = file; minuteRows.clear() }
+        val now = System.currentTimeMillis()
+        minutes.add(PlaybackSample(
+            atMillis = now, target = target.label, outputFps = beat?.processingFps,
+            counters = listOf("frame-drop-count", "decoder-frame-drop-count", "vo-delayed-frame-count", "mistimed-frame-count")
+                .map { numberProperty(it)?.toLong() },
+            vsyncJitter = numberProperty("vsync-jitter"), displayFps = numberProperty("estimated-display-fps"),
+            cpuNanos = cpu?.processCpuTime?.takeIf { it >= 0 },
+            heartbeatAgeMillis = motion.lastHeartbeat?.let { now - it.updatedMillis },
+            generations = motion.rebuilds, seeks = seekCount, restarts = motion.restarts,
+            paused = paused, cacheWait = cacheWait, fullscreen = fullscreen,
+            hdr = hdrEngaged(), vrr = DisplayState.vrrActive(DisplayVrr.current), refreshHz = caps.displayHz,
+        ))
+    }
+
+    /** Ends the per-minute log's session: what is left becomes a row, and the next smoothing starts a new file. */
+    private fun endLog() {
+        minutes.finish()
+        playbackCsv = null
+        playbackCsvTried = false
+        logPath = null
+    }
+
+    /** The test report now, for the benchmark once its run is over. */
+    @Synchronized
+    internal fun testReport(state: String): String = testReport(lastCaps, state)
+
+    /** For the benchmark: writes the last part-minute before it reports. */
+    @Synchronized
+    internal fun finishLog(): File? {
+        endLog()
+        return lastLogFile
+    }
+
+    private fun logLine(): String {
+        val where = if (logFolder == PlaybackCsv.folder()) "%LOCALAPPDATA%\\SkyWing\\playback-logs" else "the benchmark's folder"
+        return playbackCsv?.file?.name?.let { "$it in $where" }
+            ?: if (logPath != null) "starts after the first minute of smoothing"
+            else lastLogFile?.name?.let { "$it in $where (finished)" } ?: "not recording (smoothing is not running)"
+    }
+
+    private fun hdrEngaged(): ScreenReading = DisplayState.hdrEngaged(screen?.hdr ?: AdvancedColor.UNKNOWN,
+        textProperty("video-params/gamma"), textProperty("video-target-params/gamma"),
+        textProperty("video-target-params/primaries"), numberProperty("video-target-params/max-luma"))
 
     private fun planFor(choice: GpuChoice): GpuPlan = GpuPolicy.plan(inventory, monitorGpu, choice, forcedVendor)
 

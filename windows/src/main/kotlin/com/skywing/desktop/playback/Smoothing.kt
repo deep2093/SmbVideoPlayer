@@ -32,6 +32,8 @@ data class SmoothingStatus(
     val detail: String = "Smoothing off",
     val motionActive: Boolean = false,
     val report: String = "Play a video to collect a playback report.",
+    /** "Copy test report" (plan 5.6): the build, GPU plan, screen, HDR and VRR state and the per-minute table. */
+    val testReport: String = "Play a video with smoothing on to collect a test report.",
     val settings: MotionSettings? = null,
     val nextLowerStop: Int? = null,
     val requestOff: Boolean = false,

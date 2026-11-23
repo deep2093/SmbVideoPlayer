@@ -79,8 +79,14 @@ import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.system.exitProcess
 
 fun main(args: Array<String>) {
+    // The hidden benchmark (plan 5.6) runs before the single-instance check, so it never hands its video to a
+    // running SkyWing, and it opens no library or settings.
+    BenchOptions.parse(args.toList())?.let { parsed ->
+        exitProcess(parsed.fold(Bench::run) { Bench.reject(it.message ?: "bad bench arguments") })
+    }
     val mainStarted = System.currentTimeMillis()
     // A second start hands its video to the SkyWing already open and exits (B38).
     val claim = SingleInstance.claim(SingleInstance.dataFolder(), args.toList())

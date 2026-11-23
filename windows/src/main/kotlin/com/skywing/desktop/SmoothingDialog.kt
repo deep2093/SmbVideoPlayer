@@ -97,11 +97,19 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
         }
     } else Text(status.detail, color = theme.muted)
     var copied by remember { mutableStateOf(false) }
-    SkyButton(if (copied) "Copied" else "Copy playback report", {
-        val report = PerfMonitor.reportLine()?.let { status.report.trimEnd() + "\n" + it + "\n" } ?: status.report
-        runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(report), null) }
-            .onSuccess { copied = true }
-    }, primary = false)
+    var testCopied by remember { mutableStateOf(false) }
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        SkyButton(if (copied) "Copied" else "Copy playback report", {
+            val report = PerfMonitor.reportLine()?.let { status.report.trimEnd() + "\n" + it + "\n" } ?: status.report
+            runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(report), null) }
+                .onSuccess { copied = true }
+        }, primary = false)
+        // Plan 5.6: build, GPU plan, screen, HDR and VRR state, and the per-minute table, to compare PCs.
+        SkyButton(if (testCopied) "Copied" else "Copy test report", {
+            runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(status.testReport), null) }
+                .onSuccess { testCopied = true }
+        }, primary = false)
+    }
 }
 
 /** Settings → Playback → "Graphics for video" (plan 5.3). A PC with one GPU has nothing to choose. */
