@@ -155,6 +155,9 @@ class EmbeddedMpv(
                 set("force-window", "yes")
                 set("keep-open", "yes")
                 set("hwdec", "auto-safe")
+                // Plan 5.8 rule 9: mpv deinterlaces only frames flagged interlaced (on the GPU while frames stay there).
+                // Smoothing never runs on them (SmoothingCapabilities.interlaced).
+                set("deinterlace", "auto")
                 // The GPU plan (plan 5.3): Automatic keeps decoding, smoothing and presentation on the GPU that drives
                 // this monitor, as before M2; SKYWING_GPU still forces one in test runs.
                 canvasHandle = handle
@@ -345,6 +348,8 @@ class EmbeddedMpv(
             hdrVideo = textProperty("video-params/gamma") in setOf("pq", "hlg", "st2084"),
             width = numberProperty("video-params/w")?.toInt(),
             height = numberProperty("video-params/h")?.toInt(),
+            // With deinterlace=auto, video-frame-info describes the deinterlaced frame; deinterlace-active says mpv did it.
+            interlaced = textProperty("video-frame-info/interlaced")?.let { it == "yes" || textProperty("deinterlace-active") == "yes" },
         )
         lastCaps = caps
         if (mode == SmoothingMode.MOTION) return updateMotion(caps).also { if (!motion.active) endLog() }
@@ -412,6 +417,8 @@ class EmbeddedMpv(
             return status(it)
         }
         if (source == null || settings == null) return status("Waiting for source frame rate")
+        // Whether the video is interlaced is known only once a frame is shown (plan 5.8 rule 9).
+        if (caps.interlaced == null) return status("Waiting for the first frame")
         // "Use <dedicated GPU> for smoothing" is kept for this video's class, and a choice made in Settings while the
         // video plays applies now: drawing and smoothing move together, and the video goes on from where it was.
         val classChoice = MotionSettingsStore.values.gpuChoiceFor(key)
@@ -533,6 +540,7 @@ class EmbeddedMpv(
             appendLine("File: $fileKind; ${caps.resolution}; source ${caps.sourceFps ?: "unavailable"} fps")
             appendLine("Codec: ${textProperty("video-codec") ?: "unavailable"}; pixel format: ${textProperty("video-params/pixelformat") ?: "unavailable"}")
             appendLine("Transfer: ${textProperty("video-params/gamma") ?: "unavailable"}; decoder: ${textProperty("hwdec-current") ?: "unavailable"}")
+            appendLine("Interlaced: ${textProperty("video-frame-info/interlaced") ?: "unavailable"}; deinterlacing: ${textProperty("deinterlace-active") ?: "unavailable"}")
             appendLine("Selected: ${smoothingMode.label}; state: $state")
             if (smoothingMode == SmoothingMode.MOTION) {
                 appendLine("Engine: open-svpflow deadbad2; quality: ${(appliedMotionSettings?.quality ?: MotionQuality.DEFAULT).label}; target: ${motion.target?.label ?: "none"} fps")

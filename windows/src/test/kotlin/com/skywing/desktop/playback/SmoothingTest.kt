@@ -44,6 +44,16 @@ class SmoothingTest {
         assertEquals("HDR smoothing is not available yet", clip.copy(hdrVideo = true).unavailable(SmoothingMode.MOTION))
         assertEquals("Play a hardware-decoded video first", clip.copy(hardwareDecode = false).unavailable(SmoothingMode.MOTION))
     }
+    @Test fun interlacedVideoIsNotSmoothedAndSaysWhy() {
+        // Plan 5.8 rule 9: fields are never smoothed as if they were frames; mpv deinterlaces the video instead.
+        val tv = SmoothingCapabilities(displayHz = 60.0, sourceFps = 25.0, gpuOutput = true, hardwareDecode = true,
+            interlaced = true, width = 1920, height = 1080)
+        assertEquals("Interlaced video isn’t smoothed; it is deinterlaced instead", tv.unavailable(SmoothingMode.MOTION))
+        assertNull(tv.unavailable(SmoothingMode.OFF))
+        assertNull(tv.copy(interlaced = false).unavailable(SmoothingMode.MOTION))
+        // HDR keeps its own reason.
+        assertEquals("HDR smoothing is not available yet", tv.copy(hdrVideo = true).unavailable(SmoothingMode.MOTION))
+    }
     @Test fun videoTypesKeepIndependentSettings() {
         val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
         try {

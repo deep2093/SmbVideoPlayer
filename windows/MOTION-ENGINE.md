@@ -57,6 +57,11 @@ Three consecutive recent drop intervals offer the next lower stop; three clean
 intervals clear the warning. Low throughput telemetry alone does not trigger it.
 The live status reports video plus decoder drops within the last 60 seconds,
 tracking increments across counter resets; missing measurements remain unavailable.
+Interlaced video is not smoothed ("Interlaced video isn’t smoothed; it is deinterlaced instead"). SkyWing sets
+`deinterlace=auto`, so mpv deinterlaces only frames flagged interlaced, to the field rate (25i plays at 50 fps).
+mpv then reports the deinterlaced frame in `video-frame-info`, so SkyWing also reads `deinterlace-active`.
+Smoothing waits for the first frame, so it never starts before this is known.
+
 Automatic lowering only happens when enabled; overload stops motion at 2×.
 Seeks, pauses, cache waits and reconfiguration restart the warmup period.
 

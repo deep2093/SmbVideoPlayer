@@ -121,6 +121,71 @@ class MotionNativeTest {
      * frames, also after a seek. Retiming to the average rate instead puts frames up to 30 ms off. The fixture has no
      * B-frames, so each frame's container duration is its display time.
      */
+    /**
+     * Plan 5.8 rule 9, checked in the pinned libmpv: `deinterlace=auto` (SkyWing's setting) deinterlaces only frames
+     * flagged interlaced, and `deinterlace-active` or `video-frame-info/interlaced` tells SkyWing so.
+     */
+    @Test(timeout = 120000) fun interlacedVideoIsFlaggedAndDeinterlacedOnlyWhenInterlaced() {
+        assumeTrue(System.getenv("SKYWING_TEST_MPV") == "true")
+        val ffmpeg = TestMedia.ffmpeg
+        assumeTrue("ffmpeg is needed for the interlaced fixture", ffmpeg != null)
+        val resources = File(System.getProperty("compose.application.resources.dir"))
+        val folder = Files.createTempDirectory("skywing-interlaced-").toFile()
+        fun encode(name: String, vararg options: String): File {
+            val video = File(folder, name)
+            val process = ProcessBuilder(listOf(ffmpeg!!.absolutePath, "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "lavfi", "-i", "testsrc2=size=720x576:rate=50:duration=3") + options.toList() +
+                listOf("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", video.absolutePath))
+                .redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().readText()
+            assertTrue(process.waitFor(60, TimeUnit.SECONDS) && process.exitValue() == 0 && video.isFile, "ffmpeg: $output")
+            return video
+        }
+        // Two 50 fps frames woven into each 25 fps interlaced frame, top field first; and the same clip progressive.
+        val interlaced = encode("interlaced.mkv", "-vf", "interlace=scan=tff", "-flags", "+ilme+ildct", "-field_order", "tt")
+        val progressive = encode("progressive.mkv", "-vf", "fps=25")
+        val api = Native.load(File(resources, "libmpv-2.dll").path, Api::class.java,
+            mapOf(Library.OPTION_STRING_ENCODING to "UTF-8"))
+        val ctx = api.mpv_create()
+        fun get(name: String): String? {
+            val p = api.mpv_get_property_string(ctx, name) ?: return null
+            return try { p.getString(0, "UTF-8") } finally { api.mpv_free(p) }
+        }
+        fun command(args: List<String>): Boolean = api.mpv_command(ctx, (args + listOf(null)).toTypedArray()) >= 0
+        fun waitFor(message: String, predicate: () -> Boolean) {
+            val until = System.nanoTime() + 20_000_000_000L
+            while (System.nanoTime() < until) { if (predicate()) return; Thread.sleep(50) }
+            fail(message)
+        }
+        try {
+            listOf("config" to "no", "vo" to "null", "ao" to "null", "pause" to "yes", "keep-open" to "yes",
+                "deinterlace" to "auto").forEach { (k, v) -> assertTrue(api.mpv_set_option_string(ctx, k, v) >= 0, k) }
+            assertTrue(api.mpv_initialize(ctx) >= 0)
+            assertTrue(command(listOf("loadfile", interlaced.absolutePath)))
+            // deinterlace=auto deinterlaces it to the field rate. video-frame-info then describes the deinterlaced
+            // frame, so SkyWing also reads deinterlace-active to know the source is interlaced.
+            waitFor("deinterlace=auto did not deinterlace an interlaced frame") { get("deinterlace-active") == "yes" }
+            assertEquals("25.000000", get("container-fps"))
+            waitFor("Deinterlacing did not output the field rate") { get("estimated-vf-fps")?.toDoubleOrNull()?.let { abs(it - 50) < 0.5 } == true }
+            assertEquals("no", get("video-frame-info/interlaced"))
+            // Without deinterlacing, the frame itself is flagged.
+            assertTrue(command(listOf("set", "deinterlace", "no")))
+            waitFor("The interlaced frame was not flagged") { get("video-frame-info/interlaced") == "yes" }
+            assertEquals("yes", get("video-frame-info/tff"))
+            assertEquals("no", get("deinterlace-active"))
+            assertTrue(command(listOf("set", "deinterlace", "auto")))
+            assertTrue(command(listOf("loadfile", progressive.absolutePath)))
+            waitFor("The progressive fixture never showed a frame") {
+                get("path") == progressive.absolutePath && get("video-frame-info/interlaced") != null
+            }
+            assertEquals("no", get("video-frame-info/interlaced"))
+            waitFor("deinterlace=auto deinterlaced a progressive frame") { get("deinterlace-active") == "no" }
+        } finally {
+            api.mpv_terminate_destroy(ctx)
+            folder.deleteRecursively()
+        }
+    }
+
     @Test(timeout = 240000) fun variableRateVideoKeepsItsFrameTimesWhenSmoothed() {
         assumeTrue(System.getenv("SKYWING_TEST_MPV") == "true")
         val ffmpeg = TestMedia.ffmpeg

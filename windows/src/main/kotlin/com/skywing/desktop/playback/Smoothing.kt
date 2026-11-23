@@ -11,12 +11,16 @@ data class SmoothingCapabilities(
     val displayHz: Double? = null, val sourceFps: Double? = null,
     val gpuOutput: Boolean = false, val hardwareDecode: Boolean = false,
     val hdrVideo: Boolean = false, val width: Int? = null, val height: Int? = null,
+    /** The frame shown now is interlaced, or mpv is deinterlacing it (plan 5.8 rule 9); null until a frame is shown. */
+    val interlaced: Boolean? = null,
 ) {
     val resolution: String get() = if (width != null && height != null) "$width × $height" else "Resolution unavailable"
     fun unavailable(mode: SmoothingMode): String? = when {
         mode == SmoothingMode.OFF -> null
         sourceFps != null && sourceFps > 60.001 -> "Already smooth"
         hdrVideo -> "HDR smoothing is not available yet"
+        // Fields are never smoothed as if they were frames; with deinterlace=auto mpv deinterlaces the video instead.
+        interlaced == true -> "Interlaced video isn’t smoothed; it is deinterlaced instead"
         !gpuOutput || !hardwareDecode -> "Play a hardware-decoded video first"
         // Any reported rate from 1 fps can be smoothed, including a variable frame rate's average (MotionRate.source).
         // Slower video, such as a slideshow, is named rather than left waiting for a rate.
