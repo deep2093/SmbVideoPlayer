@@ -6,9 +6,22 @@ import com.sun.jna.Native
 import com.sun.jna.Pointer
 import com.sun.jna.ptr.IntByReference
 
+/**
+ * Where the motion engine runs (plan 5.8 rule 4): an OpenCL [device], and the [filter] that points the patched
+ * plugins at it. No device means the processor.
+ */
+internal data class MotionDevice(val device: OpenClDevice?, val filter: Map<String, String>, val matchedBy: String) {
+    /** No OpenCL device at all: open-svpflow smooths on the processor, so SkyWing allows only up to 1080p at 2×. */
+    val processor: Boolean get() = device == null
+}
+
 /** One OpenCL GPU device. [luid] is the Windows adapter LUID when the driver reports it (`cl_khr_device_uuid`). */
 internal data class OpenClDevice(val vendor: String, val name: String, val driver: String, val luid: Long?) {
     companion object {
+        private const val VENDOR = "SKYWING_OPENCL_VENDOR"
+        private const val LUID = "SKYWING_OPENCL_LUID"
+        /** A vendor filter no device's vendor contains. */
+        private const val NO_DEVICE = "skywing-no-opencl-device"
         private interface OpenCl : Library {
             fun clGetPlatformIDs(count: Int, platforms: Pointer?, returned: IntByReference): Int
             fun clGetDeviceIDs(platform: Pointer, type: Long, count: Int, devices: Pointer?, returned: IntByReference): Int
@@ -26,7 +39,7 @@ internal data class OpenClDevice(val vendor: String, val name: String, val drive
         /**
          * The device the motion engine should use for [adapter]: by LUID when another GPU shares its maker and the
          * driver reports LUIDs, otherwise the first device from its maker. Null when that GPU has no OpenCL device;
-         * never a device on another GPU of the same maker.
+         * never a device on another GPU of the same maker. [choose] then falls back to another GPU, and says so.
          */
         fun pick(devices: List<OpenClDevice>, adapter: GpuAdapters.Adapter?, byLuid: Boolean): OpenClDevice? {
             if (adapter == null) return devices.firstOrNull()
@@ -41,9 +54,31 @@ internal data class OpenClDevice(val vendor: String, val name: String, val drive
          * (`windows/tools/open-svpflow-windows.patch`). Empty means no filter.
          */
         fun filter(adapter: GpuAdapters.Adapter?, byLuid: Boolean): Map<String, String> = mapOf(
-            "SKYWING_OPENCL_VENDOR" to (adapter?.gpuVendor?.openCl ?: ""),
-            "SKYWING_OPENCL_LUID" to if (byLuid && adapter != null) "%016x".format(adapter.luid) else "",
+            VENDOR to (adapter?.gpuVendor?.openCl ?: ""),
+            LUID to if (byLuid && adapter != null) "%016x".format(adapter.luid) else "",
         )
+
+        /**
+         * The motion engine's device for [adapter] (plan 5.8 rule 4): OpenCL on that GPU ([pick]), else OpenCL on any
+         * other GPU, named exactly by its vendor and LUID, else the processor. The engine gets its frames from system
+         * memory (hwdec auto-copy), so another GPU only adds an upload; the report names it.
+         */
+        fun choose(devices: List<OpenClDevice>, adapter: GpuAdapters.Adapter?, byLuid: Boolean): MotionDevice {
+            pick(devices, adapter, byLuid)?.let { device ->
+                val how = when {
+                    adapter == null -> "any device"
+                    byLuid && device.luid == adapter.luid -> "LUID"
+                    byLuid -> "maker (this driver reports no LUID)"
+                    else -> "maker"
+                }
+                return MotionDevice(device, filter(adapter, byLuid), how)
+            }
+            devices.firstOrNull()?.let { other ->
+                val pinned = mapOf(VENDOR to other.vendor, LUID to (other.luid?.let { "%016x".format(it) } ?: ""))
+                return MotionDevice(other, pinned, "another GPU (${adapter?.name ?: "the chosen GPU"} has no OpenCL device)")
+            }
+            return MotionDevice(null, mapOf(VENDOR to NO_DEVICE, LUID to ""), "none (no OpenCL device: the processor)")
+        }
 
         /** The OpenCL GPU devices of every installed driver; empty without OpenCL. */
         fun list(): List<OpenClDevice> = runCatching {

@@ -2,6 +2,7 @@ package com.skywing.desktop.playback
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -42,6 +43,43 @@ class OpenClSelectionTest {
     fun aGpuWithoutAnOpenClDeviceGetsNone() {
         assertNull(OpenClDevice.pick(listOf(intelCl), nvidiaGpu, byLuid = false))
         assertNull(OpenClDevice.pick(emptyList(), intelGpu, byLuid = false))
+    }
+
+    @Test
+    fun thePlansGpuIsUsedWhenItHasAnOpenClDevice() {
+        val engine = OpenClDevice.choose(listOf(intelCl, arcCl), arcCard, byLuid = true)
+        assertEquals(arcCl, engine.device)
+        assertEquals(OpenClDevice.filter(arcCard, byLuid = true), engine.filter)
+        assertEquals("LUID", engine.matchedBy)
+        assertFalse(engine.processor)
+        assertEquals("maker", OpenClDevice.choose(listOf(intelCl, nvidiaCl), nvidiaGpu, byLuid = false).matchedBy)
+        assertEquals("any device", OpenClDevice.choose(listOf(nvidiaCl), null, byLuid = false).matchedBy)
+    }
+
+    @Test
+    fun aGpuWithoutAnOpenClDeviceSmoothsOnAnotherGpu() {
+        // Plan 5.8 rule 4: OpenCL on the plan's GPU, then on any other GPU. The filter names that device exactly.
+        val toNvidia = OpenClDevice.choose(listOf(nvidiaCl), intelGpu, byLuid = false)
+        assertEquals(nvidiaCl, toNvidia.device)
+        assertEquals(mapOf("SKYWING_OPENCL_VENDOR" to "NVIDIA Corporation", "SKYWING_OPENCL_LUID" to ""), toNvidia.filter)
+        assertEquals("another GPU (Intel(R) Graphics has no OpenCL device)", toNvidia.matchedBy)
+        // Two GPUs from one maker: the other one, by its LUID.
+        val toIntegrated = OpenClDevice.choose(listOf(intelCl), arcCard, byLuid = true)
+        assertEquals(intelCl, toIntegrated.device)
+        assertEquals(mapOf("SKYWING_OPENCL_VENDOR" to "Intel(R) Corporation", "SKYWING_OPENCL_LUID" to "0000000000001001"), toIntegrated.filter)
+        assertFalse(toIntegrated.processor)
+    }
+
+    @Test
+    fun noOpenClDeviceAtAllSmoothsOnTheProcessor() {
+        for (adapter in listOf(intelGpu, null)) {
+            val engine = OpenClDevice.choose(emptyList(), adapter, byLuid = false)
+            assertTrue(engine.processor)
+            assertNull(engine.device)
+            assertEquals("none (no OpenCL device: the processor)", engine.matchedBy)
+            // No vendor contains this name, so the plugins skip any device a failed listing missed.
+            assertEquals(mapOf("SKYWING_OPENCL_VENDOR" to "skywing-no-opencl-device", "SKYWING_OPENCL_LUID" to ""), engine.filter)
+        }
     }
 
     @Test

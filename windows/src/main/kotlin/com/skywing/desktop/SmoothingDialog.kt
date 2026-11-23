@@ -52,7 +52,7 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
     if (source != null) {
         val key = MotionStops.type(caps)
         val settings = status.settings ?: MotionSettingsStore.values.load(key, MotionStops.default(source, caps.displayHz, MotionSettingsStore.values.vrr))
-        val allowed = MotionStops.allowed(source, caps.displayHz)
+        val allowed = MotionStops.allowed(source, caps.displayHz, caps.processor)
         var rate by remember(key, settings.stop) { mutableStateOf(settings.stop.toFloat()) }
         var quality by remember(key, settings.quality) { mutableStateOf(settings.quality.ordinal.toFloat()) }
         Text("Frame rate", color = theme.ink)

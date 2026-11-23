@@ -70,7 +70,7 @@ class EmbeddedMpv(
     private var expectedPath: String? = null
     private var loadEndedWithError = false
     private val motion = MotionSession(::textProperty, { command(*it.toTypedArray()) },
-        prepare = { dir -> motionGpu().let { MotionRuntime.prepare(dir, it, it != null && sharesMaker(it)) } })
+        prepare = { dir -> MotionRuntime.prepare(dir, motionDevice()) })
     private var lastPosition = 0.0
     private var appliedMotionSettings: MotionSettings? = null
     private var appliedVrr: Boolean? = null
@@ -350,6 +350,8 @@ class EmbeddedMpv(
             height = numberProperty("video-params/h")?.toInt(),
             // With deinterlace=auto, video-frame-info describes the deinterlaced frame; deinterlace-active says mpv did it.
             interlaced = textProperty("video-frame-info/interlaced")?.let { it == "yes" || textProperty("deinterlace-active") == "yes" },
+            // Listing OpenCL loads every GPU driver's OpenCL library, so only once smoothing is on (listed once per GPU change).
+            processor = mode == SmoothingMode.MOTION && motionDevice().processor,
         )
         lastCaps = caps
         if (mode == SmoothingMode.MOTION) return updateMotion(caps).also { if (!motion.active) endLog() }
@@ -404,7 +406,7 @@ class EmbeddedMpv(
         val key = MotionStops.type(caps)
         val bench = benchSettings
         val stored = source?.let { bench ?: MotionSettingsStore.values.load(key, MotionStops.default(it, caps.displayHz, MotionSettingsStore.values.vrr)) }
-        val allowed = source?.let { MotionStops.allowed(it, caps.displayHz) }.orEmpty()
+        val allowed = source?.let { MotionStops.allowed(it, caps.displayHz, caps.processor) }.orEmpty()
         val settings = stored?.copy(stop = allowed.lastOrNull { it <= stored.stop } ?: allowed.firstOrNull() ?: stored.stop)
         fun status(detail: String, active: Boolean = false, beat: MotionHeartbeat? = null, lower: Int? = null) =
             SmoothingStatus(caps, detail, motionActive = active, report = playbackReport(caps, detail, beat),
@@ -490,7 +492,8 @@ class EmbeddedMpv(
         motion.failure?.let { return status("Motion smoothing unavailable: $it") }
         return if (beat != null && motion.active) {
             val detail = if (System.currentTimeMillis() < motionNoticeUntil) motionNotice else
-                "Holding " + target.label + " fps · " + (lastMinuteDrops?.let { "$it drops in last minute" } ?: "recent drops unavailable")
+                "Holding " + target.label + " fps" + (if (caps.processor) " on the processor (update your graphics driver)" else "") +
+                    " · " + (lastMinuteDrops?.let { "$it drops in last minute" } ?: "recent drops unavailable")
             status(detail, true, beat)
         } else status("Starting motion smoothing…")
     }
@@ -667,11 +670,17 @@ class EmbeddedMpv(
         if (plan.mpvAdapter.isEmpty()) plan
         else plan.copy(adapter = null, mpvAdapter = "", reason = plan.reason + " · mpv refused it: using Windows' choice of graphics")
 
-    /** The GPU mpv opened (from its log) as the PC lists it, else the plan's: smoothing never runs on another GPU. */
+    /**
+     * The GPU mpv opened (from its log) as the PC lists it, else the plan's. Smoothing runs on another GPU only when
+     * this one has no OpenCL device ([motionDevice]).
+     */
     private fun motionGpu(): GpuAdapters.Adapter? {
         val named = openedGpu?.let { name -> inventory.adapters.filter { it.name.equals(name, ignoreCase = true) } }.orEmpty()
         return named.firstOrNull { it == gpuPlan?.adapter } ?: named.firstOrNull() ?: gpuPlan?.adapter
     }
+
+    /** Where the motion engine runs (plan 5.8 rule 4): [motionGpu]'s OpenCL device, else another GPU's, else the processor. */
+    private fun motionDevice(): MotionDevice = motionGpu().let { MotionRuntime.choose(it, it != null && sharesMaker(it)) }
 
     /** Another GPU has this one's maker, so the motion engine must pick its OpenCL device by LUID. */
     private fun sharesMaker(adapter: GpuAdapters.Adapter): Boolean = inventory.adapters.count { it.gpuVendor == adapter.gpuVendor } > 1

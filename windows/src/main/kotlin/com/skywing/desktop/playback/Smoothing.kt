@@ -13,6 +13,8 @@ data class SmoothingCapabilities(
     val hdrVideo: Boolean = false, val width: Int? = null, val height: Int? = null,
     /** The frame shown now is interlaced, or mpv is deinterlacing it (plan 5.8 rule 9); null until a frame is shown. */
     val interlaced: Boolean? = null,
+    /** The PC has no OpenCL device, so the motion engine would run on the processor (plan 5.8 rule 4). */
+    val processor: Boolean = false,
 ) {
     val resolution: String get() = if (width != null && height != null) "$width × $height" else "Resolution unavailable"
     fun unavailable(mode: SmoothingMode): String? = when {
@@ -22,6 +24,8 @@ data class SmoothingCapabilities(
         // Fields are never smoothed as if they were frames; with deinterlace=auto mpv deinterlaces the video instead.
         interlaced == true -> "Interlaced video isn’t smoothed; it is deinterlaced instead"
         !gpuOutput || !hardwareDecode -> "Play a hardware-decoded video first"
+        // Some Intel and AMD drivers install OpenCL only with the full driver package. The processor keeps up only to 1080p.
+        processor && !MotionStops.type(this).startsWith("1080") -> "Update your graphics driver: without OpenCL, smoothing works only up to 1080p at 2×"
         // Any reported rate from 1 fps can be smoothed, including a variable frame rate's average (MotionRate.source).
         // Slower video, such as a slideshow, is named rather than left waiting for a rate.
         sourceFps != null && sourceFps > 0 && sourceFps < MotionRate.LOWEST_FPS -> "Can’t smooth video below 1 fps"

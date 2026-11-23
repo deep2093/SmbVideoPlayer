@@ -54,6 +54,20 @@ class SmoothingTest {
         // HDR keeps its own reason.
         assertEquals("HDR smoothing is not available yet", tv.copy(hdrVideo = true).unavailable(SmoothingMode.MOTION))
     }
+    @Test fun withoutAnOpenClDeviceOnly1080pAt2xIsSmoothedOnTheProcessor() {
+        // Plan 5.8 rule 4: no OpenCL device at all, so open-svpflow runs on the processor, up to 1080p at 2×.
+        val clip = SmoothingCapabilities(displayHz = 120.0, sourceFps = 24.0, gpuOutput = true, hardwareDecode = true,
+            interlaced = false, width = 1920, height = 1080, processor = true)
+        assertNull(clip.unavailable(SmoothingMode.MOTION))
+        assertNull(clip.copy(width = 1080, height = 1920).unavailable(SmoothingMode.MOTION))
+        val tooBig = "Update your graphics driver: without OpenCL, smoothing works only up to 1080p at 2×"
+        assertEquals(tooBig, clip.copy(width = 2560, height = 1440).unavailable(SmoothingMode.MOTION))
+        assertEquals(tooBig, clip.copy(width = 3840, height = 2160).unavailable(SmoothingMode.MOTION))
+        assertNull(clip.copy(width = 3840, height = 2160, processor = false).unavailable(SmoothingMode.MOTION))
+        // Only 2× is offered on the processor; with an OpenCL device every stop the screen fits.
+        assertEquals(listOf(0), MotionStops.allowed(MotionRate(24), 120.0, processor = true))
+        assertEquals(listOf(0, 1, 2, 3), MotionStops.allowed(MotionRate(24), 120.0))
+    }
     @Test fun videoTypesKeepIndependentSettings() {
         val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
         try {

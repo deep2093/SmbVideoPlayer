@@ -76,6 +76,17 @@ otherwise automatic renderer selection remains available. For test runs only,
 for rendering and motion; display queries such as VRR still follow the monitor,
 and the report's renderer preference ends in "forced by SKYWING_GPU". The report
 separates the preferred motion GPU from mpv’s actual renderer device.
+
+The motion engine runs on that GPU's OpenCL device. When that GPU has none, it runs on another GPU's OpenCL device,
+named exactly by vendor and LUID, and the report's "matched by" says "another GPU". Its frames come from system memory
+(`hwdec=auto-copy`), so another GPU only adds an upload. A PC with no OpenCL device at all smooths on the processor:
+open-svpflow skips every device (its vendor filter names none) and uses its CPU path. Then only 1080p and smaller, at 2×,
+is offered; larger video shows "Update your graphics driver: without OpenCL, smoothing works only up to 1080p at 2×",
+and the status says "on the processor (update your graphics driver)". Some Intel and AMD drivers install OpenCL only with
+the full driver package. Checked in `MotionNativeTest` with the pinned build: on the processor each in-between frame is
+a new picture. On the 24-thread laptop, unpaced (mpv untimed, no display), a generated 1080p clip from 24 to 48 fps at
+Fast gave 963 output frames per second using 7.9 cores on the processor, and 1021 using 9.2 cores on OpenCL. A real
+video, a slower processor or a higher quality gives less.
 Native DLLs stay loaded for the process lifetime so Rust worker state survives
 VapourSynth core rebuilds. Only the named filter is owned; previous decoder/sync/
 interpolation settings and other filters are preserved when it ends.

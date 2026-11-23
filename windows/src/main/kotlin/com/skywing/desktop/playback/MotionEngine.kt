@@ -408,27 +408,25 @@ internal object MotionRuntime {
     @Synchronized fun forgetDevices() { devices = null }
 
     /**
-     * Loads the motion DLLs once, and before every motion start points the patched plugins at [adapter]'s OpenCL
-     * device: by maker, and by LUID when [byLuid] (two GPUs from one maker). The plugins read this filter each time
-     * they open a device, so every video can follow its own GPU plan. Null [adapter] means any device.
+     * Where the motion engine runs for [adapter] ([OpenClDevice.choose]): its OpenCL device by maker, and by LUID when
+     * [byLuid] (two GPUs from one maker); else another GPU's; else the processor. Null [adapter] means any device.
      */
-    @Synchronized fun prepare(dir: File, adapter: GpuAdapters.Adapter? = null, byLuid: Boolean = false): String? {
+    @Synchronized fun choose(adapter: GpuAdapters.Adapter? = null, byLuid: Boolean = false): MotionDevice =
+        OpenClDevice.choose(devices ?: OpenClDevice.list().also { devices = it }, adapter, byLuid)
+
+    /**
+     * Loads the motion DLLs once, and before every motion start points the patched plugins at [engine]'s device. The
+     * plugins read this filter each time they open a device, so every video can follow its own GPU plan.
+     */
+    @Synchronized fun prepare(dir: File, engine: MotionDevice = choose()): String? {
         return runCatching {
             val kernel = Native.load("kernel32", Win32::class.java)
-            OpenClDevice.filter(adapter, byLuid).forEach { (name, value) ->
+            engine.filter.forEach { (name, value) ->
                 check(kernel.SetEnvironmentVariableW(WString(name), WString(value)))
             }
-            val found = devices ?: OpenClDevice.list().also { devices = it }
-            val device = OpenClDevice.pick(found, adapter, byLuid)
-            preferredGpu = device?.name ?: adapter?.let { "${it.name} (no OpenCL device found)" } ?: "Automatic"
-            driver = device?.driver ?: "Unavailable"
-            matchedBy = when {
-                device == null -> "none"
-                adapter == null -> "any device"
-                byLuid && device.luid == adapter.luid -> "LUID"
-                byLuid -> "maker (this driver reports no LUID)"
-                else -> "maker"
-            }
+            preferredGpu = engine.device?.name ?: "the processor (no OpenCL device found)"
+            driver = engine.device?.driver ?: "Unavailable"
+            matchedBy = engine.matchedBy
             if (loaded == dir) return null
             cookie = kernel.AddDllDirectory(WString(dir.absolutePath)) ?: error("DLL directory")
             // VapourSynth destroys its core on every seek. Rust plugins own process-wide

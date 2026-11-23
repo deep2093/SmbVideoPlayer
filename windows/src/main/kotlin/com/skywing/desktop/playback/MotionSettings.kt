@@ -32,7 +32,9 @@ internal object MotionStops {
     }
     /** The refresh to plan for: the screen's current mode, else 60 Hz, never a guess above it (B30). */
     private fun refresh(hz: Double?): Double = hz?.takeIf { it.isFinite() && it > 0 } ?: 60.0
-    fun allowed(source: MotionRate, hz: Double?): List<Int> = (0..3).filter { rate(source, it).fps <= refresh(hz) + 0.01 }
+    /** The stops the screen can show; only 2× when the motion engine runs on the [processor] (plan 5.8 rule 4). */
+    fun allowed(source: MotionRate, hz: Double?, processor: Boolean = false): List<Int> =
+        (0..if (processor) 0 else 3).filter { rate(source, it).fps <= refresh(hz) + 0.01 }
     /**
      * A rate a fixed screen shows evenly: its refresh or a whole divisor of it, within the 1% mpv's display-resample
      * corrects (60 fps on 120 Hz, 48 or 60 fps on 240 Hz).

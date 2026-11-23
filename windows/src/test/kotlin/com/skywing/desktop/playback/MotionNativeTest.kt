@@ -186,6 +186,107 @@ class MotionNativeTest {
         }
     }
 
+    /**
+     * Plan 5.8 rule 4, checked with the pinned open-svpflow: with no OpenCL device to use, it smooths on the processor.
+     * SkyWing takes that path, up to 1080p at 2×, only when the PC has no OpenCL device at all. Each in-between frame
+     * must be a new picture, not a repeated one. The rates printed are this PC's unpaced throughput (mpv untimed, no
+     * display) and the processor cores the whole process used meanwhile, on the processor and then on OpenCL; they
+     * are measurements, not pass marks.
+     */
+    @Test(timeout = 240000) fun theMotionEngineSmoothsOnTheProcessorWithoutAnOpenClDevice() {
+        assumeTrue(System.getenv("SKYWING_TEST_MPV") == "true")
+        val ffmpeg = TestMedia.ffmpeg
+        assumeTrue("ffmpeg is needed for the 1080p fixture", ffmpeg != null)
+        val resources = File(System.getProperty("compose.application.resources.dir"))
+        assertNotNull(MotionRuntime.directory(), "CI must bundle the portable engine before native tests")
+        val folder = Files.createTempDirectory("skywing-motion-cpu-").toFile()
+        val video = File(folder, "1080p24.mkv")
+        val encode = ProcessBuilder(ffmpeg!!.absolutePath, "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=24:duration=60",
+            "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", video.absolutePath,
+        ).redirectErrorStream(true).start()
+        val encodeLog = encode.inputStream.bufferedReader().readText()
+        assertTrue(encode.waitFor(90, TimeUnit.SECONDS) && encode.exitValue() == 0 && video.isFile, "ffmpeg: $encodeLog")
+        val api = Native.load(File(resources, "libmpv-2.dll").path, Api::class.java,
+            mapOf(Library.OPTION_STRING_ENCODING to "UTF-8"))
+        val ctx = api.mpv_create()
+        val log = File("build/reports/tests/test/motion-cpu-native.log").absoluteFile
+        log.parentFile.mkdirs()
+        fun get(name: String): String? {
+            val p = api.mpv_get_property_string(ctx, name) ?: return null
+            return try { p.getString(0, "UTF-8") } finally { api.mpv_free(p) }
+        }
+        fun command(args: List<String>): Boolean = api.mpv_command(ctx, (args + listOf(null)).toTypedArray()) >= 0
+        fun waitFor(message: String, predicate: () -> Boolean) {
+            val until = System.nanoTime() + 60_000_000_000L
+            while (System.nanoTime() < until) { if (predicate()) return; Thread.sleep(50) }
+            fail(message + "\n" + if (log.isFile) log.readText().takeLast(8000) else "No native log")
+        }
+        val cpu = java.lang.management.ManagementFactory.getOperatingSystemMXBean() as com.sun.management.OperatingSystemMXBean
+        // What SkyWing chooses on a PC without OpenCL: the filter no device's vendor contains.
+        val processor = OpenClDevice.choose(emptyList(), adapter = null, byLuid = false)
+        assertTrue(processor.processor)
+        var engine = processor
+        val session = MotionSession(::get, ::command, prepare = { MotionRuntime.prepare(it, engine) }, scriptDirectory = { folder })
+        // Smooths from the start and prints the unpaced output rate and the cores the process used, after a warm-up.
+        fun measure(what: String) {
+            assertTrue(command(listOf("set", "pause", "yes")))
+            assertTrue(command(listOf("seek", "0", "absolute+exact")))
+            waitFor("Playback did not return to the start") {
+                get("seeking") == "no" && get("time-pos")?.toDoubleOrNull()?.let { it < 0.05 } == true
+            }
+            assertNull(session.begin(video.path, MotionRate(24), MotionRate(48), MotionQuality.FAST))
+            assertTrue(command(listOf("set", "pause", "no")))
+            waitFor("No output from the motion engine $what: " + session.failure) { (session.heartbeat()?.completed ?: 0) >= 96 }
+            val start = assertNotNull(session.heartbeat())
+            val busy = cpu.processCpuTime
+            val wall = System.nanoTime()
+            waitFor("The motion engine $what stopped: " + session.failure) {
+                (session.heartbeat()?.completed ?: 0) >= start.completed + 1440 || get("eof-reached") == "yes"
+            }
+            val cores = (cpu.processCpuTime - busy) / ((System.nanoTime() - wall).toDouble())
+            val beat = assertNotNull(session.heartbeat())
+            assertNull(session.failure)
+            val frames = beat.completed - start.completed
+            val seconds = (beat.updatedMillis - start.updatedMillis) / 1000.0
+            assertTrue(frames > 0 && seconds > 0, "No frames after warm-up $what")
+            println(String.format(Locale.ROOT, "Motion engine %s, 1080p 24 to 48 fps, Fast, unpaced: %.0f output frames/s (%d in %.1f s), %.1f of %d cores",
+                what, frames / seconds, frames, seconds, cores, Runtime.getRuntime().availableProcessors()))
+        }
+        try {
+            listOf("config" to "no", "vo" to "null", "audio" to "no", "keep-open" to "yes", "hwdec" to "no",
+                "pause" to "yes", "untimed" to "yes", "screenshot-format" to "png", "log-file" to log.path)
+                .forEach { (k, v) -> assertTrue(api.mpv_set_option_string(ctx, k, v) >= 0, k) }
+            assertTrue(api.mpv_initialize(ctx) >= 0)
+            assertTrue(command(listOf("loadfile", video.path)))
+            waitFor("The 1080p fixture did not load") { get("container-fps")?.toDoubleOrNull() == 24.0 }
+            measure("on the processor")
+            // Three output frames in a row: every second one is made between two source frames, and none repeats.
+            assertTrue(command(listOf("set", "pause", "yes")))
+            waitFor("Playback did not pause") { get("pause") == "yes" && get("seeking") == "no" }
+            val shots = (0..2).map { k ->
+                val before = assertNotNull(get("time-pos")?.toDoubleOrNull())
+                assertTrue(command(listOf("frame-step")))
+                waitFor("A frame step showed no later frame") { (get("time-pos")?.toDoubleOrNull() ?: before) > before }
+                File(folder, "frame-$k.png").also { assertTrue(command(listOf("screenshot-to-file", it.path, "video")), "screenshot") }
+            }
+            shots.zipWithNext().forEach { (a, b) ->
+                assertFalse(a.readBytes().contentEquals(b.readBytes()), "${a.name} and ${b.name} are the same picture")
+            }
+            assertNull(session.failure)
+            assertTrue(session.end(), "Smoothing on the processor did not end")
+            engine = MotionRuntime.choose()
+            if (!engine.processor) {
+                measure("on OpenCL (" + engine.device?.vendor + ")")
+                assertTrue(session.end(), "Smoothing on OpenCL did not end")
+            }
+        } finally {
+            api.mpv_terminate_destroy(ctx)
+            session.release()
+            folder.deleteRecursively()
+        }
+    }
+
     @Test(timeout = 240000) fun variableRateVideoKeepsItsFrameTimesWhenSmoothed() {
         assumeTrue(System.getenv("SKYWING_TEST_MPV") == "true")
         val ffmpeg = TestMedia.ffmpeg
