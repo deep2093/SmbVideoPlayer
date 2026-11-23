@@ -68,6 +68,26 @@ class SmoothingTest {
         assertEquals(listOf(0), MotionStops.allowed(MotionRate(24), 120.0, processor = true))
         assertEquals(listOf(0, 1, 2, 3), MotionStops.allowed(MotionRate(24), 120.0))
     }
+    @Test fun softwareRenderingAndASoftwareDecodeFallbackSayWhy() {
+        val clip = SmoothingCapabilities(displayHz = 60.0, sourceFps = 24.0, gpuOutput = true, hardwareDecode = true,
+            interlaced = false, width = 1920, height = 1080)
+        // Plan 5.8 rule 3: drawn by Microsoft's software renderer (no graphics driver, or remote desktop).
+        assertEquals("Install your graphics driver for smooth playback",
+            clip.copy(softwareRender = true, hardwareDecode = false).unavailable(SmoothingMode.MOTION))
+        // Plan 5.8 rule 2: mpv stepped down to software decoding during this file.
+        assertEquals("Decoding fell back to software, so this video isn’t smoothed",
+            clip.copy(hardwareDecode = false, decoderFailures = listOf("d3d11va-copy")).unavailable(SmoothingMode.MOTION))
+        // A decoder that failed but left a working hardware one is smoothed.
+        assertNull(clip.copy(decoderFailures = listOf("d3d11va")).unavailable(SmoothingMode.MOTION))
+        assertEquals("Play a hardware-decoded video first", clip.copy(hardwareDecode = false).unavailable(SmoothingMode.MOTION))
+    }
+    @Test fun mpvsDecoderStepDownIsRead() {
+        // vd_lavc.c logs this at warn once a hardware decoder was in use, before trying the next method.
+        assertEquals("d3d11va-copy", DecoderFallback.failedMethod("vd", "Attempting next decoding method after failure of d3d11va-copy.\n"))
+        assertEquals("nvdec", DecoderFallback.failedMethod("vd", "Attempting next decoding method after failure of nvdec."))
+        assertNull(DecoderFallback.failedMethod("vd", "Using software decoding.\n"))
+        assertNull(DecoderFallback.failedMethod("cplayer", "Attempting next decoding method after failure of d3d11va.\n"))
+    }
     @Test fun videoTypesKeepIndependentSettings() {
         val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
         try {

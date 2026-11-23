@@ -18,6 +18,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
 class EmbeddedMpv(
     /** The GPU SKYWING_GPU names for drawing and motion ([GpuOverride]), or null to follow the GPU plan. */
     private val forcedGpu: String? = GpuOverride.vendor(),
+    /** Tests only: draw with Microsoft's software renderer (`d3d11-warp=yes`), as a PC without its graphics driver does. */
+    internal val forceWarp: Boolean = false,
 ) : Closeable {
     private interface Api : Library {
         fun mpv_create(): Pointer?
@@ -44,6 +46,8 @@ class EmbeddedMpv(
     private var rendererDevice = "Not yet reported by mpv"
     /** The GPU name mpv reported opening ("Device Name:"), or null until it does. */
     private var openedGpu: String? = null
+    /** The decoding methods that failed for the open file, in order (plan 5.8 rule 2). */
+    @Volatile private var decoderFailures: List<String> = emptyList()
     private var canvasHandle: Pointer? = null
     private var inventory = GpuInventory(emptyList())
     /** The GPU that drives the window's monitor, for display queries such as VRR, even when SKYWING_GPU is set. */
@@ -182,6 +186,7 @@ class EmbeddedMpv(
                     gpuPlan = refused(plan)
                     rendererPreference = "Windows' choice"
                 }
+                if (forceWarp) set("d3d11-warp", "yes")
                 replan.offer(signature(), System.currentTimeMillis())
                 // Reserve decoder surfaces before loading a file for runtime temporal smoothing.
                 set("hwdec-extra-frames", "8")
@@ -256,6 +261,7 @@ class EmbeddedMpv(
         smoothingHealth.reset()
         // Events still queued belong to the previous video; its failure must not be reported for this one.
         drainEvents()
+        decoderFailures = emptyList()
         loadEndedWithError = false
         playbackFailure = null
         dedicatedOffer = null
@@ -352,6 +358,8 @@ class EmbeddedMpv(
             interlaced = textProperty("video-frame-info/interlaced")?.let { it == "yes" || textProperty("deinterlace-active") == "yes" },
             // Listing OpenCL loads every GPU driver's OpenCL library, so only once smoothing is on (listed once per GPU change).
             processor = mode == SmoothingMode.MOTION && motionDevice().processor,
+            softwareRender = GpuAdapters.softwareRenderer(openedGpu),
+            decoderFailures = decoderFailures,
         )
         lastCaps = caps
         if (mode == SmoothingMode.MOTION) return updateMotion(caps).also { if (!motion.active) endLog() }
@@ -380,6 +388,10 @@ class EmbeddedMpv(
                             openedGpu = rendererMessage.substringAfter("Device Name:").trim()
                             rendererDevice = MotionLog.redact(openedGpu.orEmpty())
                             native.mpv_request_log_messages(context, "warn")
+                        }
+                        DecoderFallback.failedMethod(prefix, rendererMessage)?.let {
+                            decoderFailures = decoderFailures + it
+                            recordAction("decoder $it failed; mpv went on with the next one")
                         }
                         if (prefix.contains("vapoursynth") && level in setOf("fatal", "error", "warn")) {
                             val message = log.getPointer(16)?.getString(0, "UTF-8").orEmpty()
@@ -518,6 +530,8 @@ class EmbeddedMpv(
             appendLine("OS: ${System.getProperty("os.name")} ${System.getProperty("os.version")}")
             appendLine("Preferred motion GPU: ${MotionRuntime.preferredGpu}; driver: ${MotionRuntime.driver}; matched by: ${MotionRuntime.matchedBy}")
             appendLine("Renderer: $rendererDevice; preference: $rendererPreference; output: ${textProperty("current-vo") ?: "unavailable"}")
+            appendLine("Render path: ${renderPath()}; graphics drivers: ${drivers()}")
+            appendLine("Decode path: ${decodePath()}")
             val onBattery = com.skywing.desktop.PowerSource.onBattery()
             appendLine("GPU plan: " + (gpuPlan?.describe(onBattery) ?: "not made yet"))
             appendLine("Graphics for video: ${gpuChoice.label}; Settings: ${MotionSettingsStore.values.gpuChoice.label}; Windows' graphics setting for SkyWing: " +
@@ -584,7 +598,9 @@ class EmbeddedMpv(
             appendLine("SkyWing ${build.version} · Windows x64 test report")
             appendLine(build.reportLine())
             appendLine("GPU plan: " + (gpuPlan?.describe(com.skywing.desktop.PowerSource.onBattery()) ?: "not made yet"))
-            appendLine("Renderer: $rendererDevice; output: ${textProperty("current-vo") ?: "unavailable"}")
+            appendLine("Renderer: $rendererDevice; output: ${textProperty("current-vo") ?: "unavailable"}; render path: ${renderPath()}")
+            appendLine("Graphics drivers: ${drivers()}")
+            appendLine("Decode path: ${decodePath()}")
             appendLine("Screen: " + (shown?.let { ScreenSummary.line(caps.displayHz, it.edid, DisplayVrr.current.supported, it.hdr) } ?: "not reported"))
             appendLine("HDR engaged: " + hdrEngaged().text)
             appendLine("VRR active: " + DisplayState.vrrActive(DisplayVrr.current).text +
@@ -598,6 +614,23 @@ class EmbeddedMpv(
             PlaybackMinute.table(minuteRows.toList()).forEach(::appendLine)
         }
     }
+
+    /** Plan 5.8 rule 3: the graphics hardware draws the video, or Microsoft's software renderer (`d3d11-warp=auto`). */
+    private fun renderPath(): String = when {
+        openedGpu == null -> "not reported by mpv yet"
+        GpuAdapters.softwareRenderer(openedGpu) -> "software (Microsoft's WARP renderer: no graphics driver, or remote desktop)"
+        else -> (textProperty("current-gpu-context") ?: "unknown API") + " on the graphics hardware"
+    }
+
+    /** Plan 5.8 rule 2: the decoder in use ("no" is software), and the methods mpv stepped down from for this file. */
+    private fun decodePath(): String = (textProperty("hwdec-current") ?: "unavailable") +
+        "; interop: " + (textProperty("hwdec-interop")?.ifBlank { null } ?: "none") +
+        "; asked for: " + (textProperty("hwdec") ?: "unavailable") +
+        "; failed for this file: " + decoderFailures.joinToString().ifEmpty { "none" }
+
+    /** Plan 5.8 rule 7: each hardware adapter's driver version. */
+    private fun drivers(): String =
+        inventory.adapters.joinToString("; ") { it.name + " " + (it.driver ?: "(version not reported)") }.ifEmpty { "no hardware adapter listed" }
 
     /** One sample for the per-minute log; a new file starts a new session. */
     private fun logSample(file: String, target: MotionRate, beat: MotionHeartbeat?, paused: Boolean?, cacheWait: Boolean?,

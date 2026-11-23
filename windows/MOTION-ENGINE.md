@@ -87,6 +87,18 @@ the full driver package. Checked in `MotionNativeTest` with the pinned build: on
 a new picture. On the 24-thread laptop, unpaced (mpv untimed, no display), a generated 1080p clip from 24 to 48 fps at
 Fast gave 963 output frames per second using 7.9 cores on the processor, and 1021 using 9.2 cores on OpenCL. A real
 video, a slower processor or a higher quality gives less.
+
+mpv itself steps down when decoding or drawing fails, and SkyWing reports what it did rather than adding its own
+fallbacks. With `hwdec=auto-safe` mpv tries each hardware decoder in turn, and `hwdec-software-fallback` (3 by default)
+moves on after decoding errors mid-file, from the same frame. Each step logs "Attempting next decoding method after
+failure of …", which SkyWing records. A video that ended on software decoding after a failure is not smoothed, with
+"Decoding fell back to software, so this video isn’t smoothed". Without a graphics driver, or under remote desktop,
+`d3d11-warp=auto` draws with Microsoft's software renderer (WARP, named "Microsoft Basic Render Driver"). The video still
+plays and smoothing is off with "Install your graphics driver for smooth playback". The playback report adds a
+"Render path:" line (the graphics API on the hardware, or WARP), a "Graphics drivers:" line with each adapter's driver
+version as Device Manager shows it, and a "Decode path:" line (decoder in use, interop, what was asked for and what
+failed for this file). The "Renderer:" line is unchanged.
+
 Native DLLs stay loaded for the process lifetime so Rust worker state survives
 VapourSynth core rebuilds. Only the named filter is owned; previous decoder/sync/
 interpolation settings and other filters are preserved when it ends.

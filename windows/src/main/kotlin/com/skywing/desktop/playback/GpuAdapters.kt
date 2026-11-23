@@ -24,6 +24,8 @@ internal object GpuAdapters {
     data class Adapter(
         val name: String, val vendor: Int, val dedicatedBytes: Long, val software: Boolean,
         val luid: Long = 0, val integrated: Boolean? = null, val detachable: Boolean = false,
+        /** The driver version as Device Manager shows it ("32.0.15.6094"), or null when DXGI does not give it. */
+        val driver: String? = null,
     ) {
         /**
          * A graphics card of its own rather than graphics built into the processor. Windows' answer when it gives one;
@@ -64,10 +66,21 @@ internal object GpuAdapters {
         if (flags.isEmpty()) adapters
         else adapters.mapNotNull { a -> flags[a.luid]?.let { (integrated, detachable) -> a.copy(integrated = integrated, detachable = detachable) } }
 
+    /**
+     * Microsoft's software renderer (WARP, mpv's last step with `d3d11-warp=auto`) and the adapters that draw with it:
+     * a PC without its graphics driver, and remote desktop (plan 5.8 rule 3). [deviceName] is the one mpv logs.
+     */
+    fun softwareRenderer(deviceName: String?): Boolean =
+        deviceName?.trim()?.lowercase() in setOf("microsoft basic render driver", "microsoft basic display adapter", "microsoft remote display adapter")
+
+    /** DXGI's user-mode driver version: four 16-bit parts, highest first, as Device Manager shows them. */
+    fun driverVersion(packed: Long): String = (3 downTo 0).joinToString(".") { ((packed ushr (16 * it)) and 0xffff).toString() }
+
     // COM method slots: IUnknown (0-2), IDXGIObject (3-6), IDXGIFactory (7-11), IDXGIFactory1.EnumAdapters1 (12);
-    // IDXGIAdapter (7-9), IDXGIAdapter1.GetDesc1 (10).
+    // IDXGIAdapter (7-9: EnumOutputs, GetDesc, CheckInterfaceSupport), IDXGIAdapter1.GetDesc1 (10).
     private const val RELEASE = 2
     private const val ENUM_ADAPTERS1 = 12
+    private const val CHECK_INTERFACE_SUPPORT = 9
     private const val GET_DESC1 = 10
     private const val SOFTWARE_FLAG = 2 // DXGI_ADAPTER_FLAG_SOFTWARE
     private const val DESC1_SIZE = 320L // DXGI_ADAPTER_DESC1 is 312 bytes on x64
@@ -98,7 +111,8 @@ internal object GpuAdapters {
                             val vendor = desc.getInt(256)
                             val software = desc.getInt(304) and SOFTWARE_FLAG != 0 || vendor == MICROSOFT
                             // AdapterLuid (LowPart, HighPart) at 296 reads as one little-endian 64-bit value.
-                            if (!software) found += Adapter(desc.getWideString(0).trim(), vendor, desc.getLong(272), software = false, luid = desc.getLong(296))
+                            if (!software) found += Adapter(desc.getWideString(0).trim(), vendor, desc.getLong(272), software = false,
+                                luid = desc.getLong(296), driver = driver(adapter))
                         }
                     }
                 } finally {
@@ -108,6 +122,18 @@ internal object GpuAdapters {
             return found
         } finally {
             call(factory, RELEASE)
+        }
+    }
+
+    /**
+     * The adapter's user-mode driver version. `CheckInterfaceSupport` answers only for the Direct3D 10 era device
+     * interface, which every D3D11 driver still reports; null when it does not answer.
+     */
+    private fun driver(adapter: Pointer): String? = Memory(16).use { iid ->
+        guid(iid, 0x54ec77fa, 0x1377, 0x44e6, 0x8c, 0x32, 0x88, 0xfd, 0x5f, 0x44, 0xc8, 0x4c) // IID_IDXGIDevice
+        Memory(8).use { version ->
+            version.clear()
+            if (call(adapter, CHECK_INTERFACE_SUPPORT, iid, version) >= 0) driverVersion(version.getLong(0)) else null
         }
     }
 

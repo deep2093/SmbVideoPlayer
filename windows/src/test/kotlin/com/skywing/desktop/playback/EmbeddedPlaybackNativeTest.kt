@@ -149,6 +149,24 @@ class EmbeddedPlaybackNativeTest {
     }
 
     /**
+     * Plan 5.8 rule 3, checked with the pinned libmpv: drawn by Microsoft's software renderer (what `d3d11-warp=auto`
+     * falls back to without a graphics driver), the video still plays, the report says so and smoothing is off with
+     * "Install your graphics driver for smooth playback".
+     */
+    @Test(timeout = 60_000)
+    fun withTheSoftwareRendererTheVideoPlaysAndSmoothingSaysToInstallTheDriver() = withPlayer(EmbeddedMpv(forceWarp = true)) { player ->
+        assertTrue(player.open(mp4))
+        waitFor("the video to play on the software renderer") { (player.playbackPosition() ?: 0.0) > 0.3 }
+        fun line(prefix: String) = player.updateSmoothing(SmoothingMode.OFF).report.lines().single { it.startsWith(prefix) }
+        waitFor("mpv to name its device: ${line("Renderer: ")}") { !line("Renderer: ").startsWith("Renderer: Not yet reported") }
+        assertTrue(line("Renderer: ").startsWith("Renderer: Microsoft Basic Render Driver"), line("Renderer: "))
+        assertTrue(line("Render path: ").contains("software (Microsoft's WARP renderer"), line("Render path: "))
+        assertEquals("Install your graphics driver for smooth playback", player.updateSmoothing(SmoothingMode.MOTION).detail)
+        println(line("Render path: "))
+        println(line("Decode path: "))
+    }
+
+    /**
      * On a PC with integrated and dedicated graphics the playing video moves to the other GPU and back (plan 5.3):
      * mpv re-creates its output inside the same Canvas, opens the GPU it was given and the video goes on.
      */
