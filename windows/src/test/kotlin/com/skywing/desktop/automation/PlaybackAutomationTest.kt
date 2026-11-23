@@ -73,6 +73,20 @@ class PlaybackAutomationTest {
     @Test
     fun mkvPlaysPausesResumesAndSeeks() = transport(mkv)
 
+    /** B38: a second start with a video plays it in the window already open and exits. */
+    @Test
+    fun aSecondStartPlaysItsVideoInTheOpenWindow() = SkyWingTestApp.launch("second-start", args = listOf(mp4.absolutePath)).use { app ->
+        val player = PlayerControls(app)
+        player.waitTitle(mp4.nameWithoutExtension)
+        val window = app.mainWindow()
+        assertEquals(0, app.startAgain(listOf(mkv.absolutePath)), "the second start exits once it has handed over")
+        player.waitTitle(mkv.nameWithoutExtension)
+        player.waitAdvancing("${mkv.name} playing after a second start")
+        assertEquals(listOf(window), app.windows(), "still one SkyWing window")
+        app.close()
+        assertEquals(true, app.exitedGracefully)
+    }
+
     private fun transport(clip: File) = SkyWingTestApp.launch("transport-${clip.extension}", args = listOf(clip.absolutePath)).use { app ->
         val player = PlayerControls(app)
         player.waitTitle(clip.nameWithoutExtension)

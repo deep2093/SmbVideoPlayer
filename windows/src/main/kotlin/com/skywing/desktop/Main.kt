@@ -69,16 +69,23 @@ import com.skywing.desktop.artwork.ArtworkRepository
 import com.skywing.desktop.artwork.LookupTarget
 import com.skywing.desktop.artwork.PortraitLookup
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 fun main(args: Array<String>) {
+    // A second start hands its video to the SkyWing already open and exits (B38).
+    val instance = when (val claim = SingleInstance.claim(SingleInstance.dataFolder(), args.toList())) {
+        SingleInstance.HandedOff -> return
+        is SingleInstance.Owner -> claim
+        is SingleInstance.Alone -> null.also { System.err.println("SkyWing runs without the single-instance check: " + claim.reason) }
+    }
     PerfMonitor.startIfLogging()
-    skyWingApplication(args)
+    skyWingApplication(args, instance)
 }
 
-private fun skyWingApplication(args: Array<String>) = application {
+private fun skyWingApplication(args: Array<String>, instance: SingleInstance.Owner?) = application {
     val state = rememberWindowState(width = 1280.dp, height = 800.dp)
     var closing by remember { mutableStateOf(false) }
     val embedded = remember { EmbeddedMpv() }
@@ -98,7 +105,8 @@ private fun skyWingApplication(args: Array<String>) = application {
             if (!closing) {
                 closing = true
                 scope.launch {
-                    try { withContext(Dispatchers.IO) { embedded.close() } }
+                    // A start from now on opens its own window rather than handing its video to this closing one.
+                    try { withContext(Dispatchers.IO) { instance?.close(); embedded.close() } }
                     finally { exitApplication() }
                 }
             }
@@ -106,12 +114,19 @@ private fun skyWingApplication(args: Array<String>) = application {
         title = "SkyWing for Windows (Development Preview)",
         state = state,
     ) {
-        SkyWingWindowContent(window, embedded, closing, initialFile)
+        SkyWingWindowContent(window, embedded, closing, initialFile, handoffs = instance?.handoffs)
     }
 }
 
 @Composable
-internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: EmbeddedMpv, closing: Boolean, initialFile: File? = null, initialSection: String = "Folders") {
+internal fun SkyWingWindowContent(
+    awtWindow: java.awt.Window,
+    embedded: EmbeddedMpv,
+    closing: Boolean,
+    initialFile: File? = null,
+    initialSection: String = "Folders",
+    handoffs: ReceiveChannel<List<String>>? = null,
+) {
     var fullscreen by remember { mutableStateOf(false) }
     var theme by remember { mutableStateOf(SkyThemeStore.load()) }
     val controller = remember(awtWindow) { BorderlessFullscreen(awtWindow) }
@@ -142,7 +157,7 @@ internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: Embedded
         MaterialTheme(colorScheme = shownTheme.colorScheme()) {
             SkyWingDesktopShell(
                 awtWindow, embedded, fullscreen, closing, changeFullscreen, initialFile, initialSection,
-                shownTheme, { chosen -> theme = chosen; SkyThemeStore.save(chosen) },
+                shownTheme, { chosen -> theme = chosen; SkyThemeStore.save(chosen) }, handoffs,
             )
         }
     }
@@ -233,6 +248,7 @@ private fun SkyWingDesktopShell(
     initialSection: String,
     theme: SkyTheme,
     onTheme: (SkyTheme) -> Unit,
+    handoffs: ReceiveChannel<List<String>>?,
 ) {
     var selected by remember { mutableStateOf(initialSection) }
     var previous by remember { mutableStateOf("Folders") }
@@ -473,6 +489,13 @@ private fun SkyWingDesktopShell(
         }
     }
 
+    // Another start of SkyWing handed this window its video (B38): come forward and play it the way a start file plays.
+    LaunchedEffect(handoffs) {
+        for (paths in handoffs ?: return@LaunchedEffect) {
+            SingleInstance.bringToFront(awtWindow)
+            paths.firstOrNull()?.let { initialFilePending = File(it) }
+        }
+    }
     LaunchedEffect(videoCanvas, initialFilePending) {
         val file = initialFilePending ?: return@LaunchedEffect
         val canvas = videoCanvas ?: return@LaunchedEffect

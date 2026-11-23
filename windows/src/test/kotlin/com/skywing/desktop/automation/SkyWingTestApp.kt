@@ -41,8 +41,25 @@ internal class SkyWingTestApp private constructor(
     private val process: Process,
     private val bridge: AccessBridgeClient,
     private val testName: String,
+    private val image: Path,
+    private val extraEnvironment: Map<String, String>,
 ) : AutoCloseable {
     val pid: Long get() = process.pid()
+
+    /**
+     * Starts the image again on this app's data with [args], as a second double-click on a video does, and waits for
+     * that start to exit. SkyWing hands the video to the window already open and exits (B38), so a start that is
+     * still running after [timeoutMs] is stopped and fails the test. Returns its exit code.
+     */
+    fun startAgain(args: List<String>, timeoutMs: Long = LAUNCH_TIMEOUT_MS): Int {
+        val again = start(image, dataDir, preferencesFile, args, extraEnvironment, dataDir.resolve("app-output-again.txt"))
+        if (!again.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
+            again.descendants().forEach { it.destroyForcibly() }
+            again.destroyForcibly()
+            throw AssertionError("The second start of SkyWing was still running after $timeoutMs ms")
+        }
+        return again.exitValue()
+    }
 
     /** After [close]: true when every process of the launched tree exited by itself after WM_CLOSE. */
     var exitedGracefully: Boolean? = null
@@ -253,13 +270,28 @@ internal class SkyWingTestApp private constructor(
             }
             val bridge = AccessBridgeClient.forImage(image)
             val dataDir = dataDir ?: Files.createTempDirectory("skywing-ui-test-")
-            val home = dataDir.resolve("home").createDirectories()
-            val local = dataDir.resolve("LocalAppData").createDirectories()
-            val roaming = dataDir.resolve("AppData").createDirectories()
+            // Seeds may write into these before the start.
+            listOf("home", "LocalAppData", "AppData").forEach { dataDir.resolve(it).createDirectories() }
             val preferencesFile = dataDir.resolve("preferences.properties")
             val root = IsolatedPreferencesFactory.openUserRoot(preferencesFile)
             root.node("com/skywing/desktop").putBoolean("automation.isolated", true)
             seed(root, dataDir)
+            val process = start(image, dataDir, preferencesFile, args, extraEnvironment, dataDir.resolve("app-output.txt"))
+            val app = SkyWingTestApp(dataDir, preferencesFile, process, bridge, testName, image, extraEnvironment)
+            try {
+                app.mainWindow()
+            } catch (e: Throwable) {
+                app.close(keepData = true)
+                throw AssertionError("SkyWing did not start; output kept in ${dataDir.resolve("app-output.txt")}", e)
+            }
+            return app
+        }
+
+        /** Starts [image] on the isolated data in [dataDir], with its output in [output]. */
+        private fun start(image: Path, dataDir: Path, preferencesFile: Path, args: List<String>, extraEnvironment: Map<String, String>, output: Path): Process {
+            val home = dataDir.resolve("home").createDirectories()
+            val local = dataDir.resolve("LocalAppData").createDirectories()
+            val roaming = dataDir.resolve("AppData").createDirectories()
             val options = listOf(
                 "-Xbootclasspath/a:${supportClasses.absolutePathString()}",
                 "-Djava.util.prefs.PreferencesFactory=${IsolatedPreferencesFactory::class.java.name}",
@@ -267,10 +299,10 @@ internal class SkyWingTestApp private constructor(
                 "-Djavax.accessibility.assistive_technologies=com.sun.java.accessibility.AccessBridge",
                 "-Duser.home=${home.absolutePathString()}",
             )
-            val process = ProcessBuilder(listOf(launcher.toString()) + args)
+            return ProcessBuilder(listOf(image.resolve("SkyWing.exe").toString()) + args)
                 .directory(dataDir.toFile())
                 .redirectErrorStream(true)
-                .redirectOutput(dataDir.resolve("app-output.txt").toFile())
+                .redirectOutput(output.toFile())
                 .apply {
                     environment()["JAVA_TOOL_OPTIONS"] = javaToolOptions(options)
                     environment()["LOCALAPPDATA"] = local.absolutePathString()
@@ -279,14 +311,6 @@ internal class SkyWingTestApp private constructor(
                     environment().putAll(extraEnvironment)
                 }
                 .start()
-            val app = SkyWingTestApp(dataDir, preferencesFile, process, bridge, testName)
-            try {
-                app.mainWindow()
-            } catch (e: Throwable) {
-                app.close(keepData = true)
-                throw AssertionError("SkyWing did not start; output kept in ${dataDir.resolve("app-output.txt")}", e)
-            }
-            return app
         }
     }
 }

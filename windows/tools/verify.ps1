@@ -74,8 +74,8 @@ $rules = @(
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(BorderlessFullscreen|FullscreenChrome|PlayerChrome|WindowChrome)\.kt$'
        Tests = @("$pkg.FullscreenWindowTest", "$pkg.PlayerChromeTest", "$pkg.automation.FullscreenAutomationTest") }
     @{ Area = 'App shell (Main.kt)'; Escalate = $true
-       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/Main\.kt$'
-       Tests = @("$pkg.FullscreenWindowTest", "$pkg.PlayerChromeTest", "$pkg.HubBackNavigationTest", "$pkg.playback.EmbeddedPlaybackNativeTest",
+       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(Main|SingleInstance)\.kt$'
+       Tests = @("$pkg.FullscreenWindowTest", "$pkg.PlayerChromeTest", "$pkg.HubBackNavigationTest", "$pkg.SingleInstanceTest", "$pkg.playback.EmbeddedPlaybackNativeTest",
                  "$pkg.automation.PlaybackAutomationTest", "$pkg.automation.FullscreenAutomationTest") }
     @{ Area = 'Accessibility / shared UI'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(SkyUi|SkyTheme|AdaptiveTheme|SkyIcons|GridSelection)\.kt$'
