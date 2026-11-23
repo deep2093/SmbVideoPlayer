@@ -29,7 +29,7 @@ class WindowsMediaIndexSafetyTest {
         folder.toFile().deleteRecursively()
     }
 
-    private fun videos(prefix: String, count: Int) = (1..count).map { File(folder.resolve("$prefix-$it.mkv").toString()) }
+    private fun videos(prefix: String, count: Int) = (1..count).map { FoundVideo(File(folder.resolve("$prefix-$it.mkv").toString()), 0, 0) }
 
     /** A library of 3 videos on this PC and 2 on a share. */
     private fun fiveVideos(): WindowsMediaIndex = WindowsMediaIndex(index).apply {

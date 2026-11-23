@@ -14,7 +14,7 @@ class WindowsMediaIndexScaleTest {
         try {
             val indexFile = directory.resolve("media-index.bin")
             val initialFiles = (0 until 10_000).map { index ->
-                File(directory.resolve("initial").resolve("video-$index.mkv").toString())
+                FoundVideo(File(directory.resolve("initial").resolve("video-$index.mkv").toString()), 0, 0)
             }
             assertTrue(WindowsMediaIndex(indexFile).replaceSource("PC", "PC", "This PC", initialFiles))
             assertFalse(WindowsMediaIndex(indexFile).replaceSource("PC", "PC", "This PC", initialFiles))
@@ -23,7 +23,7 @@ class WindowsMediaIndexScaleTest {
             assertEquals(10_000, loaded.size)
             assertTrue(Files.size(indexFile) > 0)
 
-            val refreshedFiles = initialFiles.drop(1) + File(directory.resolve("moved-video.mkv").toString())
+            val refreshedFiles = initialFiles.drop(1) + FoundVideo(File(directory.resolve("moved-video.mkv").toString()), 0, 0)
             assertTrue(WindowsMediaIndex(indexFile).replaceSource("PC", "PC", "This PC", refreshedFiles))
 
             val refreshed = WindowsMediaIndex(indexFile).load()

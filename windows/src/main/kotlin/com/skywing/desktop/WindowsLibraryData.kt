@@ -57,14 +57,14 @@ internal class WindowsMediaIndex(private val testIndexPath: Path? = null) {
     fun load(): List<WindowsMediaEntry> = entries ?: read().also { entries = it }
 
     @Synchronized
-    fun replaceSource(sourceId: String, sourceType: String, sourceName: String, files: List<File>, keep: (String) -> String = { it }, preserve: List<WindowsMediaEntry> = emptyList()): Boolean {
+    fun replaceSource(sourceId: String, sourceType: String, sourceName: String, files: List<FoundVideo>, keep: (String) -> String = { it }, preserve: List<WindowsMediaEntry> = emptyList()): Boolean {
         require(sourceType == "PC" || sourceType == "SMB")
         val seen = HashSet<String>()
-        val fresh = files.mapNotNull { file ->
+        val fresh = files.mapNotNull { found ->
             // [keep] turns the path that was read into the one the library keeps (the drive's main address).
-            val path = runCatching { keep(file.toPath().toAbsolutePath().normalize().toString()) }.getOrNull() ?: return@mapNotNull null
+            val path = runCatching { keep(found.file.toPath().toAbsolutePath().normalize().toString()) }.getOrNull() ?: return@mapNotNull null
             if (!seen.add(path.lowercase(Locale.ROOT))) return@mapNotNull null
-            WindowsMediaEntry(path, sourceId, sourceType, sourceName, file.length(), file.lastModified())
+            WindowsMediaEntry(path, sourceId, sourceType, sourceName, found.size, found.modified)
         }
         val previous = load()
         val combined = fresh + preserve.filter { it.sourceId == sourceId && seen.add(it.path.lowercase(Locale.ROOT)) }

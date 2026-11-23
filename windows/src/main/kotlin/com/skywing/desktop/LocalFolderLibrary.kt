@@ -72,7 +72,7 @@ internal class LocalFolderStore {
 }
 
 internal data class LocalVideoScanResult(
-    val files: List<File>,
+    val files: List<FoundVideo>,
     val unavailableFolders: Int,
     val truncated: Boolean,
     val unavailableRoots: List<String> = emptyList(),
@@ -114,10 +114,8 @@ internal fun localOriginalFolderContents(
 }
 
 internal object LocalVideoScanner {
-    private val extensions = setOf("mp4", "m4v", "mkv", "webm", "mov", "avi", "wmv", "ts", "m2ts", "hevc", "flv", "mpg", "mpeg")
-
     suspend fun scan(folders: List<String>, limit: Int = 20_000): LocalVideoScanResult = withContext(Dispatchers.IO) {
-        val files = LinkedHashMap<String, File>()
+        val files = LinkedHashMap<String, FoundVideo>()
         var unavailable = 0
         val unavailableRoots = ArrayList<String>()
         var truncated = false
@@ -130,20 +128,7 @@ internal object LocalVideoScanner {
                 continue
             }
             try {
-                Files.walk(root).use { paths ->
-                    val iterator = paths.iterator()
-                    while (iterator.hasNext()) {
-                        context.ensureActive()
-                        val path = iterator.next()
-                        if (Files.isSymbolicLink(path) || !Files.isRegularFile(path)) continue
-                        if (path.fileName.toString().substringAfterLast('.', "").lowercase() !in extensions) continue
-                        files.putIfAbsent(path.toAbsolutePath().normalize().toString().lowercase(), path.toFile())
-                        if (files.size >= limit) {
-                            truncated = true
-                            break
-                        }
-                    }
-                }
+                truncated = VideoFiles.walk(root, files, limit) { context.ensureActive() }
             } catch (_: java.io.IOException) {
                 unavailable++
                 unavailableRoots += folder
@@ -154,7 +139,7 @@ internal object LocalVideoScanner {
             if (truncated) break
         }
         LocalVideoScanResult(
-            files.values.sortedBy { it.name.lowercase() },
+            files.values.sortedBy { it.file.name.lowercase() },
             unavailable,
             truncated,
             unavailableRoots,
