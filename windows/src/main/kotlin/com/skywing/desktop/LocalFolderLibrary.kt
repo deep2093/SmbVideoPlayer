@@ -5,6 +5,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.prefs.Preferences
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -98,19 +100,21 @@ internal class DriveLetters(
     }
 }
 
-internal class LocalFolderStore {
-    private val preferences = Preferences.userNodeForPackage(LocalFolderStore::class.java).node("local-library-folders")
+internal class LocalFolderStore(
+    path: Path = libraryFile("local-folders.json"),
+    /** Where SkyWing kept these folders before (B20): read once into the file, then removed. */
+    private val legacy: () -> Preferences? = { registryNode(LocalFolderStore::class.java, "local-library-folders") },
+) {
+    private val file = JsonFile(path)
 
     @Synchronized
-    fun load(): List<String> {
-        val count = preferences.getInt("count", 0).coerceIn(0, MAX_FOLDERS)
-        return (0 until count).mapNotNull { preferences.get("folder." + it, null) }.filterNot(NetworkPaths::isNetwork)
-    }
+    fun load(): List<String> = (saved() ?: emptyList()).filterNot(NetworkPaths::isNetwork)
 
     @Synchronized
     fun add(folder: String): List<String> {
         val path = Paths.get(folder).toAbsolutePath().normalize().toString()
         require(!NetworkPaths.isNetwork(path)) { "That folder is on a network drive. Add the share under Network shares instead, so its videos are listed once." }
+        checkReadable()
         val folders = (load() + path).distinctBy { it.lowercase() }
         require(folders.size <= MAX_FOLDERS) { "You can add up to " + MAX_FOLDERS + " folders" }
         write(folders)
@@ -119,17 +123,42 @@ internal class LocalFolderStore {
 
     @Synchronized
     fun remove(folder: String): List<String> {
+        checkReadable()
         val folders = load().filterNot { it.equals(folder, ignoreCase = true) }
         write(folders)
         return folders
     }
 
+    /** Nothing is written over a folder list that can't be read now. */
+    private fun checkReadable() {
+        check(saved() != null) { "Your folder list can't be read right now (another program may be using it). Try again in a moment." }
+    }
+
+    private fun saved(): List<String>? = when (val read = file.read()) {
+        is JsonFile.Read.Found -> foldersOf(read.root) ?: emptyList()
+        JsonFile.Read.Missing -> moveFromRegistry()
+        JsonFile.Read.Locked -> null
+    }
+
+    /** Copies every folder the registry holds into the file, and removes the registry values once it reads back. */
+    private fun moveFromRegistry(): List<String> {
+        val node = legacy() ?: return emptyList()
+        val count = node.getInt("count", 0).coerceIn(0, MAX_FOLDERS)
+        val folders = (0 until count).mapNotNull { node.get("folder.$it", null) }
+        write(folders)
+        if ((file.read() as? JsonFile.Read.Found)?.let { foldersOf(it.root) } == folders) node.removeMoved()
+        return folders
+    }
+
+    private fun foldersOf(root: JsonObject): List<String>? = runCatching { root.getAsJsonArray("folders").map { it.asString } }.getOrNull()
+
     private fun write(folders: List<String>) {
-        val oldCount = preferences.getInt("count", 0).coerceIn(0, MAX_FOLDERS)
-        repeat(maxOf(oldCount, folders.size)) { preferences.remove("folder." + it) }
-        folders.forEachIndexed { index, path -> preferences.put("folder." + index, path) }
-        preferences.putInt("count", folders.size)
-        preferences.flush()
+        val list = JsonArray()
+        folders.forEach(list::add)
+        file.write(JsonObject().apply {
+            addProperty("version", 1)
+            add("folders", list)
+        })
     }
 
     companion object {

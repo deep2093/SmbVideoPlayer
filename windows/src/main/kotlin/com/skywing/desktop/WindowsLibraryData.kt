@@ -13,6 +13,9 @@ import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.util.Locale
 import java.util.prefs.Preferences
+import kotlin.math.abs
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
 
 internal data class WindowsMediaEntry(
     val path: String,
@@ -249,11 +252,16 @@ internal object WindowsVirtualNames {
 
 internal data class WindowsCustomFolder(val name: String, val paths: List<String>)
 
-internal class WindowsCustomFolderStore {
-    private val preferences = Preferences.userNodeForPackage(WindowsCustomFolderStore::class.java).node("custom-library-folders")
-
+/**
+ * Custom folders as SkyWing kept them in the registry, one value per video (B20). They moved to folders.bin
+ * ([FolderOrganizerStore]) earlier; this is only read for that move, and then removed.
+ */
+internal class WindowsCustomFolderStore(
+    private val node: () -> Preferences? = { registryNode(WindowsCustomFolderStore::class.java, "custom-library-folders") },
+) {
     @Synchronized
     fun load(): List<WindowsCustomFolder> {
+        val preferences = node() ?: return emptyList()
         val count = preferences.getInt("count", 0).coerceIn(0, MAX_FOLDERS)
         return (0 until count).mapNotNull { index ->
             val name = preferences.get("name." + index, null) ?: return@mapNotNull null
@@ -263,39 +271,10 @@ internal class WindowsCustomFolderStore {
         }
     }
 
+    /** Removes the registry copy; call only once folders.bin holds the folders. */
     @Synchronized
-    fun save(name: String, paths: List<String>): List<WindowsCustomFolder> {
-        require(name.isNotBlank()) { "Enter a custom folder name" }
-        require(paths.isNotEmpty()) { "Select at least one video" }
-        val current = load().filterNot { it.name.equals(name.trim(), ignoreCase = true) }
-        val next = current + WindowsCustomFolder(name.trim(), paths.distinct().take(MAX_MEMBERS))
-        require(next.size <= MAX_FOLDERS) { "You can create up to " + MAX_FOLDERS + " custom folders" }
-        write(next)
-        return next
-    }
-
-    @Synchronized
-    fun delete(name: String): List<WindowsCustomFolder> {
-        val next = load().filterNot { it.name == name }
-        write(next)
-        return next
-    }
-
-    private fun write(folders: List<WindowsCustomFolder>) {
-        val oldCount = preferences.getInt("count", 0).coerceIn(0, MAX_FOLDERS)
-        repeat(oldCount) { index ->
-            val members = preferences.getInt("members." + index, 0).coerceIn(0, MAX_MEMBERS)
-            repeat(members) { preferences.remove("path." + index + "." + it) }
-            preferences.remove("name." + index)
-            preferences.remove("members." + index)
-        }
-        folders.forEachIndexed { index, folder ->
-            preferences.put("name." + index, folder.name)
-            preferences.putInt("members." + index, folder.paths.size)
-            folder.paths.forEachIndexed { member, path -> preferences.put("path." + index + "." + member, path) }
-        }
-        preferences.putInt("count", folders.size)
-        preferences.flush()
+    fun clear() {
+        node()?.removeMoved()
     }
 
     companion object {
@@ -306,25 +285,24 @@ internal class WindowsCustomFolderStore {
 
 internal data class WindowsWatchRecord(val path: String, val position: Double, val duration: Double, val updated: Long)
 
-internal class WindowsPlaybackHistoryStore {
-    private val preferences = Preferences.userNodeForPackage(WindowsPlaybackHistoryStore::class.java).node("playback-history")
+internal class WindowsPlaybackHistoryStore(
+    path: Path = libraryFile("history.json"),
+    /** Where SkyWing kept the history before (B20): read once into the file, then removed. */
+    private val legacy: () -> Preferences? = { registryNode(WindowsPlaybackHistoryStore::class.java, "playback-history") },
+) {
+    private val file = JsonFile(path)
 
+    /** The videos to show in Continue watching, newest first. */
     @Synchronized
-    fun load(): List<WindowsWatchRecord> {
-        val count = preferences.getInt("count", 0).coerceIn(0, MAX_RECORDS)
-        return (0 until count).mapNotNull { index ->
-            val path = preferences.get("path." + index, null) ?: return@mapNotNull null
-            val position = preferences.getDouble("position." + index, 0.0)
-            val duration = preferences.getDouble("duration." + index, 0.0)
-            val updated = preferences.getLong("updated." + index, 0L)
-            if (path.isBlank() || position <= 0 || duration <= 0 || position >= duration - 30) null
-            else WindowsWatchRecord(path, position, duration, updated)
-        }.sortedByDescending { it.updated }
-    }
+    fun load(): List<WindowsWatchRecord> = (all() ?: emptyList())
+        .filter { it.path.isNotBlank() && it.position > 0 && it.duration > 0 && it.position < it.duration - 30 }
+        .sortedByDescending { it.updated }
 
     @Synchronized
     fun saveProgress(file: File, position: Double, duration: Double) {
         if (!position.isFinite() || !duration.isFinite() || duration <= 0) return
+        // Nothing is written over a history that can't be read now.
+        if (all() == null) return
         // Kept under the drive's main address, so Continue watching finds it whichever address played it.
         val path = ShareHosts.canonical(file.absolutePath)
         val current = load().filterNot { it.path.equals(path, ignoreCase = true) }
@@ -336,31 +314,96 @@ internal class WindowsPlaybackHistoryStore {
 
     @Synchronized
     fun renamePath(old: String, new: String) {
+        if (all() == null) return
         val records = load()
         if (records.any { it.path.equals(old, ignoreCase = true) })
             write(records.map { if (it.path.equals(old, ignoreCase = true)) it.copy(path = new) else it })
     }
 
+    /** Every saved record, or null when the file can't be read now. */
+    private fun all(): List<WindowsWatchRecord>? = when (val read = file.read()) {
+        is JsonFile.Read.Found -> recordsOf(read.root)
+        JsonFile.Read.Missing -> moveFromRegistry()
+        JsonFile.Read.Locked -> null
+    }
+
+    /** Copies every record the registry holds into the file, and removes the registry values once it reads back. */
+    private fun moveFromRegistry(): List<WindowsWatchRecord> {
+        val node = legacy() ?: return emptyList()
+        val count = node.getInt("count", 0).coerceIn(0, MAX_RECORDS)
+        val records = (0 until count).mapNotNull { index ->
+            val path = node.get("path.$index", null)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            WindowsWatchRecord(path, node.getDouble("position.$index", 0.0), node.getDouble("duration.$index", 0.0), node.getLong("updated.$index", 0L))
+                .takeIf { it.position.isFinite() && it.duration.isFinite() }
+        }
+        write(records)
+        if ((file.read() as? JsonFile.Read.Found)?.let { recordsOf(it.root) } == records) node.removeMoved()
+        return records
+    }
+
+    private fun recordsOf(root: JsonObject): List<WindowsWatchRecord> = runCatching {
+        root.getAsJsonArray("records").mapNotNull { element ->
+            runCatching {
+                val record = element.asJsonObject
+                WindowsWatchRecord(record.get("path").asString, record.get("position").asDouble, record.get("duration").asDouble, record.get("updated").asLong)
+            }.getOrNull()
+        }
+    }.getOrDefault(emptyList())
+
     private fun write(records: List<WindowsWatchRecord>) {
-        val oldCount = preferences.getInt("count", 0).coerceIn(0, MAX_RECORDS)
-        repeat(oldCount) { index ->
-            preferences.remove("path." + index)
-            preferences.remove("position." + index)
-            preferences.remove("duration." + index)
-            preferences.remove("updated." + index)
+        val list = JsonArray()
+        records.forEach { record ->
+            list.add(JsonObject().apply {
+                addProperty("path", record.path)
+                addProperty("position", record.position)
+                addProperty("duration", record.duration)
+                addProperty("updated", record.updated)
+            })
         }
-        records.forEachIndexed { index, record ->
-            preferences.put("path." + index, record.path)
-            preferences.putDouble("position." + index, record.position)
-            preferences.putDouble("duration." + index, record.duration)
-            preferences.putLong("updated." + index, record.updated)
-        }
-        preferences.putInt("count", records.size)
-        preferences.flush()
+        file.write(JsonObject().apply {
+            addProperty("version", 1)
+            add("records", list)
+        })
     }
 
     companion object {
         private const val MAX_RECORDS = 100
+    }
+}
+
+/**
+ * When the place of the playing video is written to the history (B20): at most every [everyMillis] while it plays,
+ * and at the first check after a pause or a seek, but only when it moved by more than [minimumMoveSeconds] since the
+ * last write. Stopping, closing and opening another video write it straight away, without asking this.
+ */
+internal class HistorySaves(
+    startedAt: Long,
+    private val everyMillis: Long = 30_000,
+    private val minimumMoveSeconds: Double = 5.0,
+    private val jumpSeconds: Double = 10.0,
+) {
+    private var savedAt = startedAt
+    private var savedPosition: Double? = null
+    private var lastAt: Long? = null
+    private var lastPosition = 0.0
+    private var wasPaused = false
+
+    fun due(now: Long, position: Double, paused: Boolean): Boolean {
+        val pausedNow = paused && !wasPaused
+        val previousAt = lastAt
+        // Where playing on from the last check would be: a place far from it is a seek.
+        val jumped = previousAt != null &&
+            abs(position - (lastPosition + if (paused) 0.0 else (now - previousAt) / 1000.0)) > jumpSeconds
+        wasPaused = paused
+        lastAt = now
+        lastPosition = position
+        val moved = savedPosition?.let { abs(position - it) > minimumMoveSeconds } ?: true
+        return moved && (pausedNow || jumped || now - savedAt >= everyMillis)
+    }
+
+    fun saved(now: Long, position: Double) {
+        savedAt = now
+        savedPosition = position
     }
 }
 

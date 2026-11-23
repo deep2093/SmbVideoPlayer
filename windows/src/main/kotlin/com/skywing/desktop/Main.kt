@@ -289,6 +289,11 @@ private fun SkyWingDesktopShell(
         if (library.revision > 0) ThumbnailStore.prefetch(library.all.map { it.file to it.modified })
     }
     val organizer = remember { Organizer(FolderOrganizerStore()) { WindowsCustomFolderStore().load() } }
+    // Once folders.bin holds the custom folders, their old registry copy goes (B20). It can hold one value per video,
+    // so it is removed off the screen thread.
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { runCatching { if (FolderOrganizerStore().exists()) WindowsCustomFolderStore().clear() } }
+    }
     // Covers and portraits: one store for the app, and the background portrait lookup after each scan.
     val artwork = remember { ArtworkRepository() }
     val videoRenamer = remember(library, organizer, artwork, historyStore) { VideoRenameService(library, organizer, artwork, historyStore) }
@@ -446,9 +451,20 @@ private fun SkyWingDesktopShell(
             savePosition()
             return@LaunchedEffect
         }
+        // While it plays, the place is written after a pause or a seek and at most every 30 s (B20). Stopping, closing
+        // and the next video write it straight away.
+        val saves = HistorySaves(startedAt = System.nanoTime() / 1_000_000)
         while (true) {
             delay(5000)
-            savePosition()
+            val position = embedded.playbackPosition() ?: continue
+            val length = embedded.playbackDuration() ?: continue
+            val now = System.nanoTime() / 1_000_000
+            if (!saves.due(now, position, paused = embedded.isPaused() == true)) continue
+            runCatching { withContext(Dispatchers.IO) { historyStore.saveProgress(file, position, length) } }
+                .onSuccess {
+                    saves.saved(now, position)
+                    historyRevision++
+                }
         }
     }
 

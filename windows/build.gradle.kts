@@ -28,6 +28,8 @@ dependencies {
     implementation(compose.material3)
     implementation("net.java.dev.jna:jna:5.14.0")
     implementation("me.friwi:jcefmaven:146.0.10")
+    // JSON for the small stores (B20). The same Gson that jcefmaven already brings, so nothing new is shipped.
+    implementation("com.google.code.gson:gson:2.11.0")
     runtimeOnly("me.friwi:jcef-natives-windows-amd64:jcef-d3de827+cef-146.0.10+g8219561+chromium-146.0.7680.179")
     testImplementation(kotlin("test-junit"))
     testImplementation("junit:junit:4.13.2")
