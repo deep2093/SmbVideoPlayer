@@ -86,6 +86,8 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
                     MotionSettingsStore.values.save(key, settings.copy(stop = lower))
                 })
             }
+            // Remembered for this kind of video; the player moves it to that GPU on its next check.
+            status.gpuOffer?.let { offer -> SkyButton(offer, { MotionSettingsStore.values.useDedicatedFor(key) }) }
         }
     } else Text(status.detail, color = theme.muted)
     var copied by remember { mutableStateOf(false) }
@@ -94,6 +96,29 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
         runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(report), null) }
             .onSuccess { copied = true }
     }, primary = false)
+}
+
+/** Settings → Playback → "Graphics for video" (plan 5.3). A PC with one GPU has nothing to choose. */
+@Composable
+internal fun GraphicsForVideoSetting() {
+    val theme = LocalSkyTheme.current
+    val adapters = remember { runCatching { GpuAdapters.list() }.getOrDefault(emptyList()) }
+    var choice by remember { mutableStateOf(MotionSettingsStore.values.gpuChoice) }
+    Text("Graphics for video", color = theme.ink, style = MaterialTheme.typography.titleMedium)
+    if (adapters.size < 2) {
+        Text(adapters.singleOrNull()?.let { "This PC has one GPU: " + it.name + "." } ?: "Windows chooses the graphics.",
+            color = theme.muted, style = MaterialTheme.typography.bodySmall)
+        return
+    }
+    SkyChipBar(GpuChoice.entries.map { it.label }, choice.ordinal, { index ->
+        choice = GpuChoice.entries[index]
+        MotionSettingsStore.values.gpuChoice = choice
+    })
+    Text(when (choice) {
+        GpuChoice.AUTOMATIC -> "The GPU that drives the screen draws and smooths the video, unless Windows' graphics setting for SkyWing says otherwise."
+        GpuChoice.PERFORMANCE -> "The graphics card draws and smooths the video. It keeps up better and uses more power."
+        GpuChoice.POWER_SAVING -> "The processor's graphics draw and smooth the video. It uses less power; smoothing may not keep up."
+    } + " Starts with the next video, or now while motion smoothing is on.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable
