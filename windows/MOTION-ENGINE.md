@@ -99,6 +99,14 @@ a new picture. On the 24-thread laptop, unpaced (mpv untimed, no display), a gen
 Fast gave 963 output frames per second using 7.9 cores on the processor, and 1021 using 9.2 cores on OpenCL. A real
 video, a slower processor or a higher quality gives less.
 
+open-svpflow is built with `-C target-cpu=x86-64-v3` (its own `.cargo/config.toml`, kept by `build_motion.py`), so its
+code may use AVX2 anywhere, and a processor without AVX2 would stop at its first such instruction. SkyWing asks Windows
+(`IsProcessorFeaturePresent`) once; without AVX2, smoothing is off with "Smoothing needs a processor with AVX2, and this
+one doesn’t have it" and no motion DLL is loaded. Only the features count, never the maker. x86-64-v3 also takes FMA,
+BMI1, BMI2, LZCNT, MOVBE and F16C, which Windows has no flag for, so they are not checked. Both reports add a
+"Processor:" line: the name, the cores by Windows' efficiency class (two classes on a hybrid processor; higher is the
+faster core) with their threads, SSE4.2, AVX, AVX2 and AVX-512, and whether the motion engine can run.
+
 mpv itself steps down when decoding or drawing fails, and SkyWing reports what it did rather than adding its own
 fallbacks. With `hwdec=auto-safe` mpv tries each hardware decoder in turn, and `hwdec-software-fallback` (3 by default)
 moves on after decoding errors mid-file, from the same frame. Each step logs "Attempting next decoding method after

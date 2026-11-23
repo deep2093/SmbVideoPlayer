@@ -457,6 +457,8 @@ internal object MotionRuntime {
      * plugins read this filter each time they open a device, so every video can follow its own GPU plan.
      */
     @Synchronized fun prepare(dir: File, engine: MotionDevice = choose()): String? {
+        // open-svpflow may use AVX2 anywhere; loading it on a processor without it could end SkyWing (plan 5.9).
+        Processor.current.motionBlocked?.let { return it }
         return runCatching {
             val kernel = Native.load("kernel32", Win32::class.java)
             engine.filter.forEach { (name, value) ->

@@ -19,10 +19,13 @@ data class SmoothingCapabilities(
     val softwareRender: Boolean = false,
     /** The decoding methods that failed for this file, in order, before mpv tried the next one (plan 5.8 rule 2). */
     val decoderFailures: List<String> = emptyList(),
+    /** Why this processor can't run the motion engine (plan 5.9), or null when it can. */
+    val processorBlocked: String? = null,
 ) {
     val resolution: String get() = if (width != null && height != null) "$width × $height" else "Resolution unavailable"
     fun unavailable(mode: SmoothingMode): String? = when {
         mode == SmoothingMode.OFF -> null
+        processorBlocked != null -> processorBlocked
         sourceFps != null && sourceFps > 60.001 -> "Already smooth"
         hdrVideo -> "HDR smoothing is not available yet"
         // Fields are never smoothed as if they were frames; with deinterlace=auto mpv deinterlaces the video instead.

@@ -369,6 +369,7 @@ class EmbeddedMpv(
             processor = mode == SmoothingMode.MOTION && motionDevice().processor,
             softwareRender = GpuAdapters.softwareRenderer(openedGpu),
             decoderFailures = decoderFailures,
+            processorBlocked = Processor.current.motionBlocked,
         )
         lastCaps = caps
         if (mode == SmoothingMode.MOTION) return updateMotion(caps).also { if (!motion.active) endLog() }
@@ -578,6 +579,7 @@ class EmbeddedMpv(
             appendLine("SkyWing ${build.version} · Windows x64 motion preview")
             appendLine(build.reportLine())
             appendLine("OS: ${System.getProperty("os.name")} ${System.getProperty("os.version")}")
+            appendLine("Processor: ${Processor.current.line()}")
             appendLine("Preferred motion GPU: ${MotionRuntime.preferredGpu}; driver: ${MotionRuntime.driver}; matched by: ${MotionRuntime.matchedBy}")
             appendLine("Renderer: $rendererDevice; preference: $rendererPreference; output: ${textProperty("current-vo") ?: "unavailable"}")
             appendLine("Render path: ${renderPath()}; graphics drivers: ${drivers()}")
@@ -652,6 +654,7 @@ class EmbeddedMpv(
             appendLine("GPU plan: " + (gpuPlan?.describe(com.skywing.desktop.PowerSource.onBattery()) ?: "not made yet"))
             appendLine("Renderer: $rendererDevice; output: ${textProperty("current-vo") ?: "unavailable"}; render path: ${renderPath()}")
             appendLine("Graphics drivers: ${drivers()}")
+            appendLine("Processor: ${Processor.current.line()}")
             appendLine("Decode path: ${decodePath()}")
             appendLine("Graphics device lost: ${deviceLoss.summary()}")
             appendLine("Screen: " + (shown?.let { ScreenSummary.line(caps.displayHz, it.edid, DisplayVrr.current.supported, it.hdr) } ?: "not reported"))
