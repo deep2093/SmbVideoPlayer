@@ -113,7 +113,10 @@ Push builds on `feature/windows-motion-engine` and manual Windows CI runs with
 `experimental_mpv` build mpv from the pinned revision with
 `windows/tools/mpv-vapoursynth-output-preview.patch`. The separate
 `MPV-PREVIEW-MANIFEST.json` records the actual bundled DLLs and MSYS2 package
-versions. The adjacent package inventory and available notices come from the
+versions. `windows/tools/mpv-preview-packages.json` pins those versions to the
+ones validated in M0 (CI build 0.1.101). The build stops when any of them
+changes, is added or goes missing, until the new set is validated and the pins
+are updated. The adjacent package inventory and available notices come from the
 installed UCRT64 packages. CI also archives the mpv source inputs. The installed
 package inventory and source inputs do not establish complete corresponding
 source for every linked MSYS2 dependency.

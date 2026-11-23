@@ -18,6 +18,26 @@ def command(*arguments):
     return subprocess.check_output(arguments, encoding="utf-8", errors="replace")
 
 
+def package_drift(pinned, actual):
+    """The differences between the pinned MSYS2 package versions and the installed ones, or None."""
+    lines = [f"{name} {pinned[name]} -> {actual[name]}" for name in sorted(pinned.keys() & actual.keys())
+             if pinned[name] != actual[name]]
+    lines += [f"added {name} {actual[name]}" for name in sorted(actual.keys() - pinned.keys())]
+    lines += [f"missing {name} {pinned[name]}" for name in sorted(pinned.keys() - actual.keys())]
+    return "\n".join(lines) or None
+
+
+def check_pins(actual, pin_file):
+    """Stops the build when the bundled packages differ from the pins (plan 5.5)."""
+    drift = package_drift(json.loads(pin_file.read_text(encoding="utf-8"))["packages"], actual)
+    if drift:
+        raise RuntimeError(
+            "The MSYS2 packages bundled with the frame-sharing mpv differ from "
+            f"{pin_file.name}:\n{drift}\n"
+            "Validate the new runtime (the M0 acceptance), then replace the file's \"packages\" with:\n"
+            + json.dumps(dict(sorted(actual.items())), indent=2))
+
+
 def main():
     dll, bin_dir, output = map(Path, sys.argv[1:4])
     revision = sys.argv[4]
@@ -57,6 +77,7 @@ def main():
             shutil.copytree(source, notices / source.name)
         packages[package] = command("pacman", "-Q", package).strip().split(maxsplit=1)[1]
 
+    check_pins(packages, Path(__file__).with_name("mpv-preview-packages.json"))
     patch = Path(__file__).with_name("mpv-vapoursynth-output-preview.patch")
     manifest = {
         "mpvRevision": revision,

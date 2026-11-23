@@ -98,7 +98,7 @@ $rules = @(
        Pattern = 'windows/src/test/(kotlin/com/skywing/desktop/automation/(SkyWingTestApp|AccessBridgeClient|ControlQuery|TestMedia)\.kt|java/.*)$'
        Tests = @() }
     @{ Area = 'Installer / packaging / native payload / legal'; Escalate = $true; Release = $true
-       Pattern = '^(windows/build\.gradle\.kts|windows/legal/.*|windows/LICENSE|windows/tools/build_mpv_preview\.sh|windows/tools/mpv-vapoursynth-output-preview\.patch|\.github/workflows/skywing-windows-x64\.yml|windows/tools/(compare_builds|test_compare_builds)\.py|gradle/.*|gradlew(\.bat)?)$'
+       Pattern = '^(windows/build\.gradle\.kts|windows/legal/.*|windows/LICENSE|windows/tools/build_mpv_preview\.sh|windows/tools/mpv-vapoursynth-output-preview\.patch|\.github/workflows/skywing-windows-x64\.yml|windows/tools/(compare_builds|test_compare_builds|stage_mpv_preview|test_stage_mpv_preview)\.py|windows/tools/mpv-preview-packages\.json|gradle/.*|gradlew(\.bat)?)$'
        Tests = @() }
 )
 # Python build tools have their own unittest suite (windows/tools/test_*.py), run with the system Python.
