@@ -8,6 +8,7 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** The player's transport bar as JAB shows it: the Seek slider and the buttons next to it. */
@@ -85,6 +86,27 @@ class PlaybackAutomationTest {
         assertEquals(listOf(window), app.windows(), "still one SkyWing window")
         app.close()
         assertEquals(true, app.exitedGracefully)
+    }
+
+    /**
+     * M1 start times: the recorder starts after the single-instance check (B38), so SkyWing logs how long Java took
+     * to reach its code and how long the check took, and whether the start runs without the check.
+     */
+    @Test
+    fun theRecorderLogTimesWhatTheStartDidBeforeIt() {
+        val log = Files.createTempFile("skywing-perf-", ".log")
+        try {
+            SkyWingTestApp.launch("start-timing", extraEnvironment = mapOf("SKYWING_PERF_LOG" to log.toString())).use { app ->
+                app.waitUntil("the first frame in the recorder's log") { PerfLog.read(log).mark("first frame") != null }
+                val mark = assertNotNull(PerfLog.read(log).mark("single instance"), "the log has no single-instance mark")
+                assertEquals(0.0, mark.values["alone"], "the only SkyWing on its data owns the single-instance check")
+                val java = assertNotNull(mark.values["main_ms"], "the time Java took to reach SkyWing's code")
+                val check = assertNotNull(mark.values["check_ms"], "the time the check took")
+                assertTrue(java > 0 && check >= 0 && java + check <= mark.atMs, "$java + $check ms must fit in the ${mark.atMs} ms before the mark")
+            }
+        } finally {
+            Files.deleteIfExists(log)
+        }
     }
 
     /** B37: files dragged from Explorer play the first video, dropped on the library and then on the playing video. */

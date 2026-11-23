@@ -81,13 +81,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 fun main(args: Array<String>) {
+    val mainStarted = System.currentTimeMillis()
     // A second start hands its video to the SkyWing already open and exits (B38).
-    val instance = when (val claim = SingleInstance.claim(SingleInstance.dataFolder(), args.toList())) {
+    val claim = SingleInstance.claim(SingleInstance.dataFolder(), args.toList())
+    val checkMs = System.currentTimeMillis() - mainStarted
+    val instance = when (claim) {
         SingleInstance.HandedOff -> return
         is SingleInstance.Owner -> claim
         is SingleInstance.Alone -> null.also { System.err.println("SkyWing runs without the single-instance check: " + claim.reason) }
     }
     PerfMonitor.startIfLogging()
+    // The recorder starts after the check, so it logs what came before it: Java reaching this code, then the check.
+    PerfMonitor.mark("single instance", "main_ms" to PerfMonitor.sinceStart(mainStarted), "check_ms" to checkMs, "alone" to if (instance == null) 1 else 0)
     skyWingApplication(args, instance)
 }
 

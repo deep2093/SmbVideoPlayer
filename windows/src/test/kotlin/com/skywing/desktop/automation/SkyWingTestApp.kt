@@ -66,6 +66,14 @@ internal class SkyWingTestApp private constructor(
     var exitedGracefully: Boolean? = null
         private set
 
+    /** After [close]: seconds from WM_CLOSE until the tree exited, or until the wait for it ran out. */
+    var closeSeconds: Double? = null
+        private set
+
+    /** After [close]: true when part of the tree was still running even after it was force-stopped. */
+    var stillRunning: Boolean? = null
+        private set
+
     /** A fresh view of the isolated preferences file, as the app last wrote it. */
     fun preferences(): Preferences = IsolatedPreferencesFactory.openUserRoot(preferencesFile)
 
@@ -212,13 +220,16 @@ internal class SkyWingTestApp private constructor(
             return
         }
         val tree = buildList { add(process.toHandle()); addAll(process.descendants().toList()) }
+        val closing = System.nanoTime()
         runCatching { windows().forEach(Win32::close) }
-        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(CLOSE_TIMEOUT_MS)
+        val deadline = closing + TimeUnit.MILLISECONDS.toNanos(CLOSE_TIMEOUT_MS)
         while (tree.any { it.isAlive } && System.nanoTime() < deadline) Thread.sleep(POLL_MS)
+        closeSeconds = (System.nanoTime() - closing) / 1e9
         val survivors = tree.filter { it.isAlive }
         exitedGracefully = survivors.isEmpty()
         survivors.forEach { it.destroyForcibly() }
         tree.forEach { runCatching { it.onExit().get(10, TimeUnit.SECONDS) } }
+        stillRunning = tree.any { it.isAlive }
         if (!keepData) deleteData()
     }
 

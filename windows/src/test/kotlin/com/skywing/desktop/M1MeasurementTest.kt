@@ -2,8 +2,12 @@ package com.skywing.desktop
 
 import com.skywing.desktop.automation.M1Library
 import com.skywing.desktop.automation.PerfLog
+import com.skywing.desktop.automation.StartTimes
 import com.skywing.desktop.automation.UiSummary
+import com.skywing.desktop.automation.closing
 import com.skywing.desktop.automation.m1Table
+import com.skywing.desktop.automation.perStart
+import com.skywing.desktop.automation.startTimes
 import com.skywing.desktop.automation.runnerFolderRefusal
 import com.skywing.desktop.automation.wheelMessage
 import java.nio.file.Path
@@ -70,6 +74,30 @@ class M1MeasurementTest {
         )
         assertTrue("| Start to first page, first start (s) | 3.10 | 2.20 |" in table, table)
         assertTrue("| Scrolling Videos: frames per second | 48.0 | – |" in table, table)
+    }
+
+    @Test
+    fun theTimesBeforeTheRecorderComeFromTheSingleInstanceMark() {
+        val alone = PerfLog.parse("5300\tmark\tsingle instance\tmain_ms=210\tcheck_ms=4820\talone=1\n5400\tmark\tfirst frame\n")
+        assertEquals(StartTimes(java = "0.21", check = "4.82 (ran alone)"), startTimes(alone))
+        val owner = PerfLog.parse("450\tmark\tsingle instance\tmain_ms=180\tcheck_ms=20\talone=0\n")
+        assertEquals(StartTimes(java = "0.18", check = "0.02"), startTimes(owner))
+        assertNull(startTimes(PerfLog.parse("1500\tmark\tfirst frame\n")), "a build from before the mark")
+    }
+
+    @Test
+    fun aValuePerStartIsShownInTheOrderOfTheStarts() {
+        assertEquals("0.95 / 1.20 / –", perStart(mapOf("everyday" to "1.20", "first" to "0.95"), listOf("first", "everyday", "adaptive")))
+        assertNull(perStart(emptyMap(), listOf("first", "everyday", "adaptive")))
+    }
+
+    @Test
+    fun theTableSaysHowSkyWingClosedAfterAStart() {
+        assertEquals("1.25", closing(byItself = true, seconds = 1.25, stillRunning = false))
+        assertEquals("stopped after 10 s", closing(byItself = false, seconds = 10.02, stillRunning = false))
+        assertEquals("still running", closing(byItself = false, seconds = 10.02, stillRunning = true))
+        val table = m1Table("Test PC", "1920 × 1080 at 120 Hz", mapOf("after" to mapOf("close_s" to "1.25 / stopped after 10 s / 0.98")))
+        assertTrue("| SkyWing closing after the first / everyday / Adaptive start (s) | 1.25 / stopped after 10 s / 0.98 |" in table, table)
     }
 
     @Test

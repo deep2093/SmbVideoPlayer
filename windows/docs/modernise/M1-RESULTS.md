@@ -38,6 +38,8 @@ The runner is `windows/tools/m1-runner` plus the Gradle task `m1Runner`, which p
 - Every number for a window comes from the whole seconds inside it. The scroll's first part-second is left out: it has 3 to 9 tasks over 8 ms (the longest 10 to 13 ms) in both builds, while Java still compiles the card code. Section 4 gives that warm-up separately.
 - *Recompositions per second* counts the frames in which Compose recomposed something.
 - *CPU cores* is SkyWing's CPU time divided by the wall time.
+- *Java start to SkyWing's code* and *single-instance check* split the time before SkyWing's log starts. The first is from the process start until SkyWing's own code runs. The second is the single-instance check (B38), which waits up to 5 s for an answer from a SkyWing already open. "(ran alone)" means the check failed and SkyWing started without it. Builds from before 24 November don't log these, so their column shows a dash.
+- *SkyWing closing* is the time from the runner's close message until every SkyWing process has exited. "stopped after 10 s" means SkyWing hadn't closed by then and the runner stopped it. "still running" means a process was left even after that, which can hold up the next start's single-instance check.
 
 ## 3. How to run it
 

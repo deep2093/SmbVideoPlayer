@@ -204,7 +204,10 @@ internal object PerfMonitor {
         private set
 
     /** Milliseconds since the process started. */
-    fun now(): Long = System.currentTimeMillis() - startMillis
+    fun now(): Long = sinceStart(System.currentTimeMillis())
+
+    /** Milliseconds from the process start to [epochMs], a System.currentTimeMillis() reading. */
+    fun sinceStart(epochMs: Long): Long = epochMs - startMillis
 
     /** Starts recording when a test run asked for the log. Call once, before the window opens. */
     fun startIfLogging() {

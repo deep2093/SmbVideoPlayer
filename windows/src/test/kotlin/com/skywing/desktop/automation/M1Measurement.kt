@@ -16,6 +16,7 @@ import kotlin.io.path.name
 import kotlin.io.path.readLines
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
+import kotlin.math.roundToInt
 import kotlin.system.exitProcess
 
 /**
@@ -247,6 +248,9 @@ internal val M1_MEASURES: List<Pair<String, String>> = listOf(
     "Start to first page, first start (s)" to "start_first_s",
     "Start to first page, everyday start (s)" to "start_everyday_s",
     "Library on screen, everyday start (s)" to "library_everyday_s",
+    "Java start to SkyWing's code, first / everyday / Adaptive start (s)" to "java_s",
+    "Single-instance check, first / everyday / Adaptive start (s)" to "check_s",
+    "SkyWing closing after the first / everyday / Adaptive start (s)" to "close_s",
     "First scan of 5,000 videos (s)" to "scan_first_s",
     "Startup check of 5,000 videos (s)" to "scan_everyday_s",
     "Thumbnails made per minute" to "thumbs_per_min",
@@ -283,6 +287,31 @@ internal fun m1Table(device: String, display: String, passes: Map<String, Map<St
     for ((label, key) in M1_MEASURES) appendLine("| $label | ${passes.values.joinToString(" | ") { it[key] ?: "–" }} |")
 }
 
+/** What a start did before SkyWing's recorder began, in seconds: Java reaching SkyWing's code, then the check (B38). */
+internal data class StartTimes(val java: String, val check: String)
+
+/** The times in a start's "single instance" mark; null for a build that doesn't log it. */
+internal fun startTimes(log: PerfLog): StartTimes? {
+    val mark = log.mark("single instance") ?: return null
+    val java = mark.values["main_ms"] ?: return null
+    val check = mark.values["check_ms"] ?: return null
+    val alone = if (mark.values["alone"] == 1.0) " (ran alone)" else ""
+    return StartTimes(twoPlaces(java / 1000), twoPlaces(check / 1000) + alone)
+}
+
+/** One value per start in the order of [stages], "–" for a start without one; null when no start has one. */
+internal fun perStart(values: Map<String, String>, stages: List<String>): String? =
+    if (values.isEmpty()) null else stages.joinToString(" / ") { values[it] ?: "–" }
+
+/** How SkyWing closed after a start: the seconds it took to exit by itself, or that the runner had to stop it. */
+internal fun closing(byItself: Boolean, seconds: Double, stillRunning: Boolean): String = when {
+    stillRunning -> "still running"
+    byItself -> twoPlaces(seconds)
+    else -> "stopped after ${seconds.roundToInt()} s"
+}
+
+private fun twoPlaces(value: Double) = String.format(Locale.ROOT, "%.2f", value)
+
 /** One image's three starts. Returns its numbers, or throws [Spoiled] when the machine wasn't left alone. */
 private class M1Pass(
     private val name: String,
@@ -296,6 +325,11 @@ private class M1Pass(
     private val numbers = LinkedHashMap<String, String>()
     private val disturbances = mutableListOf<String>()
     private val inputAtStart = Win32.lastInputTick()
+
+    /** Per start (first, everyday, adaptive): the times before the recorder and how SkyWing closed. */
+    private val javaTimes = mutableMapOf<String, String>()
+    private val checkTimes = mutableMapOf<String, String>()
+    private val closes = mutableMapOf<String, String>()
 
     /** The isolated data of the three starts, deleted at the end. */
     private var data: Path? = null
@@ -311,6 +345,9 @@ private class M1Pass(
         } finally {
             data?.toFile()?.deleteRecursively()
         }
+        perStart(javaTimes, STAGES)?.let { put("java_s", it) }
+        perStart(checkTimes, STAGES)?.let { put("check_s", it) }
+        perStart(closes, STAGES)?.let { put("close_s", it) }
         if (Win32.lastInputTick() != inputAtStart) disturbances += "someone used the keyboard, mouse or touch screen"
         if (disturbances.isNotEmpty()) throw Spoiled(disturbances.distinct().joinToString("; "))
         return numbers
@@ -323,6 +360,7 @@ private class M1Pass(
         try {
             val started = startOf(app)
             put("start_first_s", seconds(awaitMark(app, log, "first frame", 60_000).atMs))
+            recordStart("first", log)
             val scan = awaitMark(app, log, "scan finished", SCAN_TIMEOUT_MS)
             check(scan.values["succeeded"] == 1.0) { "The first scan didn't succeed." }
             put("scan_first_s", two(scan.values.getValue("seconds")))
@@ -343,6 +381,7 @@ private class M1Pass(
             return app.dataDir
         } finally {
             app.close(keepData = true)
+            recordClose("first", app)
         }
     }
 
@@ -352,6 +391,7 @@ private class M1Pass(
         try {
             val started = startOf(app)
             put("start_everyday_s", seconds(awaitMark(app, log, "first frame", 60_000).atMs))
+            recordStart("everyday", log)
             val loaded = awaitMark(app, log, "library loaded", 60_000) { (it.values["videos"] ?: 0.0) >= videos.size }
             put("library_everyday_s", seconds(loaded.atMs))
             val scan = awaitMark(app, log, "scan finished", SCAN_TIMEOUT_MS)
@@ -377,6 +417,7 @@ private class M1Pass(
             if (last != null) put("memory_pictures_mb", ((last.gauge("picture_memory_thumbnails_mb") ?: 0) + (last.gauge("picture_memory_covers_mb") ?: 0)).toString())
         } finally {
             app.close(keepData = true)
+            recordClose("everyday", app)
         }
     }
 
@@ -386,6 +427,7 @@ private class M1Pass(
         try {
             val started = startOf(app)
             awaitMark(app, log, "first frame", 60_000)
+            recordStart("adaptive", log)
             awaitMark(app, log, "scan finished", SCAN_TIMEOUT_MS)
             Thread.sleep(timing.settleSeconds * 1000)
             app.activate("Videos", PAGE_TAB)
@@ -393,6 +435,7 @@ private class M1Pass(
             scroll(app, log, started, "adaptive")
         } finally {
             app.close(keepData = true)
+            recordClose("adaptive", app)
         }
     }
 
@@ -467,6 +510,17 @@ private class M1Pass(
 
     private fun put(key: String, value: String) {
         numbers[key] = value
+    }
+
+    /** Keeps the times before the recorder of the start that logs to [log]. */
+    private fun recordStart(stage: String, log: Path) {
+        startTimes(PerfLog.read(log))?.let { javaTimes[stage] = it.java; checkTimes[stage] = it.check }
+    }
+
+    /** Keeps how SkyWing closed after a start, once [SkyWingTestApp.close] has run. */
+    private fun recordClose(stage: String, app: SkyWingTestApp) {
+        val byItself = app.exitedGracefully ?: return
+        closes[stage] = closing(byItself, app.closeSeconds ?: 0.0, app.stillRunning == true)
     }
 
     /** Thrown when the machine wasn't left alone; the image is measured again. */
