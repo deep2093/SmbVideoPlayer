@@ -24,7 +24,7 @@ You are continuing the SkyWing for Windows modernisation. The full brief is `win
 4. Frame sharing (5.5): keep it; add the teardown stress test (10 × (100 seeks + fullscreen toggles + close)); **verify** VapourSynth frame/core lifetime; pin the MSYS2 packages.
 5. Watchdog heartbeat (B28): replace the status file with an in-process channel (callback or shared memory); keep the 15 s threshold and bounded recovery; 30-minute simulated test with read failures.
 6. In-app measuring (5.6): per-minute CSV, "Copy test report", hidden `--bench` mode, all with the display state (HDR engaged, VRR active); optional on-screen frame times from ETW present events, only when I've given the rights; `verify.ps1` adds the display state to its report.
-7. Compatibility matrix (5.8): capability probe cached per driver, decode/render/motion fallbacks, HDR/DV smoothing stays bypassed, recovery from a GPU lost while playing (rule 8), interlaced and variable-frame-rate video (rules 9 and 10), the new rows, full report.
+7. Compatibility matrix (5.8): capability probe cached per driver, decode/render/motion fallbacks, HDR/DV smoothing stays bypassed, recovery from a GPU lost while playing (rule 8), interlaced and variable-frame-rate video (rules 9 and 10; M0 already smooths measured rates, so rule 10 is what it lists as still open), the new rows, full report.
 8. Cheaper smoothing (5.7): only the experiments, behind hidden settings, with numbers. Don't change any preset without my OK.
 9. Any processor (5.9): the instruction-set check, the CPU in the report, and the hybrid-core measurement before any throttling change.
 

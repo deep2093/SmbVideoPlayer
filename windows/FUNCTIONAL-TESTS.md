@@ -32,8 +32,8 @@ SkyWing windows and full screen, so they take desktop focus while they run.
 - **Media.** Every video is generated per run into a temporary folder by the bundled libmpv's encoding mode (lavfi
   test patterns and tones). ffmpeg, when it is on PATH, is used only for two fixtures: the multi-track MKV (muxing
   only) and the constant-rate 24 fps clip for motion tests. libmpv's encoder leaves the last frame without a
-  duration, so its files report 24.34 fps, which SkyWing correctly treats as an unknown rate. Tests that need ffmpeg
-  are skipped without it.
+  duration, so its files report 24.34 fps. SkyWing smooths that as a measured rate, but motion tests expect the exact
+  rates of a 24 fps video. Tests that need ffmpeg are skipped without it.
 - **App data.** Each app launch gets its own temporary data folder. Java preferences are file-backed through
   `IsolatedPreferencesFactory`, and `user.home`, `LOCALAPPDATA` and `APPDATA` are redirected. Library, history and
   settings tests compare `HKCU\Software\JavaSoft\Prefs\com\skywing` and `%LOCALAPPDATA%\SkyWing\library` before and

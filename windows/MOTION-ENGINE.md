@@ -18,12 +18,24 @@ above 60 fps bypass smoothing. Stops above the display rate are unavailable; whe
 mpv cannot report a rate, the fallback limit is 240 Hz. There is no 120 fps cap.
 23.976 × 2.5 is exactly 60000/1001; 25 × 2.5 is 125/2. No output downscaling is used.
 
-Smoothing needs a source rate it can retime exactly: a whole number of frames per
-second up to 60, or 23.976, 29.97, 47.952 or 59.94 (each within 0.005). Any other
-rate mpv reports, such as the average of a variable-frame-rate file, shows "Can’t
-smooth N fps video: SkyWing needs a standard rate such as 24, 25 or 30 fps", with N
-to three decimals. Retiming the video to a rate it doesn't have would drift from the
-audio. Until mpv reports a rate, the status is "Waiting for source frame rate".
+Any source rate from 1 fps can be smoothed. A standard rate, a whole number of
+frames per second or 23.976, 29.97, 47.952 or 59.94 (each within 0.005), is
+retimed to its exact frame period. Any other rate mpv reports, such as the average
+of a variable-frame-rate file or an odd container rate, is measured to three
+decimals. The motion engine works at that rate, and each output frame then takes
+its duration from the source frames it falls between. mpv times filter output by
+adding up frame durations, so the output keeps the source's own frame times, also
+after a seek, and stays with the audio. mpv rounds source durations to whole
+microseconds; each is snapped back to the exact period of a standard rate or of
+the container rate, so a long video does not drift. Video below 1 fps shows
+"Can’t smooth video below 1 fps". Until mpv reports a rate, the status is
+"Waiting for source frame rate".
+
+Limits of the measured path: a Matroska file whose frames carry no durations is
+timed at its container rate. A variable-rate MP4 with B-frames has small local
+timing errors where its rate changes, without drift. A variable-rate file whose
+average is a standard rate (a phone video averaging 30 fps) is still retimed to
+that rate (modernise plan 5.8 rule 10).
 
 Both sliders save on release and the worker applies the latest saved values on
 its next poll. A changed filter seeks exactly back to its sampled playback position.
@@ -32,7 +44,9 @@ Multiplier and quality are stored independently for six resolution/HDR classes
 
 Settings → Playback contains G-SYNC/FreeSync and Lower automatically when needed
 (default off). VRR uses audio sync; a fixed display with a matching target can use
-display-resample. The switch does not verify driver-level VRR activation. Its default follows a
+display-resample for a standard source rate. A measured rate always uses audio sync,
+so on a fixed-rate display its frames can judder where they fall between refreshes.
+The switch does not verify driver-level VRR activation. Its default follows a
 read-only per-display NVIDIA VRR capability query when available; unknown/unsupported
 displays default off. Saved manual choices always win, including existing choices.
 Hybrid Intel/AMD-owned outputs and missing NVIDIA APIs can report unknown; users
