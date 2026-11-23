@@ -166,7 +166,7 @@ Against the M1 targets:
 
 ### OneXPlayer 3
 
-OneXPlayer 3 (Arc B390), 1920 × 1200 at 144 Hz, plugged in, Windows power mode Best performance, power limits PL1 20 W and PL2 21 W in the device's own app. Before b9ea781 and after 061ea24, 24 November, with no rerun needed. The table is the first run; a second run of the same two builds the same day is under *Second run* below.
+OneXPlayer 3 (Arc B390), 1920 × 1200 at 144 Hz, plugged in, Windows power mode Best performance, power limits PL1 20 W and PL2 21 W and CPU turbo off in the device's own app. Before b9ea781 and after 061ea24, 24 November, with no rerun needed. The table is the first run. Two more runs with turbo off are under *Second and third runs* below, and a run with turbo on under *Turbo on*.
 
 | Measure | before | after |
 |---|---|---|
@@ -189,22 +189,53 @@ OneXPlayer 3 (Arc B390), 1920 × 1200 at 144 Hz, plugged in, Windows power mode 
 | While thumbnails are made: CPU cores | 5.50 | 2.92 |
 | Memory after scrolling: private / Java heap / pictures (MB) | 1,389 / 148 / 197 | 1,341 / 80 / 255 |
 
-**This device is two to three times slower than the Claw at everything, in both builds.** That covers scanning, thumbnails and the UI thread, which has tasks over 8 ms in nearly every second of every scroll (100 to 150 per scroll, not only in the warm-up). The cause isn't known. Whether the power limits above cause it is not tested.
+**With CPU turbo off this device is two to three times slower than the Claw at everything, in both builds.** That covers scanning, thumbnails and the UI thread, which has tasks over 8 ms in nearly every second of every scroll (100 to 150 per scroll, not only in the warm-up). Turbo is the cause: with it on, the device is about as fast as the Claw (*Turbo on*).
 
-**Second run.** The second run repeats the first's thumbnail and scrolling numbers within the run-to-run noise: before and after, 285 and 229 thumbnails a minute, 137 and 140 frames per second on Videos, and 125 and 138 UI tasks over 8 ms there. The before build's Adaptive Glow scroll had a single 484 ms UI task. The start times of both runs:
+**Second and third runs.** Both repeat the first run's thumbnail and scrolling numbers within the run-to-run noise. The second run measured the same two builds as the first; the third measured the after build at d9d2116, which logs the time before the recorder. Before and after, the second run made 285 and 229 thumbnails a minute, scrolled Videos at 137 and 140 frames per second and had 125 and 138 UI tasks over 8 ms there; the third run 285 and 235, 139 and 141, and 122 and 131. The before build's Adaptive Glow scroll in the second run had a single 484 ms UI task. The start times of the three runs:
 
-| Start to first page (s) | first run, before | first run, after | second run, before | second run, after |
-|---|---|---|---|---|
-| First start | 4.85 | 4.87 | 8.30 | 8.71 |
-| Everyday start | 3.38 | 8.44 | 8.10 | 3.40 |
-| Adaptive Glow start | 3.37 | 3.36 | 3.41 | 3.35 |
+| Start to first page (s) | 1st run, before | 1st run, after | 2nd run, before | 2nd run, after | 3rd run, before | 3rd run, after |
+|---|---|---|---|---|---|---|
+| First start | 4.85 | 4.87 | 8.30 | 8.71 | 4.79 | 4.68 |
+| Everyday start | 3.38 | 8.44 | 8.10 | 3.40 | 3.29 | 3.38 |
+| Adaptive Glow start | 3.37 | 3.36 | 3.41 | 3.35 | 3.27 | 3.41 |
 
-Four of the twelve starts are 3.5 to 5 s slower than the same start in the other run, two in each build. In all four, SkyWing's log began about 4 s later than usual. The log's first line comes a second after the recorder starts, and starting the recorder sets up Java's graphics toolkit. So the time goes on Java starting, on that set-up or, in the after build, on the single-instance check (B38). The before build has no single-instance check and starts its recorder on the first line of its code, so the check isn't the cause. The runner from d9d2116 on times Java's start and the check for each start.
+Four of the eighteen starts are 3.5 to 5 s slower than the same start in another run, two in each build and none in the third run. In all four, SkyWing's log began about 4 s later than usual. The log's first line comes a second after the recorder starts, and starting the recorder sets up Java's graphics toolkit. So the time goes on Java starting, on that set-up or, in the after build, on the single-instance check (B38). The before build has no single-instance check and starts its recorder on the first line of its code, so the check isn't the cause.
 
-Against the M1 targets:
-- **Scrolling at the refresh rate:** 139 frames per second on the 144 Hz screen in both builds. While thumbnails are made it went from 126 to 138, and the longest UI task from 125 ms to 36 ms.
-- **Cold start under 4 s: not met.** A normal first start takes 4.9 s in both builds, and a normal everyday start 3.4 s. Some starts in both builds take 3.5 to 5 s longer, before SkyWing's log begins (see *Second run*). The after build's normal starts lose 0.3 s more than the before build's before the log.
-- **No UI task over 8 ms: not met** in either build.
+The third run's after build timed that part of each start. Java took 0.26 to 0.40 s to reach SkyWing's code, the single-instance check 0.32 to 0.35 s, and starting the recorder about 0.15 s. None of its starts was slow, so the cause of the slow starts is still unknown. SkyWing closed by itself after every start, in 1.1 to 1.3 s.
+
+**Turbo on.** The same day, with the third run's builds and settings but CPU turbo on in the device's own app:
+
+| Measure | before | after |
+|---|---|---|
+| Start to first page, first start (s) | 1.49 | 1.46 |
+| Start to first page, everyday start (s) | 1.42 | 1.41 |
+| Java start to SkyWing's code / single-instance check, each start (s) | – | 0.10 / 0.13 to 0.14 |
+| First scan of 5,000 videos (s) | 0.79 | 0.14 |
+| Startup check of 5,000 videos (s) | 0.82 | 0.12 |
+| Thumbnails made per minute | 654 | 512 |
+| CPU cores while making thumbnails | 3.04 | 0.92 |
+| Scrolling Videos: frames per second | 144.4 | 144.6 |
+| Scrolling Videos: frame time p95 / worst second (ms) | 7.32 / 8.67 | 7.25 / 8.02 |
+| Scrolling Videos: UI tasks over 8 ms / longest (ms) | 5 / 10.01 | 10 / 15.62 |
+| Scrolling Videos: UI thread busy | 18.4% | 19.3% |
+| Adaptive Glow: frames per second | 144.5 | 144.8 |
+| Adaptive Glow: frame time p95 / worst second (ms) | 7.28 / 14.11 | 7.25 / 8.75 |
+| Adaptive Glow: UI tasks over 8 ms / longest (ms) | 11 / 18.68 | 8 / 14.19 |
+| While thumbnails are made: frames per second | 144.2 | 144.1 |
+| While thumbnails are made: frame time p95 / worst second (ms) | 7.31 / 13.06 | 7.27 / 16.91 |
+| While thumbnails are made: UI tasks over 8 ms / longest (ms) | 19 / 17.29 | 24 / 19.17 |
+| While thumbnails are made: CPU cores | 3.63 | 1.77 |
+| Memory after scrolling: private / Java heap / pictures (MB) | 1,329 / 49 / 197 | 1,363 / 87 / 255 |
+| SkyWing closing after each start (s) | 0.95 to 0.96 | 0.94 to 0.95 |
+
+With turbo on, the UI thread is busy for half as long while scrolling as with it off (19% against 42%). The single-instance check takes 0.13 to 0.14 s a start, against 0.32 to 0.35 s with turbo off, and the after build's starts are no slower than the before build's.
+
+Against the M1 targets, with turbo on:
+- **Scrolling at the refresh rate: met.** 144.6 frames per second on the 144 Hz screen in both builds, with Adaptive Glow and while thumbnails are made too. The frame time p95 (7.3 ms) is about one refresh (6.9 ms).
+- **Cold start under 4 s: met.** 1.46 s on the first start and 1.41 s on the everyday start.
+- **No UI task over 8 ms: not met.** 5 to 24 a scroll, in both builds.
+
+With turbo off, in both builds, the device scrolls Videos at 137 to 141 frames per second, a normal first start takes 4.7 to 4.9 s and nearly every second of a scroll has tasks over 8 ms. While thumbnails are made, the after build's longest UI task (27 to 36 ms) is well below the before build's (48 to 125 ms).
 
 ### Playback, laptop
 
