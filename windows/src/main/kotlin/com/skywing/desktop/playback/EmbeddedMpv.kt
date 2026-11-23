@@ -75,6 +75,8 @@ class EmbeddedMpv(
     private var appliedMotionSettings: MotionSettings? = null
     private var appliedVrr: Boolean? = null
     private var fullscreen = false
+    /** The screen showing the video, as [Screens] last read it (plan 5.4). */
+    private var screen: ScreenState? = null
     private var motionNotice = ""
     private var motionNoticeUntil = 0L
     private val recentDrops = RecentDrops()
@@ -232,6 +234,7 @@ class EmbeddedMpv(
         // A new video starts with a fresh GPU plan (plan 5.3). While smoothing is on, a video class's "Use <dedicated
         // GPU> for smoothing" is kept until this video's class is known, so videos of that class don't move twice.
         canvasHandle?.takeIf { instance != null }?.let { handle ->
+            Screens.forget() // each video reads the screen's HDR state again
             readGpus(handle, System.currentTimeMillis(), force = true)
             val settings = MotionSettingsStore.values.gpuChoice
             val choice = if (smoothingMode == SmoothingMode.MOTION && settings == GpuChoice.AUTOMATIC) gpuChoice else settings
@@ -289,7 +292,8 @@ class EmbeddedMpv(
         checkGpus()
         // NvAPI knows only screens on NVIDIA GPUs, and Intel's driver reports nothing; ask it unless another maker's
         // GPU drives the screen.
-        DisplayVrr.refresh(if (monitorGpu?.gpuVendor.let { it == null || it == GpuVendor.NVIDIA }) textProperty("display-names/0") else null)
+        DisplayVrr.refresh(if (monitorGpu?.gpuVendor.let { it == null || it == GpuVendor.NVIDIA })
+            screen?.path?.gdiName ?: textProperty("display-names/0") else null, fullscreen)
         lastMinuteDrops = recentDrops.sample(System.nanoTime() / 1_000_000, listOf(
             numberProperty("frame-drop-count")?.toLong(), numberProperty("decoder-frame-drop-count")?.toLong()))
         if (filterFailed && motion.active) {
@@ -308,7 +312,8 @@ class EmbeddedMpv(
             smoothingHealth.reset()
         }
         val caps = SmoothingCapabilities(
-            displayHz = numberProperty("display-fps"),
+            // B30: mpv's refresh for its window, else the current mode of the screen showing it; never a guess.
+            displayHz = numberProperty("display-fps") ?: screen?.path?.refreshHz,
             sourceFps = numberProperty("container-fps"),
             gpuOutput = textProperty("current-vo") in setOf("gpu", "gpu-next"),
             hardwareDecode = textProperty("hwdec-current")?.let { it.isNotBlank() && it != "no" } == true,
@@ -479,8 +484,17 @@ class EmbeddedMpv(
                     WindowsGpuPreference.HIGH_PERFORMANCE -> "high performance"
                 })
             pendingPlan?.let { appendLine("Next video: " + it.describe(onBattery)) }
-            appendLine("Display: ${caps.displayHz ?: "unavailable"} Hz; VRR activation: not measured")
-            appendLine("VRR capability: " + (DisplayVrr.current.supported?.toString() ?: "unknown") + "; " + DisplayVrr.current.detail + "; VRR control: " + if (MotionSettingsStore.values.vrrOverride == null) "off by default" else "chosen in Settings")
+            val shown = screen
+            appendLine("Display: ${caps.displayHz ?: "unavailable"} Hz; mpv display-fps: ${numberProperty("display-fps") ?: "unavailable"}" +
+                "; current mode: ${shown?.path?.refreshHz?.let { "$it Hz" } ?: "unavailable"}" +
+                "; HDR: ${shown?.hdr?.let { it.label + " (" + it.source + ")" } ?: "not reported"}" +
+                "; VRR range: ${shown?.edid?.vrr?.let { it.label + " (" + it.source + " in EDID)" } ?: "not in EDID"}" +
+                "; EDID refresh limits: ${shown?.edid?.limits?.let { "${it.first}–${it.last} Hz" } ?: "none"}" +
+                "; display changes heard: ${DisplayChanges.listening}")
+            appendLine("Screen: " + (shown?.let { ScreenSummary.line(caps.displayHz, it.edid, DisplayVrr.current.supported, it.hdr) } ?: "not reported"))
+            appendLine("VRR capability: " + (DisplayVrr.current.supported?.toString() ?: "unknown") + "; " + DisplayVrr.current.detail +
+                "; " + (DisplayVrr.current.nvidia?.label ?: "VRR active now: not reported") +
+                "; VRR control: " + if (MotionSettingsStore.values.vrrOverride == null) "off by default" else "chosen in Settings")
             appendLine("File: $fileKind; ${caps.resolution}; source ${caps.sourceFps ?: "unavailable"} fps")
             appendLine("Codec: ${textProperty("video-codec") ?: "unavailable"}; pixel format: ${textProperty("video-params/pixelformat") ?: "unavailable"}")
             appendLine("Transfer: ${textProperty("video-params/gamma") ?: "unavailable"}; decoder: ${textProperty("hwdec-current") ?: "unavailable"}")
@@ -549,15 +563,15 @@ class EmbeddedMpv(
      * costs more than reading the screens, which is why it isn't done every time.
      */
     private fun readGpus(window: Pointer, now: Long, force: Boolean = false) {
-        val paths = DisplayPaths.active()
+        val paths = Screens.paths()
         val luids = paths.map { it.adapterLuid }.toSet()
         if (force || luids != pathLuids || now - inventoryReadAt >= 60_000) {
             inventory = GpuInventory.read()
             pathLuids = luids
             inventoryReadAt = now
         }
-        val gdi = DisplayPaths.monitorName(window)
-        monitorGpu = paths.firstOrNull { gdi != null && it.gdiName.equals(gdi, ignoreCase = true) }?.adapterLuid?.let(inventory::byLuid)
+        screen = Screens.forWindow(window)
+        monitorGpu = screen?.path?.adapterLuid?.let(inventory::byLuid)
             // A screen Windows' display paths can't place (or a virtual one) falls back to the adapter's maker.
             ?: WindowsDisplayAdapter.vendor(window)?.let { maker -> inventory.adapters.singleOrNull { it.gpuVendor.label == maker } }
     }

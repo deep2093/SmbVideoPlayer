@@ -17,6 +17,8 @@ internal data class DisplayPath(
     val refreshHz: Double?,
     val friendlyName: String,
     val devicePath: String,
+    /** The adapter Windows names for the monitor itself; target-device packets (HDR) use it. */
+    val targetAdapterLuid: Long = adapterLuid,
 )
 
 /**
@@ -39,6 +41,8 @@ internal object DisplayPaths {
     private const val MODE_SIZE = 64L
     private const val GET_SOURCE_NAME = 1
     private const val GET_TARGET_NAME = 2
+    private const val GET_ADVANCED_COLOR_INFO = 9
+    private const val GET_ADVANCED_COLOR_INFO_2 = 15
 
     /** The active screens; empty when Windows can't say. */
     fun active(): List<DisplayPath> = runCatching { query() }.getOrDefault(emptyList())
@@ -98,8 +102,25 @@ internal object DisplayPaths {
             if (api.DisplayConfigGetDeviceInfo(name) == 0) name.getWideString(36) to name.getWideString(164) else "" to ""
         }
         return DisplayPath(gdi, sourceAdapter, targetId,
-            if (numerator > 0 && denominator > 0) numerator / denominator else null, friendly, device)
+            if (numerator > 0 && denominator > 0) numerator / denominator else null, friendly, device, targetAdapter)
     }
+
+    /**
+     * The screen's HDR state from Windows' advanced colour packets (wingdi.h). DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2
+     * (type 15, 36 bytes, Windows 11) goes first; it falls back to DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO (type 9,
+     * 32 bytes). In both, the flags sit at 20; the newer one adds activeColorMode at 32.
+     */
+    fun hdr(path: DisplayPath): HdrState = runCatching {
+        val api = user32 ?: return@runCatching AdvancedColor.UNKNOWN
+        Memory(36).use { info ->
+            header(info, GET_ADVANCED_COLOR_INFO_2, path.targetAdapterLuid, path.targetId)
+            if (api.DisplayConfigGetDeviceInfo(info) == 0) return@runCatching AdvancedColor.fromInfo2(info.getInt(20), info.getInt(32))
+        }
+        Memory(32).use { info ->
+            header(info, GET_ADVANCED_COLOR_INFO, path.targetAdapterLuid, path.targetId)
+            if (api.DisplayConfigGetDeviceInfo(info) == 0) AdvancedColor.fromInfo(info.getInt(20)) else AdvancedColor.UNKNOWN
+        }
+    }.getOrDefault(AdvancedColor.UNKNOWN)
 
     /** DISPLAYCONFIG_DEVICE_INFO_HEADER: type, size, adapterId, id. */
     internal fun header(packet: Memory, type: Int, adapter: Long, id: Int) {

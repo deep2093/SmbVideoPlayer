@@ -16,6 +16,8 @@ import androidx.compose.ui.window.rememberDialogState
 import com.skywing.desktop.playback.*
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable
@@ -123,6 +125,19 @@ internal fun GraphicsForVideoSetting() {
         GpuChoice.PERFORMANCE -> "The graphics card draws and smooths the video. It keeps up better and uses more power."
         GpuChoice.POWER_SAVING -> "The processor's graphics draw and smooth the video. It uses less power; smoothing may not keep up."
     } + " Starts with the next video, or now while motion smoothing is on.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
+}
+
+/** Settings → Playback → "Screen" (plan 5.4): the refresh, variable refresh and HDR of the screen showing SkyWing. */
+@Composable
+internal fun ScreenSetting() {
+    val theme = LocalSkyTheme.current
+    var line by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        val window = Screens.appWindow()
+        line = withContext(Dispatchers.IO) { window?.let { runCatching { Screens.describe(it) }.getOrNull() } } ?: "Not reported"
+    }
+    Text("Screen", color = theme.ink, style = MaterialTheme.typography.titleMedium)
+    Text(line ?: "Reading…", color = theme.muted, style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable
