@@ -89,7 +89,7 @@ Against the M1 targets:
 | Graphics card (`auto-copy`, the after build) | 125 | 479 | 0.70 |
 | Processor (`no`) | 67 | 900 | 2.80 |
 
-So the kept players alone would be faster than before, and the graphics card costs about 60 ms per picture: the first pictures of 5,000 videos take about 10 minutes instead of 7, at a quarter of the CPU. On the handhelds the processor is slower and 4K HEVC costs it most, so the graphics card is expected to help more there; their runs will show it.
+So the kept players alone would be faster than before, and the graphics card costs about 60 ms per picture: the first pictures of 5,000 videos take about 10 minutes instead of 7, at a quarter of the CPU. The handhelds don't gain from the graphics card either: 788 to 546 per minute on the Claw and 282 to 231 on the OneXPlayer, at about a third of the CPU.
 
 **Memory.** Private memory is 8% higher (1,480 MB). The card pictures are now one budget of at most 256 MB (B10) and it is full after scrolling 5,000 cards: 255 MB against 197 MB before. The Java heap is lower (31 MB).
 
@@ -135,7 +135,64 @@ Both settings start slower and give more and longer tasks over 8 ms, so neither 
 
 ### MSI Claw 8
 
+MSI Claw 8 AI+, 1920 × 1200 at 120 Hz, plugged in, Windows power mode Balanced. Before b9ea781 and after 061ea24, 24 November, with no rerun needed.
+
+| Measure | before | after |
+|---|---|---|
+| Start to first page, first start (s) | 1.37 | 3.25 |
+| Start to first page, everyday start (s) | 1.36 | 1.40 |
+| First scan of 5,000 videos (s) | 0.79 | 0.13 |
+| Startup check of 5,000 videos (s) | 0.89 | 0.12 |
+| Thumbnails made per minute | 788 | 546 |
+| CPU cores while making thumbnails | 2.44 | 0.85 |
+| Scrolling Videos: frames per second | 120.5 | 120.5 |
+| Scrolling Videos: frame time p95 / worst second (ms) | 8.65 / 12.92 | 8.71 / 16.52 |
+| Scrolling Videos: UI tasks over 8 ms / longest (ms) | 10 / 11.62 | 15 / 17.03 |
+| Adaptive Glow: frames per second | 120.3 | 120.7 |
+| Adaptive Glow: frame time p95 / worst second (ms) | 8.62 / 15.72 | 8.71 / 12.15 |
+| Adaptive Glow: UI tasks over 8 ms / longest (ms) | 12 / 12.34 | 15 / 12.22 |
+| While thumbnails are made: frames per second | 114.9 | 118.4 |
+| While thumbnails are made: frame time p95 / worst second (ms) | 9.56 / 17.11 | 8.91 / 30.81 |
+| While thumbnails are made: UI tasks over 8 ms / longest (ms) | 23 / 16.24 | 17 / 17.66 |
+| While thumbnails are made: CPU cores | 2.96 | 1.48 |
+| Memory after scrolling: private / Java heap / pictures (MB) | 1,274 / 62 / 197 | 1,359 / 81 / 255 |
+
+Against the M1 targets:
+- **Scrolling at the refresh rate: met.** Videos scrolls at 120 frames per second on the 120 Hz screen in both builds, with Adaptive Glow too. The frame time p95 (8.7 ms) is one refresh (8.3 ms). While thumbnails are made it went from 115 to 118 frames per second at half the CPU.
+- **Cold start under 4 s: met.** 3.25 s on the first start and 1.40 s on the everyday start. The first start took 1.9 s longer than before. Half of it (0.9 s) comes before SkyWing's own log starts, so the runner can't tell what it is, and it is one run.
+- **No UI task over 8 ms: not met.** The warm-up lasts about 3 seconds on the Claw (2 to 7 tasks over 8 ms a second, the longest 18 ms). After it a 30-second scroll has 3 to 9.
+
 ### OneXPlayer 3
+
+OneXPlayer 3 (Arc B390), 1920 × 1200 at 144 Hz, plugged in, Windows power mode Best performance. Before b9ea781 and after 061ea24, 24 November, with no rerun needed.
+
+| Measure | before | after |
+|---|---|---|
+| Start to first page, first start (s) | 4.85 | 4.87 |
+| Start to first page, everyday start (s) | 3.38 | 8.44 |
+| First scan of 5,000 videos (s) | 1.88 | 0.25 |
+| Startup check of 5,000 videos (s) | 1.82 | 0.28 |
+| Thumbnails made per minute | 282 | 231 |
+| CPU cores while making thumbnails | 2.82 | 1.00 |
+| Scrolling Videos: frames per second | 139.1 | 139.4 |
+| Scrolling Videos: frame time p95 / worst second (ms) | 8.36 / 25.32 | 8.16 / 27.72 |
+| Scrolling Videos: UI tasks over 8 ms / longest (ms) | 117 / 25.26 | 133 / 34.32 |
+| Scrolling Videos: UI thread busy | 40.8% | 42.9% |
+| Adaptive Glow: frames per second | 136.8 | 139.3 |
+| Adaptive Glow: frame time p95 / worst second (ms) | 10.19 / 41.51 | 10.41 / 23.19 |
+| Adaptive Glow: UI tasks over 8 ms / longest (ms) | 130 / 36.16 | 146 / 31.27 |
+| While thumbnails are made: frames per second | 126.0 | 138.2 |
+| While thumbnails are made: frame time p95 / worst second (ms) | 12.17 / 26.51 | 7.79 / 37.19 |
+| While thumbnails are made: UI tasks over 8 ms / longest (ms) | 147 / 124.78 | 150 / 36.12 |
+| While thumbnails are made: CPU cores | 5.50 | 2.92 |
+| Memory after scrolling: private / Java heap / pictures (MB) | 1,389 / 148 / 197 | 1,341 / 80 / 255 |
+
+**This device is two to three times slower than the Claw at everything, in both builds.** That covers scanning, thumbnails and the UI thread, which has tasks over 8 ms in nearly every second of every scroll (100 to 150 per scroll, not only in the warm-up). The cause isn't known yet. The device's own power setting is the first thing to check.
+
+Against the M1 targets:
+- **Scrolling at the refresh rate:** 139 frames per second on the 144 Hz screen in both builds. While thumbnails are made it went from 126 to 138, and the longest UI task from 125 ms to 36 ms.
+- **Cold start under 4 s: not met.** The first start takes 4.9 s in both builds. The everyday start took 8.44 s against 3.38 s before. In that one start SkyWing's own log began 4.8 s later than in any other start, before the window opened. That is close to the 5 s the single-instance check (B38) waits for an answer from a SkyWing already open, but it is one run and the log can't show it. The after build's other two starts on this device lost 0.3 s there.
+- **No UI task over 8 ms: not met** in either build.
 
 ## 5. Not in this runner
 
