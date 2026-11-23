@@ -175,24 +175,33 @@ HWiNFO isn't part of the runner. Start its logging yourself if it is installed.
 
 ### MSI Claw 8
 
+The Claw 8 AI+ (A2VM), 23 November, 15:10–16:07, with the handheld runner and the installed 0.1.101 (`Build:` line as in section 1).
+
 | | Value |
 |---|---|
-| `Preferred motion GPU:` line | |
-| `Renderer:` line | |
-| `Display:` line | |
-| Power or TDP mode | |
-| 1080p clip frame rate | |
+| `Preferred motion GPU:` line | `Intel(R) Arc(TM) 140V GPU (16GB); driver: 32.0.101.9175` |
+| `Renderer:` line | `Intel(R) Arc(TM) 140V GPU (16GB); preference: Intel D3D11; output: gpu-next` |
+| `Display:` line | `120.0021299902629 Hz; VRR activation: not measured` |
+| Power or TDP mode | Windows power mode Best performance at the start and end of every run. MSI's own mode wasn't recorded. |
+| 1080p clip frame rate | 23.976 fps (`source 23.97599983215332 fps`) |
 
 | Clip | Quality | Power | Drops in 5 min | Drops per minute | Restarts | Process CPU (cores) | Private memory, MB (start → end) | Battery drain (W; % per hour) | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| 1080p | Fast | Plugged in | | | | | | — | |
-| 1080p | Balanced | Plugged in | | | | | | — | |
-| 4K | Fast | Plugged in | | | | | | — | |
-| 4K | Balanced | Plugged in | | | | | | — | |
-| 1080p | Fast | Battery | | | | | | | |
-| 1080p | Balanced | Battery | | | | | | | |
-| 4K | Fast | Battery | | | | | | | |
-| 4K | Balanced | Battery | | | | | | | |
+| 1080p | Fast | Plugged in | 0 | 0.0 | 0 | 0.48 | 1,544 → 1,561 | — | Filter throughput 47.006 fps, target 47.95 fps |
+| 1080p | Balanced | Plugged in | 0 | 0.0 | 0 | 0.65 | 1,724 → 1,742 | — | Filter throughput 49.665 fps, target 47.95 fps |
+| 4K | Fast | Plugged in | 0 | 0.0 | 0 | 1.20 | 3,162 → 3,183 | — | Filter throughput 60.028 fps, target 59.94 fps |
+| 4K | Balanced | Plugged in | 0 | 0.0 | 0 | 2.14 | 4,035 → 4,049 | — | Filter throughput 60.425 fps, target 59.94 fps |
+| 1080p | Fast | Battery | 0 | 0.0 | 0 | 0.47 | 1,527 → 1,544 | 14.2; 20.3 | Filter throughput 48.398 fps, target 47.95 fps |
+| 1080p | Balanced | Battery | 0 | 0.0 | 0 | 0.64 | 1,740 → 1,756 | 18.5; 26.4 | Filter throughput 46.838 fps, target 47.95 fps |
+| 4K | Fast | Battery | 0 | 0.0 | 0 | 1.16 | 3,155 → 3,176 | 28.2; 40.3 | Filter throughput 59.289 fps, target 59.94 fps |
+| 4K | Balanced | Battery | 0 | 0.0 | 0 | 2.06 | 4,083 → 4,099 | 40.0; 57.2 | Filter throughput 61.701 fps, target 59.94 fps |
+
+Notes:
+- All eight runs counted. In no window did another program come to the front, full screen drop or any keyboard or mouse input arrive. Every report B showed the run's class, SDR, 2× and quality, a local file, 0 engine errors and 1 → 1 graph generations.
+- Every report says `G-SYNC / FreeSync: true`, `lower automatically: false` and `VRR capability: unknown; Display capability unavailable; choice: manual`. At 2×, the 1080p target of 47.95 fps doesn't divide the 120 Hz refresh.
+- The filter throughput is the figure in report B only, not an average over the window. Two 1080p runs read just below their target (47.006 and 46.838 fps) and still dropped nothing.
+- At these drains a full battery lasts about 4.9 hours for 1080p Fast and about 1.7 hours for 4K Balanced. Balanced at 1080p took 4.3 W more than Fast.
+- Earlier attempts that day don't count. The first 1080p clip reported 23.06 fps, which 0.1.101 can't smooth: SkyWing showed "Waiting for source frame rate" and the runner timed out. That clip was replaced. In the next attempt, Mouse Without Borders on the Claw came to the front three times when the PC's mouse crossed onto it (for 55, 14 and 295 seconds). Windows then kept SkyWing behind it, so the runner couldn't press Motion options and those runs stopped. No input reached the Claw in the runs above.
 
 ## 5. What the numbers decide
 
