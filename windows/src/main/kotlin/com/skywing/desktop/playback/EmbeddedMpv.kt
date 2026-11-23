@@ -324,8 +324,7 @@ class EmbeddedMpv(
             smoothingHealth.reset()
             appliedMotionSettings = settings
             appliedVrr = vrr
-            val matchingDisplay = caps.displayHz?.let { kotlin.math.abs(it-target.fps) / target.fps < 0.01 } == true
-            command("set", "video-sync", if (!vrr && matchingDisplay) "display-resample" else "audio")
+            command("set", "video-sync", MotionRate.videoSync(source, target, caps.displayHz, vrr))
             if (position != null) command("seek", position.toString(), "absolute+exact")
         }
         val beat = motion.heartbeat()
@@ -341,8 +340,7 @@ class EmbeddedMpv(
                 engineErrorCount++
                 if (motion.restartAfterStall()) {
                     smoothingHealth.reset()
-                    val match = caps.displayHz?.let { kotlin.math.abs(it-target.fps) / target.fps < 0.01 } == true
-                    command("set", "video-sync", if (!vrr && match) "display-resample" else "audio")
+                    command("set", "video-sync", MotionRate.videoSync(source, target, caps.displayHz, vrr))
                     return status("Motion engine restarted")
                 }
                 motion.fail("The motion engine stopped responding after one restart")

@@ -15,7 +15,32 @@ class MotionEngineTest {
         assertEquals(MotionRate(60), MotionRate.target(MotionRate(24), null))
         assertNull(MotionRate.target(MotionRate(120), 240.0))
         assertNull(MotionRate.source(Double.NaN))
-        assertNull(MotionRate.source(24.123))
+        assertNull(MotionRate.source(0.5))
+    }
+
+    @Test fun otherRatesAreMeasuredToThreeDecimals() {
+        // MSI Claw 8 report of 23 November: a local 1080p clip whose container reports this average rate.
+        val claw = MotionRate.source(23.06080436706543)
+        assertEquals(MotionRate(23061, 1000), claw)
+        assertEquals(MotionRate(24123, 1000), MotionRate.source(24.123))
+        assertEquals(MotionRate(1217, 50), MotionRate.source(24.34))
+        assertEquals(MotionRate(25, 2), MotionRate.source(12.5))
+        assertEquals(MotionRate(1), MotionRate.source(1.0))
+        assertEquals(MotionRate(23061, 400), MotionRate.target(claw!!, 240.0, 1))
+    }
+
+    @Test fun onlyStandardRatesResampleToTheDisplay() {
+        val film = MotionRate(24000, 1001)
+        val output = MotionStops.rate(film, 1) // 59.94 fps
+        assertEquals("display-resample", MotionRate.videoSync(film, output, 59.94, vrr = false))
+        assertEquals("display-resample", MotionRate.videoSync(film, output, 60.0, vrr = false))
+        assertEquals("audio", MotionRate.videoSync(film, output, 59.94, vrr = true))
+        assertEquals("audio", MotionRate.videoSync(film, output, 120.0, vrr = false))
+        assertEquals("audio", MotionRate.videoSync(film, output, null, vrr = false))
+        // A measured rate may be a variable rate's average, so its frames keep their own times against the audio,
+        // even where the output (60.31 fps) is within 1% of the display.
+        val measured = assertNotNull(MotionRate.source(24.123))
+        assertEquals("audio", MotionRate.videoSync(measured, MotionStops.rate(measured, 1), 60.0, vrr = false))
     }
 
     @Test fun restoresOriginalPropertiesAndPreservesOtherFiltersAfterPartialFailure() {
@@ -56,12 +81,27 @@ class MotionEngineTest {
     @Test fun scriptUsesExactOutputDurationsAndEscapedLocalPaths() {
         val script = SvpScript.create(File("C:/SkyWing's runtime/é"), File("C:/local/status"),
             MotionRate(24000,1001), MotionRate(120000,1001))
-        assertTrue(script.contains("fpsnum=120000, fpsden=1001"))
+        assertTrue(script.contains("out = core.std.AssumeFPS(out, fpsnum=120000, fpsden=1001)"))
         assertTrue(script.contains("num:120000,den:1001"))
         assertTrue(script.contains("SkyWing\\'s"))
         assertFalse(script.contains("192.168."))
         assertTrue(script.contains("video_in.set_output()"))
         assertTrue(script.contains("scene:{mode:0}"))
+        assertFalse(script.contains("follow_source_times(out"))
+    }
+
+    @Test fun scriptTimesOtherRatesFromTheSourceFrames() {
+        val status = File("C:/local/status")
+        val measured = MotionRate(23061, 1000)
+        val script = SvpScript.create(File("C:/runtime"), status, measured, MotionRate(23061, 400))
+        // SVP works at the measured rate. Output frames then take their times from the source frames' durations
+        // (2.5×: five output frames for every two source frames), not from one rate the video may not have.
+        assertTrue(script.contains("clip = core.std.AssumeFPS(video_in, fpsnum=23061, fpsden=1000)"))
+        assertTrue(script.contains("num:23061,den:400"))
+        assertTrue(script.contains("out = follow_source_times(out, 5, 2, 23061, 1000)"))
+        assertFalse(script.contains("core.std.AssumeFPS(out"))
+        // Only the smoothing stops (2×, 2.5×, 3× and 4×) are supported multipliers.
+        assertFailsWith<IllegalArgumentException> { SvpScript.create(File("C:/runtime"), status, measured, MotionRate(60)) }
     }
 
     @Test fun failureKeepsLastMetricsAndRestartIsBoundedPerFile() {

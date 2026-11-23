@@ -18,7 +18,7 @@ class MotionStatusTest {
             decoded.copy(sourceFps = 120.0),
             decoded.copy(hdrVideo = true),
             decoded.copy(hardwareDecode = false),
-            decoded.copy(sourceFps = 23.06080436706543),
+            decoded.copy(sourceFps = 0.5),
         ).forEach { caps ->
             val reason = assertNotNull(caps.unavailable(SmoothingMode.MOTION), "SkyWing gives no reason for $caps")
             assertTrue(MotionStatus.LINE.containsMatchIn(reason), "The status line \"$reason\" isn't recognised")

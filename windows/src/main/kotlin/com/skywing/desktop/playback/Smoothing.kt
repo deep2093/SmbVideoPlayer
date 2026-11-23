@@ -1,6 +1,5 @@
 package com.skywing.desktop.playback
 
-import java.util.Locale
 import java.util.prefs.Preferences
 
 enum class SmoothingMode(val label: String) {
@@ -19,12 +18,9 @@ data class SmoothingCapabilities(
         sourceFps != null && sourceFps > 60.001 -> "Already smooth"
         hdrVideo -> "HDR smoothing is not available yet"
         !gpuOutput || !hardwareDecode -> "Play a hardware-decoded video first"
-        // A rate mpv reports but motion can't use, such as a variable frame rate's average: retiming the video to a
-        // rate it doesn't have would drift from the audio (MotionRate.source). Three decimals keep 23.982 from
-        // reading as the supported 23.98.
-        sourceFps != null && sourceFps > 0 && MotionRate.source(sourceFps) == null ->
-            "Can’t smooth " + String.format(Locale.ROOT, "%.3f", sourceFps).trimEnd('0').trimEnd('.') +
-                " fps video: SkyWing needs a standard rate such as 24, 25 or 30 fps"
+        // Any reported rate from 1 fps can be smoothed, including a variable frame rate's average (MotionRate.source).
+        // Slower video, such as a slideshow, is named rather than left waiting for a rate.
+        sourceFps != null && sourceFps > 0 && sourceFps < MotionRate.LOWEST_FPS -> "Can’t smooth video below 1 fps"
         else -> null
     }
     fun decision(mode: SmoothingMode): SmoothingDecision = SmoothingDecision(false,

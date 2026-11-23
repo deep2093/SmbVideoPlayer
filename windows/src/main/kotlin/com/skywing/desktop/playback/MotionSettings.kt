@@ -21,8 +21,7 @@ internal object MotionStops {
     fun rate(source: MotionRate, stop: Int): MotionRate {
         val n = source.numerator * halves[stop.coerceIn(0, 3)]
         val d = source.denominator * 2
-        fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
-        val divisor = gcd(n, d)
+        val divisor = gcd(n.toLong(), d.toLong()).toInt()
         return MotionRate(n / divisor, d / divisor)
     }
     fun allowed(source: MotionRate, hz: Double?): List<Int> = (0..3).filter {

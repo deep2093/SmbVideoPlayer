@@ -12,26 +12,50 @@ import java.nio.file.Files
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 internal data class MotionRate(val numerator: Int, val denominator: Int = 1) {
     val fps: Double get() = numerator.toDouble() / denominator
     fun times(multiplier: Int) = MotionRate(numerator * multiplier, denominator)
     val label: String get() = String.format(Locale.ROOT, "%.2f", fps).removeSuffix(".00")
+    /** A whole-number or NTSC (×1000/1001) source rate, which the motion engine retimes exactly. */
+    val standard: Boolean get() = denominator == 1 || denominator == 1001 && numerator in NTSC
     companion object {
+        /** Slower video, such as a slideshow, is not smoothed. */
+        const val LOWEST_FPS = 1.0
+        private val NTSC = listOf(24000, 30000, 48000, 60000, 120000)
+
+        /**
+         * The rate to smooth a video at, from the container rate mpv reports: an average for variable-rate video.
+         * A standard rate is taken as exact. Any other is measured to three decimals, and the motion engine then
+         * times its output frames from the source frames' own durations (SvpScript).
+         */
         fun source(fps: Double): MotionRate? {
-            if (!fps.isFinite() || fps !in 1.0..240.0) return null
-            listOf(24000, 30000, 48000, 60000, 120000).forEach {
-                if (abs(fps - it / 1001.0) < 0.005) return MotionRate(it, 1001)
-            }
+            if (!fps.isFinite() || fps !in LOWEST_FPS..240.0) return null
+            NTSC.forEach { if (abs(fps - it / 1001.0) < 0.005) return MotionRate(it, 1001) }
             if (abs(fps - fps.roundToInt()) < 0.005) return MotionRate(fps.roundToInt())
-            return null // Do not silently retime unknown/VFR material in this preview.
+            val thousandths = (fps * 1000).roundToLong()
+            val divisor = gcd(thousandths, 1000)
+            return MotionRate((thousandths / divisor).toInt(), (1000 / divisor).toInt())
         }
         fun target(source: MotionRate, displayHz: Double?, stop: Int = MotionStops.default(source)): MotionRate? {
             if (source.fps > 60.001) return null
             return MotionStops.rate(source, stop).takeIf { stop in MotionStops.allowed(source, displayHz) }
         }
+        /**
+         * mpv's video-sync while smoothing to [target]. Resampling to a display that runs at the output rate keeps a
+         * standard rate's exact cadence. Any other rate may be variable, so its frames keep their own times against
+         * the audio.
+         */
+        fun videoSync(source: MotionRate, target: MotionRate, displayHz: Double?, vrr: Boolean): String {
+            val matchingDisplay = displayHz?.let { abs(it - target.fps) / target.fps < 0.01 } == true
+            return if (source.standard && !vrr && matchingDisplay) "display-resample" else "audio"
+        }
     }
 }
+
+/** Greatest common divisor, for keeping rates and multipliers in lowest terms. */
+internal tailrec fun gcd(a: Long, b: Long): Long = if (b == 0L) a else gcd(b, a % b)
 
 /** Owns only its named filter and restores the properties it changes. Calls run on the player worker. */
 internal class MotionSession(
@@ -203,8 +227,26 @@ internal data class MotionHeartbeat(val generation: String, val completed: Long,
 internal object SvpScript {
     private fun literal(value: String): String = "'" + value.replace("\\", "\\\\").replace("'", "\\'")
         .replace("\r", "\\r").replace("\n", "\\n") + "'"
+
+    /**
+     * How mpv times the smoothed frames. mpv adds up each output frame's duration from the first source frame, so a
+     * standard rate is retimed to its exact frame period. Any other rate may be a variable rate's average, so each
+     * output frame takes its duration from the source frames it falls between (follow_source_times).
+     */
+    private fun timing(source: MotionRate, target: MotionRate): String {
+        if (source.standard) return "out = core.std.AssumeFPS(out, fpsnum=${target.numerator}, fpsden=${target.denominator})"
+        val num = target.numerator.toLong() * source.denominator
+        val den = target.denominator.toLong() * source.numerator
+        val divisor = gcd(num, den)
+        val p = num / divisor
+        val q = den / divisor
+        require(p <= 8 && q <= p) { "The motion target must be the source rate times a smoothing stop" }
+        return "out = follow_source_times(out, $p, $q, ${source.numerator}, ${source.denominator})"
+    }
+
     fun create(runtime: File, status: File, source: MotionRate, target: MotionRate, quality: MotionQuality = MotionQuality.BALANCED): String = """
-        import os, time, threading
+        import math, os, time, threading
+        from fractions import Fraction
         import vapoursynth as vs
         core = vs.core
         core.num_threads = 8
@@ -216,6 +258,41 @@ internal object SvpScript {
                 os.replace(status_path + '.tmp', status_path)
             except OSError:
                 pass
+        def follow_source_times(clip, p, q, rate_num, rate_den):
+            # mpv times output frames by adding up their durations from the first source frame. With p output frames
+            # for every q source frames, output frame n stands for source position q*n/p, so its duration is the
+            # source time from there to the next output frame's position.
+            us = 1000000
+            rate = Fraction(container_fps).limit_denominator(100000) if container_fps > 0 else Fraction(rate_num, rate_den)
+            # mpv rounds each source duration to whole microseconds. Snap it back to the period it rounds from, a few
+            # frames of a standard rate or of the container's, so a long video does not drift by the rounding.
+            periods = [Fraction(1, r) for r in range(1, 241)]
+            periods += [Fraction(1001, r) for r in (24000, 30000, 48000, 60000, 120000)] + [1 / rate]
+            exact = {}
+            for period in periods:
+                for k in range(1, 9):
+                    exact.setdefault(math.floor(period * k * us + Fraction(1, 2)), period * k)
+            limit = 2**31 - 1  # mpv reads durations as 32-bit integers
+            def duration(f):
+                num, den = f.props.get('_DurationNum', 0), f.props.get('_DurationDen', 0)
+                if num <= 0 or den <= 0:
+                    return 1 / rate  # a source frame without a duration, such as most Matroska frames
+                return exact.get(num, Fraction(num, den)) if den == us else Fraction(num, den)
+            def source_frame(offset):
+                # Frame n of the result is source frame q*(n + offset)//p.
+                spread = core.std.Interleave([video_in] * p, modify_duration=False)[q * offset:]
+                return spread if q == 1 else core.std.SelectEvery(spread, cycle=q, offsets=[0], modify_duration=False)
+            def retime(n, f):
+                a, b = q * n // p, q * (n + 1) // p
+                start, end = Fraction(q * n, p) - a, Fraction(q * (n + 1), p) - b
+                d = (end - start) * duration(f[1]) if a == b else (1 - start) * duration(f[1]) + end * duration(f[2])
+                if d.numerator > limit or d.denominator > limit:
+                    d = d.limit_denominator(limit // max(1, math.ceil(d)))
+                frame = f[0].copy()
+                frame.props['_DurationNum'] = d.numerator
+                frame.props['_DurationDen'] = d.denominator
+                return frame
+            return core.std.ModifyFrame(clip, [clip, source_frame(0), source_frame(1)], retime)
         try:
             core.std.LoadPlugin(${literal(File(runtime, "svpflow1_vs.dll").absolutePath)})
             core.std.LoadPlugin(${literal(File(runtime, "svpflow2_vs.dll").absolutePath)})
@@ -225,7 +302,7 @@ internal object SvpScript {
             out = core.svp2.SmoothFps(clip, sup['clip'], sup['data'], vec['clip'], vec['data'],
                 '{rate:{abs:true,num:${target.numerator},den:${target.denominator}},${quality.smooth},scene:{mode:0}}',
                 src=clip, fps=${source.numerator}/${source.denominator})
-            out = core.std.AssumeFPS(out, fpsnum=${target.numerator}, fpsden=${target.denominator})
+            ${timing(source, target)}
             generation = str(time.time_ns())
             lock = threading.Lock()
             last = [time.monotonic(), 0, 0]

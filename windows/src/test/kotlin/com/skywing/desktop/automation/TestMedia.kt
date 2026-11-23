@@ -93,8 +93,8 @@ internal object TestMedia {
 
     /**
      * A constant-rate H.264/AAC MP4 written by ffmpeg. libmpv's encoding mode leaves the last frame without a duration,
-     * so its files report a slightly-off average rate (24.34 fps for 24), which SkyWing rightly treats as unknown for
-     * motion smoothing. Motion tests need an exact container rate, so they use this instead.
+     * so its files report a slightly-off average rate (24.34 fps for 24). SkyWing smooths that as a measured rate, but
+     * motion tests expect the exact rates of a 24 fps video, so they use this instead.
      */
     fun constantRateMp4(folder: File, name: String, seconds: Int, width: Int, height: Int, fps: Int): File {
         val tool = checkNotNull(ffmpeg) { "ffmpeg is required for constant-rate fixtures" }
