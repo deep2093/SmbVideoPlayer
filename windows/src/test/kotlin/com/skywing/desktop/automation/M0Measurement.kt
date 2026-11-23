@@ -193,6 +193,9 @@ internal class M0Run(private val settings: M0Settings) {
                 runCatching { app.dataDir.resolve("app-output.txt").copyTo(folder.resolve("app-output.txt")) }
                 app.close(keepData = false)
             }
+        } catch (stopped: SmoothingStopped) {
+            line("Result: ${stopped.message}")
+            throw stopped
         } catch (stopped: Throwable) {
             line("STOPPED: ${stopped.message?.lineSequence()?.firstOrNull()}")
             folder.resolve("failure.txt").writeText(stopped.stackTraceToString())
@@ -231,9 +234,11 @@ internal class M0Run(private val settings: M0Settings) {
         line("Warm-up: ${settings.warmupSeconds} s; ${warmup.describe()}")
         val start = probe(app, "start")
         val reportA = copyReport(app, screen, "A")
+            ?: throw SmoothingStopped("the warm-up", warmup.disturbances(), start.powerMode(settings.onAc))
         val window = Watch(app, screen).until(start.at + settings.windowSeconds * 1000, folder.resolve("progress.txt"))
         val end = probe(app, "end")
         val reportB = copyReport(app, screen, "B")
+            ?: throw SmoothingStopped("the measured window", window.disturbances(), end.powerMode(settings.onAc))
         line("Window disturbances: ${window.describe()}")
         return record(start, end, PlaybackReport(reportA), PlaybackReport(reportB), holding, window.disturbances())
     }
@@ -261,13 +266,20 @@ internal class M0Run(private val settings: M0Settings) {
         return probe
     }
 
-    /** Copies one playback report with the player's own button, keeps it, and leaves the player full screen again. */
-    private fun copyReport(app: SkyWingTestApp, screen: FullScreen, name: String): String {
+    /**
+     * Copies one playback report with the player's own button, keeps it, and leaves the player full screen again.
+     * Returns null when Motion options shows smoothing off, which has no report button; the run then ends.
+     */
+    private fun copyReport(app: SkyWingTestApp, screen: FullScreen, name: String): String? {
         val marker = "SkyWing M0 harness ${System.nanoTime()}"
         Clipboard.write(marker)
         Win32.postKey(screen.keyTarget(), Win32.VK_SHIFT, Win32.SCAN_SHIFT)
         // A new PlayerControls: its control bar is the full-screen window's.
         PlayerControls(app).press("Motion options")
+        if (!app.find("Motion smoothing", CHECK_BOX).checked) {
+            line("Smoothing was off when report $name was due, at ${clock()}")
+            return null
+        }
         app.activate("Copy playback report", PlayerControls.BUTTON)
         val report = Clipboard.await("report $name on the clipboard") { it != marker && it.startsWith("SkyWing ") }
         app.activate("Done", PlayerControls.BUTTON)
@@ -375,6 +387,14 @@ internal data class M0Outcome(
 }
 
 internal data class BatteryDrain(val watts: Double, val percentPerHour: Double)
+
+/**
+ * SkyWing turned smoothing off by itself during [during]. With "Lower automatically" off and 2× the lowest stop, it does
+ * that only when it can't keep up ("Cannot keep up at 2×; smoothing stopped" in `EmbeddedMpv.kt`). [disturbances]
+ * cover the time up to the moment the runner found it off; [powerMode] is the Windows power mode then.
+ */
+internal class SmoothingStopped(val during: String, val disturbances: Disturbances, val powerMode: String) :
+    Exception("SkyWing turned smoothing off during $during: it couldn't keep up at 2×")
 
 /** What disturbed a measured window ([Watch]); [description] is the summary line's text. */
 internal data class Disturbances(val foregroundLostSeconds: Int, val fullScreenLostSeconds: Int, val inputSeconds: Int, val description: String) {

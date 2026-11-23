@@ -40,6 +40,9 @@ The black window says why and what to fix. Fix it and double-click Run M0.cmd ag
 it keeps the finished runs and does only the rest. If the fix isn't clear, bring back
 the results folder: runner-log.txt has the same text.
 
+If SkyWing can't keep up, it turns smoothing off by itself. That run is a result, not
+a stop: its row says "Didn't hold 2x", and the runner goes on with the next run.
+
 The second handheld
 Copy the folder, results included, to the second handheld and do the same there. Each
 handheld gets its own results folder.

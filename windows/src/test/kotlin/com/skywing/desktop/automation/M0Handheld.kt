@@ -51,6 +51,8 @@ import kotlin.system.exitProcess
  *   battery: at least 40 % charge and battery saver off (section 2)
  * - checks report B of each run: the video's size and SDR range fit its folder, and SkyWing played at 2× in the run's
  *   quality. A run that another program covered, or that left full screen, doesn't count.
+ * - keeps a run in which SkyWing turned smoothing off by itself (it couldn't keep up at 2×) as a row that says so,
+ *   when nobody touched the device and nothing covered SkyWing ([stoppedRow])
  * - writes `results\<device>\M0-table.md` (section 4's rows) after each run, and beeps when it is done
  * - copies what it prints to `results\<device>\runner-log.txt`, so the results folder says why it stopped
  *
@@ -277,6 +279,22 @@ internal fun tableRow(run: HandheldRun, outcome: M0Outcome): String {
     ).joinToString(" | ", prefix = "| ", postfix = " |")
 }
 
+/**
+ * The row of a run in which SkyWing turned smoothing off by itself, or null when something else may have: keyboard or
+ * mouse input arrived, or another program came to the front or full screen was left.
+ */
+internal fun stoppedRow(run: HandheldRun, stopped: SmoothingStopped): String? {
+    if (stopped.disturbances.spoiled || stopped.disturbances.inputSeconds > 0) return null
+    val notes = buildList {
+        add("Didn't hold 2×: SkyWing turned smoothing off during ${stopped.during}")
+        add("Windows power mode ${stopped.powerMode}")
+        if (run.trial) add("trial, ${run.timing.windowSeconds} s window")
+    }
+    // Nothing was measured: drops, drops per minute, restarts, CPU, memory and battery.
+    return (listOf(run.clip.folder, run.quality.label, run.power) + List(6) { "—" } + notes.joinToString("; "))
+        .joinToString(" | ", prefix = "| ", postfix = " |")
+}
+
 /** A finished run as its folder keeps it: the table row and report B. */
 internal data class FinishedRun(val row: String, val reportB: PlaybackReport) {
     companion object {
@@ -289,8 +307,10 @@ internal data class FinishedRun(val row: String, val reportB: PlaybackReport) {
 
 /** The results table for [device]: section 4's device lines, from the reports of [finished] runs, and a row per run. */
 internal fun handheldTable(device: String, plan: List<HandheldRun>, finished: Map<HandheldRun, FinishedRun>): String = buildString {
-    val report = finished.values.firstOrNull()?.reportB
-    val hd = finished.entries.firstOrNull { it.key.clip == ClipSize.HD_1080P }?.value?.reportB
+    // A run in which SkyWing turned smoothing off has no report B.
+    val reported = finished.entries.filter { it.value.reportB.line("SkyWing ") != null }
+    val report = reported.firstOrNull()?.value?.reportB
+    val hd = reported.firstOrNull { it.key.clip == ClipSize.HD_1080P }?.value?.reportB
     fun code(text: String?) = text?.let { "`$it`" }.orEmpty()
     val window = plan.first().timing.windowSeconds
     appendLine("# SkyWing M0 handheld runs: $device")
@@ -407,7 +427,9 @@ private class HandheldRunner(private val trial: Boolean, private val environment
             val m0 = M0Run(settings).also { it.preflight() }
             val outcome = runCatching { m0.run() }
             lastRunEnded = System.currentTimeMillis()
-            val problem = outcome.fold(onSuccess = { keep(run, it) }, onFailure = { "it stopped: ${it.message?.lineSequence()?.firstOrNull()}" })
+            val problem = outcome.fold(onSuccess = { keep(run, it) }, onFailure = { failure ->
+                if (failure is SmoothingStopped) keepStopped(run, m0.folder, failure) else "it stopped: ${failure.message?.lineSequence()?.firstOrNull()}"
+            })
             writeTable()
             if (problem == null) {
                 notCountedInARow = 0
@@ -511,6 +533,18 @@ private class HandheldRunner(private val trial: Boolean, private val environment
             return why
         }
         outcome.folder.resolve("row.md").writeText(tableRow(run, outcome) + "\n")
+        return null
+    }
+
+    /** Keeps a run in which SkyWing turned smoothing off as its row, unless something else may have turned it off. */
+    private fun keepStopped(run: HandheldRun, folder: Path, stopped: SmoothingStopped): String? {
+        val row = stoppedRow(run, stopped)
+        if (row == null) {
+            val why = "smoothing went off, but the device wasn't left alone (${stopped.disturbances.description})"
+            folder.resolve("failure.txt").writeText("This run doesn't count: $why.\n")
+            return why
+        }
+        folder.resolve("row.md").writeText(row + "\n")
         return null
     }
 

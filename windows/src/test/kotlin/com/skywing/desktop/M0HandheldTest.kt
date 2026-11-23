@@ -21,6 +21,8 @@ import com.skywing.desktop.automation.registryValue
 import com.skywing.desktop.automation.reportMismatch
 import com.skywing.desktop.automation.runPowerShell
 import com.skywing.desktop.automation.runnerFolderRefusal
+import com.skywing.desktop.automation.SmoothingStopped
+import com.skywing.desktop.automation.stoppedRow
 import com.skywing.desktop.automation.tableRow
 import com.skywing.desktop.playback.MotionQuality
 
@@ -247,6 +249,38 @@ class M0HandheldTest {
         assertContains(table, "| 1080p clip frame rate | 23.976 fps |")
         assertContains(table, "| 1080p | Fast | Plugged in | finished |")
         assertContains(table, "| 4K | Balanced | Battery | | | | | | | not run yet |")
+    }
+
+    /** Claw 8, 23 November, at a low power limit: in both 4K battery runs SkyWing turned smoothing off during the warm-up. */
+    @Test
+    fun aRunInWhichSkyWingTurnedSmoothingOffIsARowUnlessSomethingElseCouldHave() {
+        fun stopped(foreground: Int = 0, input: Int = 0, during: String = "the warm-up") =
+            SmoothingStopped(during, Disturbances(foreground, 0, input, "described"), "Best performance")
+        assertEquals(
+            "| 4K | Fast | Battery | — | — | — | — | — | — | Didn't hold 2×: SkyWing turned smoothing off during the warm-up; " +
+                "Windows power mode Best performance |",
+            stoppedRow(runs[6], stopped()),
+        )
+        assertContains(stoppedRow(runs[7], stopped(during = "the measured window")).orEmpty(), "off during the measured window;")
+        assertContains(stopped().message.orEmpty(), "couldn't keep up at 2×")
+        // Keyboard or mouse input could have turned smoothing off, and another program in front changes what ran.
+        assertNull(stoppedRow(runs[6], stopped(input = 2)))
+        assertNull(stoppedRow(runs[6], stopped(foreground = 5)))
+    }
+
+    @Test
+    fun theDeviceLinesComeFromARunThatHasAReport() {
+        val table = handheldTable(
+            device = "Claw 8 AI+ A2VM",
+            plan = runs,
+            finished = mapOf(
+                runs[0] to FinishedRun("| 1080p | Fast | Plugged in | stopped |", PlaybackReport("")),
+                runs[4] to FinishedRun("| 1080p | Fast | Battery | finished |", PlaybackReport(report())),
+            ),
+        )
+        assertContains(table, "SkyWing `0.1.101 · Windows x64 motion preview`")
+        assertContains(table, "| `Display:` line | `120.0 Hz; VRR activation: not measured` |")
+        assertContains(table, "| 1080p clip frame rate | 23.976 fps |")
     }
 
     @Test

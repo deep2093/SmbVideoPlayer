@@ -146,6 +146,7 @@ On each handheld, the owner installs 0.1.101 if needed and copies the folder to 
 - before each run, waits until nobody has touched the handheld for Windows' foreground lock time-out plus 5 seconds (205 seconds by default). When the time-out is over 10 minutes, as on the laptop, it doesn't wait, and SkyWing comes to the front only if nobody touches the handheld after the start;
 - after the plugged-in runs, beeps until the charger is out, waits 30 seconds and checks the battery: at least 40 % and battery saver off;
 - stops when report B doesn't show the run's video class, SDR, 2× and quality. A run that another program covered, or that left full screen, doesn't count, and two such runs in a row stop the runner;
+- keeps a run in which SkyWing turned smoothing off by itself, because it couldn't keep up at 2×, as a row: "Didn't hold 2×: SkyWing turned smoothing off during the warm-up" (or "during the measured window"), with the Windows power mode. That holds only when nobody touched the handheld and nothing covered SkyWing; otherwise the run doesn't count. Runners built before 23 November stopped such a run with "No push button labelled 'Copy playback report'";
 - writes `results\<handheld>\M0-table.md` with the rows for the tables below, `runner-log.txt` with everything it printed, and a folder per run with both reports and `summary.txt`. Started again, it does only the runs that have no row.
 
 HWiNFO isn't part of the runner. Start its logging yourself if it is installed.
