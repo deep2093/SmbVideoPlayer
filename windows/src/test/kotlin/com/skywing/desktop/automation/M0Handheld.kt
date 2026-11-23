@@ -85,6 +85,21 @@ fun main(args: Array<String>) {
     exitProcess(code)
 }
 
+/**
+ * Waits until nobody has touched the device for [neededMs] (Windows' foreground lock time-out, [quietWaitMs]), so a
+ * new SkyWing window can come to the front. Null: waiting can't help, so it doesn't wait.
+ */
+internal fun waitUntilQuiet(neededMs: Long?) {
+    val needed = neededMs ?: return
+    if (HandheldSystem.idleMs() >= needed) return
+    println("Waiting until nobody has touched the device for ${needed / 1000} s: until then, Windows keeps SkyWing behind the program used last.")
+    while (true) {
+        val idle = HandheldSystem.idleMs()
+        if (idle >= needed) return
+        Thread.sleep((needed - idle).coerceIn(500, 5_000))
+    }
+}
+
 /** The SkyWing build the M0 runs measure: section 1 of M0-RESULTS.md. */
 internal const val M0_BUILD = "0.1.101"
 
@@ -186,13 +201,14 @@ internal fun registryValue(key: String, name: String): String? = runCatching {
  * Why the runner can't work from [folder], or null. It writes its results there while it runs, so the folder must be on
  * the device's own drive: not on a share, a USB stick or a memory card ([removable]), and not in OneDrive.
  */
-internal fun runnerFolderRefusal(folder: Path, environment: Map<String, String>, removable: (Path) -> Boolean): String? {
-    val move = "Copy the whole folder to the device's own drive, for example to C:\\SkyWing-M0, and start Run M0.cmd there."
+internal fun runnerFolderRefusal(folder: Path, environment: Map<String, String>, removable: (Path) -> Boolean, runner: String = "M0"): String? {
+    val script = "Run $runner.cmd"
+    val move = "Copy the whole folder to the device's own drive, for example to C:\\SkyWing-$runner, and start $script there."
     return when {
         // First, and from the path alone, so a share is never queried.
-        NetworkPaths.isNetwork(folder.toString()) -> "Run M0.cmd is on a network drive or share. $move"
-        removable(folder) -> "Run M0.cmd is on a USB stick or memory card. $move"
-        inOneDrive(folder, environment) -> "Run M0.cmd is in OneDrive, which would upload the results while they are written. $move"
+        NetworkPaths.isNetwork(folder.toString()) -> "$script is on a network drive or share. $move"
+        removable(folder) -> "$script is on a USB stick or memory card. $move"
+        inOneDrive(folder, environment) -> "$script is in OneDrive, which would upload the results while they are written. $move"
         else -> null
     }
 }
@@ -509,17 +525,7 @@ private class HandheldRunner(private val trial: Boolean, private val environment
         }
     }
 
-    /** Waits until nobody has touched the device for Windows' foreground lock time-out ([quietWaitMs]), so SkyWing can come to the front. */
-    private fun waitForQuiet() {
-        val needed = quietWait ?: return
-        if (HandheldSystem.idleMs() >= needed) return
-        println("Waiting until nobody has touched the device for ${needed / 1000} s: until then, Windows keeps SkyWing behind the program used last.")
-        while (true) {
-            val idle = HandheldSystem.idleMs()
-            if (idle >= needed) return
-            Thread.sleep((needed - idle).coerceIn(500, 5_000))
-        }
-    }
+    private fun waitForQuiet() = waitUntilQuiet(quietWait)
 
     /** Checks a measured run and keeps its row. Returns why it doesn't count, or null. A wrong clip or setting stops the runner. */
     private fun keep(run: HandheldRun, outcome: M0Outcome): String? {

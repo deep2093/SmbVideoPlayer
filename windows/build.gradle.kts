@@ -128,6 +128,58 @@ tasks.register<Sync>("m0Runner") {
     }
 }
 
+// The M1 before/after runner (docs/modernise/M1-RESULTS.md): the same measurements on two SkyWing app images, the
+// build before M1 (kept by m1KeepBefore) and the current one, on isolated data with a 5,000-video test library. A test
+// tool for the owner's own devices, not part of any installer. Starting it takes that device's desktop.
+fun m1Build(): String {
+    fun git(vararg args: String) = providers.exec { commandLine("git", *args) }.standardOutput.asText.get().trim()
+    val dirty = git("status", "--porcelain", "--", "src/main", "build.gradle.kts").isNotEmpty()
+    return git("rev-parse", "--short", "HEAD") + if (dirty) " with uncommitted changes" else ""
+}
+
+val m1Media by tasks.registering(JavaExec::class) {
+    description = "Makes the M1 runner's test clips and pictures with ffmpeg (needs ffmpeg with libx264 and libx265 on PATH)"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.skywing.desktop.automation.M1MeasurementKt")
+    val media = layout.buildDirectory.dir("m1-media")
+    args("prepare", media.get().asFile.absolutePath)
+    outputs.dir(media)
+}
+
+tasks.register<Sync>("m1KeepBefore") {
+    group = "verification"
+    description = "Keeps the current app image as the M1 runner's before image; build it from the commit before the M1 changes"
+    dependsOn("createDistributable")
+    from(layout.buildDirectory.dir("compose/binaries/main/app/SkyWing"))
+    into(layout.buildDirectory.dir("m1-images/before/SkyWing"))
+    doLast { layout.buildDirectory.file("m1-images/before/build.txt").get().asFile.writeText(m1Build() + "\n") }
+}
+
+tasks.register<Sync>("m1Runner") {
+    group = "verification"
+    description = "Builds the portable M1 before/after runner in build/m1-runner/SkyWing-M1-runner"
+    dependsOn("createDistributable")
+    into(layout.buildDirectory.dir("m1-runner/SkyWing-M1-runner"))
+    // What a run left in the folder stays: the results, the test library and the harness's own preferences.
+    preserve { include("results/**", "work/**", "data/**") }
+    from("tools/m1-runner") { exclude(".gitattributes") }
+    into("runtime") { from(m0RunnerRuntime) }
+    into("lib") {
+        from(tasks.jar) { rename { "skywing-main.jar" } }
+        from(m0HarnessJar, m0SupportJar)
+        from(sourceSets.test.get().runtimeClasspath.filter { it.isFile && !it.name.startsWith("jcef-natives-") && !it.name.startsWith("skiko-awt-runtime-") })
+    }
+    into("media") { from(m1Media) }
+    into("images/before") { from(layout.buildDirectory.dir("m1-images/before/SkyWing")) }
+    into("images") { from(layout.buildDirectory.file("m1-images/before/build.txt")) { rename { "before-build.txt" } } }
+    into("images/after") { from(layout.buildDirectory.dir("compose/binaries/main/app/SkyWing")) }
+    doLast {
+        val before = layout.buildDirectory.file("m1-images/before/SkyWing/SkyWing.exe").get().asFile
+        check(before.isFile) { "No before image: run m1KeepBefore on the commit before the M1 changes first." }
+        destinationDir.resolve("images/after-build.txt").writeText(m1Build() + "\n")
+    }
+}
+
 compose.desktop {
     application {
         mainClass = "com.skywing.desktop.MainKt"

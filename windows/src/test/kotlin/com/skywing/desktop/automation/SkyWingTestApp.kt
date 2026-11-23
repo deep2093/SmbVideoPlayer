@@ -235,13 +235,16 @@ internal class SkyWingTestApp private constructor(
         /**
          * Starts the test image with isolated data. [seed] writes preferences before launch. Pass the [dataDir] of an
          * earlier session (closed with `keepData = true`) to relaunch on the same data. [args] go to SkyWing (a video
-         * path opens it in the player). The caller owns the returned
+         * path opens it in the player). [image] is the app image to start, [extraEnvironment] is added to SkyWing's
+         * environment (the M1 runner starts two images with SKYWING_PERF_LOG). The caller owns the returned
          * app and must close it (use `use { }`).
          */
         fun launch(
             testName: String,
             dataDir: Path? = null,
             args: List<String> = emptyList(),
+            image: Path = SkyWingTestApp.image,
+            extraEnvironment: Map<String, String> = emptyMap(),
             seed: (Preferences, Path) -> Unit = { _, _ -> },
         ): SkyWingTestApp {
             val launcher = image.resolve("SkyWing.exe")
@@ -273,6 +276,7 @@ internal class SkyWingTestApp private constructor(
                     environment()["LOCALAPPDATA"] = local.absolutePathString()
                     environment()["APPDATA"] = roaming.absolutePathString()
                     environment()["USERPROFILE"] = home.absolutePathString()
+                    environment().putAll(extraEnvironment)
                 }
                 .start()
             val app = SkyWingTestApp(dataDir, preferencesFile, process, bridge, testName)
@@ -297,6 +301,13 @@ internal fun javaToolOptions(options: List<String>): String {
     return options.joinToString(" ") { option -> if (option.any(Char::isWhitespace)) "\"$option\"" else option }
 }
 
+/**
+ * WM_MOUSEWHEEL's (wParam, lParam) for a turn of [delta] at the screen point ([x], [y]): the delta in the high word of
+ * wParam, x and y in the low and high words of lParam, each a signed 16-bit value.
+ */
+internal fun wheelMessage(x: Int, y: Int, delta: Int): Pair<Long, Long> =
+    ((delta.toLong() and 0xFFFF) shl 16) to ((x.toLong() and 0xFFFF) or ((y.toLong() and 0xFFFF) shl 16))
+
 /** The few user32 calls needed to find and close SkyWing's windows. */
 internal object Win32 {
     @Suppress("FunctionName")
@@ -312,6 +323,8 @@ internal object Win32 {
         fun GetMonitorInfoW(monitor: Pointer, info: MonitorInfo): Boolean
         fun GetForegroundWindow(): Pointer?
         fun GetLastInputInfo(info: LastInputInfo): Boolean
+        /** [point] is a POINT passed by value on x64: y in the high 32 bits, x in the low. */
+        fun WindowFromPoint(point: Long): Pointer?
     }
 
     @Structure.FieldOrder("cbSize", "dwTime")
@@ -346,6 +359,7 @@ internal object Win32 {
     private const val WM_KEYDOWN = 0x0100
     private const val WM_KEYUP = 0x0101
     private const val WM_CHAR = 0x0102
+    private const val WM_MOUSEWHEEL = 0x020A
     const val VK_BACK = 0x08
     const val SCAN_BACK = 0x0E
     const val VK_SPACE = 0x20
@@ -403,6 +417,24 @@ internal object Win32 {
 
     /** Posts [text] to [hwnd] as WM_CHAR messages, one per UTF-16 unit. */
     fun postText(hwnd: Long, text: String) = text.forEach { user32.PostMessageW(Pointer(hwnd), WM_CHAR, it.code.toLong(), 1L) }
+
+    /**
+     * Posts one mouse-wheel turn of [delta] (120 is one notch away from the user, -120 one notch towards) at the screen
+     * point ([x], [y]) to [hwnd]. Like [postKey] it is a posted message, not input: the pointer doesn't move and
+     * Windows' last-input time doesn't change. AWT hands it to the window under that point.
+     */
+    fun postWheel(hwnd: Long, x: Int, y: Int, delta: Int) {
+        val (wParam, lParam) = wheelMessage(x, y, delta)
+        user32.PostMessageW(Pointer(hwnd), WM_MOUSEWHEEL, wParam, lParam)
+    }
+
+    /** The process that owns the window at the screen point ([x], [y]), or null. Read only. */
+    fun processAt(x: Int, y: Int): Long? {
+        val hwnd = user32.WindowFromPoint((y.toLong() shl 32) or (x.toLong() and 0xFFFFFFFFL)) ?: return null
+        val pid = IntByReference()
+        user32.GetWindowThreadProcessId(hwnd, pid)
+        return pid.value.toLong().takeIf { it != 0L }
+    }
 
     /** The window's screen rectangle, read without moving or focusing it. */
     fun bounds(hwnd: Long): Bounds = Rect().also { check(user32.GetWindowRect(Pointer(hwnd), it)) }.bounds()

@@ -44,7 +44,8 @@ internal object ThumbnailStore {
         }
     }
 
-    private fun keyOf(path: String, stamp: Long): String {
+    /** The name (without .jpg) of the picture file kept for the video at [path] with modification time [stamp]. */
+    internal fun keyOf(path: String, stamp: Long): String {
         val digest = MessageDigest.getInstance("SHA-1").digest((path.lowercase() + "|" + stamp).toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { "%02x".format(it) }
     }

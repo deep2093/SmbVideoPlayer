@@ -495,7 +495,7 @@ private fun programName(pid: Long?): String = pid?.let { id ->
  * Get-Process (TotalProcessorTime and PrivateMemorySize64, summed over every process named SkyWing) and the
  * root\wmi battery classes. [at] is when the processes were read. Read only.
  */
-private class Probe(
+internal class Probe(
     val at: Long,
     val ids: Set<Long>,
     val cpuSeconds: Double,
