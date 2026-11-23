@@ -80,6 +80,12 @@ every test class that uses it. "Full" means a passing focused run is not enough:
 
 Changes in three or more areas also require full mode.
 
+`FrameSharingTeardownNativeTest` (10 × 100 seeks and full-screen toggles with smoothing on, then a close) takes
+about 20 minutes and the desktop. Full and release mode always run it; focused mode runs it when the test itself
+changes. It tests frame sharing only when the libmpv folder holds the frame-sharing runtime
+(`MPV-PREVIEW-MANIFEST.json`); its report, `windows/build/reports/tests/test/frame-sharing-teardown.txt`, names the
+runtime.
+
 Release mode is required before giving anyone an installer, after any change to the installer, payload or legal
 inputs, and before any statement about release readiness.
 

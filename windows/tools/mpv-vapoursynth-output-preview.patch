@@ -8,33 +8,39 @@
  #include <libavutil/rational.h>
  #include <libavutil/cpu.h>
  #include <libplacebo/utils/libav.h>
-@@ -70,6 +71,7 @@
+@@ -70,6 +71,8 @@ struct priv {
  
      VSCore *vscore;
      const VSAPI *vsapi;
 +    bool share_output;
++    VSNode *keep_core;  // held by every shared output plane
      VSNode *out_node;
      VSNode *in_node;
  
-@@ -262,6 +264,58 @@
+@@ -262,6 +265,80 @@ static void drain_oldest_buffered_frame(struct priv *p)
      p->in_frameno++;
  }
  
 +struct vs_plane_ref {
 +    const VSAPI *api;
 +    const VSFrame *frame;
++    VSNode *keep_core;
 +};
 +
 +static void release_vs_plane(void *opaque, uint8_t *data)
 +{
 +    (void)data;
 +    struct vs_plane_ref *ref = opaque;
++    // Free the frame before the node that keeps its core alive. VapourSynth R73
++    // deletes the core's frame memory tracker when the core is destroyed, and
++    // that races with a frame freed on another thread at the same moment.
 +    ref->api->freeFrame(ref->frame);
++    ref->api->freeNode(ref->keep_core);
 +    free(ref);
 +}
 +
-+static struct mp_image *reference_vs_output(const VSAPI *api, const VSFrame *frame,
-+                                            struct mp_image *source)
++static struct mp_image *reference_vs_output(const VSAPI *api, VSNode *keep_core,
++                                            const VSFrame *frame, struct mp_image *source)
 +{
 +    struct mp_image *image = mp_image_new_dummy_ref(NULL);
 +    mp_image_setfmt(image, source->imgfmt);
@@ -57,6 +63,7 @@
 +        }
 +        ref->api = api;
 +        ref->frame = api->addFrameRef(frame);
++        ref->keep_core = api->addNodeRef(keep_core);
 +        image->bufs[plane] = av_buffer_create(source->planes[plane],
 +            (size_t)stride * (size_t)height, release_vs_plane, ref,
 +            AV_BUFFER_FLAG_READONLY);
@@ -72,54 +79,87 @@
 +    return image;
 +}
 +
++// A node no one reads from. While shared planes hold it, the core outlives the
++// script, so the core is destroyed only after the last shared frame is freed.
++static const VSFrame *VS_CC keep_core_get_frame(int n, int activationReason,
++                                                 void *instanceData, void **frameData,
++                                                 VSFrameContext *frameCtx, VSCore *core,
++                                                 const VSAPI *vsapi)
++{
++    (void)n;
++    (void)instanceData;
++    (void)frameData;
++    (void)core;
++    if (activationReason == arInitial)
++        vsapi->setFilterError("The core keep-alive node has no frames", frameCtx);
++    return NULL;
++}
++
  static void VS_CC vs_frame_done(void *userData, const VSFrame *f, int n,
                                  VSNode *node, const char *errorMsg)
  {
-@@ -294,7 +348,10 @@
+@@ -294,7 +371,10 @@ static void VS_CC vs_frame_done(void *userData, const VSFrame *f, int n,
          } else {
              img.nominal_fps = 1.0 / img.pkt_duration;
          }
 -        res = mp_image_new_copy(&img);
-+        if (p->share_output && img.num_planes)
-+            res = reference_vs_output(p->vsapi, f, &img);
++        if (p->share_output && p->keep_core && img.num_planes)
++            res = reference_vs_output(p->vsapi, p->keep_core, f, &img);
 +        if (!res)
 +            res = mp_image_new_copy(&img);
          p->vsapi->freeFrame(f);
      }
  
-@@ -576,21 +633,23 @@
+@@ -576,21 +656,26 @@ static void destroy_vs(struct priv *p)
      if (p->out_node)
          p->vsapi->freeNode(p->out_node);
      p->in_node = p->out_node = NULL;
--
--    p->drv->unload(p);
--
--    mp_assert(!p->in_node_active);
-     mp_assert(num_requested(p) == 0); // async callback didn't return?
- 
--    p->shutdown = false;
--    p->eof = false;
--    p->frames_sent = 0;
--    // Kill filtered images that weren't returned yet
++    mp_assert(num_requested(p) == 0); // async callback didn't return?
++
 +    // Release queued images before freeing the script. Images already sent
-+    // downstream keep their own frame references.
-     for (int n = 0; n < p->max_requests; n++) {
-         if (p->requested[n] != &dummy_img_eof)
-             mp_image_unrefp(&p->requested[n]);
-         p->requested[n] = NULL;
-     }
-+
-+    p->drv->unload(p);
-+
-+    mp_assert(!p->in_node_active);
-+
-+    p->shutdown = false;
-+    p->eof = false;
-+    p->frames_sent = 0;
++    // downstream keep their own frame references, and keep the core alive.
++    for (int n = 0; n < p->max_requests; n++) {
++        if (p->requested[n] != &dummy_img_eof)
++            mp_image_unrefp(&p->requested[n]);
++        p->requested[n] = NULL;
++    }
++    if (p->keep_core)
++        p->vsapi->freeNode(p->keep_core);
++    p->keep_core = NULL;
+ 
+     p->drv->unload(p);
+ 
+     mp_assert(!p->in_node_active);
+-    mp_assert(num_requested(p) == 0); // async callback didn't return?
+ 
+     p->shutdown = false;
+     p->eof = false;
+     p->frames_sent = 0;
+-    // Kill filtered images that weren't returned yet
+-    for (int n = 0; n < p->max_requests; n++) {
+-        if (p->requested[n] != &dummy_img_eof)
+-            mp_image_unrefp(&p->requested[n]);
+-        p->requested[n] = NULL;
+-    }
      // Kill queued frames too
      for (int n = 0; n < p->num_buffered; n++)
          talloc_free(p->buffered[n]);
-@@ -754,6 +813,10 @@
+@@ -648,6 +733,14 @@ static int reinit_vs(struct priv *p, struct mp_image *input)
+     }
+     p->in_node_active = true;
+ 
++    if (p->share_output) {
++        p->keep_core = p->vsapi->createVideoFilter2("SkyWingKeepCore", &vi_in,
++                                                    keep_core_get_frame, NULL, fmParallel,
++                                                    NULL, 0, NULL, p->vscore);
++        if (!p->keep_core)
++            MP_WARN(p, "Could not create the core keep-alive node; copying output.\n");
++    }
++
+     vars = p->vsapi->createMap();
+     if (!vars)
+         goto error;
+@@ -754,6 +847,10 @@ static struct mp_filter *vf_vapoursynth_create(struct mp_filter *parent,
      p->log = f->log;
      p->drv = p->opts->drv;
      p->f = f;

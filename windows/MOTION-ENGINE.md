@@ -91,6 +91,24 @@ uses the original output copy for A/B tests (set it before starting SkyWing). CI
 the installers after the same facts:
 `SkyWing-<version>-<commit>[-modified]-<runtime>-<with|without>-ed072bf`.
 
+With frame sharing, mpv keeps VapourSynth output frames after the script that made
+them is freed (each seek frees and rebuilds the script). Checked in the VapourSynth
+R73 source:
+- A frame holds only a raw pointer to its core, so it does not keep the core alive.
+- Its pixel memory does outlive the core. The core's memory tracker deletes itself
+  once the core is gone and the last plane is freed.
+- The API table mpv keeps is static. mpv and VSScript never unload their libraries.
+- SkyWing's script sets only integer frame properties. A function stored as a frame
+  property would touch the freed core when released.
+
+R73 has one race. The core's destructor and a frame freed on another thread at the
+same moment both check the tracker's counters without a shared lock, so the
+tracker can be deleted twice or used after it is deleted.
+`mpv-vapoursynth-output-preview.patch` prevents it. Every shared plane also holds a
+small node that no one reads from, and frees its frame before that node. The core
+is then destroyed only after the last shared frame is gone. Recheck this when
+VapourSynth is upgraded.
+
 ## Validation and remaining work
 
 Native tests cover 60 seeks, all five presets, failure fallback, property/filter

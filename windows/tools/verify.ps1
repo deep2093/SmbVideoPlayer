@@ -104,8 +104,8 @@ $rules = @(
 # Python build tools have their own unittest suite (windows/tools/test_*.py), run with the system Python.
 $toolTestsPattern = '^windows/tools/[^/]+\.py$'
 # Tests that open windows, go full screen or launch SkyWing. Everything else runs off screen.
-$focusTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|AccessBridgeTreeTest|playback\.EmbeddedPlaybackNativeTest|playback\.MotionNativeTest)$'
-$nativeTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|playback\.(EmbeddedPlaybackNativeTest|MotionNativeTest|ThumbnailExtractorNativeTest))$'
+$focusTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|AccessBridgeTreeTest|playback\.EmbeddedPlaybackNativeTest|playback\.MotionNativeTest|playback\.FrameSharingTeardownNativeTest)$'
+$nativeTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|playback\.(EmbeddedPlaybackNativeTest|MotionNativeTest|ThumbnailExtractorNativeTest|FrameSharingTeardownNativeTest))$'
 $ffmpegTests = '^com\.skywing\.desktop\.(automation\.MotionAutomationTest|playback\.(EmbeddedPlaybackNativeTest|MotionNativeTest))$'
 $notMeasured = 'HDR output and tone mapping, VRR activation, displayed frame pacing (the engine reports its configured rate), ' +
     'multi-monitor, real Alt+Tab, a real NAS or a dropped SMB connection, fresh install and uninstall on a clean PC.'
