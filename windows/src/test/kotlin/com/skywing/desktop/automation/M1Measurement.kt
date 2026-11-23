@@ -179,22 +179,24 @@ internal object M1Media {
                     listOf("-c:v", "libx264", "-preset", "veryfast", "-crf", "30")
                 }
                 val partial = clip.resolveSibling(clip.name + ".part.mp4")
-                ffmpeg(
+                runFfmpeg(
                     listOf("-f", "lavfi", "-i", source, "-t", if (uhd) "2" else "3", "-vf", "hue=h=${index * 47 % 360},format=yuv420p") +
                         codec + listOf("-movflags", "+faststart", partial.toString()),
                 )
                 Files.move(partial, clip, StandardCopyOption.REPLACE_EXISTING)
             }
             val picture = picture(folder, clip)
-            if (!picture.isRegularFile()) ffmpeg(listOf("-ss", "0.5", "-i", clip.toString(), "-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "4", picture.toString()))
+            if (!picture.isRegularFile()) runFfmpeg(listOf("-ss", "0.5", "-i", clip.toString(), "-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "4", picture.toString()))
         }
     }
 
-    private fun ffmpeg(args: List<String>) {
-        val process = ProcessBuilder(listOf("ffmpeg", "-hide_banner", "-v", "error", "-y") + args).redirectErrorStream(true).start()
-        val output = process.inputStream.bufferedReader().readText()
-        check(process.waitFor(10, TimeUnit.MINUTES) && process.exitValue() == 0) { "ffmpeg failed: $output" }
-    }
+}
+
+/** Runs ffmpeg from PATH with [args], quietly and overwriting, and fails with its output when it fails. */
+internal fun runFfmpeg(args: List<String>, timeoutMinutes: Long = 10) {
+    val process = ProcessBuilder(listOf("ffmpeg", "-hide_banner", "-v", "error", "-y") + args).redirectErrorStream(true).start()
+    val output = process.inputStream.bufferedReader().readText()
+    check(process.waitFor(timeoutMinutes, TimeUnit.MINUTES) && process.exitValue() == 0) { "ffmpeg failed: $output" }
 }
 
 /** The test library: [VIDEOS] hard links to the clips, made in name order, so the first names use every clip once. */
@@ -595,9 +597,5 @@ private class M1Runner(private val trial: Boolean, private val environment: Map<
     private companion object {
         const val BIOS = "HKLM\\HARDWARE\\DESCRIPTION\\System\\BIOS"
         const val COOL_DOWN_MS = 60_000L
-
-        fun skyWingProcesses(): List<ProcessHandle> = ProcessHandle.allProcesses().filter { process ->
-            process.info().command().map { Path.of(it).fileName.toString().equals("SkyWing.exe", ignoreCase = true) }.orElse(false)
-        }.toList()
     }
 }

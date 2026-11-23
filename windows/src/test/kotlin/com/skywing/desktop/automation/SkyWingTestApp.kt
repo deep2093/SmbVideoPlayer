@@ -308,6 +308,14 @@ internal fun javaToolOptions(options: List<String>): String {
 internal fun wheelMessage(x: Int, y: Int, delta: Int): Pair<Long, Long> =
     ((delta.toLong() and 0xFFFF) shl 16) to ((x.toLong() and 0xFFFF) or ((y.toLong() and 0xFFFF) shl 16))
 
+/**
+ * WM_KEYDOWN's lParam for one press of the key with [scanCode]: repeat count 1 and the scan code. [extended] sets bit
+ * 24, which a keyboard sets for the arrow block's keys; without it the message describes the number pad's key with
+ * that scan code, which AWT may report as a different key code (VK_KP_LEFT).
+ */
+internal fun keyMessage(scanCode: Int, extended: Boolean): Long =
+    1L or (scanCode.toLong() shl 16) or (if (extended) 1L shl 24 else 0L)
+
 /** The few user32 calls needed to find and close SkyWing's windows. */
 internal object Win32 {
     @Suppress("FunctionName")
@@ -368,6 +376,11 @@ internal object Win32 {
     const val SCAN_F = 0x21
     const val VK_SHIFT = 0x10
     const val SCAN_SHIFT = 0x2A
+    /** The arrow block's keys, posted as extended keys ([postKey]). The player seeks 5 s back and 10 s forward. */
+    const val VK_LEFT = 0x25
+    const val SCAN_LEFT = 0x4B
+    const val VK_RIGHT = 0x27
+    const val SCAN_RIGHT = 0x4D
 
     /** (hwnd, owning pid) of every visible top-level window. */
     fun visibleWindows(): List<Pair<Long, Long>> {
@@ -408,9 +421,10 @@ internal object Win32 {
     /**
      * Posts one key press (down, then up) to [hwnd]'s message queue. It goes to that window only: no global input,
      * no focus change and no coordinates. Used for shortcuts that have no on-screen control (hidden full-screen chrome).
+     * [extended] for the arrow keys ([keyMessage]).
      */
-    fun postKey(hwnd: Long, virtualKey: Int, scanCode: Int) {
-        val down = 1L or (scanCode.toLong() shl 16)
+    fun postKey(hwnd: Long, virtualKey: Int, scanCode: Int, extended: Boolean = false) {
+        val down = keyMessage(scanCode, extended)
         user32.PostMessageW(Pointer(hwnd), WM_KEYDOWN, virtualKey.toLong(), down)
         user32.PostMessageW(Pointer(hwnd), WM_KEYUP, virtualKey.toLong(), down or 0xC0000000L)
     }
