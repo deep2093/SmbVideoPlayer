@@ -302,6 +302,13 @@ fun plan(inv: GpuInventory, monitorAdapter: Adapter, choice: GpuChoice, onBatter
 - **Report:** show the plan and its reason, e.g. "Hybrid · drawing on Intel Arc 140V · motion on NVIDIA RTX 5070 Ti · plugged in".
 
 ### 5.4 Display sync (fixed, G-SYNC, FreeSync, VRR)
+- **Owner decision, 23 November: keep VRR support, but take the G-SYNC / FreeSync switch out of the main controls.** Even pacing on a fixed screen is the baseline. VRR is an extra that the driver turns on.
+  - Today the "My screen uses G-SYNC / FreeSync" switch in Motion options changes only mpv's `video-sync` (`MotionRate.videoSync`). When it is on, mpv uses audio sync. When it is off, mpv uses `display-resample`, but only for a standard source rate whose target is within 1% of the refresh. The switch does not turn VRR on or off. The driver does that.
+  - The switch moves to one advanced option in Settings → Playback, "Let VRR control refresh (fullscreen)". It is **off** by default on every screen, with no default from the capability queries. It does what the switch does today. A choice saved with the old switch (`motion.vrr`) is kept.
+  - With the option off, SkyWing paces to the screen. It uses `display-resample` whenever the target is the refresh or a whole divisor of it (60 fps on 120 Hz; 48 or 60 fps on 240 Hz), not only when it is within 1% of the refresh. The first-use default is a stop that fits (B31). SkyWing does not write its own pacer: mpv measures the real refresh and locks frames to it. Measured rates (5.8 rule 10) stay on audio sync.
+  - Presentation stays flip model (`d3d11-flip=yes`, mpv's default and already true; see "Tearing safety" below).
+  - **Verify before shipping the new default.** Test on the laptop (240 Hz G-SYNC) and the Claw, with VRR on and off in the driver, in fullscreen and in a window. Check that the report shows whether VRR actually engages with SkyWing's embedded video window and its overlay windows (VRR active, 5.6). Check that `display-resample` does not fight a screen whose VRR is active: the measured refresh stays steady and there are no new drops. Check that nothing else breaks: no tearing, and fullscreen exit and Alt+Tab still work. If `display-resample` misbehaves under active VRR, use audio sync whenever VRR is reported active, whatever the option says.
+  - Why not drop VRR: fitting stops fix standard rates on a fixed screen, but not stops that don't fit (2×, 3× or 4× of 24 fps on 120 Hz), and not measured rates. Those use audio sync and judder on a fixed screen. VRR is what makes them smooth. Keeping it costs one option and the capability queries below.
 - **Detect per monitor:**
   - Refresh rate (mpv `display-fps`, cross-checked with `EnumDisplaySettingsW`).
   - VRR capability:
@@ -313,11 +320,11 @@ fun plan(inv: GpuInventory, monitorAdapter: Adapter, choice: GpuChoice, onBatter
     2. AMD and Intel: **verify** whether ADLX or Intel's IGCL cheaply reports adaptive sync as *active*. ADLX `IsEnabled` means switched on, not active.
     3. Otherwise report "unknown", for example on a hybrid laptop's built-in screen when it's wired to the integrated GPU, which NvAPI can't see. Unknown never means active.
   - **HDR on or off** for the monitor showing the video, with its bits per colour: `DisplayConfigGetDeviceInfo` with `DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO` (Windows 11 24H2 adds `_INFO_2`, with the active colour mode). Read it with the rest of the screen state, and **verify** that switching HDR on or off sends `WM_DISPLAYCHANGE`.
-- **Show:** Settings → Playback → "Screen", as "240 Hz · Variable refresh 48–240 Hz (detected)". Keep my manual override switch. Refresh this only when the monitor or mode changes (`WM_DISPLAYCHANGE`), **not** every second, which also fixes the start-up hitch in B6.
+- **Show:** Settings → Playback → "Screen", as "240 Hz · Variable refresh 48–240 Hz (detected)". My manual override switch becomes the advanced option above. Refresh this only when the monitor or mode changes (`WM_DISPLAYCHANGE`), **not** every second, which also fixes the start-up hitch in B6.
 - **Frame-rate stops (already built, keep them):** the four exact stops 2× / 2.5× / 3× / 4× with first use closest to 60 fps and stops above the refresh turned off. Changes only:
   - Refresh comes from the real current mode, never a 240 Hz guess (B30).
   - On a **fixed** screen, a stop that isn't a whole divisor of the refresh gets the note "May judder on this <N> Hz screen" and isn't the first-use default when a fitting stop exists (B31). No new "Match screen" option: the four stops stay the only choices.
-  - On a **VRR** screen, every stop inside the VRR range fits.
+  - On a **VRR** screen with "Let VRR control refresh" on, every stop inside the VRR range fits. With the option off, `annotate` gets `vrr = null` and treats the screen as fixed.
   ```kotlin
   /** Annotates the existing four stops; it never adds or removes a stop. */
   fun annotate(stops: List<MotionStop>, refreshHz: Double, vrr: VrrRange?): List<MotionStop> = stops.map { s ->
@@ -334,8 +341,8 @@ fun plan(inv: GpuInventory, monitorAdapter: Adapter, choice: GpuChoice, onBatter
   | Screen | `video-sync` | `interpolation` | Notes |
   |---|---|---|---|
   | Fixed, target = refresh or a divisor | `display-resample` | `no` with motion on; `yes` + `tscale=oversample` only for "Blend" (if kept) | Audio is resampled slightly to lock to the screen |
-  | VRR, fullscreen | `audio` | `no` | The screen follows the frame timing. Needs fullscreen or "windowed G-SYNC/FreeSync" in the driver |
-  | VRR, windowed | as fixed | | Many drivers only do VRR in fullscreen. Say so once in the status line |
+  | VRR option on, fullscreen | `audio` | `no` | The screen follows the frame timing. Needs fullscreen or "windowed G-SYNC/FreeSync" in the driver |
+  | VRR option on, windowed | as fixed | | Many drivers only do VRR in fullscreen. Say so once in the status line |
   | Below the VRR minimum (for example 24 fps on a 48–240 Hz screen) | `audio` | `no` | The driver's low-framerate compensation doubles frames |
 
 - **Tearing safety:** keep `d3d11-flip=yes` and the default sync interval. The `SKYWING_D3D11_COMPAT` trial must never become a default.
@@ -847,6 +854,7 @@ suspend fun animatedFullscreen(owner: Window, area: () -> Rectangle, change: () 
 - **Unit tests:**
   - GPU policy table (every row in 5.3).
   - Smoothing stops for fixed vs VRR screens, including 23.976, 25, 29.97, 60 Hz, 144 Hz, 240 Hz, VRR 48–240.
+  - VRR option (5.4): off by default, and a choice saved with the old switch is kept. With it off, a target that divides the refresh uses `display-resample`.
   - EDID range parsing with sample EDIDs (fixtures in `src/test/resources/edid/`).
   - SMB error mapping.
   - Settings navigation (reselect → list; Esc → list).

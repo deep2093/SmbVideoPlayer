@@ -22,7 +22,7 @@ You are continuing the SkyWing for Windows modernisation. The full brief is `win
 2. `LocalAdaptive` with `WidthClass` and `InputMode` (6.6). Width changes keep scroll position and focus.
 3. The app shell (6.4): rail 240 dp / 72 dp / top tabs by width; the new **Home** page (board "Desktop · Home").
 4. Folders and Videos grids restyled with the ↑/↓ sort menu (board "Compact · Folders").
-5. Settings two-pane with category list, search and breadcrumb, and the `go()` reselect fix (6.5, B1). The Playback page matches the board: GPU choice with the plan line, Screen and VRR, smoothing with the four stops, the **five**-level quality slider and the "Lower smoothing automatically" switch (off by default). Esc and the mouse back button go back.
+5. Settings two-pane with category list, search and breadcrumb, and the `go()` reselect fix (6.5, B1). The Playback page matches the board: GPU choice with the plan line, the Screen row, the advanced "Let VRR control refresh (fullscreen)" option (off by default, 5.4), smoothing with the four stops, the **five**-level quality slider and the "Lower smoothing automatically" switch (off by default). Esc and the mouse back button go back.
 6. Window size and position (6.8).
 7. Accessibility (6.9, B33): icon-button descriptions, selected state on rail/tab rows, names and values for switches, sliders and fields. Check with Compose semantics tests and once with Java Access Bridge on the packaged app.
 
