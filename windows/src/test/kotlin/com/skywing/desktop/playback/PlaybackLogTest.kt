@@ -28,23 +28,13 @@ class PlaybackLogTest {
         assertEquals("yes (Windows HDR on; source pq; mpv sends pq)", DisplayState.hdrEngaged(hdrOn, "pq", "pq", null, null).text)
     }
 
-    @Test fun vrrActiveIsNvidiasReadingOrSaysWhyItIsNotMeasured() {
-        val on = VrrCapability("\\\\.\\DISPLAY1", true, "NVIDIA: VRR possible", NvidiaVrr.parse(0x13))
-        assertEquals("yes", DisplayState.vrrActive(on).value)
-        assertTrue(DisplayState.vrrActive(on).reason!!.contains("display in VRR mode true"))
-        val off = on.copy(nvidia = NvidiaVrr.parse(0x02))
-        assertEquals("no", DisplayState.vrrActive(off).value)
-        assertEquals(ScreenReading("not measured", "only NVIDIA reports it; NVIDIA status -6"),
-            DisplayState.vrrActive(VrrCapability("\\\\.\\DISPLAY1", null, "NVIDIA status -6")))
-    }
-
     private fun sample(at: Long, frameDrops: Long = 0, cpuMs: Long = 0, fps: Double? = 48.0, paused: Boolean = false,
                        cache: Boolean = false, fullscreen: Boolean = true, seeks: Int = 0, restarts: Int = 0,
                        generations: Int = 1, age: Long? = 300, jitter: Double? = 0.01, focused: Boolean? = true) = PlaybackSample(
         atMillis = at, target = "48", outputFps = fps, counters = listOf(frameDrops, 0L, 2L, null),
         vsyncJitter = jitter, displayFps = 59.94, cpuNanos = cpuMs * 1_000_000, heartbeatAgeMillis = age,
         generations = generations, seeks = seeks, restarts = restarts, paused = paused, cacheWait = cache,
-        fullscreen = fullscreen, hdr = ScreenReading("no", "source is SDR (bt.1886)"), vrr = ScreenReading("not measured", "x"), refreshHz = 59.94,
+        fullscreen = fullscreen, hdr = ScreenReading("no", "source is SDR (bt.1886)"), refreshHz = 59.94,
         focused = focused)
 
     @Test fun samplesBecomeOneRowPerMinuteWithDeltasAndEvents() {
@@ -103,8 +93,8 @@ class PlaybackLogTest {
         assertEquals(PlaybackMinute.HEADER.split(',').size, row.csv().split(',').size)
         assertEquals("minute,seconds,target_fps,output_fps_mean,output_fps_min,frame_drops,decoder_drops,vo_delayed," +
             "mistimed,vsync_jitter_max,estimated_display_fps,cpu_cores,heartbeat_age_max_ms,graph_generations,seeks," +
-            "pauses,cache_waits,fullscreen_changes,recoveries,hdr_engaged,vrr_active,refresh_hz,focused", PlaybackMinute.HEADER)
-        assertEquals("1,60.0,48,48.00,48.00,0,0,0,,,59.940,1.00,300,0,0,0,0,0,0,no,not measured,59.94,yes", row.csv())
+            "pauses,cache_waits,fullscreen_changes,recoveries,hdr_engaged,refresh_hz,focused", PlaybackMinute.HEADER)
+        assertEquals("1,60.0,48,48.00,48.00,0,0,0,,,59.940,1.00,300,0,0,0,0,0,0,no,59.94,yes", row.csv())
         val unknown = mutableListOf<PlaybackMinute>()
         PlaybackMinutes(unknown::add).let { minutes -> for (i in 0..120) minutes.add(sample(i * 500L, focused = null)) }
         assertNull(unknown.single().focused, "Windows did not say which window has the focus")
@@ -137,9 +127,9 @@ class PlaybackLogTest {
         val log = PlaybackMinutes(rows::add)
         for (i in 0..240) log.add(sample(i * 500L, cpuMs = i * 500L))
         val table = PlaybackMinute.table(rows)
-        assertEquals("Minute  Seconds  Output fps (mean/min)  Drops (video/decoder/delayed/mistimed)  CPU cores  Heartbeat max  HDR  VRR  Focus", table.first())
+        assertEquals("Minute  Seconds  Output fps (mean/min)  Drops (video/decoder/delayed/mistimed)  CPU cores  Heartbeat max  HDR  Focus", table.first())
         assertEquals(3, table.size)
-        assertEquals("1       60       48.0/48.0              0/0/0/–                                 1.00       300 ms         no   not measured  yes", table[1])
+        assertEquals("1       60       48.0/48.0              0/0/0/–                                 1.00       300 ms         no   yes", table[1])
         assertEquals(listOf("No full minute of smoothing yet"), PlaybackMinute.table(emptyList()))
     }
 }

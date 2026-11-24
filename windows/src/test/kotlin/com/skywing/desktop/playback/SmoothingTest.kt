@@ -91,7 +91,8 @@ class SmoothingTest {
     @Test fun videoTypesKeepIndependentSettings() {
         val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
         try {
-            val store = MotionPreferences(node)
+            // No graphics card of its own, so an unsaved video type starts at Fast on any PC that runs this test.
+            val store = MotionPreferences(node) { false }
             assertFalse(store.lowerAutomatically)
             assertFalse(store.smoothAtScreenSize, "off until the owner has compared it by eye (plan 5.7 item 4)")
             store.smoothAtScreenSize = true
@@ -118,18 +119,25 @@ class SmoothingTest {
             MotionSettings(0, MotionQuality.FAST, MotionExperiment.POTPLAYER_LIKE).qualityLabel)
     }
 
-    /** Owner decision, 23 November: Fast is the default quality on every PC; a quality chosen for a video type is kept. */
-    @Test fun fastIsTheQualityUntilAVideoTypeSavesOne() {
+    /**
+     * Owner decisions: until a video type saves its own quality it starts at Fast (23 November), or at Balanced on a PC
+     * with a graphics card of its own (25 November). A quality chosen for a video type is kept.
+     */
+    @Test fun aVideoTypeStartsAtBalancedWithADedicatedGpuAndAtFastWithout() {
         val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
         try {
-            val store = MotionPreferences(node)
             assertEquals(MotionQuality.FAST, MotionSettings(0).quality)
-            assertEquals(MotionQuality.FAST, store.load("1080-sdr", 0).quality)
-            store.save("1080-sdr", MotionSettings(0, MotionQuality.BALANCED))
-            assertEquals(MotionQuality.BALANCED, store.load("1080-sdr", 0).quality)
-            assertEquals(MotionQuality.FAST, store.load("2160-sdr", 0).quality)
+            val integrated = MotionPreferences(node) { false }
+            assertEquals(MotionQuality.FAST, integrated.load("1080-sdr", 0).quality)
+            val dedicated = MotionPreferences(node) { true }
+            assertEquals(MotionQuality.BALANCED, dedicated.load("1080-sdr", 0).quality)
+            integrated.save("1080-sdr", MotionSettings(0, MotionQuality.BEST))
+            assertEquals(MotionQuality.BEST, dedicated.load("1080-sdr", 0).quality)
+            // A saved quality is used without looking at the GPUs.
+            assertEquals(MotionQuality.BEST, MotionPreferences(node) { error("the GPUs were looked at") }.load("1080-sdr", 0).quality)
             node.put("motion.1440-sdr.quality", "NOT-A-PRESET")
-            assertEquals(MotionQuality.FAST, store.load("1440-sdr", 0).quality)
+            assertEquals(MotionQuality.FAST, integrated.load("1440-sdr", 0).quality)
+            assertEquals(MotionQuality.BALANCED, dedicated.load("1440-sdr", 0).quality)
         } finally { node.removeNode() }
     }
 
@@ -176,19 +184,21 @@ class SmoothingTest {
         val health = SmoothingHealth()
         for (second in 0..20) assertFalse(health.sample(second * 1000L, 10000, true, 55.0, 100.0))
     }
-    @Test fun letVrrControlRefreshIsOffUntilChosenAndKeepsTheOldSwitchsChoice() {
-        // Owner decision (plan 5.4): off on every screen, with no default from the capability queries.
+    @Test fun letVrrControlRefreshFollowsTheScreenUntilChosenAndKeepsTheOldSwitchsChoice() {
+        // Owner decision (25 November): on where the screen can vary its refresh, off on every other screen.
         val node = java.util.prefs.Preferences.userRoot().node("skywing-vrr-test-" + java.util.UUID.randomUUID())
         try {
             val prefs = MotionPreferences(node)
-            assertFalse(prefs.vrr)
+            assertTrue(prefs.vrr(screenCanVary = true))
+            assertFalse(prefs.vrr(screenCanVary = false))
             assertNull(prefs.vrrOverride)
+            // A choice holds on every screen.
+            prefs.chooseVrr(false)
+            assertFalse(MotionPreferences(node).vrr(screenCanVary = true))
+            assertEquals(false, prefs.vrrOverride)
             // A choice saved with the old "My screen uses G-SYNC / FreeSync" switch is kept.
             node.put("motion.vrr", "true")
-            assertTrue(MotionPreferences(node).vrr)
-            prefs.vrr = false
-            assertFalse(MotionPreferences(node).vrr)
-            assertEquals(false, prefs.vrrOverride)
+            assertTrue(MotionPreferences(node).vrr(screenCanVary = false))
         } finally { node.removeNode() }
     }
     @Test fun anUnknownRefreshNeverAllowsStopsAboveSixtyHz() {

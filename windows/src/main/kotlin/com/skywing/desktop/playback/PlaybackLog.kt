@@ -30,15 +30,6 @@ internal object DisplayState {
             targetPeakNits?.takeIf { it.isFinite() && it > 0 }?.let { "peak " + String.format(Locale.ROOT, "%.0f", it) + " nits" })
         return ScreenReading("yes", "Windows HDR on; source $sourceGamma; mpv sends " + sends.joinToString(", "))
     }
-
-    /**
-     * VRR active, as NVIDIA reports it: nvapi.h says bIsVRREnabled is "VRR Mode is currently active on given display".
-     * Other GPUs report nothing, so it is "not measured" there.
-     */
-    fun vrrActive(capability: VrrCapability): ScreenReading {
-        val nvidia = capability.nvidia ?: return ScreenReading("not measured", "only NVIDIA reports it; " + capability.detail)
-        return ScreenReading(if (nvidia.enabled) "yes" else "no", nvidia.label)
-    }
 }
 
 /** One reading taken on the player worker each time smoothing is updated. Counters are mpv's running totals. */
@@ -62,7 +53,6 @@ internal data class PlaybackSample(
     val cacheWait: Boolean?,
     val fullscreen: Boolean,
     val hdr: ScreenReading,
-    val vrr: ScreenReading,
     val refreshHz: Double?,
     /** Whether SkyWing's window is the one in front; null when Windows did not say. */
     val focused: Boolean?,
@@ -87,7 +77,6 @@ internal data class PlaybackMinute(
     val fullscreenChanges: Int,
     val recoveries: Int,
     val hdr: ScreenReading,
-    val vrr: ScreenReading,
     val refreshHz: Double?,
     /** "yes" or "no" when SkyWing's window was in front all minute or never, "mixed" when it changed; null: unknown. */
     val focused: String?,
@@ -97,16 +86,16 @@ internal data class PlaybackMinute(
         *counters.map { it?.toString().orEmpty() }.toTypedArray(), format(vsyncJitterMax, 4), format(displayFps, 3),
         format(cpuCores, 2), heartbeatAgeMaxMillis?.toString().orEmpty(), generations.toString(), seeks.toString(),
         pauses.toString(), cacheWaits.toString(), fullscreenChanges.toString(), recoveries.toString(),
-        hdr.value, vrr.value, refreshHz?.let(ScreenSummary::hz).orEmpty(), focused.orEmpty(),
+        hdr.value, refreshHz?.let(ScreenSummary::hz).orEmpty(), focused.orEmpty(),
     ).joinToString(",", transform = ::quote)
 
     companion object {
         const val HEADER = "minute,seconds,target_fps,output_fps_mean,output_fps_min,frame_drops,decoder_drops," +
             "vo_delayed,mistimed,vsync_jitter_max,estimated_display_fps,cpu_cores,heartbeat_age_max_ms," +
-            "graph_generations,seeks,pauses,cache_waits,fullscreen_changes,recoveries,hdr_engaged,vrr_active,refresh_hz,focused"
+            "graph_generations,seeks,pauses,cache_waits,fullscreen_changes,recoveries,hdr_engaged,refresh_hz,focused"
 
         private val COLUMNS = listOf("Minute", "Seconds", "Output fps (mean/min)", "Drops (video/decoder/delayed/mistimed)",
-            "CPU cores", "Heartbeat max", "HDR", "VRR", "Focus")
+            "CPU cores", "Heartbeat max", "HDR", "Focus")
 
         /** The test report's table: a header line, then one line per minute. */
         fun table(rows: List<PlaybackMinute>): List<String> {
@@ -119,7 +108,7 @@ internal data class PlaybackMinute(
                     (format(row.outputFpsMean, 1) ?: "–") + "/" + (format(row.outputFpsMin, 1) ?: "–"),
                     row.counters.joinToString("/") { it?.toString() ?: "–" },
                     format(row.cpuCores, 2) ?: "–", row.heartbeatAgeMaxMillis?.let { "$it ms" } ?: "–",
-                    row.hdr.value, row.vrr.value, row.focused ?: "–"))
+                    row.hdr.value, row.focused ?: "–"))
             }
         }
 
@@ -185,7 +174,6 @@ internal class PlaybackMinutes(private val emit: (PlaybackMinute) -> Unit) {
             fullscreenChanges = changes({ it.fullscreen }),
             recoveries = last.restarts - first.restarts,
             hdr = last.hdr,
-            vrr = last.vrr,
             refreshHz = last.refreshHz,
             focused = samples.mapNotNull { it.focused }.distinct().let {
                 when (it.size) { 0 -> null; 1 -> if (it.single()) "yes" else "no"; else -> "mixed" }

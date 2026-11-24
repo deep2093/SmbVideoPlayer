@@ -21,6 +21,8 @@ internal data class DisplayPath(
     val targetAdapterLuid: Long = adapterLuid,
     /** The desktop's size on this screen (its source mode), in physical pixels; null when Windows did not say. */
     val desktop: PixelSize? = null,
+    /** How the screen is connected: DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY (5 HDMI, 10 DisplayPort, [VrrScreen.INTERNAL] built in); null when Windows did not say. */
+    val outputTechnology: Int? = null,
 )
 
 /**
@@ -99,14 +101,15 @@ internal object DisplayPaths {
             header(name, GET_SOURCE_NAME, sourceAdapter, sourceId)
             if (api.DisplayConfigGetDeviceInfo(name) == 0) name.getWideString(20) else null
         } ?: return null
-        // DISPLAYCONFIG_TARGET_DEVICE_NAME: header (20), flags, outputTechnology, EDID IDs, connectorInstance,
+        // DISPLAYCONFIG_TARGET_DEVICE_NAME: header (20), flags (20), outputTechnology (24), EDID IDs, connectorInstance,
         // monitorFriendlyDeviceName WCHAR[64] at 36, monitorDevicePath WCHAR[128] at 164.
-        val (friendly, device) = Memory(420).use { name ->
+        val (friendly, device, link) = Memory(420).use { name ->
             header(name, GET_TARGET_NAME, targetAdapter, targetId)
-            if (api.DisplayConfigGetDeviceInfo(name) == 0) name.getWideString(36) to name.getWideString(164) else "" to ""
+            if (api.DisplayConfigGetDeviceInfo(name) == 0) Triple(name.getWideString(36), name.getWideString(164), name.getInt(24))
+            else Triple("", "", null)
         }
         return DisplayPath(gdi, sourceAdapter, targetId,
-            if (numerator > 0 && denominator > 0) numerator / denominator else null, friendly, device, targetAdapter, desktop)
+            if (numerator > 0 && denominator > 0) numerator / denominator else null, friendly, device, targetAdapter, desktop, link)
     }
 
     /**

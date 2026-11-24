@@ -23,7 +23,7 @@ every check short (3 full-screen rounds, 2 stress rounds of 6 steps, a 4-minute 
 SkyWing.
 
 Every check plays generated clips (`testsrc2` with a tone, 1080p at 23.976 fps, H.264), so the results hold no file
-names. Smoothing is on at 2× in the default quality (Fast), with "Lower automatically" off, as in the M0 runs.
+names. Smoothing is on at 2× in Fast quality on every PC, with "Lower automatically" off, as in the M0 runs.
 
 ## Verdicts
 

@@ -24,14 +24,14 @@ You are continuing the SkyWing for Windows modernisation. The full brief is `win
 4. **Controller (8.1):** XInput at 60 Hz only while focused, button map, focus ring, hints bar.
 5. **Handheld mode and power (8.1)**, Performance settings page as in the board; smoothing defaults from M0 results.
 
-Test target: on both handhelds every text box brings up the keyboard and stays visible; the app is usable with touch only and with the controller only.
+Test target: on the Claw (it stands in for both handhelds) every text box brings up the keyboard and stays visible; the app is usable with touch only and with the controller only.
 
 ---
 
 **When this milestone is done** (and not before), stop and report, as `AGENTS.md` asks:
 - What changed: 3–6 plain bullets, and the changed files.
 - Tests run and their results; what wasn't tested and why.
-- What I should test by hand, and on which machine (laptop RTX 5070 Ti / MSI Claw 8 / OneXPlayer 3 with Intel Arc B390).
+- What I should test by hand, and on which machine (laptop RTX 5070 Ti / MSI Claw 8). No OneXPlayer 3 runs: the Claw stands in for both handhelds (owner, 25 November).
 - Numbers where they apply (frame time p95, start time, memory, drops per minute, CPU cores, scan time: before → after).
 - Commit IDs, remaining risks, and anything you couldn't do and why.
 

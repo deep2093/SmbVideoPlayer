@@ -27,6 +27,8 @@ You are working on **SkyWing for Windows**, the PC port of my Android video play
 
 The handhelds also have built-in game controllers and usually **no physical keyboard**.
 
+*Changed 25 November (owner):* no test runs on the OneXPlayer 3 in M2 or any later milestone. The owner judges the two handhelds very close, so a pass on the MSI Claw 8 stands for both. Wherever this plan asks for a test on the OneXPlayer 3 or on both handhelds, run it on the Claw only. SkyWing must still run on the OneXPlayer 3.
+
 **Beyond my machines:** the app must run on most Windows x64 PCs: NVIDIA, AMD and Intel, dedicated or integrated, old or new, with or without OpenCL. Section 5.8 is the compatibility matrix. A missing feature on some GPU must switch that feature off with a plain reason, never crash or block playback.
 
 ---
@@ -304,7 +306,7 @@ fun plan(inv: GpuInventory, monitorAdapter: Adapter, choice: GpuChoice, onBatter
 ### 5.4 Display sync (fixed, G-SYNC, FreeSync, VRR)
 - **Owner decision, 23 November: keep VRR support, but take the G-SYNC / FreeSync switch out of the main controls.** Even pacing on a fixed screen is the baseline. VRR is an extra that the driver turns on.
   - Today the "My screen uses G-SYNC / FreeSync" switch in Motion options changes only mpv's `video-sync` (`MotionRate.videoSync`). When it is on, mpv uses audio sync. When it is off, mpv uses `display-resample`, but only for a standard source rate whose target is within 1% of the refresh. The switch does not turn VRR on or off. The driver does that.
-  - The switch moves to one advanced option in Settings → Playback, "Let VRR control refresh (fullscreen)". It is **off** by default on every screen, with no default from the capability queries. It does what the switch does today. A choice saved with the old switch (`motion.vrr`) is kept.
+  - The switch moves to one advanced option in Settings → Playback, "Let VRR control refresh (fullscreen)". It is **off** by default on every screen, with no default from the capability queries. It does what the switch does today. A choice saved with the old switch (`motion.vrr`) is kept. *Changed 25 November (owner):* on by default where the screen can vary its refresh, off on every other screen (`MOTION-ENGINE.md`).
   - With the option off, SkyWing paces to the screen. It uses `display-resample` whenever the target is the refresh or a whole divisor of it (60 fps on 120 Hz; 48 or 60 fps on 240 Hz), not only when it is within 1% of the refresh. The first-use default is a stop that fits (B31). SkyWing does not write its own pacer: mpv measures the real refresh and locks frames to it. Measured rates (5.8 rule 10) stay on audio sync.
   - Presentation stays flip model (`d3d11-flip=yes`, mpv's default and already true; see "Tearing safety" below).
   - **Verify before shipping the new default.** Test on the laptop (240 Hz G-SYNC) and the Claw, with VRR on and off in the driver, in fullscreen and in a window. Check that the report shows whether VRR actually engages with SkyWing's embedded video window and its overlay windows (VRR active, 5.6). Check that `display-resample` does not fight a screen whose VRR is active: the measured refresh stays steady and there are no new drops. Check that nothing else breaks: no tearing, and fullscreen exit and Alt+Tab still work. If `display-resample` misbehaves under active VRR, use audio sync whenever VRR is reported active, whatever the option says.
@@ -363,7 +365,7 @@ fun plan(inv: GpuInventory, monitorAdapter: Adapter, choice: GpuChoice, onBatter
   - **Verify** which costs less: running PresentMon (MIT licence; downloading it needs my OK, shipping it needs its notice) next to `--bench`, or reading the events in the app.
 - **"Copy test report"** in the playback report: build, runtime and sharing state, GPU plan, screen, HDR and VRR state, and the per-minute table.
 - **`verify.ps1`** adds the display state, and the frame times when measured, to its report. Its "Not covered by automation" list then keeps only the display checks no reading can make: how HDR looks and how smooth playback feels.
-- **Benchmark mode** (hidden, `--bench <file> --minutes 10 --quality Balanced --stop 2x`): plays fullscreen from a fixed start time and writes the CSV, so laptop, Claw and OneXPlayer runs are comparable.
+- **Benchmark mode** (hidden, `--bench <file> --minutes 10 --quality Balanced --stop 2x`): plays fullscreen from a fixed start time and writes the CSV, so laptop and Claw runs are comparable.
 
 ### 5.7 Making smoothing cheaper (experiments, not promises)
 The profile shows the full-resolution motion search is about 70% of the analysis work, with colour (chroma) scoring a big part of it, and SkyWing Balanced uses about 2.3 CPU cores against PotPlayer's 1.3 on Intel.
@@ -379,7 +381,7 @@ The profile shows the full-resolution motion search is about 70% of the analysis
    - The playback report adds "Smoothing size: 1920 × 1080 (screen 1920 × 1200)".
    - Off by default. The owner compares it by eye on the Claw at 4K Fast and Balanced. If it looks the same, it becomes on by default. Measure process CPU and battery drain with the handheld runner; the M0 rows are the "before".
    - Tests: the fit size for 4K, 1080p and portrait video on 1920 × 1200, 2560 × 1600, 3840 × 2160, 1366 × 768 and 3440 × 1440 screens; a native test that a 4K source on a 1920 × 1200 screen is smoothed at 1920 × 1080 with exact frame times.
-5. **Efficiency floor (owner runs, no code):** on the Claw, 1080p Fast on battery with MSI's limit at 20 W and then 15 W, in Windows Best performance. Then repeat the lowest limit that kept 0 drops in Windows Balanced. M0 measured 14.2 W of battery drain at 30 W and Best performance. Then do the same on the OneXPlayer 3.
+5. **Efficiency floor (owner runs, no code):** on the Claw, 1080p Fast on battery with MSI's limit at 20 W and then 15 W, in Windows Best performance. Then repeat the lowest limit that kept 0 drops in Windows Balanced. M0 measured 14.2 W of battery drain at 30 W and Best performance. ~~Then do the same on the OneXPlayer 3.~~ *Dropped 25 November (owner): the Claw stands in for both handhelds.*
    - Use the handheld runner one run at a time: move the old `…-1080p-fast-battery` folder out of `results`, and the runner redoes only that run (about 7 minutes).
    - Keep the screen brightness the same for every run, because the runner's `Battery:` line is the whole device's draw. The runner records the Windows power mode but not MSI's limit, so name each run's folder after its limit.
    - Record the rows in M0-RESULTS section 4.
@@ -412,7 +414,7 @@ Detect capabilities at start-up (DXGI adapter + a one-off mpv probe of `hwdec-in
 | Any other GPU: other vendors (Moore Threads, Zhaoxin and similar) and virtual machines (Hyper-V, VMware, VirtualBox, Parallels) | D3D11 if the probe finds it, else `d3d11-warp=auto` | What the probe finds | Only if an OpenCL device is found | Off by default; allowed, with "Not tested on this graphics chip" |
 | No driver / Microsoft Basic Render / remote desktop | `d3d11-warp=auto` (software) | None (`hwdec=no`) | No | Off, with "Install your graphics driver for smooth playback" |
 
-The "Default smoothing" column only sets the first-use **quality** and the resolution above which a "may struggle on this graphics chip" note appears. The frame-rate stop keeps the existing first-use rule (closest to 60 fps), and the user's choices per video class always win.
+The "Default smoothing" column only sets the first-use **quality** and the resolution above which a "may struggle on this graphics chip" note appears. The frame-rate stop keeps the existing first-use rule (closest to 60 fps), and the user's choices per video class always win. *Changed 25 November (owner):* built short and name-based in `GpuFamily` (see `MOTION-ENGINE.md`): three groups, one note each, and no device-ID tables; the first-use quality follows the Balanced/Fast rule instead of this column.
 
 **Rules that make this work everywhere:**
 1. **Start-up probe, not vendor names:** pick features by what the probe says the device supports. Never assume from the brand.
@@ -764,7 +766,7 @@ It shows the first failing step with one suggestion, e.g. "Your Wi-Fi is on 192.
 4. **When to hide:** focus leaves all text fields (wait 150 ms, so moving from Username to Password keeps it open), the dialog closes, or Enter submits.
 5. **Keep the field visible:** subscribe to `InputPane` `Showing` / `Hiding` (`OccludedRect`), or poll `IFrameworkInputPane::Location` every 200 ms while a field is focused. Add a bottom inset equal to the covered height, animate it 200 ms, and call `bringIntoView` on the focused field. Dialogs (Add drive, rename) move up so their buttons stay above the keyboard.
 6. **Enter key:** each field declares its action: Search (search boxes), Next (moves to the next field), Done (submits). Handle Enter ourselves.
-7. **Fullscreen player:** the keyboard can't show over an exclusive-like borderless fullscreen in some builds. If a field is focused in the player (track search), drop to windowed chrome first or show the field in a small overlay window that the keyboard can sit under (**verify** on the OneXPlayer 3).
+7. **Fullscreen player:** the keyboard can't show over an exclusive-like borderless fullscreen in some builds. If a field is focused in the player (track search), drop to windowed chrome first or show the field in a small overlay window that the keyboard can sit under (**verify** on the Claw).
 8. **Controller-only typing:** the Windows touch keyboard can't always be driven by a gamepad (**verify** on both handhelds). If not, add a simple **SkyWing on-screen keyboard** for controller use only: a QWERTY grid, D-pad moves, A types, X deletes, Y space, Start done, plus recent searches as chips.
 9. **Setting:** Settings → Controls → "Show touch keyboard": Automatic (default) / Always / Never.
 10. **Test:** on both handhelds, tap search, drive address, username, password and rename: the keyboard appears every time, the field stays visible, Username → Password keeps it open, closing the dialog hides it.
@@ -1062,7 +1064,7 @@ Do these after P7, in this order. The first three come first because I'd notice 
 
 For each phase:
 - **What changed:** 3–6 plain bullets.
-- **What to test on which machine:** laptop / Claw / OneXPlayer.
+- **What to test on which machine:** laptop / Claw (no OneXPlayer 3 runs; the Claw stands in for both handhelds).
 - **Numbers:** frame time p95, start time, memory, playback drops (before → after).
 - **Commit IDs.**
 - **Anything you couldn't do, and why.**

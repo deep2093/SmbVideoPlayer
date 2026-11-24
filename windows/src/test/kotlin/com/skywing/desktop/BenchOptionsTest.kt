@@ -43,4 +43,30 @@ class BenchOptionsTest {
         assertEquals("Unknown experiment 'mvtools': use PotPlayer-like", error("--bench", "a.mkv", "--experiment", "mvtools"))
         assertEquals("--screen-size must be on or off", error("--bench", "a.mkv", "--screen-size", "yes"))
     }
+
+    /** PresentMon writes NA for a displayed frame with no earlier one to measure from; the summary skips it (owner's Claw run). */
+    @Test fun benchScriptSummarySkipsAFrameWithoutATimeSinceTheLastOne() {
+        val folder = kotlin.io.path.createTempDirectory("skywing-presentmon").toFile()
+        try {
+            val csv = File(folder, "presentmon.csv")
+            csv.writeText(buildString {
+                appendLine("Application,ProcessID,SwapChainAddress,Runtime,SyncInterval,PresentFlags,Dropped,TimeInSeconds,msInPresentAPI," +
+                    "msBetweenPresents,AllowsTearing,PresentMode,msUntilRenderComplete,msUntilDisplayed,msBetweenDisplayChange")
+                for (i in 0..90) {
+                    val between = if (i == 0) "NA" else "11.111"
+                    appendLine("SkyWing.exe,1,0x1,DXGI,1,0,0,${String.format(java.util.Locale.ROOT, "%.5f", i / 90.0)},0.1,11.111,0," +
+                        "Hardware: Independent Flip,1.0,5.0,$between")
+                }
+            })
+            val script = listOf(File("tools/bench.ps1"), File("windows/tools/bench.ps1")).first { it.isFile }
+            val process = ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+                script.absolutePath, "-PresentMonCsv", csv.path, "-Minutes", "1").redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().readText()
+            kotlin.test.assertTrue(process.waitFor(60, java.util.concurrent.TimeUnit.SECONDS), output)
+            assertEquals(0, process.exitValue(), output)
+            kotlin.test.assertTrue("91 presents, 91 displayed, 0 not displayed" in output, output)
+            kotlin.test.assertTrue("median 11.11 ms" in output, output)
+            kotlin.test.assertTrue("Present mode: Hardware: Independent Flip 100.0%" in output, output)
+        } finally { folder.deleteRecursively() }
+    }
 }
