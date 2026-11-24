@@ -305,13 +305,18 @@ private fun SkyWingDesktopShell(
     val hub = remember { HubState() }
     val selection = remember { SelectionState() }
     val filesBack = remember { mutableStateOf<(() -> Boolean)?>(null) }
+    // What Back does inside Settings (one pane: back to the list); Settings chosen again does the same (B1).
+    val settingsBack = remember { mutableStateOf<(() -> Boolean)?>(null) }
     // Read off the screen thread (B8). The pages keep the last history until the new one is read.
     val history by produceState(emptyMap<String, WindowsWatchRecord>(), historyRevision) {
         value = withContext(Dispatchers.IO) { historyStore.load().associateBy { it.path.lowercase() } }
     }
 
     fun go(section: String) {
-        if (section == selected) return
+        if (section == selected) {
+            if (section == SETTINGS) settingsBack.value?.invoke()
+            return
+        }
         // Leaving the player pauses the video; Now playing in the navigation brings it back.
         if (selected == "Now Playing") {
             embedded.pause()
@@ -326,6 +331,7 @@ private fun SkyWingDesktopShell(
         when {
             selected == "Folders" && hub.navigateBack(organizer.data) -> Unit
             selected == "Files" && filesBack.value?.invoke() == true -> Unit
+            selected == SETTINGS && settingsBack.value?.invoke() == true -> Unit
             selected == "Now Playing" -> go(previous)
             selected != previous -> go(previous)
         }
@@ -510,6 +516,9 @@ private fun SkyWingDesktopShell(
                 // Escape must work even when a text field or a slider owns focus.
                 currentFullscreenChange(false)
                 true
+            } else if (event.keyCode == KeyEvent.VK_ESCAPE && currentSection == SETTINGS && settingsBack.value?.invoke() == true) {
+                // Esc leaves a Settings page for the list when the list is hidden (M3 design brief 5.6).
+                true
             } else if (event.keyCode == KeyEvent.VK_F12 && event.isControlDown && event.isShiftDown && !event.isAltDown) {
                 PerfMonitor.toggleOverlay()
                 true
@@ -608,7 +617,7 @@ private fun SkyWingDesktopShell(
                                 "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it }) { go("Files") }
                                 "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
                                 else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,
-                                    smoothingMode, smoothingStatus, ::selectSmoothing) { go("Files") }
+                                    smoothingMode, smoothingStatus, ::selectSmoothing, { settingsBack.value = it }) { go("Files") }
                             } }
                         }
                     }

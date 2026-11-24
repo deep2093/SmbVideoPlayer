@@ -5,6 +5,12 @@ import com.skywing.desktop.playback.SmoothingMode
 import com.skywing.desktop.playback.SmoothingStatus
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.Color
+import com.skywing.desktop.ui.adaptive.LocalAdaptive
+import com.skywing.desktop.ui.theme.SkyRadius
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -47,8 +53,20 @@ import androidx.compose.ui.unit.dp
 
 private class SettingsPage(val title: String, val subtitle: String, val icon: SkyIcon)
 
+/** Which Settings page is open, and what Back does to it (M3 design brief 5.6). */
+internal class SettingsNavigation {
+    var open by mutableStateOf<String?>(null)
+
+    /** Back inside Settings: closes the open page when the list is hidden; true when it did, false to leave it to the shell. */
+    fun back(listShown: Boolean): Boolean {
+        if (listShown || open == null) return false
+        open = null
+        return true
+    }
+}
+
 private val PAGES = listOf(
-    SettingsPage("Appearance", "Glass theme", SkyIcon.Palette),
+    SettingsPage("Appearance", "Theme and colours", SkyIcon.Palette),
     SettingsPage("Library", "Sources and what is indexed", SkyIcon.VideoLibrary),
     SettingsPage("Sync & scanning", "Automatic rescan and library scan", SkyIcon.Refresh),
     SettingsPage("Auto grouping", "How file names become folders", SkyIcon.Grid),
@@ -59,8 +77,9 @@ private val PAGES = listOf(
 )
 
 /**
- * Settings as a short list of categories; each opens as its own page that slides in with a back arrow,
- * the same as Settings on Android.
+ * Settings (M3 design brief 5.6, decision O1). From 900 dp the category list stays at the left and the chosen page
+ * shows beside it. Narrower, the list is a page of its own and each category slides in with a back arrow; Back,
+ * Esc, the mouse back button and Settings again return to the list through [onBackHandler].
  */
 @Composable
 internal fun SettingsScreen(
@@ -73,9 +92,60 @@ internal fun SettingsScreen(
     smoothingMode: SmoothingMode,
     smoothingStatus: SmoothingStatus,
     onSmoothingMode: (SmoothingMode) -> Unit,
+    /** Receives what Back does here: closes the open page when the list is hidden, and says whether it did. */
+    onBackHandler: ((() -> Boolean)?) -> Unit = {},
     onOpenFiles: () -> Unit,
 ) {
-    var open by remember { mutableStateOf<String?>(null) }
+    val adaptive = LocalAdaptive.current
+    val twoPanes = adaptive.settingsTwoPanes
+    val nav = remember { SettingsNavigation() }
+    var open by nav::open
+    val listShown by rememberUpdatedState(twoPanes)
+    DisposableEffect(nav) {
+        onBackHandler { nav.back(listShown) }
+        onDispose { onBackHandler(null) }
+    }
+    val pageContent: @Composable (String) -> Unit = { page ->
+        val scroll = rememberScrollState()
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().padding(end = 14.dp).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                when (page) {
+                    "Appearance" -> AppearancePage(current, onTheme)
+                    "Library" -> LibraryPage(library, organizer, onOpenFiles)
+                    "Auto grouping" -> GroupingPage(organizer)
+                    "App layout" -> LayoutPage(organizer)
+                    "Artwork" -> ArtworkPage(library, organizer, portraits)
+                    "Sync & scanning" -> SyncPage(library, sync)
+                    "Playback" -> PlaybackPage(smoothingMode, smoothingStatus, onSmoothingMode)
+                    else -> AboutPage()
+                }
+            }
+            ColumnScrollbar(scroll, Modifier.align(Alignment.CenterEnd))
+        }
+    }
+    if (twoPanes) {
+        val shown = open ?: PAGES.first().title
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(adaptive.pagePadding)) {
+            val scroll = rememberScrollState()
+            Column(
+                Modifier.width(adaptive.settingsListWidth).fillMaxHeight().verticalScroll(scroll),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                PageTitle("Settings", modifier = Modifier.padding(bottom = 12.dp))
+                PAGES.forEach { entry ->
+                    SettingsListEntry(entry.icon, entry.title, entry.title == shown) { open = entry.title }
+                }
+            }
+            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                PageTitle(shown)
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    // A page's own state (its scroll) starts again when another category is chosen.
+                    androidx.compose.runtime.key(shown) { pageContent(shown) }
+                }
+            }
+        }
+        return
+    }
     AnimatedContent(
         targetState = open,
         modifier = Modifier.fillMaxSize(),
@@ -104,24 +174,26 @@ internal fun SettingsScreen(
                     SkyIconButton(SkyIcon.Back, "Back to Settings", { open = null })
                     PageTitle(page)
                 }
-                val scroll = rememberScrollState()
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    Column(Modifier.fillMaxSize().padding(end = 14.dp).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        when (page) {
-                            "Appearance" -> AppearancePage(current, onTheme)
-                            "Library" -> LibraryPage(library, organizer, onOpenFiles)
-                            "Auto grouping" -> GroupingPage(organizer)
-                            "App layout" -> LayoutPage(organizer)
-                            "Artwork" -> ArtworkPage(library, organizer, portraits)
-                            "Sync & scanning" -> SyncPage(library, sync)
-                            "Playback" -> PlaybackPage(smoothingMode, smoothingStatus, onSmoothingMode)
-                            else -> AboutPage()
-                        }
-                    }
-                    ColumnScrollbar(scroll, Modifier.align(Alignment.CenterEnd))
-                }
+                Box(Modifier.weight(1f).fillMaxWidth()) { pageContent(page) }
             }
         }
+    }
+}
+
+/** One category in the two-pane list: icon and name, the open one with the accent at 16 %. */
+@Composable
+private fun SettingsListEntry(icon: SkyIcon, title: String, selected: Boolean, onClick: () -> Unit) {
+    val c = LocalSkyTheme.current.colors
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = LocalAdaptive.current.rowHeight).clip(RoundedCornerShape(SkyRadius.control))
+            .background(if (selected) c.accentSubtle else Color.Transparent)
+            .skyClickable(onClick, role = Role.Button).semantics { this.selected = selected }
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SkyIconView(icon, if (selected) c.accent else c.textSecondary, size = 20.dp)
+        Text(title, color = c.text, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
     }
 }
 
