@@ -35,15 +35,12 @@ import kotlinx.coroutines.withContext
  * top to bottom with a scroll bar. Holding a card (or a right click) opens its options; Select ticks several.
  */
 
-private fun shareRootOf(path: String): String? {
-    if (!path.startsWith("\\\\")) return null
-    val parts = path.removePrefix("\\\\").split('\\')
-    return if (parts.size >= 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) "\\\\" + parts[0] + "\\" + parts[1] else null
-}
-
 private fun plural(count: Int, one: String, many: String = one + "s") = "$count ${if (count == 1) one else many}"
 
 private fun leafOf(path: String) = path.trimEnd('\\').substringAfterLast('\\').ifBlank { path }
+
+/** Where the folders added under This PC are kept between pages, while the store is read again. */
+private const val LOCAL_ROOTS = "local-roots"
 
 /**
  * Work that can take a moment on a big library runs off the screen thread. The last result is kept in [hub] under
@@ -261,11 +258,12 @@ internal fun FoldersScreen(
     LaunchedEffect(tabs) { if (hub.tab !in tabs) hub.tab = tabs.first() }
 
     // The places added in Files: folders on this PC and network shares. The folder choosers start there.
-    val localRoots = remember(library.revision) { runCatching { LocalFolderStore().load() }.getOrDefault(emptyList()) }
-    val shareRoots = remember(library.all) {
-        library.all.filter { it.sourceType == "SMB" }.mapNotNull { shareRootOf(it.path) }.distinctBy { it.lowercase() }
+    // Read off the screen thread (B8): the store asks Windows for each folder's drive type.
+    val localRoots by produceState(hub.lastResult<List<String>>(LOCAL_ROOTS) ?: emptyList(), library.revision) {
+        value = withContext(Dispatchers.IO) { runCatching { LocalFolderStore().load() }.getOrDefault(emptyList()) }
+            .also { hub.keepResult(LOCAL_ROOTS, it) }
     }
-    val roots = remember(localRoots, shareRoots) { localRoots + shareRoots }
+    val roots = remember(localRoots, library.shareRoots) { localRoots + library.shareRoots }
     val dialogs = remember { FolderDialogs() }
     val data = organizer.data
     val members = computed(hub, "members", data.own, data.match, data.sets, library.all) {
@@ -292,6 +290,7 @@ internal fun FoldersScreen(
                 PageTitle(
                     "Folders",
                     when {
+                        library.notice != null -> library.notice!!
                         library.loading -> "Loading your library…"
                         library.all.isEmpty() -> "Add folders or a network share in Files"
                         else -> plural(library.all.size, "video")
@@ -835,13 +834,20 @@ private fun SetPage(f: Folders) {
     }
     val children = f.data.sets.filter { it.parentId == set.id }.sortedBy { it.name.lowercase(Locale.ROOT) }
     val videos = f.members?.sets?.get(set.id).orEmpty()
-    val directVideos = FolderLogic.members(set.directFolders, set.directFiles, f.library.all)
-    val directPaths = directVideos.map { it.path.lowercase(Locale.ROOT) }.toSet()
-    val directSingles = FolderLogic.members(emptyList(), set.directFiles, f.library.all)
-    val directFolders = set.directFolders.map { path -> path to FolderLogic.members(listOf(path), emptyList(), f.library.all) }
+    val direct = computed(f.hub, "set-direct:" + set.id, set.directFolders, set.directFiles, f.library.all) {
+        val all = f.library.all
+        Triple(
+            FolderLogic.members(set.directFolders, set.directFiles, all).map { it.path.lowercase(Locale.ROOT) }.toSet(),
+            FolderLogic.members(emptyList(), set.directFiles, all),
+            set.directFolders.map { path -> path to FolderLogic.members(listOf(path), emptyList(), all) },
+        )
+    }
+    val directPaths = direct?.first.orEmpty()
+    val directSingles = direct?.second.orEmpty()
+    val directFolders = direct?.third.orEmpty()
     val prefs = f.prefs
     val assignments = f.data.assignments
-    val groups = computed(f.hub, "set:" + set.id, set, videos, prefs.virtualRules, assignments, prefs.sort, prefs.descending) {
+    val groups = computed(f.hub, "set:" + set.id, set, videos, directPaths, prefs.virtualRules, assignments, prefs.sort, prefs.descending) {
         FolderLogic.sorted(FolderLogic.buildGroups(set, videos.filterNot { it.path.lowercase(Locale.ROOT) in directPaths }, prefs.virtualRules, assignments), prefs.sort, prefs.descending)
     }
     val group = f.hub.setGroup
@@ -964,7 +970,7 @@ private fun SetPage(f: Folders) {
         when {
             set.isEmpty && children.isEmpty() ->
                 EmptyAction("Nothing here yet", "Choose the folders and videos this virtual folder reads.", "Choose folders and files") { f.chooseSet(set) }
-            !set.isEmpty && groups != null && groups.isEmpty() && children.isEmpty() && directFolders.isEmpty() && directSingles.isEmpty() && f.members != null ->
+            !set.isEmpty && groups != null && direct != null && groups.isEmpty() && children.isEmpty() && directFolders.isEmpty() && directSingles.isEmpty() && f.members != null ->
                 EmptyAction(
                     "No videos found yet",
                     "Subfolders appear once the chosen folders are in your library. Scan them again in Files if something is missing.",
@@ -1015,16 +1021,15 @@ private fun physicalTile(
 @Composable
 private fun PhysicalFolderPage(f: Folders, path: String, onBack: () -> Unit, onOpen: (String) -> Unit) {
     val page = "orig:" + path.lowercase(Locale.ROOT)
-    val files = remember(f.library.all) { f.library.all.map { File(it.path) } }
-    val byPath = remember(f.library.all) { f.library.all.associateBy { it.path.lowercase(Locale.ROOT) } }
-    val content = computed(f.hub, "orig:" + path.lowercase(Locale.ROOT), path, files, f.roots) {
-        val contents = localOriginalFolderContents(f.roots, File(path), files)
-        val subs = contents.folders.map { it.absolutePath to FolderLogic.members(listOf(it.absolutePath), emptyList(), f.library.all) }
-        subs to contents.videos.mapNotNull { byPath[it.path.lowercase(Locale.ROOT)] }
+    val content = computed(f.hub, "orig:" + path.lowercase(Locale.ROOT), path, f.library.all, f.roots) {
+        val all = f.library.all
+        val contents = localOriginalFolderContents(f.roots, File(path), all.map { File(it.path) })
+        val subs = contents.folders.map { it.absolutePath to FolderLogic.members(listOf(it.absolutePath), emptyList(), all) }
+        Triple(subs, contents.videos.mapNotNull { f.library.byPath[it.path.lowercase(Locale.ROOT)] }, FolderLogic.members(listOf(path), emptyList(), all))
     }
     val subs = content?.first.orEmpty().filter { f.matches(leafOf(it.first)) }
     val videos = content?.second.orEmpty().filter { f.matches(it.file.name) }
-    val everything = remember(content) { FolderLogic.members(listOf(path), emptyList(), f.library.all) }
+    val everything = content?.third.orEmpty()
     val tiles: List<Tile> = buildList {
         if (subs.isNotEmpty() && videos.isNotEmpty()) add(LabelTile("label:folders", "Folders"))
         subs.forEach { (sub, members) ->

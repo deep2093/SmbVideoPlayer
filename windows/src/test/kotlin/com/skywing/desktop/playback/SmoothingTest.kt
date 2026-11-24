@@ -4,48 +4,80 @@ import org.junit.Test
 import kotlin.test.*
 
 class SmoothingTest {
-    private fun caps(hz: Double = 60.0, fps: Double = 24.0) = SmoothingCapabilities(hz, fps, true, true)
-
-    @Test fun pcResolutionsHaveNoMobileLimitAndVrrNeverEnablesBlending() {
-        listOf(2560 to 1440, 3840 to 2160, 4096 to 2160).forEach { (w, h) ->
-            val pc = caps(240.0).copy(width = w, height = h)
-            assertTrue(pc.decision(SmoothingMode.AUTO).enabled)
-            assertEquals("$w × $h", pc.resolution)
-            assertFalse(pc.decision(SmoothingMode.VRR).enabled)
-            assertNull(pc.unavailable(SmoothingMode.VRR))
+    @Test fun retiredModesMigrateToOff() {
+        assertEquals(SmoothingMode.MOTION, SmoothingMode.parse("MOTION"))
+        listOf(null, "OFF", "AUTO", "VRR", "FPS_60", "FPS_75", "FPS_90", "FPS_120", "unknown").forEach {
+            assertEquals(SmoothingMode.OFF, SmoothingMode.parse(it))
         }
-        assertFalse(SmoothingCapabilities(hdrVideo = true).decision(SmoothingMode.VRR).enabled)
-        assertEquals(SmoothingMode.VRR, SmoothingMode.parse("VRR"))
+    }
+    @Test fun exactStopsDefaultsAndDisplayLimits() {
+        val film = MotionRate(24000, 1001)
+        assertEquals(MotionRate(60000, 1001), MotionStops.rate(film, 1))
+        assertEquals(MotionRate(125, 2), MotionStops.rate(MotionRate(25), 1))
+        assertEquals(listOf(0, 1), MotionStops.allowed(film, 60.0))
+        assertEquals(listOf(0), MotionStops.allowed(MotionRate(25), 60.0))
+        assertEquals(1, MotionStops.default(MotionRate(24)))
+        assertEquals(1, MotionStops.default(MotionRate(25)))
+        listOf(30, 50, 60).forEach { assertEquals(0, MotionStops.default(MotionRate(it))) }
+        assertEquals(MotionRate(240), MotionRate.target(MotionRate(60), 240.0, 3))
+        assertNull(MotionRate.target(MotionRate(120), 240.0))
+    }
+    @Test fun anyReportedRateCanBeSmoothed() {
+        // MSI Claw 8 report of 23 November: a local 1080p H.264 clip whose container reports this average rate.
+        val clip = SmoothingCapabilities(displayHz = 120.0, sourceFps = 23.06080436706543, gpuOutput = true,
+            hardwareDecode = true, width = 1920, height = 1080)
+        assertNull(clip.unavailable(SmoothingMode.MOTION))
+        assertNull(clip.unavailable(SmoothingMode.OFF))
+        // Standard rates as mpv reports them (container-fps is a 32-bit float), then rates that are not standard:
+        // near 23.976, a file whose last frame has no duration, half of PAL, and the slowest rate SkyWing smooths.
+        listOf(23.976024627685547, 24.0, 25.0, 30000 / 1001.0, 30.0, 50.0, 60000 / 1001.0, 60.0,
+            23.982, 24.34, 12.5, 1.0).forEach {
+            assertNull(clip.copy(sourceFps = it).unavailable(SmoothingMode.MOTION), "$it fps")
+        }
+        // Slower than a frame a second, such as a slideshow, is named rather than waited on.
+        assertEquals("Can’t smooth video below 1 fps", clip.copy(sourceFps = 0.5).unavailable(SmoothingMode.MOTION))
+        // Until mpv reports a rate, SkyWing keeps waiting for one.
+        assertNull(clip.copy(sourceFps = null).unavailable(SmoothingMode.MOTION))
+        assertNull(clip.copy(sourceFps = 0.0).unavailable(SmoothingMode.MOTION))
+        // The other reasons keep their precedence.
+        assertEquals("Already smooth", clip.copy(sourceFps = 75.3).unavailable(SmoothingMode.MOTION))
+        assertEquals("HDR smoothing is not available yet", clip.copy(hdrVideo = true).unavailable(SmoothingMode.MOTION))
+        assertEquals("Play a hardware-decoded video first", clip.copy(hardwareDecode = false).unavailable(SmoothingMode.MOTION))
+    }
+    @Test fun videoTypesKeepIndependentSettings() {
+        val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
+        try {
+            val store = MotionPreferences(node)
+            assertFalse(store.lowerAutomatically)
+            val keys = mutableSetOf<String>()
+            for ((w,h) in listOf(1920 to 1080, 2560 to 1440, 3840 to 2160)) for (hdr in listOf(false, true)) {
+                val key = MotionStops.type(SmoothingCapabilities(width=w, height=h, hdrVideo=hdr))
+                keys += key
+                val setting = MotionSettings(keys.size % 4, MotionQuality.entries[keys.size % 5])
+                store.save(key, setting)
+                assertEquals(setting, store.load(key, 0))
+            }
+            assertEquals(6, keys.size)
+            assertEquals(MotionSettings(1), store.load("new", 1))
+        } finally { node.removeNode() }
     }
 
-    @Test fun fixedChoicesFollowActualDisplayRatherThanInventingAnOutputRate() {
-        SmoothingMode.entries.filter { it.fps != null }.forEach { mode ->
-            val hz = checkNotNull(mode.fps).toDouble()
-            assertTrue(caps(hz).decision(mode).enabled)
-            assertTrue(caps(hz * 1000 / 1001).decision(mode).enabled)
-            assertFalse(caps(hz + 10).decision(mode).enabled)
-        }
-        assertFalse(caps(144.0).decision(SmoothingMode.FPS_120).enabled)
-        assertTrue(caps(144.0).decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps(60.0).decision(SmoothingMode.FPS_120).enabled)
+    /** Owner decision, 23 November: Fast is the default quality on every PC; a quality chosen for a video type is kept. */
+    @Test fun fastIsTheQualityUntilAVideoTypeSavesOne() {
+        val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
+        try {
+            val store = MotionPreferences(node)
+            assertEquals(MotionQuality.FAST, MotionSettings(0).quality)
+            assertEquals(MotionQuality.FAST, store.load("1080-sdr", 0).quality)
+            store.save("1080-sdr", MotionSettings(0, MotionQuality.BALANCED))
+            assertEquals(MotionQuality.BALANCED, store.load("1080-sdr", 0).quality)
+            assertEquals(MotionQuality.FAST, store.load("2160-sdr", 0).quality)
+            node.put("motion.1440-sdr.quality", "NOT-A-PRESET")
+            assertEquals(MotionQuality.FAST, store.load("1440-sdr", 0).quality)
+        } finally { node.removeNode() }
     }
 
-    @Test fun unknownSoftwareAndHighFpsPlaybackBypassSafely() {
-        assertFalse(SmoothingCapabilities().decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps().copy(gpuOutput = false).decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps().copy(hardwareDecode = false).decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps().copy(hdrVideo = true).decision(SmoothingMode.AUTO).enabled)
-        listOf(Double.NaN, Double.POSITIVE_INFINITY, 0.0, 50.0).forEach {
-            assertFalse(caps(it).decision(SmoothingMode.AUTO).enabled)
-        }
-        assertFalse(caps().copy(sourceFps = null).decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps(60.0, 120.0).decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps(59.94, 60.0).decision(SmoothingMode.AUTO).enabled)
-        assertFalse(caps().decision(SmoothingMode.OFF).enabled)
-        assertEquals(SmoothingMode.OFF, SmoothingMode.parse("future-unknown-mode"))
-    }
-
-    @Test fun sustainedDropsTripAndStayBypassedUntilReset() {
+    @Test fun sustainedRecentDropsTripAndRecover() {
         val health = SmoothingHealth()
         assertFalse(health.sample(0, 0, true))
         assertFalse(health.sample(7000, 30, true)) // warmup is not a strike
@@ -53,8 +85,10 @@ class SmoothingTest {
         assertFalse(health.sample(9000, 36, true))
         assertTrue(health.sample(10000, 39, true))
         assertTrue(health.sample(11000, 39, true))
+        assertTrue(health.sample(12000, 39, true))
+        assertFalse(health.sample(13000, 39, true))
         health.reset()
-        assertFalse(health.sample(12000, 0, true))
+        assertFalse(health.sample(14000, 0, true))
     }
 
     @Test fun seeksCacheWaitsPausesAndCounterResetsDoNotTrip() {
@@ -68,5 +102,43 @@ class SmoothingTest {
         assertFalse(health.sample(19000, 20, true))
         assertFalse(health.sample(20000, null, true))
         assertFalse(health.sample(30000, 50, true))
+    }
+    @Test fun rollingDropsExpireAndSurviveIndependentCounterResets() {
+        val recent = RecentDrops()
+        assertEquals(0L, recent.sample(0, listOf(100L, 20L)))
+        assertEquals(5L, recent.sample(1000, listOf(103L, 22L)))
+        assertEquals(7L, recent.sample(2000, listOf(1L, 23L)))
+        assertEquals(2L, recent.sample(61000, listOf(1L, 23L)))
+        assertEquals(0L, recent.sample(62000, listOf(1L, 23L)))
+        assertNull(recent.sample(63000, listOf(null, 23L)))
+        assertNull(recent.sample(64000, listOf(1L, 23L)))
+        assertEquals(0L, recent.sample(124000, listOf(1L, 23L)))
+        recent.reset()
+        assertEquals(0L, recent.sample(125000, listOf(500L, 50L)))
+    }
+    @Test fun oldDropTotalsAndSlowTelemetryAloneDoNotTrip() {
+        val health = SmoothingHealth()
+        for (second in 0..20) assertFalse(health.sample(second * 1000L, 10000, true, 55.0, 100.0))
+    }
+    @Test fun vrrCapabilityDefaultNeverOverridesManualChoice() {
+        val node = java.util.prefs.Preferences.userRoot().node("skywing-vrr-test-" + java.util.UUID.randomUUID())
+        try {
+            var supported: Boolean? = null
+            val prefs = MotionPreferences(node) { supported }
+            assertFalse(prefs.vrr)
+            assertNull(prefs.vrrOverride)
+            supported = true
+            assertTrue(prefs.vrr)
+            assertNull(prefs.vrrOverride) // Detection must never persist a manual preference.
+            prefs.vrr = false
+            assertFalse(prefs.vrr)
+            assertEquals(false, prefs.vrrOverride)
+            supported = null
+            prefs.vrr = true
+            assertTrue(prefs.vrr)
+            supported = false
+            assertTrue(prefs.vrr)
+            assertTrue(MotionPreferences(node) { false }.vrr) // Survives app restart.
+        } finally { node.removeNode() }
     }
 }

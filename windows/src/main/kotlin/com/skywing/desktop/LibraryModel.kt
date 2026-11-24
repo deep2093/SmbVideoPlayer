@@ -13,6 +13,15 @@ internal class LibraryModel(val store: WindowsMediaIndex) {
     var all by mutableStateOf(emptyList<WindowsMediaEntry>())
     var loading by mutableStateOf(true)
     var revision by mutableStateOf(0)
+    /** [all] by lower-case path. Built with it, off the screen thread, so no page builds it while it draws (B9). */
+    var byPath by mutableStateOf(emptyMap<String, WindowsMediaEntry>())
+        private set
+    /** The root (`\\server\share`) of every network share in [all], once each. */
+    var shareRoots by mutableStateOf(emptyList<String>())
+        private set
+    /** Shown on the start page (Folders) when the saved index could not be read as it was saved. */
+    var notice by mutableStateOf<String?>(null)
+        private set
 
     /** Call after sources were scanned, so every screen reloads. */
     fun changed() {
@@ -26,11 +35,17 @@ internal class LibraryModel(val store: WindowsMediaIndex) {
             store.removeWhere { it.sourceType == "PC" && NetworkPaths.isNetwork(it.path) }
             store.load()
         }
-        val distinct = withContext(Dispatchers.Default) {
-            loaded.distinctBy { it.path.lowercase() }.sortedBy { it.file.name.lowercase() }
+        val (distinct, paths, shares) = withContext(Dispatchers.Default) {
+            val distinct = loaded.distinctBy { it.path.lowercase() }.sortedBy { it.file.name.lowercase() }
+            val shares = distinct.filter { it.sourceType == "SMB" }.mapNotNull { LibrarySync.shareRootOf(it.path) }.distinctBy { it.lowercase() }
+            Triple(distinct, distinct.associateBy { it.path.lowercase() }, shares)
         }
         all = distinct
+        byPath = paths
+        shareRoots = shares
+        notice = store.notice
         loading = false
+        PerfMonitor.mark("library loaded", "videos" to distinct.size)
     }
 }
 

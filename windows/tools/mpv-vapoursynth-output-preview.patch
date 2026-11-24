@@ -1,0 +1,132 @@
+--- a/video/filter/vf_vapoursynth.c
++++ b/video/filter/vf_vapoursynth.c
+@@ -24,6 +24,7 @@
+ 
+ #include <VSScript4.h>
+ 
++#include <libavutil/buffer.h>
+ #include <libavutil/rational.h>
+ #include <libavutil/cpu.h>
+ #include <libplacebo/utils/libav.h>
+@@ -70,6 +71,7 @@
+ 
+     VSCore *vscore;
+     const VSAPI *vsapi;
++    bool share_output;
+     VSNode *out_node;
+     VSNode *in_node;
+ 
+@@ -262,6 +264,58 @@
+     p->in_frameno++;
+ }
+ 
++struct vs_plane_ref {
++    const VSAPI *api;
++    const VSFrame *frame;
++};
++
++static void release_vs_plane(void *opaque, uint8_t *data)
++{
++    (void)data;
++    struct vs_plane_ref *ref = opaque;
++    ref->api->freeFrame(ref->frame);
++    free(ref);
++}
++
++static struct mp_image *reference_vs_output(const VSAPI *api, const VSFrame *frame,
++                                            struct mp_image *source)
++{
++    struct mp_image *image = mp_image_new_dummy_ref(NULL);
++    mp_image_setfmt(image, source->imgfmt);
++    mp_image_set_size(image, source->w, source->h);
++    for (int plane = 0; plane < image->num_planes; plane++) {
++        ptrdiff_t stride = source->stride[plane];
++        int height = api->getFrameHeight(frame, plane);
++        if (!source->planes[plane] || stride <= 0 || height <= 0 ||
++            (size_t)stride > SIZE_MAX / (size_t)height) {
++            talloc_free(image);
++            return NULL;
++        }
++
++        // Each AVBuffer accounts for its own plane, including when forwarded
++        // to a libavfilter. The read-only flag preserves copy-on-write.
++        struct vs_plane_ref *ref = malloc(sizeof(*ref));
++        if (!ref) {
++            talloc_free(image);
++            return NULL;
++        }
++        ref->api = api;
++        ref->frame = api->addFrameRef(frame);
++        image->bufs[plane] = av_buffer_create(source->planes[plane],
++            (size_t)stride * (size_t)height, release_vs_plane, ref,
++            AV_BUFFER_FLAG_READONLY);
++        if (!image->bufs[plane]) {
++            release_vs_plane(ref, NULL);
++            talloc_free(image);
++            return NULL;
++        }
++        image->planes[plane] = source->planes[plane];
++        image->stride[plane] = stride;
++    }
++    mp_image_copy_attributes(image, source);
++    return image;
++}
++
+ static void VS_CC vs_frame_done(void *userData, const VSFrame *f, int n,
+                                 VSNode *node, const char *errorMsg)
+ {
+@@ -294,7 +348,10 @@
+         } else {
+             img.nominal_fps = 1.0 / img.pkt_duration;
+         }
+-        res = mp_image_new_copy(&img);
++        if (p->share_output && img.num_planes)
++            res = reference_vs_output(p->vsapi, f, &img);
++        if (!res)
++            res = mp_image_new_copy(&img);
+         p->vsapi->freeFrame(f);
+     }
+ 
+@@ -576,21 +633,23 @@
+     if (p->out_node)
+         p->vsapi->freeNode(p->out_node);
+     p->in_node = p->out_node = NULL;
+-
+-    p->drv->unload(p);
+-
+-    mp_assert(!p->in_node_active);
+     mp_assert(num_requested(p) == 0); // async callback didn't return?
+ 
+-    p->shutdown = false;
+-    p->eof = false;
+-    p->frames_sent = 0;
+-    // Kill filtered images that weren't returned yet
++    // Release queued images before freeing the script. Images already sent
++    // downstream keep their own frame references.
+     for (int n = 0; n < p->max_requests; n++) {
+         if (p->requested[n] != &dummy_img_eof)
+             mp_image_unrefp(&p->requested[n]);
+         p->requested[n] = NULL;
+     }
++
++    p->drv->unload(p);
++
++    mp_assert(!p->in_node_active);
++
++    p->shutdown = false;
++    p->eof = false;
++    p->frames_sent = 0;
+     // Kill queued frames too
+     for (int n = 0; n < p->num_buffered; n++)
+         talloc_free(p->buffered[n]);
+@@ -754,6 +813,10 @@
+     p->log = f->log;
+     p->drv = p->opts->drv;
+     p->f = f;
++    const char *share_output = getenv("SKYWING_VS_SHARE_FRAMES");
++    p->share_output = !share_output || strcmp(share_output, "1") == 0;
++    if (p->share_output)
++        MP_VERBOSE(p, "Using experimental read-only VapourSynth output planes.\n");
+ 
+     mp_mutex_init(&p->lock);
+     mp_cond_init(&p->wakeup);

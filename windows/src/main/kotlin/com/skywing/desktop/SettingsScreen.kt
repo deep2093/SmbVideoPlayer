@@ -29,7 +29,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +38,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.unit.dp
@@ -124,10 +126,11 @@ internal fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsRow(icon: SkyIcon, title: String, subtitle: String, onClick: () -> Unit) {
+internal fun SettingsRow(icon: SkyIcon, title: String, subtitle: String, onClick: () -> Unit) {
     val theme = LocalSkyTheme.current
     Row(
-        Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).skyClickable(onClick).padding(horizontal = 18.dp, vertical = 16.dp),
+        Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).skyClickable(onClick, role = Role.Button)
+            .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -159,10 +162,13 @@ private fun AppearancePage(current: SkyTheme, onTheme: (SkyTheme) -> Unit) {
 }
 
 @Composable
-private fun ThemeChoice(option: SkyTheme, selected: Boolean, onClick: () -> Unit) {
+internal fun ThemeChoice(option: SkyTheme, selected: Boolean, onClick: () -> Unit) {
     val theme = LocalSkyTheme.current
     val shape = RoundedCornerShape(18.dp)
-    Column(Modifier.width(250.dp).skyClickable(onClick), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        Modifier.width(250.dp).skyClickable(onClick, role = Role.RadioButton).semantics { this.selected = selected },
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         Box(
             Modifier.fillMaxWidth().height(140.dp).clip(shape)
                 .drawBehind { drawSkyWallpaper(option) }
@@ -213,9 +219,10 @@ internal fun SwitchRow(title: String, detail: String, checked: Boolean, onChange
             Text(title, color = theme.ink, style = MaterialTheme.typography.bodyMedium)
             Text(detail, color = theme.muted, style = MaterialTheme.typography.bodySmall)
         }
-        Switch(
+        SkySwitch(
             checked = checked,
             onCheckedChange = onChange,
+            name = title,
             colors = SwitchDefaults.colors(checkedTrackColor = theme.accent, checkedThumbColor = theme.onAccent),
         )
     }
@@ -291,6 +298,7 @@ private fun LayoutPage(organizer: Organizer) {
 private fun PlaybackPage(mode: SmoothingMode, status: SmoothingStatus, onMode: (SmoothingMode) -> Unit) {
     val theme = LocalSkyTheme.current
     SmoothingOptions(mode, status, onMode)
+    MotionPlaybackSettings()
     val shortcuts = listOf(
         "Space or K" to "Play / pause",
         "Left / Right" to "Back 5 s / forward 10 s",

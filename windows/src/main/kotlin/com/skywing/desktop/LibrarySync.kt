@@ -25,6 +25,7 @@ internal class LibrarySync(private val library: LibraryModel) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
     private var libraryChanged = false
+    private var startedNanos = 0L
 
     /** Optional 12-hour checks while open; startup always checks for changes. */
     var auto by mutableStateOf(prefs.getBoolean("auto", false))
@@ -54,6 +55,7 @@ internal class LibrarySync(private val library: LibraryModel) {
         if (running) return
         running = true
         libraryChanged = false
+        startedNanos = System.nanoTime()
         job = scope.launch {
             val found = ArrayList<ScanProblem>()
             try {
@@ -84,6 +86,8 @@ internal class LibrarySync(private val library: LibraryModel) {
             lastSuccess = System.currentTimeMillis()
             prefs.putLong("last_success", lastSuccess)
         }
+        PerfMonitor.mark("scan finished", "seconds" to (System.nanoTime() - startedNanos) / 1e9,
+            "problems" to found.size, "changed" to if (libraryChanged) 1 else 0, "succeeded" to if (success) 1 else 0)
         if (libraryChanged) library.changed()
     }
 

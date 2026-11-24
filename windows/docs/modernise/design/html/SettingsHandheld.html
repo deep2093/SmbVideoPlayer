@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SkyWing settings, handheld</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#6CA8FF}a:hover{color:#9cc4ff}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+</style>
+</head>
+<body>
+<div style="width: 1280px; height: 800px; display: flex; flex-direction: column; background: #111215; color: #F3F4F6; font-family: 'Segoe UI Variable Text','Segoe UI',Inter,system-ui,sans-serif; font-size: 16px; overflow: hidden">
+
+  <header style="height: 76px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 24px">
+    <button aria-label="Back" style="width: 48px; height: 48px; border-radius: 12px; background: #1C1E23; display: flex; align-items: center; justify-content: center">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 5l-7 7 7 7"></path></svg></button>
+    <h1 style="margin: 0; font-size: 26px; font-weight: 600; flex: 1">Settings</h1>
+    <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: #A9AEB8"><span style="padding: 2px 8px; border-radius: 6px; background: #24272D; color: #F3F4F6">LB</span><span style="padding: 2px 8px; border-radius: 6px; background: #24272D; color: #F3F4F6">RB</span>switch category</span>
+  </header>
+
+  <div role="tablist" aria-label="Settings categories" style="display: flex; gap: 8px; padding: 0 24px 16px; flex: none">
+    
+      <button role="tab" aria-selected="false" style="height: 48px; padding: 0 18px; border-radius: 999px; background: #1C1E23; border: 1px solid rgba(255,255,255,0.06); color: #C9CDD4; font-weight: 500; flex: none">Appearance</button>
+    
+      <button role="tab" aria-selected="false" style="height: 48px; padding: 0 18px; border-radius: 999px; background: #1C1E23; border: 1px solid rgba(255,255,255,0.06); color: #C9CDD4; font-weight: 500; flex: none">Library</button>
+    
+      <button role="tab" aria-selected="false" style="height: 48px; padding: 0 18px; border-radius: 999px; background: #1C1E23; border: 1px solid rgba(255,255,255,0.06); color: #C9CDD4; font-weight: 500; flex: none">Network drives</button>
+    
+      <button role="tab" aria-selected="false" style="height: 48px; padding: 0 18px; border-radius: 999px; background: #1C1E23; border: 1px solid rgba(255,255,255,0.06); color: #C9CDD4; font-weight: 500; flex: none">Playback</button>
+    
+      <button role="tab" aria-selected="false" style="height: 48px; padding: 0 18px; border-radius: 999px; background: #1C1E23; border: 1px solid rgba(255,255,255,0.06); color: #C9CDD4; font-weight: 500; flex: none">Controls</button>
+    
+      <button role="tab" aria-selected="true" style="height: 48px; padding: 0 18px; border-radius: 999px; background: rgba(108,168,255,0.18); border: 1px solid #6CA8FF; color: #F3F4F6; font-weight: 500; flex: none">Performance</button>
+    
+      <button role="tab" aria-selected="false" style="height: 48px; padding: 0 18px; border-radius: 999px; background: #1C1E23; border: 1px solid rgba(255,255,255,0.06); color: #C9CDD4; font-weight: 500; flex: none">About</button>
+    
+  </div>
+
+  <main style="flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 0 24px; align-content: start">
+    
+      <div style="min-height: 88px; padding: 14px 18px; border-radius: 16px; background: #1C1E23; border: 2px solid #6CA8FF; box-shadow: 0 0 0 4px rgba(108,168,255,0.22); display: flex; align-items: center; gap: 16px; box-sizing: border-box">
+        <span style="width: 44px; height: 44px; border-radius: 12px; flex: none; background: #4CC38A29; color: #4CC38A; display: flex; align-items: center; justify-content: center; font-weight: 600">B</span>
+        <div style="flex: 1; min-width: 0"><div style="font-weight: 600">Battery mode</div><div style="font-size: 14px; color: #A9AEB8">Lighter effects and smaller thumbnails when unplugged</div></div>
+        <span style="font-size: 14px; padding: 6px 12px; border-radius: 999px; background: #24272D; flex: none">On</span>
+      </div>
+    
+      <div style="min-height: 88px; padding: 14px 18px; border-radius: 16px; background: #1C1E23; border: 2px solid transparent; box-shadow: none; display: flex; align-items: center; gap: 16px; box-sizing: border-box">
+        <span style="width: 44px; height: 44px; border-radius: 12px; flex: none; background: #6CA8FF29; color: #6CA8FF; display: flex; align-items: center; justify-content: center; font-weight: 600">G</span>
+        <div style="flex: 1; min-width: 0"><div style="font-weight: 600">Graphics for video</div><div style="font-size: 14px; color: #A9AEB8">Intel Arc B390 (integrated)</div></div>
+        <span style="font-size: 14px; padding: 6px 12px; border-radius: 999px; background: #24272D; flex: none">Automatic</span>
+      </div>
+    
+      <div style="min-height: 88px; padding: 14px 18px; border-radius: 16px; background: #1C1E23; border: 2px solid transparent; box-shadow: none; display: flex; align-items: center; gap: 16px; box-sizing: border-box">
+        <span style="width: 44px; height: 44px; border-radius: 12px; flex: none; background: #C08CFF29; color: #C08CFF; display: flex; align-items: center; justify-content: center; font-weight: 600">M</span>
+        <div style="flex: 1; min-width: 0"><div style="font-weight: 600">Motion smoothing on battery</div><div style="font-size: 14px; color: #A9AEB8">Turns smoothing off below 30 % battery</div></div>
+        <span style="font-size: 14px; padding: 6px 12px; border-radius: 999px; background: #24272D; flex: none">Off below 30 %</span>
+      </div>
+    
+      <div style="min-height: 88px; padding: 14px 18px; border-radius: 16px; background: #1C1E23; border: 2px solid transparent; box-shadow: none; display: flex; align-items: center; gap: 16px; box-sizing: border-box">
+        <span style="width: 44px; height: 44px; border-radius: 12px; flex: none; background: #FF9F6B29; color: #FF9F6B; display: flex; align-items: center; justify-content: center; font-weight: 600">T</span>
+        <div style="flex: 1; min-width: 0"><div style="font-weight: 600">Thumbnail work</div><div style="font-size: 14px; color: #A9AEB8">How many covers are made at once</div></div>
+        <span style="font-size: 14px; padding: 6px 12px; border-radius: 999px; background: #24272D; flex: none">2 at a time</span>
+      </div>
+    
+      <div style="min-height: 88px; padding: 14px 18px; border-radius: 16px; background: #1C1E23; border: 2px solid transparent; box-shadow: none; display: flex; align-items: center; gap: 16px; box-sizing: border-box">
+        <span style="width: 44px; height: 44px; border-radius: 12px; flex: none; background: #FFB54729; color: #FFB547; display: flex; align-items: center; justify-content: center; font-weight: 600">A</span>
+        <div style="flex: 1; min-width: 0"><div style="font-weight: 600">Animations</div><div style="font-size: 14px; color: #A9AEB8">Follows Windows animation effects</div></div>
+        <span style="font-size: 14px; padding: 6px 12px; border-radius: 999px; background: #24272D; flex: none">System</span>
+      </div>
+    
+      <div style="min-height: 88px; padding: 14px 18px; border-radius: 16px; background: #1C1E23; border: 2px solid transparent; box-shadow: none; display: flex; align-items: center; gap: 16px; box-sizing: border-box">
+        <span style="width: 44px; height: 44px; border-radius: 12px; flex: none; background: #5EC8E529; color: #5EC8E5; display: flex; align-items: center; justify-content: center; font-weight: 600">S</span>
+        <div style="flex: 1; min-width: 0"><div style="font-weight: 600">Screen</div><div style="font-size: 14px; color: #A9AEB8">Built-in 120 Hz · variable refresh 48–120 Hz</div></div>
+        <span style="font-size: 14px; padding: 6px 12px; border-radius: 999px; background: #24272D; flex: none">VRR on</span>
+      </div>
+    
+  </main>
+
+  <footer style="height: 56px; flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 24px; padding: 0 24px; font-size: 14px; color: #A9AEB8; border-top: 1px solid rgba(255,255,255,0.06)">
+    <span><span style="display: inline-flex; width: 24px; height: 24px; border-radius: 50%; background: #4CC38A; color: #0B1220; align-items: center; justify-content: center; font-weight: 700; margin-right: 6px">A</span>Change</span>
+    <span><span style="display: inline-flex; width: 24px; height: 24px; border-radius: 50%; background: #FF6B6B; color: #0B1220; align-items: center; justify-content: center; font-weight: 700; margin-right: 6px">B</span>Back</span>
+  </footer>
+</div>
+</body>
+</html>

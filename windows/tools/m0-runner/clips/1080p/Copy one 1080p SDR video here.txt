@@ -1,0 +1,4 @@
+Copy one 1080p SDR video into this folder: at least 8 minutes long, at 23.976, 24, 25, 29.97 or 30 fps, and
+the same file on both handhelds.
+SkyWing can't smooth other frame rates, such as a variable one.
+Leave this text file here; the runner ignores it.

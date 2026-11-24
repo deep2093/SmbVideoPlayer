@@ -278,6 +278,8 @@ internal fun VideoGridView(
     modifier: Modifier = Modifier,
     header: (LazyGridScope.() -> Unit)? = null,
     emptyText: String = "No videos here yet.",
+    /** A button under [emptyText], for the step that fills the grid. */
+    emptyAction: MenuAction? = null,
     menu: (WindowsMediaEntry) -> List<MenuAction> = { emptyList() },
 ) {
     val prefs = organizer.data.prefs
@@ -326,7 +328,7 @@ internal fun VideoGridView(
         ) {
             if (header != null) header()
             if (entries.isEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) { EmptyNote(emptyText) }
+                item(span = { GridItemSpan(maxLineSpan) }) { EmptyNote(emptyText, action = emptyAction) }
             }
             items(entries, key = { it.path.lowercase() }) { entry ->
                 var open by remember { mutableStateOf(false) }

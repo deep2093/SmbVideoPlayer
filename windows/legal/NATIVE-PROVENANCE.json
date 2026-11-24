@@ -10,7 +10,13 @@
   "builderRun": "https://github.com/shinchiro/mpv-winbuild-cmake/actions/runs/39518569492",
   "builderRecipe": "https://github.com/shinchiro/mpv-winbuild-cmake/blob/1f8d2e76255abc48f0456d9be99b4cab9c6566e6/packages/ffmpeg.cmake",
   "sameReleaseFfmpegRevision": "9a861e9687d30e657d59521817cad18405995983",
-  "sameReleaseFfmpegRevisionVerifiedInsideDll": false,
+  "sameReleaseFfmpegRevisionVerifiedInsideDll": true,
+  "dllEmbeddedVersions": {
+    "ffmpeg": "N-127893-g9a861e968",
+    "mpv": "mpv v0.41.0-1227-ge471496c5",
+    "ffmpegConfigure": "GPL-enabled configure line in the DLL; the builder recipe sets --enable-gpl --enable-version3 and no --enable-nonfree",
+    "evidence": "Version strings read from the dllSha256 binary on 2026-11-22; they match sameReleaseFfmpegRevision and mpvRevision."
+  },
   "licenceTextSources": [
     {
       "path": "windows/legal/licenses/GPL-3.0.txt",
@@ -36,5 +42,45 @@
       "path": "windows/legal/upstream/FFmpeg-LICENSE.md",
       "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/9a861e968/LICENSE.md"
     }
-  ]
+  ],
+  "motion": {
+    "sourceRevision": "deadbad2201d77056173c05c2380758d88612019",
+    "rustToolchain": "1.98.1",
+    "target": "x86_64-pc-windows-msvc",
+    "patch": "windows/tools/open-svpflow-windows.patch",
+    "downloads": [
+      {
+        "name": "open-svpflow-deadbad.tar.gz",
+        "url": "https://codeload.github.com/Z1xus/open-svpflow/tar.gz/deadbad2201d77056173c05c2380758d88612019",
+        "sha256": "caf80df1ff7df5e31db7da6a0452c66053e8bdc5d1f92d2021c785314c9f65c8",
+        "license": "Apache-2.0"
+      },
+      {
+        "name": "VapourSynth64-Portable-R73.zip",
+        "url": "https://github.com/vapoursynth/vapoursynth/releases/download/R73/VapourSynth64-Portable-R73.zip",
+        "sha256": "3326f10d0fdcdec45649a474cbc9810795ab3da422634d0f134bca6089afbb91",
+        "license": "LGPL-2.1-or-later"
+      },
+      {
+        "name": "python-3.13.9-embed-amd64.zip",
+        "url": "https://www.python.org/ftp/python/3.13.9/python-3.13.9-embed-amd64.zip",
+        "sha256": "91d828c2da3a029b41699e918674a0cb379c02cf20dab9c501306885f837402a",
+        "license": "PSF-2.0 and bundled notices"
+      }
+    ],
+    "payloadInventory": "motion/BUILD-MANIFEST.json"
+  },
+  "javaRuntime": {
+    "vendor": "Eclipse Adoptium",
+    "release": "jdk-17.0.20.1+1",
+    "implementorVersion": "Temurin-17.0.20.1+1",
+    "setupJavaVersion": "17.0.20+101",
+    "sourceTag": "jdk-17.0.20.1+1_adopt",
+    "sourceCommit": "79597447bd94ff9f8216e2e3a573d5261ee49f2e",
+    "sourceRepository": "https://github.com/adoptium/jdk17u",
+    "sourceArchive": "OpenJDK17U-jdk-sources_17.0.20.1_1.tar.gz",
+    "sourceArchiveUrl": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk-sources_17.0.20.1_1.tar.gz",
+    "sourceArchiveSha256": "21e2a065d244ab048e737f21af5d1fc74daaeb6707de36477ead8db1dca71214",
+    "license": "GPL-2.0-only WITH Classpath-exception-2.0"
+  }
 }

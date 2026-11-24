@@ -19,6 +19,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -53,9 +56,11 @@ internal fun PlayerTopBar(title: String, queueLabel: String?, onBack: () -> Unit
 }
 
 @Composable
-private fun TextControl(label: String, onClick: () -> Unit, enabled: Boolean = true) {
+private fun TextControl(label: String, description: String, onClick: () -> Unit, enabled: Boolean = true) {
     Box(
-        Modifier.size(width = 48.dp, height = 40.dp).clip(RoundedCornerShape(50)).skyClickable(onClick, enabled = enabled),
+        Modifier.size(width = 48.dp, height = 40.dp).clip(RoundedCornerShape(50))
+            .skyClickable(onClick, enabled = enabled, role = Role.Button)
+            .accessibleName(description),
         contentAlignment = Alignment.Center,
     ) {
         Text(label, color = if (enabled) PLAYER_INK else PLAYER_INK.copy(alpha = 0.35f), style = MaterialTheme.typography.labelLarge)
@@ -63,8 +68,7 @@ private fun TextControl(label: String, onClick: () -> Unit, enabled: Boolean = t
 }
 
 /**
- * Native video uses a heavyweight HWND. Keep controls beside that surface (including in
- * fullscreen), with separate rows so playback, tracks and motion controls cannot overlap.
+ * Native video uses a heavyweight HWND. Use owned transparent windows above it in fullscreen, with separate rows so playback, tracks and motion controls cannot overlap.
  */
 @Composable
 internal fun PlayerControls(
@@ -123,28 +127,30 @@ internal fun PlayerControls(
                 disabledActiveTrackColor = Color.White.copy(alpha = 0.3f),
                 disabledInactiveTrackColor = Color.White.copy(alpha = 0.2f),
             ),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().accessibleName("Seek").semantics {
+                if (hasDuration) stateDescription = formatClock(seekFraction / 100.0 * duration) + " of " + formatClock(duration)
+            },
         )
         // Two rows prevent controls overlapping in a normal desktop-sized window.
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 SkyIconButton(SkyIcon.Subtitles, "Next subtitle track", onSubtitles, tint = PLAYER_INK)
-                TextControl("Off", onSubtitlesOff)
-                TextControl("Audio", onAudio)
+                TextControl("Off", "Subtitles off", onSubtitlesOff)
+                TextControl("Audio", "Next audio track", onAudio)
                 SkyIconButton(SkyIcon.Folder, "Open a video from this PC", onOpenFile, tint = PLAYER_INK)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextControl("Vol -", onVolumeDown)
+                TextControl("Vol -", "Volume down", onVolumeDown)
                 SkyIconButton(if (muted) SkyIcon.VolumeOff else SkyIcon.VolumeUp, if (muted) "Unmute" else "Mute", onMute, tint = PLAYER_INK)
-                TextControl("Vol +", onVolumeUp)
+                TextControl("Vol +", "Volume up", onVolumeUp)
                 SkyIconButton(SkyIcon.Fullscreen, "Toggle full screen (F)", onFullscreen, tint = PLAYER_INK)
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically) {
                 SkyIconButton(SkyIcon.SkipPrevious, "Previous video", onPrevious, enabled = canPrevious, tint = PLAYER_INK)
-                TextControl("-10", onBack10, enabled = hasDuration)
+                TextControl("-10", "Back 10 seconds", onBack10, enabled = hasDuration)
                 SkyIconButton(
                     if (paused) SkyIcon.Play else SkyIcon.Pause,
                     if (paused) "Play" else "Pause",
@@ -152,14 +158,14 @@ internal fun PlayerControls(
                     modifier = Modifier.padding(horizontal = 6.dp),
                     tint = PLAYER_INK, box = 56.dp, glyph = 30.dp, outlined = true,
                 )
-                TextControl("+10", onForward10, enabled = hasDuration)
+                TextControl("+10", "Forward 10 seconds", onForward10, enabled = hasDuration)
                 SkyIconButton(SkyIcon.Stop, "Stop (S)", onStop, tint = PLAYER_INK)
                 SkyIconButton(SkyIcon.SkipNext, "Next video", onNext, enabled = canNext, tint = PLAYER_INK)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically) {
             val label = when {
-                smoothingMode == SmoothingMode.OFF || smoothingMode == SmoothingMode.VRR -> "Smoothing: Off"
+                smoothingMode == SmoothingMode.OFF -> "Smoothing: Off"
                 smoothingActive -> "Smoothing: ${smoothingMode.label}"
                 else -> "Smoothing: ${smoothingMode.label} (inactive)"
             }

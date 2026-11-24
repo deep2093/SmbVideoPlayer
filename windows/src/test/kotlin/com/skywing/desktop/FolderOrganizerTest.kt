@@ -1,7 +1,8 @@
 package com.skywing.desktop
 
 import java.net.ServerSocket
-import java.nio.file.Files
+import org.junit.Rule
+import org.junit.rules.TemporaryFolder
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -9,6 +10,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FolderOrganizerTest {
+    @get:Rule val temp = TemporaryFolder()
+
     private fun entry(path: String, size: Long = 1, modified: Long = 1) =
         WindowsMediaEntry(path, "PC", "PC", "This PC", size, modified)
 
@@ -59,7 +62,7 @@ class FolderOrganizerTest {
     }
 
     @Test fun organizerSavesAndLoadsEverything() {
-        val dir = Files.createTempDirectory("skywing-folders")
+        val dir = temp.newFolder("skywing-folders").toPath()
         val store = FolderOrganizerStore(dir.resolve("folders.bin"))
         val organizer = Organizer(store) { listOf(WindowsCustomFolder("Old", listOf("C:\\Videos\\Other\\Peter - holiday.mp4"))) }
         assertEquals(listOf("Old"), organizer.data.own.map { it.name })
@@ -101,7 +104,7 @@ class FolderOrganizerTest {
     }
 
     @Test fun moreVideosCanBeAddedToAnExistingVirtualSubfolder() {
-        val dir = Files.createTempDirectory("skywing-virtual-add")
+        val dir = temp.newFolder("skywing-virtual-add").toPath()
         val path = dir.resolve("folders.bin")
         val organizer = Organizer(FolderOrganizerStore(path))
         val id = organizer.createSet("People")!!

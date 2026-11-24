@@ -1,3 +1,7 @@
+import java.io.BufferedInputStream
+import java.io.InputStream
+import java.util.concurrent.TimeUnit
+import java.util.zip.GZIPInputStream
 import java.util.zip.ZipFile
 import java.security.MessageDigest
 
@@ -24,13 +28,28 @@ dependencies {
     implementation(compose.material3)
     implementation("net.java.dev.jna:jna:5.14.0")
     implementation("me.friwi:jcefmaven:146.0.10")
+    // JSON for the small stores (B20). The same Gson that jcefmaven already brings, so nothing new is shipped.
+    implementation("com.google.code.gson:gson:2.11.0")
     runtimeOnly("me.friwi:jcef-natives-windows-amd64:jcef-d3de827+cef-146.0.10+g8219561+chromium-146.0.7680.179")
     testImplementation(kotlin("test-junit"))
     testImplementation("junit:junit:4.13.2")
+    // Compose semantics tests for accessible names, roles and states.
+    testImplementation(compose.desktop.uiTestJUnit4)
 }
 
 tasks.test {
     systemProperty("skywing.test.runtimeClasspath", sourceSets.main.get().runtimeClasspath.asPath)
+    // Tests never touch the user's SkyWing data. App code running inside the test JVM (for example the window content
+    // in FullscreenWindowTest) gets file-backed preferences and its own LOCALAPPDATA and APPDATA, so its startup
+    // library sync cannot scan the user's folders and shares or write their status. Tests that prove the real data is
+    // untouched read the real folder from skywing.test.realLocalAppData.
+    val userData = layout.buildDirectory.dir("test-user-data").get().asFile
+    doFirst { userData.deleteRecursively(); userData.mkdirs() }
+    systemProperty("java.util.prefs.PreferencesFactory", "com.skywing.testsupport.IsolatedPreferencesFactory")
+    systemProperty("skywing.test.preferencesFile", userData.resolve("preferences.properties").absolutePath)
+    systemProperty("skywing.test.realLocalAppData", System.getenv("LOCALAPPDATA").orEmpty())
+    environment("LOCALAPPDATA", userData.resolve("LocalAppData").absolutePath)
+    environment("APPDATA", userData.resolve("AppData").absolutePath)
     if (System.getenv("SKYWING_TEST_MPV") == "true") {
         val nativeDir = requireNotNull(System.getenv("SKYWING_TEST_MPV_DIR")) {
             "Set SKYWING_TEST_MPV_DIR to the directory containing the pinned libmpv-2.dll"
@@ -40,10 +59,181 @@ tasks.test {
     }
 }
 
+// One M0 measurement against an installed SkyWing (docs/modernise/M0-RESULTS.md). It takes the desktop, so ask the
+// owner first; the settings come from the environment (see M0Measurement.kt).
+tasks.register<JavaExec>("m0Run") {
+    group = "verification"
+    description = "Runs one M0 measurement against an installed SkyWing; takes the desktop"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.skywing.desktop.automation.M0MeasurementKt")
+    // Like the tests, the harness JVM gets file-backed preferences, so it can't touch the user's.
+    val userData = layout.buildDirectory.dir("m0-run-data").get().asFile
+    systemProperty("java.util.prefs.PreferencesFactory", "com.skywing.testsupport.IsolatedPreferencesFactory")
+    systemProperty("skywing.test.preferencesFile", userData.resolve("preferences.properties").absolutePath)
+}
+
+// The portable handheld M0 runner (docs/modernise/M0-RESULTS.md section 4), for a device with SkyWing installed but no
+// JDK or checkout: its own Java runtime, the harness jars, and Run M0.cmd and README.txt from tools/m0-runner. A test
+// tool for the owner's own devices, not part of any installer. Starting it takes that device's desktop. The modules are
+// what jdeps --print-module-deps lists for the harness and its class path, plus the Access Bridge (AWT loads it when
+// Windows has Java Access Bridge turned on), java.management, and jdk.charsets for other programs' output.
+val m0RunnerModules = listOf(
+    "java.base", "java.desktop", "java.instrument", "java.logging", "java.management", "java.prefs", "java.sql",
+    "jdk.accessibility", "jdk.charsets", "jdk.unsupported",
+)
+
+val m0RunnerRuntime by tasks.registering(Exec::class) {
+    description = "Builds the portable M0 runner's Java runtime with jlink"
+    val jdk = javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(17)) }
+    val runtime = layout.buildDirectory.dir("m0-runner/runtime")
+    inputs.property("modules", m0RunnerModules)
+    inputs.property("jdk", jdk.map { it.metadata.javaRuntimeVersion })
+    outputs.dir(runtime)
+    doFirst {
+        // jlink refuses an existing output folder.
+        runtime.get().asFile.deleteRecursively()
+        executable = jdk.get().metadata.installationPath.file("bin/jlink.exe").asFile.absolutePath
+        args(
+            "--add-modules", m0RunnerModules.joinToString(","),
+            "--strip-debug", "--no-header-files", "--no-man-pages", "--compress=2",
+            "--output", runtime.get().asFile.absolutePath,
+        )
+    }
+}
+
+val m0HarnessJar by tasks.registering(Jar::class) {
+    description = "Jars the M0 harness (the test classes) for the portable M0 runner"
+    archiveFileName.set("skywing-m0-harness.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("m0-runner/jars"))
+    from(sourceSets.test.get().output) { exclude("com/skywing/testsupport/**") }
+}
+
+// A jar of its own: SkyWingTestApp puts the jar that holds IsolatedPreferencesFactory on SkyWing's boot class path.
+val m0SupportJar by tasks.registering(Jar::class) {
+    description = "Jars the isolated preferences class for the portable M0 runner"
+    archiveFileName.set("skywing-test-support.jar")
+    destinationDirectory.set(layout.buildDirectory.dir("m0-runner/jars"))
+    from(sourceSets.test.get().output) { include("com/skywing/testsupport/**") }
+}
+
+tasks.register<Sync>("m0Runner") {
+    group = "verification"
+    description = "Builds the portable handheld M0 runner in build/m0-runner/SkyWing-M0-runner"
+    into(layout.buildDirectory.dir("m0-runner/SkyWing-M0-runner"))
+    from("tools/m0-runner") { exclude(".gitattributes") }
+    into("runtime") { from(m0RunnerRuntime) }
+    into("lib") {
+        from(tasks.jar) { rename { "skywing-main.jar" } }
+        from(m0HarnessJar, m0SupportJar)
+        // The harness never draws Compose or opens a web view, so their native libraries stay out.
+        from(sourceSets.test.get().runtimeClasspath.filter { it.isFile && !it.name.startsWith("jcef-natives-") && !it.name.startsWith("skiko-awt-runtime-") })
+    }
+}
+
+// The M1 before/after runner (docs/modernise/M1-RESULTS.md): the same measurements on two SkyWing app images, the
+// build before M1 (kept by m1KeepBefore) and the current one, on isolated data with a 5,000-video test library. A test
+// tool for the owner's own devices, not part of any installer. Starting it takes that device's desktop.
+fun checkoutBuild(): String {
+    fun git(vararg args: String) = providers.exec { commandLine("git", *args) }.standardOutput.asText.get().trim()
+    val dirty = git("status", "--porcelain", "--", "src/main", "build.gradle.kts").isNotEmpty()
+    return git("rev-parse", "--short", "HEAD") + if (dirty) " with uncommitted changes" else ""
+}
+
+val m1Media by tasks.registering(JavaExec::class) {
+    description = "Makes the M1 runner's test clips and pictures with ffmpeg (needs ffmpeg with libx264 and libx265 on PATH)"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.skywing.desktop.automation.M1MeasurementKt")
+    val media = layout.buildDirectory.dir("m1-media")
+    args("prepare", media.get().asFile.absolutePath)
+    outputs.dir(media)
+}
+
+tasks.register<Sync>("m1KeepBefore") {
+    group = "verification"
+    description = "Keeps the current app image as the M1 runner's before image; build it from the commit before the M1 changes"
+    dependsOn("createDistributable")
+    from(layout.buildDirectory.dir("compose/binaries/main/app/SkyWing"))
+    into(layout.buildDirectory.dir("m1-images/before/SkyWing"))
+    doLast { layout.buildDirectory.file("m1-images/before/build.txt").get().asFile.writeText(checkoutBuild() + "\n") }
+}
+
+tasks.register<Sync>("m1Runner") {
+    group = "verification"
+    description = "Builds the portable M1 before/after runner in build/m1-runner/SkyWing-M1-runner"
+    dependsOn("createDistributable")
+    into(layout.buildDirectory.dir("m1-runner/SkyWing-M1-runner"))
+    // What a run left in the folder stays: the results, the test library and the harness's own preferences.
+    preserve { include("results/**", "work/**", "data/**") }
+    from("tools/m1-runner") { exclude(".gitattributes") }
+    into("runtime") { from(m0RunnerRuntime) }
+    into("lib") {
+        from(tasks.jar) { rename { "skywing-main.jar" } }
+        from(m0HarnessJar, m0SupportJar)
+        from(sourceSets.test.get().runtimeClasspath.filter { it.isFile && !it.name.startsWith("jcef-natives-") && !it.name.startsWith("skiko-awt-runtime-") })
+    }
+    into("media") { from(m1Media) }
+    into("images/before") { from(layout.buildDirectory.dir("m1-images/before/SkyWing")) }
+    into("images") { from(layout.buildDirectory.file("m1-images/before/build.txt")) { rename { "before-build.txt" } } }
+    into("images/after") { from(layout.buildDirectory.dir("compose/binaries/main/app/SkyWing")) }
+    doLast {
+        val before = layout.buildDirectory.file("m1-images/before/SkyWing/SkyWing.exe").get().asFile
+        check(before.isFile) { "No before image: run m1KeepBefore on the commit before the M1 changes first." }
+        destinationDir.resolve("images/after-build.txt").writeText(checkoutBuild() + "\n")
+    }
+}
+
+// The checks runner (docs/modernise/CHECKS-RUNNER.md): the later milestones' automatic checks (full screen in and out,
+// seek and full-screen stress, the 2-hour soak, the folder scan) of the current build on one device. A test tool for the
+// owner's own devices, not part of any installer. Starting it takes that device's desktop, except for the scan.
+val checksMedia by tasks.registering(JavaExec::class) {
+    description = "Makes the checks runner's 15-minute test clip with ffmpeg (needs ffmpeg with libx264 on PATH)"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.skywing.desktop.automation.ChecksRunnerKt")
+    val media = layout.buildDirectory.dir("checks-media/clip")
+    args("prepare", media.get().asFile.absolutePath)
+    outputs.dir(media)
+}
+
+tasks.register<JavaExec>("checksSoakMedia") {
+    group = "verification"
+    description = "Makes the checks runner's 135-minute soak clip with ffmpeg; run it before checksRunner for the soak"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.skywing.desktop.automation.ChecksRunnerKt")
+    val media = layout.buildDirectory.dir("checks-media/soak")
+    args("prepare", media.get().asFile.absolutePath, "soak")
+    outputs.dir(media)
+}
+
+tasks.register<Sync>("checksRunner") {
+    group = "verification"
+    description = "Builds the portable checks runner in build/checks-runner/SkyWing-checks-runner"
+    dependsOn("createDistributable")
+    mustRunAfter("checksSoakMedia")
+    into(layout.buildDirectory.dir("checks-runner/SkyWing-checks-runner"))
+    // What a run left in the folder stays: the results and the harness's own preferences.
+    preserve { include("results/**", "data/**") }
+    from("tools/checks-runner") { exclude(".gitattributes") }
+    into("runtime") { from(m0RunnerRuntime) }
+    into("lib") {
+        from(tasks.jar) { rename { "skywing-main.jar" } }
+        from(m0HarnessJar, m0SupportJar)
+        from(sourceSets.test.get().runtimeClasspath.filter { it.isFile && !it.name.startsWith("jcef-natives-") && !it.name.startsWith("skiko-awt-runtime-") })
+    }
+    into("media") {
+        from(checksMedia)
+        // Only there after checksSoakMedia.
+        from(layout.buildDirectory.dir("checks-media/soak"))
+    }
+    into("app") { from(layout.buildDirectory.dir("compose/binaries/main/app/SkyWing")) }
+    doLast { destinationDir.resolve("app-build.txt").writeText(checkoutBuild() + "\n") }
+}
+
 compose.desktop {
     application {
         mainClass = "com.skywing.desktop.MainKt"
         nativeDistributions {
+            // Compose Desktop uses Java Access Bridge for Windows accessibility.
+            modules("jdk.accessibility")
             appResourcesRootDir.set(layout.buildDirectory.dir("native-resources"))
             // Build these packages on Windows x64. ARM/32-bit variants are intentionally excluded.
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
@@ -75,6 +265,58 @@ compose.desktop {
             }
         }
     }
+}
+
+/** Licence, notice and copyright files, matched by file name (for example LICENSE, NOTICE.txt, jogl.LICENSE.txt). */
+fun isLegalFileName(path: String): Boolean {
+    val leaf = path.substringAfterLast('/').lowercase()
+    val words = listOf("license", "licence", "notice", "copying", "copyright", "authors")
+    return words.any { leaf == it || leaf.startsWith("$it.") || leaf.startsWith("$it-") || leaf.startsWith("${it}_") } ||
+        Regex("""[._-](license|licence|notice|copying)([._-]|$)""").containsMatchIn(leaf)
+}
+
+/**
+ * Copies the legal files of a .tar.gz archive nested in a runtime jar (JCEF ships its Chromium bundle this way)
+ * into [target]. Reads plain ustar and GNU tar headers; returns the number of files copied.
+ */
+fun extractLegalFilesFromTarGz(archive: InputStream, target: File): Int {
+    val tar = BufferedInputStream(GZIPInputStream(archive), 65536)
+    val header = ByteArray(512)
+    val root = target.canonicalFile.toPath()
+    var copied = 0
+    var longName: String? = null
+    while (tar.readNBytes(header, 0, header.size) == header.size && header.any { it != 0.toByte() }) {
+        fun field(from: Int, to: Int) = String(header, from, to - from, Charsets.UTF_8).substringBefore('\u0000')
+        val size = field(124, 136).trim().ifEmpty { "0" }.toLong(8)
+        val padding = (512 - size % 512) % 512
+        val type = header[156].toInt().toChar()
+        // Only POSIX ustar headers use the prefix field; GNU headers keep other data there.
+        val ustar = String(header, 257, 6, Charsets.US_ASCII) == "ustar\u0000"
+        val name = longName ?: listOf(if (ustar) field(345, 500) else "", field(0, 100)).filter { it.isNotEmpty() }.joinToString("/")
+        longName = null
+        when {
+            type == 'L' -> longName = String(tar.readNBytes(size.toInt()), Charsets.UTF_8).trimEnd('\u0000')
+            (type == '0' || type == '\u0000') && isLegalFileName(name) -> {
+                val file = target.resolve(name.removePrefix("./")).canonicalFile
+                check(file.toPath().startsWith(root)) { "Invalid archive path: $name" }
+                file.parentFile.mkdirs()
+                file.outputStream().use { out ->
+                    var left = size
+                    val buffer = ByteArray(65536)
+                    while (left > 0) {
+                        val read = tar.read(buffer, 0, minOf(buffer.size.toLong(), left).toInt())
+                        check(read > 0) { "Truncated archive entry: $name" }
+                        out.write(buffer, 0, read)
+                        left -= read
+                    }
+                }
+                copied++
+            }
+            else -> tar.skipNBytes(size)
+        }
+        tar.skipNBytes(padding)
+    }
+    return copied
 }
 
 /**
@@ -111,8 +353,39 @@ val generateWindowsLegal by tasks.registering {
             "The CI source ZIP contains SkyWing's Windows sources and build scripts.\n" +
             "See SOURCE-STATUS.md for dependency-source gaps; this is not a complete corresponding-source bundle.\n"
         )
-        val inventory = StringBuilder("Artifact\tFile\tSHA-256\tExtracted notice files\n")
+        // Licences declared in each artifact's Maven POM (or its parent POMs): evidence for jars that embed none.
+        fun declaredLicences(group: String, name: String, version: String): String {
+            var coordinates = Triple(group, name, version)
+            repeat(5) {
+                val (g, n, v) = coordinates
+                val pom = runCatching {
+                    configurations.detachedConfiguration(dependencies.create("$g:$n:$v@pom")).singleFile
+                }.getOrNull() ?: return "POM not resolved"
+                val document = javax.xml.parsers.DocumentBuilderFactory.newInstance().apply {
+                    setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+                }.newDocumentBuilder().parse(pom)
+                val project = document.documentElement
+                fun org.w3c.dom.Element.child(tag: String) = (0 until childNodes.length).map { childNodes.item(it) }
+                    .filterIsInstance<org.w3c.dom.Element>().firstOrNull { it.tagName == tag }
+                val licences = project.child("licenses")?.getElementsByTagName("license")?.let { list ->
+                    (0 until list.length).map { list.item(it) as org.w3c.dom.Element }.map { licence ->
+                        listOfNotNull(licence.child("name")?.textContent?.trim(), licence.child("url")?.textContent?.trim())
+                            .joinToString(" ")
+                    }
+                }.orEmpty()
+                if (licences.isNotEmpty()) return licences.joinToString("; ")
+                val parent = project.child("parent") ?: return "none declared"
+                coordinates = Triple(
+                    parent.child("groupId")?.textContent?.trim().orEmpty(),
+                    parent.child("artifactId")?.textContent?.trim().orEmpty(),
+                    parent.child("version")?.textContent?.trim().orEmpty(),
+                )
+            }
+            return "none declared"
+        }
+        val inventory = StringBuilder("Artifact\tFile\tSHA-256\tExtracted notice files\tDeclared licences (POM)\n")
         val artifacts = configurations.getByName("runtimeClasspath").resolvedConfiguration.resolvedArtifacts
+        var withoutEvidence = 0
         for (artifact in artifacts.sortedBy { it.moduleVersion.id.toString() + ":" + it.file.name }) {
             val jar = artifact.file
             check(jar.extension == "jar") { "Review non-JAR runtime artifact: ${jar.name}" }
@@ -126,11 +399,12 @@ val generateWindowsLegal by tasks.registering {
             var noticeCount = 0
             ZipFile(jar).use { zip ->
                 for (entry in zip.entries().asSequence().filter { !it.isDirectory }.sortedBy { it.name }) {
-                    val leaf = entry.name.substringAfterLast('/').lowercase()
-                    val legalFile = listOf("license", "licence", "notice", "copying", "copyright", "authors").any {
-                        leaf == it || leaf.startsWith("$it.") || leaf.startsWith("$it-") || leaf.startsWith("${it}_")
+                    if (entry.name.endsWith(".tar.gz")) {
+                        // A native bundle inside the jar; its notices live inside the archive.
+                        zip.getInputStream(entry).use { noticeCount += extractLegalFilesFromTarGz(it, artifactDir.resolve("nested")) }
+                        continue
                     }
-                    if (!legalFile) continue
+                    if (!isLegalFileName(entry.name)) continue
                     val target = artifactDir.resolve(entry.name).canonicalFile
                     check(target.toPath().startsWith(artifactDir.canonicalFile.toPath())) { "Invalid archive path" }
                     target.parentFile.mkdirs()
@@ -144,9 +418,12 @@ val generateWindowsLegal by tasks.registering {
                 while (true) { val count = input.read(buffer); if (count < 0) break; hash.update(buffer, 0, count) }
             }
             val digest = hash.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
-            inventory.append("$id\t${jar.name}\t$digest\t$noticeCount\n")
+            val declared = declaredLicences(id.group, id.name, id.version)
+            if (noticeCount == 0 && declared in setOf("none declared", "POM not resolved")) withoutEvidence++
+            inventory.append("$id\t${jar.name}\t$digest\t$noticeCount\t$declared\n")
         }
         out.resolve("JVM-RUNTIME-INVENTORY.tsv").writeText(inventory.toString())
+        if (withoutEvidence > 0) logger.warn("$withoutEvidence runtime artifacts have neither an embedded notice nor a declared licence.")
         check(out.resolve("upstream/mpv-Copyright.txt").isFile)
         check(out.resolve("licenses/GPL-3.0.txt").length() > 30000)
         logger.lifecycle("Bundled Windows legal files for ${artifacts.size} runtime artifacts. Native-source audit remains tracked in SOURCE-STATUS.md.")
@@ -155,4 +432,155 @@ val generateWindowsLegal by tasks.registering {
 
 tasks.matching { it.name in setOf("prepareAppResources", "createDistributable", "packageExe", "packageMsi") }.configureEach {
     dependsOn(generateWindowsLegal)
+}
+
+// Compose 1.8.2 does not count the prepared app resources as a createDistributable input: after only libmpv,
+// motion or legal files change, it reports UP-TO-DATE and keeps the old files in the app image.
+tasks.matching { it.name == "createDistributable" }.configureEach {
+    inputs.files(tasks.named("prepareAppResources")).withPropertyName("preparedAppResources")
+}
+
+// Same source, same jar bytes: no file timestamps, fixed entry order.
+tasks.withType<AbstractArchiveTask>().configureEach {
+    isPreserveFileTimestamps = false
+    isReproducibleFileOrder = true
+}
+
+// skywing-build.properties tells the playback report, and the installer names CI gives, which build this is: the version,
+// the commit and whether windows/ had uncommitted changes, the libmpv runtime staged for it (frame-sharing when
+// MPV-PREVIEW-MANIFEST.json was staged with libmpv, otherwise stock) and whether it contains ed072bf, the watchdog fix
+// that keeps the latest motion heartbeat across missed polls. None of these is a Gradle input, so the file is rewritten
+// on every build; the tasks that use it rerun only when its contents change.
+val watchdogFixCommit = "ed072bfac364b2cee24bd365c03160ec4f5665c5"
+
+/** Runs git in [directory]; returns its exit code and output, or null when git cannot be started. */
+fun git(directory: File, vararg args: String): Pair<Int, String>? = runCatching {
+    val process = ProcessBuilder(listOf("git", "--no-optional-locks") + args).directory(directory)
+        .redirectError(ProcessBuilder.Redirect.DISCARD).start()
+    val output = process.inputStream.bufferedReader().readText().trim()
+    process.waitFor() to output
+}.getOrNull()
+
+val generateBuildInfo by tasks.registering {
+    val destination = layout.buildDirectory.dir("generated/build-info")
+    val stagedRuntime = layout.buildDirectory.dir("native-resources/windows")
+    val sourceDirectory = projectDir
+    outputs.dir(destination)
+    outputs.upToDateWhen { false }
+    doLast {
+        val head = git(sourceDirectory, "rev-parse", "HEAD")?.takeIf { it.first == 0 }?.second
+        val changes = git(sourceDirectory, "status", "--porcelain", "--", ".")?.takeIf { it.first == 0 }?.second
+        val watchdogFix = when (git(sourceDirectory, "merge-base", "--is-ancestor", watchdogFixCommit, "HEAD")?.first) {
+            0 -> "included"
+            1 -> "missing"
+            else -> "unknown" // no git, or a shallow clone without ed072bf
+        }
+        val runtime = stagedRuntime.get().asFile.let {
+            when {
+                it.resolve("MPV-PREVIEW-MANIFEST.json").isFile -> "frame-sharing"
+                it.resolve("libmpv-2.dll").isFile -> "stock"
+                else -> "none"
+            }
+        }
+        if (!changes.isNullOrEmpty()) logger.info("Build identity: local changes in windows/:\n$changes")
+        val identity = buildString {
+            appendLine("version=$previewVersion")
+            appendLine("commit=${head?.take(7) ?: "unknown"}")
+            if (changes != null) appendLine("localChanges=${changes.isNotEmpty()}") // left out when git cannot tell
+            appendLine("runtime=$runtime")
+            appendLine("watchdogFix=$watchdogFix")
+        }
+        destination.get().asFile.apply { deleteRecursively(); mkdirs() }.resolve("skywing-build.properties").writeText(identity)
+    }
+}
+sourceSets.main { resources.srcDir(generateBuildInfo) }
+
+// SkyWing's installer will not replace a newer installed SkyWing, and a local build has no CI run number, so it packages
+// 0.1.1. Packaging therefore stops when this PC already has a newer SkyWing (0.1.1 was once built next to 0.1.98).
+
+/** Windows Installer compares the first three version fields as numbers, so 0.1.10 is newer than 0.1.9. */
+fun compareMsiVersions(a: String, b: String): Int {
+    fun fields(version: String) = version.split('.').take(3).map { it.toInt() }
+    val (left, right) = fields(a) to fields(b)
+    for (i in 0 until 3) {
+        val difference = left.getOrElse(i) { 0 }.compareTo(right.getOrElse(i) { 0 })
+        if (difference != 0) return difference
+    }
+    return 0
+}
+
+/** Explains why a package numbered [packaged] would be older than the newest [installed] SkyWing, or returns null. */
+fun olderThanInstalled(packaged: String, installed: List<String>): String? {
+    val newest = installed.maxWithOrNull(::compareMsiVersions) ?: return null
+    return if (compareMsiVersions(packaged, newest) < 0) "SkyWing $newest is installed on this PC and this package would be $packaged." else null
+}
+
+val testPackageVersionGuard by tasks.registering {
+    group = "verification"
+    description = "Checks the rule that stops packaging a SkyWing older than the installed one"
+    doLast {
+        // Packaged version, installed versions, and whether packaging must stop.
+        val cases = listOf(
+            Triple("0.1.1", listOf("0.1.98"), true),
+            Triple("0.1.99", listOf("0.1.98"), false),
+            Triple("0.1.98", listOf("0.1.98"), false),
+            Triple("0.1.1", emptyList(), false),
+            Triple("0.1.10", listOf("0.1.9"), false),
+            Triple("0.1.9", listOf("0.1.10"), true),
+            Triple("0.2.1", listOf("0.1.98"), false),
+            Triple("0.1.99", listOf("0.1.98", "0.1.120"), true),
+        )
+        val wrong = cases.filter { (packaged, installed, stop) -> (olderThanInstalled(packaged, installed) != null) != stop }
+        check(wrong.isEmpty()) {
+            "Package version rule is wrong for: " +
+                wrong.joinToString { (packaged, installed, stop) -> "$packaged with $installed installed should ${if (stop) "stop" else "proceed"}" }
+        }
+        logger.lifecycle("Package version rule: all ${cases.size} cases pass.")
+    }
+}
+tasks.test { dependsOn(testPackageVersionGuard) }
+
+/** Versions of the SkyWing installs on this PC with [upgradeCode], read from Windows Installer without changing anything. */
+fun installedSkyWingVersions(upgradeCode: String): List<String> {
+    val powershell = File(System.getenv("SystemRoot").orEmpty(), "System32/WindowsPowerShell/v1.0/powershell.exe")
+    check(powershell.isFile) { "Windows PowerShell not found" }
+    val script = "\$installer = New-Object -ComObject WindowsInstaller.Installer; " +
+        "foreach (\$product in \$installer.RelatedProducts('{${upgradeCode.uppercase()}}')) { \$installer.ProductInfo(\$product, 'VersionString') }"
+    val process = ProcessBuilder(powershell.path, "-NoProfile", "-NonInteractive", "-Command", script).redirectErrorStream(true).start()
+    if (!process.waitFor(60, TimeUnit.SECONDS)) {
+        process.destroyForcibly()
+        error("Windows Installer query timed out")
+    }
+    val output = process.inputStream.bufferedReader().readText().trim()
+    check(process.exitValue() == 0) { output.ifEmpty { "Windows Installer query failed" } }
+    return output.lines().map(String::trim).filter(String::isNotEmpty).onEach {
+        check(Regex("""\d+(\.\d+){1,3}""").matches(it)) { "unexpected installed version '$it'" }
+    }
+}
+
+val checkPackageVersion by tasks.registering {
+    group = "distribution"
+    description = "Stops packaging a SkyWing older than the one installed on this PC"
+    val upgradeCode = requireNotNull(compose.desktop.application.nativeDistributions.windows.upgradeUuid)
+    val allowLower = providers.gradleProperty("skywing.allowLowerVersion").map { it.toBoolean() }.orElse(false)
+    onlyIf("packaging on Windows") { System.getProperty("os.name").startsWith("Windows") }
+    doLast {
+        val installed = runCatching { installedSkyWingVersions(upgradeCode) }.getOrElse {
+            logger.warn("Could not read the installed SkyWing version (${it.message}), so this package ($previewVersion) was not checked against it.")
+            return@doLast
+        }
+        val problem = olderThanInstalled(previewVersion, installed) ?: return@doLast
+        if (allowLower.get()) {
+            logger.warn("$problem Packaging it anyway (-Pskywing.allowLowerVersion=true): it cannot be installed over the newer SkyWing.")
+        } else {
+            throw GradleException(
+                "$problem Windows Installer will not install it over the newer SkyWing. Set GITHUB_RUN_NUMBER so that " +
+                    "0.1.<number> is above the installed version, as CI numbers its builds, or pass " +
+                    "-Pskywing.allowLowerVersion=true for a package you will not install on this PC."
+            )
+        }
+    }
+}
+tasks.matching { it.name in setOf("packageExe", "packageMsi", "packageReleaseExe", "packageReleaseMsi") }.configureEach {
+    dependsOn(checkPackageVersion)
 }

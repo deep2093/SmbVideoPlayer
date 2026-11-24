@@ -1,30 +1,50 @@
 package com.skywing.desktop
 
-import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.State
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.CacheDrawScope
+import androidx.compose.ui.draw.DrawResult
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asSkiaBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.withContext
 
 /**
@@ -164,19 +184,101 @@ internal fun rememberShownTheme(theme: SkyTheme): SkyTheme {
     return remember(theme, accent) { theme.copy(accent = accent) }
 }
 
-/** The three wallpaper colours of an adaptive theme, easing slowly from one set to the next as the screen changes. */
-@Composable
-private fun rememberAdaptiveColors(style: AdaptiveStyle): List<State<Color>> {
-    val target by remember(style) { derivedStateOf { adaptivePalette(ScreenColors.current(), style) } }
-    return List(3) { i -> animateColorAsState(target[i], tween(1400), label = "adaptive_$i") }
+/**
+ * An adaptive wallpaper's colours (B11): [to] is drawn over [from] at [fade], from 0 to 1, while it fades in. Nothing
+ * here changes on every frame of a scroll, so the window isn't repainted for the wallpaper while covers come and go.
+ */
+@Stable
+internal class AdaptiveWallpaper(initial: List<Color>) {
+    var from by mutableStateOf<List<Color>?>(null)
+        private set
+    var to by mutableStateOf(initial)
+        private set
+    private val progress = Animatable(1f)
+    val fade: Float get() = progress.value
+
+    suspend fun show(colors: List<Color>) {
+        if (colors == to) return
+        from = to
+        to = colors
+        progress.snapTo(0f)
+        progress.animateTo(1f, tween(FADE_MS, easing = LinearEasing))
+        from = null
+    }
+
+    companion object {
+        /** How long the covers on screen must stay the same before the wallpaper follows them. */
+        const val QUIET_MS = 2_000L
+        const val FADE_MS = 600
+    }
 }
 
-/** Paints the theme's wallpaper behind the content; an adaptive theme's colours follow the covers on screen. */
+/** The adaptive wallpaper of [style], following the covers on screen once they have stayed the same for 2 s. */
+@OptIn(ExperimentalCoroutinesApi::class)
+@Composable
+internal fun rememberAdaptiveWallpaper(style: AdaptiveStyle): AdaptiveWallpaper {
+    val wallpaper = remember(style) { AdaptiveWallpaper(adaptivePalette(ScreenColors.current(), style)) }
+    LaunchedEffect(wallpaper) {
+        snapshotFlow { adaptivePalette(ScreenColors.current(), style) }
+            .distinctUntilChanged()
+            // A newer set of colours within 2 s replaces the waiting one; a fade already started runs to its end.
+            .mapLatest { colors ->
+                delay(AdaptiveWallpaper.QUIET_MS)
+                colors
+            }
+            .collect { wallpaper.show(it) }
+    }
+    return wallpaper
+}
+
+/** The wallpaper picture for a window of [size]: half as wide and high, since the wallpaper is soft anyway. */
+internal fun wallpaperPictureSize(size: Size): IntSize =
+    IntSize(ceil(size.width / 2).toInt().coerceAtLeast(1), ceil(size.height / 2).toInt().coerceAtLeast(1))
+
+/** Paints [paint] once into a picture for a window of [size]; the picture is then only drawn, never painted again. */
+internal fun renderWallpaper(size: Size, density: Density, direction: LayoutDirection, paint: DrawScope.() -> Unit): ImageBitmap {
+    val pixels = wallpaperPictureSize(size)
+    val picture = ImageBitmap(pixels.width, pixels.height)
+    CanvasDrawScope().draw(density, direction, Canvas(picture), Size(pixels.width.toFloat(), pixels.height.toFloat()), paint)
+    // An unchanging picture is uploaded to the graphics card once.
+    picture.asSkiaBitmap().setImmutable()
+    return picture
+}
+
+private fun CacheDrawScope.wallpaperPicture(paint: DrawScope.() -> Unit): ImageBitmap =
+    renderWallpaper(size, Density(density, fontScale), layoutDirection, paint)
+
+private fun DrawScope.drawWallpaperPicture(picture: ImageBitmap, alpha: Float = 1f) {
+    drawImage(picture, dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()), alpha = alpha, filterQuality = FilterQuality.Low)
+}
+
+/**
+ * Paints the theme's wallpaper behind the content; an adaptive theme's colours follow the covers on screen. The
+ * wallpaper is painted into a picture only when the window size, the theme or the adaptive colours change (B11).
+ */
 @Composable
 internal fun Modifier.skyWallpaper(theme: SkyTheme): Modifier {
-    val style = theme.adaptive ?: return drawBehind { drawSkyWallpaper(theme) }
-    val colors = rememberAdaptiveColors(style)
-    return drawBehind { drawAdaptiveWallpaper(colors.map { it.value }, style) }
+    val style = theme.adaptive ?: return drawWithCache {
+        val picture = wallpaperPicture { drawSkyWallpaper(theme) }
+        onDrawBehind { drawWallpaperPicture(picture) }
+    }
+    val wallpaper = rememberAdaptiveWallpaper(style)
+    return drawWithCache { adaptiveWallpaper(wallpaper, style) }
+}
+
+private fun CacheDrawScope.adaptiveWallpaper(wallpaper: AdaptiveWallpaper, style: AdaptiveStyle): DrawResult {
+    val under = wallpaper.from?.let { colors -> wallpaperPicture { drawAdaptiveWallpaper(colors, style) } }
+    val over = wallpaperPicture { drawAdaptiveWallpaper(wallpaper.to, style) }
+    return onDrawBehind {
+        // Only the fade is read while drawing, so a fade repaints two pictures and paints nothing new.
+        val fade = wallpaper.fade
+        if (under != null && fade < 1f) {
+            drawWallpaperPicture(under)
+            drawWallpaperPicture(over, fade)
+        } else {
+            drawWallpaperPicture(over)
+        }
+    }
 }
 
 /** Adds a shown picture's main colour to the adaptive wallpaper while it is on screen (adaptive themes only). */

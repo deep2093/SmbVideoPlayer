@@ -1,0 +1,4 @@
+windows/tools/build_mpv_preview.sh text eol=lf
+windows/tools/mpv-vapoursynth-output-preview.patch text eol=lf whitespace=-blank-at-eol
+# build_motion.py records this patch's SHA-256; CRLF checkouts (core.autocrlf=true on Windows runners) changed it.
+windows/tools/open-svpflow-windows.patch text eol=lf

@@ -29,6 +29,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchColors
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,6 +44,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -45,8 +56,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.ScrollState
@@ -66,9 +79,57 @@ import androidx.compose.ui.input.pointer.pointerInput
 import java.io.File
 import java.util.Locale
 
+/**
+ * Names a control for screen readers. Compose Desktop 1.8 gives Java Access Bridge its accessible name from text
+ * semantics (contentDescription becomes only the description), so icon-only and unlabelled controls need text.
+ */
+internal fun Modifier.accessibleName(name: String): Modifier = semantics { text = AnnotatedString(name) }
+
+/**
+ * Labels a switch or check box for screen readers through its description. On these controls text semantics give
+ * Java Access Bridge a text interface, which NVDA announces as "read only"; NVDA reads the description right after
+ * the role instead ("check box, checked, Motion smoothing"). The JAB name stays empty, so automation must match the
+ * name or, when it is empty, the description. Buttons, tabs and sliders keep [accessibleName].
+ */
+internal fun Modifier.accessibleDescription(label: String): Modifier = semantics { contentDescription = label }
+
+/**
+ * A Material switch that assistive technology sees as a labelled check box. Compose Desktop 1.8 maps no Java Access Bridge
+ * role for Role.Switch (it arrives as a plain label), while Role.Checkbox arrives as a check box with its checked state.
+ * Material's own toggle handling is switched off and the same toggleable, minimum size and interaction source are
+ * applied here, so the look, size, press feedback, mouse and keyboard behaviour stay exactly Material's.
+ */
+@Composable
+internal fun SkySwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    name: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    colors: SwitchColors = SwitchDefaults.colors(),
+) {
+    val interactions = remember { MutableInteractionSource() }
+    Switch(
+        checked = checked,
+        onCheckedChange = null,
+        modifier = modifier
+            .minimumInteractiveComponentSize()
+            .toggleable(checked, interactions, indication = null, enabled = enabled, role = Role.Checkbox, onValueChange = onCheckedChange)
+            .accessibleDescription(name),
+        enabled = enabled,
+        colors = colors,
+        interactionSource = interactions,
+    )
+}
+
 /** Click and hold (long press) with a hand cursor, as on every card and button. A right click does what holding does. */
 @OptIn(ExperimentalFoundationApi::class)
-internal fun Modifier.skyClickable(onClick: () -> Unit, onLongClick: (() -> Unit)? = null, enabled: Boolean = true): Modifier =
+internal fun Modifier.skyClickable(
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    enabled: Boolean = true,
+    role: Role? = null,
+): Modifier =
     this.pointerHoverIcon(PointerIcon.Hand)
         .then(
             if (onLongClick == null || !enabled) Modifier
@@ -89,7 +150,7 @@ internal fun Modifier.skyClickable(onClick: () -> Unit, onLongClick: (() -> Unit
                 }
             },
         )
-        .combinedClickable(enabled = enabled, onLongClick = onLongClick, onClick = onClick)
+        .combinedClickable(enabled = enabled, role = role, onLongClick = onLongClick, onClick = onClick)
 
 internal fun formatSize(bytes: Long): String {
     if (bytes <= 0) return ""
@@ -139,7 +200,7 @@ internal fun SkyButton(
             .clip(shape)
             .background(container)
             .then(if (primary) Modifier else Modifier.border(1.dp, theme.ink.copy(alpha = 0.25f), shape))
-            .skyClickable(onClick, enabled = enabled)
+            .skyClickable(onClick, enabled = enabled, role = Role.Button)
             .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -170,7 +231,9 @@ internal fun SkyChip(
     )
     val ink = if (selected) theme.accent else theme.ink.copy(alpha = if (theme.light) 0.78f else 0.88f)
     Row(
-        modifier.clip(RoundedCornerShape(50)).background(lens).skyClickable(onClick, onLongClick).padding(horizontal = 16.dp, vertical = 9.dp),
+        modifier.clip(RoundedCornerShape(50)).background(lens)
+            .skyClickable(onClick, onLongClick, role = Role.Tab).semantics { this.selected = selected }
+            .padding(horizontal = 16.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -206,7 +269,8 @@ internal fun SkyIconButton(
             .size(box)
             .clip(CircleShape)
             .then(if (outlined) Modifier.border(2.dp, color, CircleShape) else Modifier)
-            .skyClickable(onClick, enabled = enabled),
+            .skyClickable(onClick, enabled = enabled, role = Role.Button)
+            .accessibleName(description),
         contentAlignment = Alignment.Center,
     ) {
         SkyIconView(icon, color, size = glyph)
@@ -227,7 +291,8 @@ internal fun SkyField(
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier,
+        // The bridge names a text field by what is typed in it, so the placeholder becomes its description.
+        modifier = modifier.semantics { contentDescription = placeholder },
         singleLine = true,
         visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         shape = RoundedCornerShape(50),
@@ -264,10 +329,13 @@ internal fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun EmptyNote(text: String, modifier: Modifier = Modifier) {
+internal fun EmptyNote(text: String, modifier: Modifier = Modifier, action: MenuAction? = null) {
     val theme = LocalSkyTheme.current
     Box(modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
-        Text(text, color = theme.muted, style = MaterialTheme.typography.bodyMedium)
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(text, color = theme.muted, style = MaterialTheme.typography.bodyMedium)
+            if (action != null) SkyButton(action.label, action.action, enabled = action.enabled, icon = action.icon)
+        }
     }
 }
 
@@ -275,11 +343,12 @@ internal fun EmptyNote(text: String, modifier: Modifier = Modifier) {
 @Composable
 internal fun Thumb(file: File?, stamp: Long, modifier: Modifier = Modifier, glyph: SkyIcon = SkyIcon.Play) {
     val theme = LocalSkyTheme.current
-    val picture by produceState<ImageBitmap?>(initialValue = null, file?.path, stamp) {
-        value = if (file == null) null else ThumbnailStore.load(file, stamp)
+    var box by remember { mutableStateOf(IntSize.Zero) }
+    val picture by produceState<ImageBitmap?>(initialValue = null, file?.path, stamp, box) {
+        value = if (file == null) null else ThumbnailStore.load(file, stamp, box)
     }
     Box(
-        modifier.background(Brush.linearGradient(listOf(theme.card, theme.surface))),
+        modifier.background(Brush.linearGradient(listOf(theme.card, theme.surface))).onSizeChanged { box = it },
         contentAlignment = Alignment.Center,
     ) {
         val bitmap = picture
