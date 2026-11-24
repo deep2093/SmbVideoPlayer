@@ -8,9 +8,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerType
@@ -120,6 +126,28 @@ internal data class AutoColumns(private val adaptive: Adaptive) : GridCells {
 }
 
 internal val LocalAdaptive = staticCompositionLocalOf { Adaptive(1280.dp, InputMode.Mouse) }
+
+/** Whether the keyboard is in use, so the focused control shows its ring (M3 design brief 5.7). */
+internal val LocalFocusVisible = compositionLocalOf { false }
+
+/**
+ * Follows whether the keyboard is in use into [visible], as Windows does for focus rectangles: Tab or an arrow key
+ * shows the focus ring, a click or tap hides it. Keys and presses are only looked at, never consumed.
+ */
+internal fun Modifier.followFocusVisibility(visible: MutableState<Boolean>): Modifier =
+    onPreviewKeyEvent {
+        if (it.type == KeyEventType.KeyDown && it.key in FOCUS_KEYS && !visible.value) visible.value = true
+        false
+    }.pointerInput(visible) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (event.type == PointerEventType.Press && visible.value) visible.value = false
+            }
+        }
+    }
+
+private val FOCUS_KEYS = setOf(Key.Tab, Key.DirectionUp, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight)
 
 /** How long the window's width must stay the same before the layout follows it. */
 internal const val WIDTH_SETTLE_MS = 100L

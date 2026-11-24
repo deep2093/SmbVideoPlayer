@@ -54,6 +54,8 @@ import com.skywing.desktop.ui.adaptive.Adaptive
 import com.skywing.desktop.ui.adaptive.InputMode
 import com.skywing.desktop.ui.adaptive.LocalAdaptive
 import com.skywing.desktop.ui.adaptive.NavigationShape
+import com.skywing.desktop.ui.adaptive.LocalFocusVisible
+import com.skywing.desktop.ui.adaptive.followFocusVisibility
 import com.skywing.desktop.ui.adaptive.followInputMode
 import com.skywing.desktop.ui.adaptive.rememberSettledWidth
 import androidx.compose.ui.window.Window
@@ -609,11 +611,13 @@ private fun SkyWingDesktopShell(
     @OptIn(ExperimentalComposeUiApi::class)
     val windowWidth = with(density) { LocalWindowInfo.current.containerSize.width.toDp() }
     val adaptive = Adaptive(rememberSettledWidth(windowWidth), inputMode.value)
+    // Whether the keyboard is in use, so the focused control shows its ring (M3 item 9).
+    val focusVisible = remember { mutableStateOf(false) }
 
     @OptIn(ExperimentalComposeUiApi::class)
     val takesDrop: (DragAndDropEvent) -> Boolean = { it.awtTransferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor) }
-    CompositionLocalProvider(LocalAdaptive provides adaptive) {
-        Box(Modifier.fillMaxSize().skyWallpaper(theme).followInputMode(inputMode).dragAndDropTarget(shouldStartDragAndDrop = takesDrop, target = videoDrop)) {
+    CompositionLocalProvider(LocalAdaptive provides adaptive, LocalFocusVisible provides focusVisible.value) {
+        Box(Modifier.fillMaxSize().skyWallpaper(theme).followInputMode(inputMode).followFocusVisibility(focusVisible).dragAndDropTarget(shouldStartDragAndDrop = takesDrop, target = videoDrop)) {
             Row(Modifier.fillMaxSize()) {
                 // The rail by width (M3 design brief 5.2); the video's SwingPanel below keeps its one place in the tree.
                 if (!fullscreen && adaptive.navigation != NavigationShape.TopTabs) {

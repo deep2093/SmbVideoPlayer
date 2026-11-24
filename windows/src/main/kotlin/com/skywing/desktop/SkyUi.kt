@@ -50,7 +50,18 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.semantics.selected
+import com.skywing.desktop.ui.adaptive.LocalFocusVisible
+import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -135,6 +146,7 @@ internal fun Modifier.skyClickable(
     onLongClick: (() -> Unit)? = null,
     enabled: Boolean = true,
     role: Role? = null,
+    ringShape: Shape = RoundedCornerShape(SkyRadius.control),
 ): Modifier =
     this.pointerHoverIcon(PointerIcon.Hand)
         .then(
@@ -156,7 +168,29 @@ internal fun Modifier.skyClickable(
                 }
             },
         )
+        .focusRing(ringShape)
         .combinedClickable(enabled = enabled, role = role, onLongClick = onLongClick, onClick = onClick)
+
+/**
+ * The keyboard focus ring (M3 design brief 5.7, A6): 2 dp in the theme's focus colour while the control below it has
+ * focus and the keyboard is in use ([LocalFocusVisible]). It is drawn just inside the edge, over the content, so a
+ * control that clips its corners (cards, icon buttons) keeps it.
+ */
+internal fun Modifier.focusRing(shape: Shape = RoundedCornerShape(SkyRadius.control)): Modifier = composed {
+    var focused by remember { mutableStateOf(false) }
+    val visible = LocalFocusVisible.current
+    val colour = LocalSkyTheme.current.colors.focus
+    onFocusChanged { focused = it.isFocused }.drawWithContent {
+        drawContent()
+        if (focused && visible) {
+            val inset = 1.dp.toPx()
+            translate(inset, inset) {
+                val outline = shape.createOutline(Size(size.width - 2 * inset, size.height - 2 * inset), layoutDirection, this)
+                drawOutline(outline, colour, style = Stroke(2.dp.toPx()))
+            }
+        }
+    }
+}
 
 internal fun formatSize(bytes: Long): String {
     if (bytes <= 0) return ""
@@ -298,7 +332,7 @@ internal fun SkyIconButton(
                 .size(box)
                 .clip(shape)
                 .then(if (outlined) Modifier.border(2.dp, color, CircleShape) else Modifier)
-                .skyClickable(onClick, enabled = enabled, role = Role.Button)
+                .skyClickable(onClick, enabled = enabled, role = Role.Button, ringShape = shape)
                 .accessibleName(description),
             contentAlignment = Alignment.Center,
         ) {
@@ -449,7 +483,7 @@ internal fun FolderCard(
             if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
     }
-    CardFrame(modifier, selected == true, listMode, tall, onClick, onLongClick, picture) {
+    CardFrame(modifier, selected, null, listMode, tall, onClick, onLongClick, picture) {
         Text(title, color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(detail, color = theme.muted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -481,7 +515,8 @@ internal fun VideoCard(
             if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
     }
-    CardFrame(modifier, selected == true, listMode, tall, onClick, onLongClick, picture) {
+    val watched = progress?.takeIf { it > 0f }?.let { "${(it.coerceIn(0f, 1f) * 100).roundToInt()}% watched" }
+    CardFrame(modifier, selected, watched, listMode, tall, onClick, onLongClick, picture) {
         Text(entry.title(), color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
             detail ?: listOf(formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }.joinToString("  ·  "),
@@ -492,12 +527,14 @@ internal fun VideoCard(
 
 /**
  * The frame shared by folder and video cards: a 16:9 picture (3:4 when [tall]) over the text, or a row with a small
- * picture in list mode.
+ * picture in list mode. Screen readers get a push button named by the first text, the title (M3 design brief 5.7), with
+ * [watched] as its description and, only while cards are being selected, its [selected] state.
  */
 @Composable
 private fun CardFrame(
     modifier: Modifier,
-    highlighted: Boolean,
+    selected: Boolean?,
+    watched: String?,
     listMode: Boolean,
     tall: Boolean,
     onClick: () -> Unit,
@@ -506,9 +543,14 @@ private fun CardFrame(
     text: @Composable () -> Unit,
 ) {
     val theme = LocalSkyTheme.current
-    val frame = modifier.fillMaxWidth().clip(RoundedCornerShape(SkyRadius.card))
-        .background(if (highlighted) theme.accent.copy(alpha = 0.22f) else theme.surface)
-        .skyClickable(onClick, onLongClick)
+    val shape = RoundedCornerShape(SkyRadius.card)
+    val frame = modifier.fillMaxWidth().clip(shape)
+        .background(if (selected == true) theme.accent.copy(alpha = 0.22f) else theme.surface)
+        .skyClickable(onClick, onLongClick, role = Role.Button, ringShape = shape)
+        .semantics {
+            if (selected != null) this.selected = selected
+            if (watched != null) contentDescription = watched
+        }
     if (listMode) {
         Row(frame.padding(6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             picture(Modifier.width(if (tall) 72.dp else 128.dp).aspectRatio(if (tall) 3f / 4f else 16f / 9f).clip(RoundedCornerShape(10.dp)))

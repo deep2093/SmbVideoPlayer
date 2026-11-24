@@ -182,14 +182,14 @@ internal fun SettingsScreen(
     }
 }
 
-/** One category in the two-pane list: icon and name, the open one with the accent at 16 %. */
+/** One category in the two-pane list: a tab with its icon and name, the open one selected, with the accent at 16 %. */
 @Composable
-private fun SettingsListEntry(icon: SkyIcon, title: String, selected: Boolean, onClick: () -> Unit) {
+internal fun SettingsListEntry(icon: SkyIcon, title: String, selected: Boolean, onClick: () -> Unit) {
     val c = LocalSkyTheme.current.colors
     Row(
         Modifier.fillMaxWidth().heightIn(min = LocalAdaptive.current.rowHeight).clip(RoundedCornerShape(SkyRadius.control))
             .background(if (selected) c.accentSubtle else Color.Transparent)
-            .skyClickable(onClick, role = Role.Button).semantics { this.selected = selected }
+            .skyClickable(onClick, role = Role.Tab).semantics { this.selected = selected }
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),

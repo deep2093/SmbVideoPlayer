@@ -233,6 +233,31 @@ class AccessibilitySemanticsTest {
         }
     }
 
+    // M3 item 9 (M3 design brief 5.7): a card is a push button named by its title, with what is watched and its selection.
+    @Test fun videoCardsAreButtonsNamedByTitleWithTheWatchedShareAndSelection() {
+        val entry = WindowsMediaEntry(java.io.File(System.getProperty("java.io.tmpdir"), "Sky card test.mp4").path, "s", "local", "Videos", 1_000, 0)
+        compose.setContent { VideoCard(entry, {}, progress = 0.42f, selected = true) }
+        compose.onNode(named("Sky card test")).assert(role(Role.Button)).assertHasClickAction().assertIsSelected()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.ContentDescription, listOf("42% watched")))
+    }
+
+    @Test fun cardsOutsideSelectionSayNothingAboutSelection() {
+        compose.setContent { FolderCard("Holidays", "12 videos", null, emptyList(), {}) }
+        compose.onNode(named("Holidays")).assert(role(Role.Button)).assertHasClickAction()
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.Selected)).assert(noDescription)
+    }
+
+    @Test fun settingsCategoriesInTwoPanesAreTabsWithTheOpenOneSelected() {
+        compose.setContent {
+            androidx.compose.foundation.layout.Column {
+                SettingsListEntry(SkyIcon.Settings, "Appearance", selected = true) {}
+                SettingsListEntry(SkyIcon.Settings, "Playback", selected = false) {}
+            }
+        }
+        compose.onNodeWithText("Appearance").assert(role(Role.Tab)).assertIsSelected()
+        compose.onNodeWithText("Playback").assert(role(Role.Tab)).assertIsNotSelected()
+    }
+
     @androidx.compose.runtime.Composable
     private fun controls(seekFraction: Float = 0f, onSeekChange: (Float) -> Unit = {}, onSubtitlesOff: () -> Unit = {}) =
         PlayerControls(
