@@ -184,19 +184,21 @@ class SmoothingTest {
         val health = SmoothingHealth()
         for (second in 0..20) assertFalse(health.sample(second * 1000L, 10000, true, 55.0, 100.0))
     }
-    @Test fun letVrrControlRefreshIsOffUntilChosenAndKeepsTheOldSwitchsChoice() {
-        // Owner decision (plan 5.4): off on every screen, with no default from the capability queries.
+    @Test fun letVrrControlRefreshFollowsTheScreenUntilChosenAndKeepsTheOldSwitchsChoice() {
+        // Owner decision (25 November): on where the screen can vary its refresh, off on every other screen.
         val node = java.util.prefs.Preferences.userRoot().node("skywing-vrr-test-" + java.util.UUID.randomUUID())
         try {
             val prefs = MotionPreferences(node)
-            assertFalse(prefs.vrr)
+            assertTrue(prefs.vrr(screenCanVary = true))
+            assertFalse(prefs.vrr(screenCanVary = false))
             assertNull(prefs.vrrOverride)
+            // A choice holds on every screen.
+            prefs.chooseVrr(false)
+            assertFalse(MotionPreferences(node).vrr(screenCanVary = true))
+            assertEquals(false, prefs.vrrOverride)
             // A choice saved with the old "My screen uses G-SYNC / FreeSync" switch is kept.
             node.put("motion.vrr", "true")
-            assertTrue(MotionPreferences(node).vrr)
-            prefs.vrr = false
-            assertFalse(MotionPreferences(node).vrr)
-            assertEquals(false, prefs.vrrOverride)
+            assertTrue(MotionPreferences(node).vrr(screenCanVary = false))
         } finally { node.removeNode() }
     }
     @Test fun anUnknownRefreshNeverAllowsStopsAboveSixtyHz() {

@@ -106,12 +106,12 @@ internal class MotionPreferences(private val prefs: Preferences, private val ded
     }
     val vrrOverride: Boolean? get() = prefs.get("motion.vrr", null)?.toBooleanStrictOrNull()
     /**
-     * "Let VRR control refresh (fullscreen)" (plan 5.4): off unless chosen, on every screen. A choice saved with the
-     * old "My screen uses G-SYNC / FreeSync" switch, under the same key, is kept.
+     * "Let VRR control refresh (fullscreen)" (plan 5.4): until chosen, on where the screen can vary its refresh
+     * ([VrrScreen]) and off on every other screen (owner, 25 November). A choice then holds on every screen; one saved
+     * with the old "My screen uses G-SYNC / FreeSync" switch, under the same key, is kept.
      */
-    var vrr: Boolean
-        get() = vrrOverride ?: false
-        set(value) { prefs.putBoolean("motion.vrr", value) }
+    fun vrr(screenCanVary: Boolean): Boolean = vrrOverride ?: screenCanVary
+    fun chooseVrr(on: Boolean) = prefs.putBoolean("motion.vrr", on)
     /** "Smooth at screen size" (plan 5.7 item 4): off until the owner has compared it by eye. */
     var smoothAtScreenSize: Boolean
         get() = prefs.getBoolean("motion.screenSize", false)

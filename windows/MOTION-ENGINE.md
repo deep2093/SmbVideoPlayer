@@ -55,16 +55,22 @@ Multiplier and quality are stored independently for six resolution/HDR classes
 it starts at Balanced on a PC with a graphics card of its own and at Fast on every
 other PC (owner decision, 25 November); each PC keeps the choices made on it.
 
-Settings → Playback contains G-SYNC/FreeSync and Lower automatically when needed
-(default off). VRR uses audio sync; a fixed display with a matching target can use
-display-resample for a standard source rate. A measured rate always uses audio sync,
-so on a fixed-rate display its frames can judder where they fall between refreshes.
-The switch does not verify driver-level VRR activation. Its default follows a
-read-only per-display NVIDIA VRR capability query when available; unknown/unsupported
-displays default off. Saved manual choices always win, including existing choices.
-Hybrid Intel/AMD-owned outputs and missing NVIDIA APIs can report unknown; users
-can still enable the switch manually. Settings and reports distinguish unknown
-capability from a negative result.
+Settings → Playback contains "Let VRR control refresh (fullscreen)" and Lower
+automatically when needed (default off). With the VRR switch on, fullscreen uses audio
+sync; otherwise a fixed display with a matching target can use display-resample for a
+standard source rate. A measured rate always uses audio sync, so on a fixed-rate
+display its frames can judder where they fall between refreshes. The switch does not
+verify driver-level VRR activation.
+
+Until the user chooses, the VRR switch is on where the screen showing SkyWing can vary
+its refresh and off on every other screen (owner decision, 25 November). A screen can
+vary it (`VrrScreen.capable`) when NVIDIA's read-only per-display query says so; when
+NVIDIA has no answer, when its EDID has a VRR block (HDMI VRR, AMD FreeSync), or when
+it is a DisplayPort, embedded DisplayPort, USB4 or built-in screen whose EDID range
+descriptor is "range limits only" and spans more than 10 Hz (the Linux DRM rule;
+Windows can't read the DisplayPort "ignore MSA timing" bit). A saved choice, including
+one made with the old "My screen uses G-SYNC / FreeSync" switch, holds on every screen.
+Settings and reports say whether the setting is chosen or this screen's default.
 Three consecutive recent drop intervals offer the next lower stop; three clean
 intervals clear the warning. Low throughput telemetry alone does not trigger it.
 The live status reports video plus decoder drops within the last 60 seconds,

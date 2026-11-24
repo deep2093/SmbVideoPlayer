@@ -18,9 +18,31 @@ internal data class VrrRange(val min: Int, val max: Int?, val source: String) {
 
 /**
  * What a screen's EDID says about refresh. [limits] is the base block's Display Range Limits. On its own it is not a
- * VRR signal, because most fixed-refresh screens carry it too.
+ * VRR signal, because most fixed-refresh screens carry it too. [limitsOnly]: the descriptor is EDID 1.4's "range limits
+ * only" variant, which accepts any timing in the range; [VrrScreen] reads it as a VRR range on a DisplayPort link.
  */
-internal data class EdidRefresh(val vrr: VrrRange?, val limits: IntRange?)
+internal data class EdidRefresh(val vrr: VrrRange?, val limits: IntRange?, val limitsOnly: Boolean = false)
+
+/**
+ * Whether a screen can vary its refresh, which sets the default of "Let VRR control refresh (fullscreen)" (owner,
+ * 25 November). Windows has no call that says so, so this follows Linux's DRM (drm_edid.c, i915 and amdgpu): a VRR
+ * block in the EDID, or on a DisplayPort link the EDID 1.4 range limits only, more than 10 Hz apart. Those drivers also
+ * read the DisplayPort screen's "ignores MSA timing" bit, which Windows doesn't show. NVIDIA's per-display answer wins
+ * when it gives one. Whether VRR then engages is the driver's setting.
+ */
+internal object VrrScreen {
+    /** DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL (0x80000000): a laptop's or handheld's own screen, as Windows names it. */
+    const val INTERNAL = Int.MIN_VALUE
+    /** wingdi.h's DisplayPort links: external (10), embedded (11) and over a USB4 tunnel (18), and a built-in screen. */
+    private val DISPLAY_PORT = setOf(10, 11, 18, INTERNAL)
+
+    fun capable(edid: EdidRefresh, link: Int?, nvidiaPossible: Boolean?): Boolean {
+        nvidiaPossible?.let { return it }
+        if (edid.vrr != null) return true
+        val limits = edid.limits ?: return false
+        return link != null && link in DISPLAY_PORT && edid.limitsOnly && limits.last - limits.first > 10
+    }
+}
 
 /**
  * Reads the refresh parts of an EDID (plan 5.4), at the offsets edid-decode uses (parse-base-block.cpp,
@@ -50,19 +72,22 @@ internal object Edid {
             }
         }
         val vrr = PREFERENCE.firstNotNullOfOrNull { source -> found.firstOrNull { it.source == source } }
-        return EdidRefresh(vrr, limits(edid))
+        val (limits, limitsOnly) = limits(edid)
+        return EdidRefresh(vrr, limits, limitsOnly)
     }
 
-    private fun limits(e: ByteArray): IntRange? {
+    /** The range and whether it is "range limits only" (byte 10 is 1 in EDID 1.4; the other values name a timing formula). */
+    private fun limits(e: ByteArray): Pair<IntRange?, Boolean> {
         val minor = e.u(19)
         for (at in listOf(54, 72, 90, 108)) {
             if (e.u(at) != 0 || e.u(at + 1) != 0 || e.u(at + 3) != 0xFD) continue
             val flags = if (minor >= 4) e.u(at + 4) else 0
             val max = e.u(at + 6) + if (flags and 0x02 != 0) 255 else 0
             val min = e.u(at + 5) + if (flags and 0x03 == 0x03) 255 else 0
-            return if (min in 1..max) min..max else null
+            val range = if (min in 1..max) min..max else null
+            return range to (range != null && minor >= 4 && e.u(at + 10) == 0x01)
         }
-        return null
+        return null to false
     }
 
     /** CTA-861: data blocks run from byte 4 to the DTD offset in byte 2. */
@@ -177,27 +202,28 @@ internal object ScreenSummary {
         if (abs(value - value.roundToInt()) < 0.01) value.roundToInt().toString() else String.format(Locale.ROOT, "%.2f", value)
 
     /**
-     * A VRR block in the EDID gives the range. When NVIDIA says VRR is possible, the EDID's range limits are the range,
-     * as DisplayPort Adaptive-Sync declares it.
+     * Whether the screen can vary its refresh ([VrrScreen]), the rule the VRR switch's default follows. The range is
+     * the EDID's VRR block, else its range limits, as DisplayPort Adaptive-Sync declares it. [link]: the screen's
+     * DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY.
      */
-    fun variableRefresh(edid: EdidRefresh, nvidiaPossible: Boolean?): String = when {
-        edid.vrr != null -> "Variable refresh ${edid.vrr.label} (detected)"
-        nvidiaPossible == true -> edid.limits?.let { "Variable refresh ${it.first}–${it.last} Hz (detected)" }
-            ?: "Variable refresh (range not reported)"
-        nvidiaPossible == false -> "No variable refresh"
-        else -> "Variable refresh not detected"
+    fun variableRefresh(edid: EdidRefresh, nvidiaPossible: Boolean?, link: Int? = null): String {
+        if (!VrrScreen.capable(edid, link, nvidiaPossible))
+            return if (nvidiaPossible == false) "No variable refresh" else "Variable refresh not detected"
+        val range = edid.vrr?.label ?: edid.limits?.let { "${it.first}–${it.last} Hz" } ?: return "Variable refresh (range not reported)"
+        return "Variable refresh $range (detected)"
     }
 
-    fun line(refreshHz: Double?, edid: EdidRefresh, nvidiaPossible: Boolean?, hdr: HdrState): String = listOf(
+    fun line(refreshHz: Double?, edid: EdidRefresh, nvidiaPossible: Boolean?, hdr: HdrState, link: Int? = null): String = listOf(
         refreshHz?.takeIf { it.isFinite() && it > 0 }?.let { hz(it) + " Hz" } ?: "Refresh not reported",
-        variableRefresh(edid, nvidiaPossible),
+        variableRefresh(edid, nvidiaPossible, link),
         "HDR " + hdr.label,
     ).joinToString(" · ")
 
     /** One screen in verify.ps1's "Display state" (plan 5.6): the Settings line plus whether VRR is active now. */
     fun state(index: Int, screen: ScreenState, vrr: VrrCapability): String =
         "Screen ${index + 1}" + screen.path.friendlyName.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty() + ": " +
-            line(screen.path.refreshHz, screen.edid, vrr.supported, screen.hdr) + " · VRR active: " + DisplayState.vrrActive(vrr).text
+            line(screen.path.refreshHz, screen.edid, vrr.supported, screen.hdr, screen.path.outputTechnology) +
+            " · VRR active: " + DisplayState.vrrActive(vrr).text
 }
 
 /** One screen as last read: its display path, HDR state and EDID refresh. */
@@ -254,6 +280,11 @@ internal object Screens {
 
     /** The Settings line for the screen showing [window]. It asks NVIDIA, so call it off the UI thread. */
     fun describe(window: Pointer): String? = forWindow(window)?.let {
-        ScreenSummary.line(it.path.refreshHz, it.edid, DisplayVrr.read(it.path.gdiName).supported, it.hdr)
+        ScreenSummary.line(it.path.refreshHz, it.edid, DisplayVrr.read(it.path.gdiName).supported, it.hdr, it.path.outputTechnology)
     }
+
+    /** Whether the screen showing [window] can vary its refresh ([VrrScreen]). It asks NVIDIA, so call it off the UI thread. */
+    fun canVary(window: Pointer): Boolean = forWindow(window)?.let {
+        VrrScreen.capable(it.edid, it.path.outputTechnology, DisplayVrr.read(it.path.gdiName).supported)
+    } == true
 }

@@ -172,7 +172,7 @@ Runs vary by about 0.1 cores. PotPlayer-like costs about the same as Fast. Smoot
 
 ## 5. What the owner should test by hand
 
-Every check below needs CI's installer from the M2 pull request. It is the first build with the two native patches (section 6), so start each PC with the checks under *Every PC*. Use local files, audio on, and the M0 method (`M0-RESULTS.md` section 2) wherever a check measures; that section's "My screen uses G-SYNC / FreeSync" is now "Let VRR control refresh (fullscreen)" in Settings → Playback, off by default.
+Every check below needs CI's installer from the M2 pull request. It is the first build with the two native patches (section 6), so start each PC with the checks under *Every PC*. Use local files, audio on, and the M0 method (`M0-RESULTS.md` section 2) wherever a check measures; that section's "My screen uses G-SYNC / FreeSync" is now "Let VRR control refresh (fullscreen)" in Settings → Playback, off by default (on by default since 25 November where the screen can vary its refresh: set it as each check says).
 
 ### Every PC
 
@@ -242,7 +242,7 @@ Every check below needs CI's installer from the M2 pull request. It is the first
    - Their first-use quality per family conflicts with your M0 decision (Fast on every PC). Keep Fast everywhere?
    - The notes ("may struggle on this graphics chip", "Off by default" on small integrated GPUs, "Not tested on this graphics chip") need each GPU's family, and its name doesn't tell it. It needs PCI device-ID tables per family, kept up to date. Build them, or drop the notes?
 3. **Smooth at screen size.** On by default only after your by-eye comparison on the Claw.
-4. **"Let VRR control refresh (fullscreen)".** Stays off until VRR is seen to engage with SkyWing's window (laptop item 5, or PresentMon's present mode with your rights).
+4. **"Let VRR control refresh (fullscreen)".** Stays off until VRR is seen to engage with SkyWing's window (laptop item 5, or PresentMon's present mode with your rights). *Decided 25 November:* PresentMon on the Claw showed independent flip at 72 fps on its 120 Hz screen, so the switch is now on by default where the screen can vary its refresh and off elsewhere (`MOTION-ENGINE.md`).
 5. **The driver-reset test** needs your OK each time (plan rule 8).
 6. **Power throttling.** SkyWing opts out of Windows' throttling only if the minutes behind show more drops. On the laptop, plugged in, they didn't (section 3); the Claw on battery is your run. The automatic "lowest power" work (EcoQoS on the motion threads, plan 5.9) wasn't in the M2 brief: start it in a later milestone, after those numbers?
 7. **Pre-warming the card code** stays parked until all phases are done, as you said.
