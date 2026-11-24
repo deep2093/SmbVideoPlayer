@@ -69,7 +69,7 @@ $rules = @(
        Tests = @("$pkg.playback.EmbeddedPlaybackNativeTest", "$pkg.playback.ThumbnailExtractorNativeTest", "$pkg.playback.GpuAdaptersTest", "$pkg.VideoDropTest",
                  "$pkg.automation.PlaybackAutomationTest") }
     @{ Area = 'Motion interpolation / smoothing'; Escalate = $false
-       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(Motion\w*|Smoothing|SmoothingSize|RecentDrops|DisplayVrr|WindowsDisplayAdapter)\.kt|SmoothingDialog\.kt)$|windows/tools/(build_motion\.py|open-svpflow-windows\.patch)$'
+       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(Motion\w*|Smoothing|SmoothingSize|RecentDrops|WindowsDisplayAdapter)\.kt|SmoothingDialog\.kt)$|windows/tools/(build_motion\.py|open-svpflow-windows\.patch)$'
        Tests = @("$pkg.playback.MotionEngineTest", "$pkg.playback.SmoothingTest", "$pkg.playback.SmoothingSizeTest", "$pkg.playback.MotionNativeTest", "$pkg.automation.MotionAutomationTest") }
     @{ Area = 'Screens / measuring'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(PlaybackLog|ScreenState|DisplayPaths|DisplayChanges)\.kt|Bench\.kt)$|windows/tools/bench\.ps1$'
@@ -110,7 +110,7 @@ $toolTestsPattern = '^windows/tools/[^/]+\.py$'
 $focusTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|AccessBridgeTreeTest|playback\.EmbeddedPlaybackNativeTest|playback\.MotionNativeTest|playback\.FrameSharingTeardownNativeTest)$'
 $nativeTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|playback\.(EmbeddedPlaybackNativeTest|MotionNativeTest|ThumbnailExtractorNativeTest|FrameSharingTeardownNativeTest))$'
 $ffmpegTests = '^com\.skywing\.desktop\.(automation\.MotionAutomationTest|playback\.(EmbeddedPlaybackNativeTest|MotionNativeTest))$'
-# The display state (refresh, Windows HDR, VRR range, NVIDIA's VRR-active flag) is in the report; on-screen frame times
+# The display state (refresh, Windows HDR, VRR range) is in the report; on-screen frame times
 # come from windows/tools/bench.ps1 -PresentMon. Neither shows how HDR looks or how smooth playback feels.
 $notMeasured = 'How HDR looks (tone mapping, colour) and how smooth playback feels; on-screen frame times unless windows/tools/bench.ps1 -PresentMon ran; ' +
     'multi-monitor, real Alt+Tab, a real NAS or a dropped SMB connection, fresh install and uninstall on a clean PC.'

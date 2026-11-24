@@ -47,7 +47,7 @@ import kotlin.system.exitProcess
  * - SKYWING_M0_LABEL: the run's name, used for its results folder (letters, digits, '-' and '_').
  * - SKYWING_M0_VRR: true or false, written as SkyWing's VRR setting ("My screen uses G-SYNC / FreeSync" in 0.1.101,
  *   "Let VRR control refresh (fullscreen)" from M2), or auto to leave it unset: 0.1.101 then detects it from the
- *   display, and M2 leaves it off.
+ *   display, and M2 follows the screen (on where it can vary its refresh, owner decision of 25 November).
  * - SKYWING_M0_SCREEN_SIZE: on or off, SkyWing's "Smooth at screen size" (M2, plan 5.7 item 4); off when unset.
  * - SKYWING_M0_QUALITY: the motion quality (Fastest, Fast, Balanced, Better or Best); Balanced when unset.
  * - SKYWING_M0_POWER: ac or battery, what the machine must be on.
@@ -77,7 +77,7 @@ internal class M0Settings private constructor(
     val clip: Path,
     val out: Path,
     val label: String,
-    /** SkyWing's VRR setting; null leaves it unset (0.1.101 detects it, M2 leaves it off). */
+    /** SkyWing's VRR setting; null leaves it unset (0.1.101 detects it, M2 follows the screen). */
     val vrr: Boolean?,
     /** "Smooth at screen size" (M2); 0.1.101 has no such setting and ignores it. */
     val screenSize: Boolean,

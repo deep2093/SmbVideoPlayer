@@ -85,8 +85,11 @@ function Get-PresentMonSummary([string]$csv, [double]$minutes) {
         $modes[$f[$col.PresentMode]] = 1 + [int]$modes[$f[$col.PresentMode]]
         $syncs[$f[$col.SyncInterval]] = $true
         if ($f[$col.Dropped] -eq '1') { $dropped++; continue }
-        $between = [double]::Parse($f[$col.msBetweenDisplayChange], $invariant)
-        if ($between -gt 0) { $intervals.Add($between) }
+        # NA when there is no earlier displayed frame to measure from.
+        $between = 0.0
+        if ([double]::TryParse($f[$col.msBetweenDisplayChange], [Globalization.NumberStyles]::Float, $invariant, [ref]$between) -and $between -gt 0) {
+            $intervals.Add($between)
+        }
     }
     $span = [Math]::Min($minutes * 60, $last - $first)
     $out = @("On-screen frame times (PresentMon, last $($span.ToString('0', $invariant)) s, mpv's swap chain): " +

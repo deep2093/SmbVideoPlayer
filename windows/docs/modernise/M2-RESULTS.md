@@ -7,15 +7,15 @@ M2 changes no preset, stop or per-file setting. The two cheaper-smoothing experi
 ## 1. What changed
 
 - **One GPU, chosen by a plan.** SkyWing lists the PC's GPUs (LUIDs, Windows' own integrated and external answers, the PCI vendor) and picks one with a pure, tested policy. Automatic keeps today's routing, the GPU driving the screen. Performance (dedicated) and Power saving (integrated) are new, in Settings > Playback > "Graphics for video". The same GPU draws the video and runs motion; two GPUs from one maker are matched by LUID. A change of screen, power source or GPUs that holds for 5 s re-plans, and a settings change moves a playing video without stopping it. On a hybrid PC in Automatic, "Use <dedicated GPU> for smoothing" is offered when 2× can't keep up.
-- **Screens.** The refresh comes from the screen's current mode; the old 240 Hz guess is gone (B30). A stop the screen can't show evenly says "May judder on this N Hz screen" (B31), and every stop that divides the refresh uses `display-resample`. Each screen's HDR state, its EDID VRR range and NVIDIA's VRR bits are read again only on `WM_DISPLAYCHANGE`. "My screen uses G-SYNC / FreeSync" became the advanced switch "Let VRR control refresh (fullscreen)", off by default.
+- **Screens.** The refresh comes from the screen's current mode; the old 240 Hz guess is gone (B30). A stop the screen can't show evenly says "May judder on this N Hz screen" (B31), and every stop that divides the refresh uses `display-resample`. Each screen's HDR state and its EDID VRR range are read again only on `WM_DISPLAYCHANGE`. "My screen uses G-SYNC / FreeSync" became the advanced switch "Let VRR control refresh (fullscreen)": off by default at first, on by default since 25 November where the screen can vary its refresh (owner).
 - **Smoothing safety.** The watchdog's heartbeat goes through shared memory instead of a status file (B28). Frame sharing keeps the VapourSynth core alive until its last shared frame is freed, its MSYS2 packages are pinned, and a 10-round teardown stress test exists. Interlaced video is deinterlaced and not smoothed. Without OpenCL on the plan's GPU, motion runs on another GPU's OpenCL, else on the processor up to 1080p at 2×. A lost graphics device re-creates the video output. A processor without AVX2 keeps smoothing off.
-- **Measuring.** While smoothing runs, a per-minute CSV records drops, timing, CPU, heartbeat, events, HDR engaged, VRR active, the refresh and whether SkyWing was in front. Motion options has "Copy test report". `SkyWing.exe --bench` plays a file the same way on every PC, and `windows/tools/bench.ps1` runs it with optional PresentMon. The reports name the GPU plan, the processor, the render and decode paths and the driver versions. `verify.ps1` adds each screen's display state to its report.
+- **Measuring.** While smoothing runs, a per-minute CSV records drops, timing, CPU, heartbeat, events, HDR engaged, the refresh and whether SkyWing was in front. Motion options has "Copy test report". `SkyWing.exe --bench` plays a file the same way on every PC, and `windows/tools/bench.ps1` runs it with optional PresentMon. The reports name the GPU plan, the processor, the render and decode paths and the driver versions. `verify.ps1` adds each screen's display state to its report.
 - **Cheaper smoothing, as experiments.** A hidden PotPlayer-like option set for the benchmark (plan 5.7 item 1), and "Smooth at screen size" (item 4), off until the owner has compared it by eye.
 - **Faults the acceptance runs found**, all fixed (section 3): the packaged app didn't start, three desktop tests had never run, a benchmark could hang the chain, and two tests were out of date or misread a covered window.
 
 Changed files (55, all under `windows/`):
 - GPU choice: `playback/GpuAdapters.kt`, `GpuInventory.kt`, `GpuPolicy.kt`, `OpenClDevices.kt`, `EmbeddedMpv.kt`, `SmoothingDialog.kt`, `SettingsScreen.kt`, `tools/open-svpflow-windows.patch`.
-- Screens: `playback/DisplayPaths.kt`, `DisplayChanges.kt`, `DisplayVrr.kt`, `ScreenState.kt`, `MotionSettings.kt`, `Smoothing.kt`.
+- Screens: `playback/DisplayPaths.kt`, `DisplayChanges.kt`, `DisplayVrr.kt` (removed later, see section 2), `ScreenState.kt`, `MotionSettings.kt`, `Smoothing.kt`.
 - Smoothing safety: `playback/MotionEngine.kt`, `Processor.kt`, `tools/mpv-vapoursynth-output-preview.patch`, `tools/mpv-preview-packages.json`, `tools/stage_mpv_preview.py`, `tools/test_stage_mpv_preview.py`, `legal/SOURCE-STATUS.md`.
 - Measuring: `Bench.kt`, `Main.kt`, `playback/PlaybackLog.kt`, `WindowFocus.kt`, `tools/bench.ps1`, `tools/verify.ps1`, `tools/m0-runner/README.txt`.
 - Cheaper smoothing: `playback/SmoothingSize.kt`, `docs/modernise/reports/potplayer-script.md`.
@@ -33,18 +33,19 @@ Changed files (55, all under `windows/`):
 | 4. Frame sharing (5.5) | Done in source; the two native patches need CI's build | 711e6b5, a5ff522 |
 | 5. Watchdog heartbeat (B28) | Done | 3a8f01f |
 | 6. Measuring (5.6) | Done; on-screen frame times need the owner's rights | 7d273b0, d3a7512 |
-| 7. Compatibility matrix (5.8) | Rules 2–4 and 7–10 done; the family rows are not | 833f1a6, d3370b2, 613daa1, 49b2781, f821fe7 |
+| 7. Compatibility matrix (5.8) | Rules 2–4 and 7–10 done; the family rows done short (25 November) | 833f1a6, d3370b2, 613daa1, 49b2781, f821fe7 |
 | 8. Cheaper smoothing (5.7) | Items 1 and 4 done; 2 and 7 checked and not possible as asked; 5 and 6 are owner runs | 5fc20b2, 070ccba |
 | 9. Any processor (5.9) | Done; the laptop's in-front and behind comparison is in section 3, the handheld's is an owner run | 9cea102, 300eade |
 | Fixes from the acceptance runs | Done | 21c3709, 2d3a561, 4f0f75c, 3f4b7d6, 2f43e54, 7acb9bd |
 
 Where the code or the facts differ from the brief (the code wins, as the brief asks):
 - **Item 3, VRR range.** NvAPI has no VRR range (`NvAPI_Disp_GetVRRInfo` returns only five flags), so the range comes from the EDID for every vendor. ADLX (AMD) and IGCL (Intel) were not added: each is a large driver interface to wrap through JNA, the brief asked for ADLX only if cheap, and the EDID already gives the range. NVIDIA's VRR-enabled flag is the only "VRR active now" reading; other GPUs say "not measured". On this laptop the NvAPI VRR query returned -6 (`NVAPI_NVIDIA_DEVICE_NOT_FOUND`) for the built-in screen, which Intel drives in Hybrid mode.
+- **NVIDIA's G-SYNC query removed (owner, 25 November).** In NVIDIA-only mode on this laptop the G-SYNC indicator never showed for SkyWing, with "Let VRR control refresh" on or off, and NvAPI agreed (VRR enabled false). The query changed no playback: it only filled "VRR active" in the reports and the per-minute log, which said "not measured" on every other GPU, and it could overrule the EDID for the switch's default. `DisplayVrr.kt`, the "VRR active" lines and the `vrr_active` column are gone. The EDID rule alone still finds this laptop's and the Claw's built-in screens, so the switch's default there is unchanged.
 - **Item 3, VRR with the embedded window.** Whether VRR engages with SkyWing's video window and its overlays is not measured: it needs PresentMon's present mode (independent flip or composed), which needs the owner's rights, or the monitor's own VRR indicator, which needs eyes. The switch stays off by default, as the owner decided.
 - **Item 4.** VapourSynth R73 doesn't keep a core alive for a held frame, and its memory tracker has a race on teardown. The patch keeps the core alive until the last shared frame is freed instead of copying planes, which isn't possible for frames already sent on. Neither this PC nor the installed 0.1.101 has the frame-sharing runtime, so the teardown test ran on the stock runtime only (section 3).
 - **Item 6.** This account has no ETW rights, so `bench.ps1 -PresentMon` said "not measured". PresentMon next to `--bench` costs less than an ETW consumer inside SkyWing for the same rights, so SkyWing has no ETW code.
 - **Item 7, rule 1.** The capability probe isn't cached per driver. It runs once when a video starts, the OpenCL listing only while smoothing is on, and a cache would only add the risk of stale answers after a driver update.
-- **Item 7, the family rows.** Not done. The rows' first-use quality conflicts with the owner's M0 decision (Fast on every PC). The rest (the "may struggle on this graphics chip" note, "Off by default" for small integrated GPUs, "Not tested on this graphics chip") needs each GPU's family, and names don't say it: this laptop's integrated GPU reports only "Intel(R) Graphics", and AMD drivers call many integrated GPUs "AMD Radeon(TM) Graphics". It needs PCI device-ID tables per family, and the codec rows need checking against the vendors' decode tables. Section 7 asks for a decision.
+- **Item 7, the family rows.** Not done. The rows' first-use quality conflicts with the owner's M0 decision (Fast on every PC). The rest (the "may struggle on this graphics chip" note, "Off by default" for small integrated GPUs, "Not tested on this graphics chip") needs each GPU's family, and names don't say it: this laptop's integrated GPU reports only "Intel(R) Graphics", and AMD drivers call many integrated GPUs "AMD Radeon(TM) Graphics". It needs PCI device-ID tables per family, and the codec rows need checking against the vendors' decode tables. Section 7 asks for a decision. *Decided 25 November (owner): build it, short and easy to understand.* `GpuFamily` tells three groups by the name Windows lists, with no device-ID tables: graphics cards and the newest built-in chips get no note; older cards and other built-in graphics get "May struggle on this graphics chip above 1080p"; other makers and virtual machines get "Not tested on this graphics chip" (`MOTION-ENGINE.md`). Smoothing already starts off on every PC and the first-use quality follows the Balanced/Fast rule, so the note changes no setting. The codec rows are still not checked against the vendors' tables.
 - **Item 7, rule 6.** HDR and Dolby Vision smoothing stay bypassed. `target-colorspace-hint` was not changed: it needs checking with Windows HDR on and off on a real HDR screen.
 - **Item 8, 5.7 item 2 (luma-only scoring).** Not possible: open-svpflow has no equivalent of MVTools' `chroma=false`; it always adds chroma to the block cost (`reports/potplayer-script.md`).
 - **Item 8, 5.7 item 4, where to resize.** The pinned libmpv has `d3d11vpp` (with `scaling-mode`), but it scales only D3D11 frames, and the motion engine decodes with `hwdec=auto-copy`. Resizing on the GPU would need a different decode path (d3d11va, then `d3d11vpp` scaling, then a download before VapourSynth). That isn't built or measured; the resize runs in VapourSynth before Super, and sections 3 and 4 measure it.
@@ -112,6 +113,22 @@ An 8-minute Balanced benchmark of the same clip. A helper kept SkyWing in front 
 
 Plugged in, being behind another window changed neither drops nor SkyWing's CPU on the laptop. So nothing here asks for opting out of Windows' power throttling. The handheld on battery, where Windows throttles harder, is the owner's run (section 5).
 
+### The owner's hand tests (25 November)
+
+CI's installers 0.1.113 (b49c7ad) and 0.1.117 (merge 5052bf4), local files, audio on. Numbers come from the test report's per-minute table unless the row says otherwise.
+
+| PC and setup | Check | Result |
+|---|---|---|
+| Claw, 0.1.113, plugged in, 1080p 23.976 fps Fast 3× = 71.93 fps, VRR switch on, Intel Adaptive Sync on, `bench.ps1 -PresentMon`, 3 min | VRR with SkyWing's window (laptop item 5's question, asked on the Claw) | Present mode independent flip 100%. Displayed-frame interval median 13.96 ms: a fixed 120 Hz screen allows only 8.33 or 16.67 ms, so VRR engaged. 0 drops; 3.8% of frames took over 1.5× the median. |
+| Laptop, 0.1.117, NVIDIA-only, 4K Fast 4×, native size, full screen, switch on and then off | G-SYNC indicator | Never showed, switch on or off. On: 13, 12, 14 drops a minute after the first minute, 0 delayed. Off: 3 and 18 drops, 101 and 79 delayed. The cause wasn't pursued (owner); NVIDIA's query was removed (section 2, item 3). |
+| Claw, 0.1.117, battery, 4K 29.97 fps Fast 2× = 59.94 fps, full screen, VRR switch on; Explorer in front for minutes 4 to 7 | In front and behind (plan 5.9) | Minute 1: 15 drops, 25 delayed (the start). Minutes 2 to 7: 0 drops and 0 delayed, in front and behind; 1.32 to 1.41 cores. Explorer closed itself during the run (cause unknown). |
+| Claw, 0.1.117, battery, 20 W, same clip and settings, Windows Balanced (4 min) and Best performance (3 min) | Efficiency floor (plan 5.7 item 5) | Both 0 drops after minute 1 (minute 1: 8 drops and 10 delayed; 15 and 28). 1.37 to 1.42 cores and 1.33 to 1.43 cores: Best performance adds nothing. |
+| Claw, 15 W | Efficiency floor | Fine, by the owner's eye (no report). |
+| Claw, "Smooth at screen size" off and on | By eye (plan 5.7 item 4) | Keep it off by default (owner). |
+| Laptop, 0.1.117, Hybrid, Performance (NVIDIA), plugged in, Windows HDR on, 4K 29.97 fps SDR Better 4× = 119.88 fps on 240 Hz, VRR switch off | HDR line | The Screen line says HDR on; "HDR engaged: no (source is SDR)". Stutter for the first 1 to 2 s (546 drops and 17 delayed in the first seconds, a 1.5 s heartbeat gap), then smooth: 0 drops in the last minute when the report was copied. |
+
+Not done: an external screen (no second screen), an interlaced clip, a 59.94 fps file's stops, Hybrid's three choices, the charger, an HDR video, Win+Alt+B while SkyWing is open, a driver reset and the PotPlayer baselines.
+
 ### Before and after
 
 "Before" is M1's after build (061ea24) on this laptop: its M1-runner numbers and its M0-method playback run (`M1-RESULTS.md`). "After" is the M2 build (3f4b7d6), measured the same way on 24 November. One run each (three for M2's playback), so small differences may be chance.
@@ -172,7 +189,7 @@ Runs vary by about 0.1 cores. PotPlayer-like costs about the same as Fast. Smoot
 
 ## 5. What the owner should test by hand
 
-Every check below needs CI's installer from the M2 pull request. It is the first build with the two native patches (section 6), so start each PC with the checks under *Every PC*. Use local files, audio on, and the M0 method (`M0-RESULTS.md` section 2) wherever a check measures; that section's "My screen uses G-SYNC / FreeSync" is now "Let VRR control refresh (fullscreen)" in Settings → Playback, off by default.
+Every check below needs CI's installer from the M2 pull request. It is the first build with the two native patches (section 6), so start each PC with the checks under *Every PC*. Use local files, audio on, and the M0 method (`M0-RESULTS.md` section 2) wherever a check measures; that section's "My screen uses G-SYNC / FreeSync" is now "Let VRR control refresh (fullscreen)" in Settings → Playback, off by default (on by default since 25 November where the screen can vary its refresh: set it as each check says).
 
 ### Every PC
 
@@ -187,7 +204,7 @@ Every check below needs CI's installer from the M2 pull request. It is the first
 ### Laptop (RTX 5070 Ti)
 
 1. **The three choices in Hybrid mode.** Automatic and Power saving use Intel, Performance uses NVIDIA. At 4K Best, when 2× can't keep up, Automatic offers "Use NVIDIA for smoothing" once per file.
-2. **The NVIDIA-only mode** (Lenovo Vantage's GPU switch, if you use it): Automatic uses NVIDIA, and the VRR line reads NVIDIA's state instead of "not measured".
+2. **The NVIDIA-only mode** (Lenovo Vantage's GPU switch, if you use it): Automatic uses NVIDIA. (This step also checked a VRR line that read NVIDIA's state; that line went with NVIDIA's query on 25 November.)
 3. **An external screen** on the NVIDIA port: move a playing video to it. Within about 5 s the report's GPU plan and refresh follow that screen, and the video keeps playing.
 4. **Charger out and in** while a video plays: the plan is made again after about 5 s, with no stop.
 5. **VRR.** Turn "Let VRR control refresh (fullscreen)" on, play full screen, and watch the screen's refresh indicator (NVIDIA Control Panel → Display → G-SYNC indicator, on the NVIDIA port or in NVIDIA-only mode). Tell me whether it varies: that decides the switch's default (section 7).
@@ -212,6 +229,8 @@ Every check below needs CI's installer from the M2 pull request. It is the first
 
 ### OneXPlayer 3 (Intel Arc B390)
 
+*Dropped 25 November (owner):* no OneXPlayer 3 runs in M2 or later. The Claw list above stands in for both handhelds.
+
 1. Items 1 to 4 of the Claw list, with OneXConsole's limits in place of MSI's.
 2. The report's `GPU plan:` line names the Arc B390, and its `Preferred motion GPU:` line names that GPU's OpenCL device.
 3. The screen-size comparison by eye matters most here: its 4K drops in M0 came from the start.
@@ -234,17 +253,18 @@ Every check below needs CI's installer from the M2 pull request. It is the first
 - **Variable rate.** Interlaced video plays at the field rate after deinterlacing. A variable-rate Matroska file reports its fastest rate as its rate, so its first frames are timed from that.
 - **PotPlayer's 1.3 cores** may come from `Prefetch(1)` (one VapourSynth thread); not measured.
 - **open-svpflow's search types** are numbered differently from MVTools': MVTools' `search=3` is open-svpflow's default type 4.
+- **HDR on, start of playback.** With Windows HDR on, an SDR video stuttered for its first 1 to 2 s on the laptop (4K Better 4×), then played smoothly. Not compared with HDR off at the same settings.
 
 ## 7. Decisions for the owner
 
 1. **The M2 pull request** is a draft on top of M1's (#15), so M1 merges first. CI's build of it is the first of the two native patches; check that it passes before the hand tests.
-2. **The GPU-family rows (5.8).** Not done. Two questions:
+2. **The GPU-family rows (5.8).** *Decided 25 November:* built short (section 2, item 7). The two questions were:
    - Their first-use quality per family conflicts with your M0 decision (Fast on every PC). Keep Fast everywhere?
    - The notes ("may struggle on this graphics chip", "Off by default" on small integrated GPUs, "Not tested on this graphics chip") need each GPU's family, and its name doesn't tell it. It needs PCI device-ID tables per family, kept up to date. Build them, or drop the notes?
-3. **Smooth at screen size.** On by default only after your by-eye comparison on the Claw.
-4. **"Let VRR control refresh (fullscreen)".** Stays off until VRR is seen to engage with SkyWing's window (laptop item 5, or PresentMon's present mode with your rights).
+3. **Smooth at screen size.** On by default only after your by-eye comparison on the Claw. *Decided 25 November:* it stays off by default after the owner's comparison on the Claw.
+4. **"Let VRR control refresh (fullscreen)".** Stays off until VRR is seen to engage with SkyWing's window (laptop item 5, or PresentMon's present mode with your rights). *Decided 25 November:* PresentMon on the Claw showed independent flip at 72 fps on its 120 Hz screen, so the switch is now on by default where the screen can vary its refresh and off elsewhere (`MOTION-ENGINE.md`).
 5. **The driver-reset test** needs your OK each time (plan rule 8).
-6. **Power throttling.** SkyWing opts out of Windows' throttling only if the minutes behind show more drops. On the laptop, plugged in, they didn't (section 3); the Claw on battery is your run. The automatic "lowest power" work (EcoQoS on the motion threads, plan 5.9) wasn't in the M2 brief: start it in a later milestone, after those numbers?
+6. **Power throttling.** SkyWing opts out of Windows' throttling only if the minutes behind show more drops. On the laptop, plugged in, they didn't (section 3); the Claw on battery is your run. The automatic "lowest power" work (EcoQoS on the motion threads, plan 5.9) wasn't in the M2 brief: start it in a later milestone, after those numbers? *Decided 25 November:* no opt-out: on the Claw on battery the minutes behind had no more drops (section 3). EcoQoS waits for the handheld and power milestone (P5) and is discussed before it is built.
 7. **Pre-warming the card code** stays parked until all phases are done, as you said.
 
 ## 8. Commits

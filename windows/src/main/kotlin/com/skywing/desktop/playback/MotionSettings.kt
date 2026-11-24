@@ -14,8 +14,10 @@ enum class MotionQuality(val label: String, val superOptions: String, val analys
     BEST("Best", "{gpu:1,pel:4}", "{block:{w:8,h:8,overlap:3},refine:[{thsad:200}]}", "algo:23,mask:{cover:100,area:50}");
 
     companion object {
-        /** Until a video type saves its own: Fast held 2× without drops on the laptop and both handhelds, also on battery (M0). */
+        /** Fast held 2× without drops on the laptop and both handhelds, also on battery (M0). */
         val DEFAULT = FAST
+        /** A video type's quality until it saves its own (owner, 25 November): Balanced with a graphics card of its own, otherwise Fast. */
+        fun startFor(dedicatedGpu: Boolean): MotionQuality = if (dedicatedGpu) BALANCED else DEFAULT
     }
 }
 
@@ -94,22 +96,22 @@ internal object MotionStops {
     }
 }
 
-internal class MotionPreferences(private val prefs: Preferences) {
+internal class MotionPreferences(private val prefs: Preferences, private val dedicatedGpu: () -> Boolean = { GpuAdapters.hasDedicated }) {
     fun load(key: String, defaultStop: Int): MotionSettings = MotionSettings(
         prefs.getInt("motion.$key.stop", defaultStop).coerceIn(0, 3),
-        MotionQuality.entries.firstOrNull { it.name == prefs.get("motion.$key.quality", null) } ?: MotionQuality.DEFAULT)
+        MotionQuality.entries.firstOrNull { it.name == prefs.get("motion.$key.quality", null) } ?: MotionQuality.startFor(dedicatedGpu()))
     fun save(key: String, settings: MotionSettings) {
         prefs.putInt("motion.$key.stop", settings.stop.coerceIn(0, 3))
         prefs.put("motion.$key.quality", settings.quality.name)
     }
     val vrrOverride: Boolean? get() = prefs.get("motion.vrr", null)?.toBooleanStrictOrNull()
     /**
-     * "Let VRR control refresh (fullscreen)" (plan 5.4): off unless chosen, on every screen. A choice saved with the
-     * old "My screen uses G-SYNC / FreeSync" switch, under the same key, is kept.
+     * "Let VRR control refresh (fullscreen)" (plan 5.4): until chosen, on where the screen can vary its refresh
+     * ([VrrScreen]) and off on every other screen (owner, 25 November). A choice then holds on every screen; one saved
+     * with the old "My screen uses G-SYNC / FreeSync" switch, under the same key, is kept.
      */
-    var vrr: Boolean
-        get() = vrrOverride ?: false
-        set(value) { prefs.putBoolean("motion.vrr", value) }
+    fun vrr(screenCanVary: Boolean): Boolean = vrrOverride ?: screenCanVary
+    fun chooseVrr(on: Boolean) = prefs.putBoolean("motion.vrr", on)
     /** "Smooth at screen size" (plan 5.7 item 4): off until the owner has compared it by eye. */
     var smoothAtScreenSize: Boolean
         get() = prefs.getBoolean("motion.screenSize", false)

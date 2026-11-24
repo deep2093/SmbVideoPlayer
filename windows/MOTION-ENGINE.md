@@ -51,19 +51,27 @@ standard rate can be its fastest rate rather than its average.
 Both sliders save on release and the worker applies the latest saved values on
 its next poll. A changed filter seeks exactly back to its sampled playback position.
 Multiplier and quality are stored independently for six resolution/HDR classes
-(≤1080p, ≤1440p, 4K and above × SDR/HDR). Fast is the quality default on every PC
-until the user picks a quality for a class; each PC keeps the choices made on it.
+(≤1080p, ≤1440p, 4K and above × SDR/HDR). Until the user picks a quality for a class,
+it starts at Balanced on a PC with a graphics card of its own and at Fast on every
+other PC (owner decision, 25 November); each PC keeps the choices made on it.
 
-Settings → Playback contains G-SYNC/FreeSync and Lower automatically when needed
-(default off). VRR uses audio sync; a fixed display with a matching target can use
-display-resample for a standard source rate. A measured rate always uses audio sync,
-so on a fixed-rate display its frames can judder where they fall between refreshes.
-The switch does not verify driver-level VRR activation. Its default follows a
-read-only per-display NVIDIA VRR capability query when available; unknown/unsupported
-displays default off. Saved manual choices always win, including existing choices.
-Hybrid Intel/AMD-owned outputs and missing NVIDIA APIs can report unknown; users
-can still enable the switch manually. Settings and reports distinguish unknown
-capability from a negative result.
+Settings → Playback contains "Let VRR control refresh (fullscreen)" and Lower
+automatically when needed (default off). With the VRR switch on, fullscreen uses audio
+sync; otherwise a fixed display with a matching target can use display-resample for a
+standard source rate. A measured rate always uses audio sync, so on a fixed-rate
+display its frames can judder where they fall between refreshes. The switch does not
+verify driver-level VRR activation.
+
+Until the user chooses, the VRR switch is on where the screen showing SkyWing can vary
+its refresh and off on every other screen (owner decision, 25 November). A screen can
+vary it (`VrrScreen.capable`) when its EDID has a VRR block (DisplayID Adaptive-Sync,
+AMD FreeSync, HDMI VRR), or when it is a DisplayPort, embedded DisplayPort, USB4 or
+built-in screen whose EDID range descriptor is "range limits only" and spans more than
+10 Hz (the Linux DRM rule; Windows can't read the DisplayPort "ignore MSA timing" bit).
+SkyWing doesn't ask the graphics driver: NVIDIA's G-SYNC query was removed on
+25 November (owner) because it changed no playback. A saved choice, including
+one made with the old "My screen uses G-SYNC / FreeSync" switch, holds on every screen.
+Settings and reports say whether the setting is chosen or this screen's default.
 Three consecutive recent drop intervals offer the next lower stop; three clean
 intervals clear the warning. Low throughput telemetry alone does not trigger it.
 The live status reports video plus decoder drops within the last 60 seconds,
@@ -131,6 +139,13 @@ plays and smoothing is off with "Install your graphics driver for smooth playbac
 version as Device Manager shows it, and a "Decode path:" line (decoder in use, interop, what was asked for and what
 failed for this file). The "Renderer:" line is unchanged.
 
+Motion options adds a note for the GPU that smooths (`GpuFamily`, plan 5.8 kept short, owner, 25 November). It goes
+by the name Windows lists, with no device-ID tables. Graphics cards and the newest built-in chips (Arc 130V/140V,
+Arc B3xx, Radeon 8040S to 8060S) get no note. Older cards (GeForce GTX 10 and older, GT, MX; Radeon RX 400 to 5000,
+RX Vega, R5 to R9, HD) and all other built-in graphics get "May struggle on this graphics chip above 1080p" for video
+larger than 1080p. Other makers and virtual machines get "Not tested on this graphics chip". The note is advice
+only and changes no setting; both reports show it as "GPU note:".
+
 mpv does not step down when its graphics device is lost while a video plays (a driver reset or update, or the GPU
 removed or hung). libplacebo then logs "Device lost!" at error level and refuses every frame after it; mpv skips those
 frames without a word, so the window would stay black. SkyWing reads that message and, on its next once-a-second
@@ -194,7 +209,7 @@ row each minute. Each row holds the target and the filter's output rate (from th
 not presented frames), and the minute's change in mpv's `frame-drop-count`, `decoder-frame-drop-count`,
 `vo-delayed-frame-count` and `mistimed-frame-count`. It also holds the largest `vsync-jitter`,
 `estimated-display-fps`, the process CPU in cores, the oldest heartbeat age, and the graph generations, seeks, pauses,
-cache waits, fullscreen changes and recoveries in that minute. It ends with HDR engaged, VRR active, the refresh and
+cache waits, fullscreen changes and recoveries in that minute. It ends with HDR engaged, the refresh and
 whether SkyWing's window was in front: yes, no or mixed (plan 5.9). Windows may give a window that is not in front
 less processor time, or move its threads to slower cores on a hybrid processor; this column tells those minutes
 apart.
@@ -205,11 +220,10 @@ another video plays; a seek or a settings change stays in the same file. The new
 - **HDR engaged** is "yes" only when Windows HDR is on for the screen, the source is PQ or HLG (`video-params/gamma`)
   and mpv sends PQ or HLG (`video-target-params/gamma`). A "no" names the part that is not HDR. "unknown" names what
   was not reported.
-- **VRR active** is NVIDIA's `bIsVRREnabled` ("VRR Mode is currently active on given display", nvapi.h). Other GPUs
-  report nothing, so it reads "not measured". Whether NVIDIA's flag follows SkyWing's fullscreen is still to be
-  measured on real screens.
+- Whether VRR is active is not read: Windows has no call for it, and NVIDIA's flag was removed with its query.
+  PresentMon's frame times (`tools/bench.ps1 -PresentMon`) or the driver's own indicator show it.
 
-**Copy test report** copies the build, GPU plan, renderer, screen, HDR engaged, VRR active, the VRR control setting,
+**Copy test report** copies the build, GPU plan, renderer, screen, HDR engaged, the VRR control setting,
 the smoothing state, the log file's name and the per-minute table, to compare PCs.
 
 **Benchmark mode** is hidden: `SkyWing.exe --bench <file> [--minutes 10] [--quality Balanced] [--stop 2x] [--start 0]
