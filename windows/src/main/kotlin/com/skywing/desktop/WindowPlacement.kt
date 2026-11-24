@@ -96,6 +96,21 @@ internal object WindowSizing {
         return start.copy(normal = normal)
     }
 
+    /**
+     * What to save for [screen]: the normal window when its centre is on that screen and it fits the work area,
+     * otherwise the screen's first-start window (a window maximised after a move to another screen, or a maximised
+     * frame read as the normal window, would come back in the wrong place or too big).
+     */
+    fun forScreen(start: WindowStart, screen: ScreenInfo): WindowStart {
+        val normal = start.normal
+        val work = screen.work
+        val centreX = normal.x + normal.width / 2
+        val centreY = normal.y + normal.height / 2
+        val onScreen = centreX in work.x..work.right && centreY in work.y..work.bottom
+        val fits = normal.width <= work.width + 1 && normal.height <= work.height + 1
+        return if (onScreen && fits) start else start.copy(normal = firstStart(work).normal)
+    }
+
     /** How much of the title bar's width is on the screen that shows most of it. */
     private fun titleOnScreen(window: Area, screens: List<ScreenInfo>): Double = screens.maxOfOrNull { screen ->
         val work = screen.work
@@ -222,6 +237,8 @@ internal class WindowPlacementSaver(val store: WindowPlacementStore, start: Wind
     /** Takes the window's bounds as the normal window while it is a normal, shown window. */
     fun observe(state: WindowState) {
         if (settling || state.isMinimized || state.placement != WindowPlacement.Floating) return
+        // Compose can still say Floating for a moment after Windows has maximised the frame.
+        if ((window as? Frame)?.let { it.extendedState and Frame.MAXIMIZED_BOTH == Frame.MAXIMIZED_BOTH } == true) return
         val position = state.position as? WindowPosition.Absolute ?: return
         normal = Area(position.x.value.toDouble(), position.y.value.toDouble(), state.size.width.value.toDouble(), state.size.height.value.toDouble())
     }
@@ -230,7 +247,7 @@ internal class WindowPlacementSaver(val store: WindowPlacementStore, start: Wind
     fun pending(state: WindowState): Pair<String, WindowStart>? {
         if (settling || state.isMinimized || state.placement == WindowPlacement.Fullscreen) return null
         val screen = window?.graphicsConfiguration?.let { runCatching { WindowScreens.of(it) }.getOrNull() } ?: return null
-        return screen.id to WindowStart(state.placement == WindowPlacement.Maximized, normal)
+        return screen.id to WindowSizing.forScreen(WindowStart(state.placement == WindowPlacement.Maximized, normal), screen)
     }
 
     private companion object {

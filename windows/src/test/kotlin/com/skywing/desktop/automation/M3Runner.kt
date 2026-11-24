@@ -354,8 +354,10 @@ private class M3Runner(
         rows += M3Row("navigation by width", name, if (name != AFTER) Verdict.BEFORE else if (unknown == widths.size) Verdict.NOT_MEASURED else judged(name, navProblem), shapes.joinToString("\n"))
         rows += when {
             anchor == null -> M3Row("scroll kept across widths", name, Verdict.NOT_MEASURED, "The video cards have no names the Access Bridge can read, so the runner can't tell which one is at the top")
-            else -> M3Row("scroll kept across widths", name, judged(name, if (lost.isEmpty()) null else "\"$anchor\", at the top before, wasn't on the page any more at ${lost.joinToString { "$it dp" }}"),
-                "\"$anchor\" stayed on the page at every width")
+            else -> {
+                val problem = if (lost.isEmpty()) null else "\"$anchor\", at the top before, wasn't on the page any more at ${lost.joinToString { "$it dp" }}"
+                M3Row("scroll kept across widths", name, judged(name, problem), problem ?: "\"$anchor\" stayed on the page at every width")
+            }
         }
     }
 

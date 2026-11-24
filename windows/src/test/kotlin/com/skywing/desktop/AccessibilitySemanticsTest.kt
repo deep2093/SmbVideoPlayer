@@ -213,6 +213,14 @@ class AccessibilitySemanticsTest {
         assertEquals(true, checked)
     }
 
+    // The M3 runner's audit: Settings › App layout had two check boxes a screen reader could not name.
+    @Test fun folderTabCheckboxIsDescribedByItsTab() {
+        var ticked: Boolean? = null
+        compose.setContent { FolderTabRow("Library", on = false, canTurnOff = true, canMoveEarlier = false, canMoveLater = false, onTick = { ticked = it }, onEarlier = {}, onLater = {}) }
+        compose.onNode(isToggleable() and described("Library")).assert(role(Role.Checkbox)).performClick()
+        assertEquals(true, ticked)
+    }
+
     @Test fun settingsRowsAndThemesExposeRoles() {
         compose.setContent {
             androidx.compose.foundation.layout.Column {

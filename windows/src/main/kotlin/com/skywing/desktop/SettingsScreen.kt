@@ -341,6 +341,34 @@ private fun GroupingPage(organizer: Organizer) {
     }
 }
 
+/** One Folders tab on Settings › App layout: shown or not, and moved earlier or later. */
+@Composable
+internal fun FolderTabRow(
+    name: String,
+    on: Boolean,
+    canTurnOff: Boolean,
+    canMoveEarlier: Boolean,
+    canMoveLater: Boolean,
+    onTick: (Boolean) -> Unit,
+    onEarlier: () -> Unit,
+    onLater: () -> Unit,
+) {
+    val theme = LocalSkyTheme.current
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Checkbox(
+            checked = on,
+            enabled = !on || canTurnOff,
+            onCheckedChange = onTick,
+            // Named like the folder picker's boxes, so a screen reader says which tab it shows.
+            modifier = Modifier.accessibleDescription(name),
+            colors = CheckboxDefaults.colors(checkedColor = theme.accent, checkmarkColor = theme.onAccent, uncheckedColor = theme.muted),
+        )
+        Text(name, color = if (on) theme.ink else theme.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        SkyButton("Earlier", onEarlier, enabled = canMoveEarlier, primary = false)
+        SkyButton("Later", onLater, enabled = canMoveLater, primary = false)
+    }
+}
+
 /** Settings › App layout: which Folders tabs show and their order, the number of columns, and list or grid. */
 @Composable
 private fun LayoutPage(organizer: Organizer) {
@@ -352,21 +380,16 @@ private fun LayoutPage(organizer: Organizer) {
         FolderTabs.arranged(prefs.tabs).forEach { tab ->
             val on = tab in prefs.tabs
             val at = prefs.tabs.indexOf(tab)
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Checkbox(
-                    checked = on,
-                    enabled = !on || prefs.tabs.size > 1,
-                    onCheckedChange = { tick -> organizer.updatePrefs { it.copy(tabs = if (tick) it.tabs + tab else it.tabs - tab) } },
-                    colors = CheckboxDefaults.colors(checkedColor = theme.accent, checkmarkColor = theme.onAccent, uncheckedColor = theme.muted),
-                )
-                Text(prefs.tabName(tab), color = if (on) theme.ink else theme.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                SkyButton("Earlier", {
-                    organizer.updatePrefs { it.copy(tabs = it.tabs.toMutableList().apply { add(at - 1, removeAt(at)) }) }
-                }, enabled = on && at > 0, primary = false)
-                SkyButton("Later", {
-                    organizer.updatePrefs { it.copy(tabs = it.tabs.toMutableList().apply { add(at + 1, removeAt(at)) }) }
-                }, enabled = on && at in 0 until prefs.tabs.lastIndex, primary = false)
-            }
+            FolderTabRow(
+                name = prefs.tabName(tab),
+                on = on,
+                canTurnOff = prefs.tabs.size > 1,
+                canMoveEarlier = on && at > 0,
+                canMoveLater = on && at in 0 until prefs.tabs.lastIndex,
+                onTick = { tick -> organizer.updatePrefs { it.copy(tabs = if (tick) it.tabs + tab else it.tabs - tab) } },
+                onEarlier = { organizer.updatePrefs { it.copy(tabs = it.tabs.toMutableList().apply { add(at - 1, removeAt(at)) }) } },
+                onLater = { organizer.updatePrefs { it.copy(tabs = it.tabs.toMutableList().apply { add(at + 1, removeAt(at)) }) } },
+            )
         }
     }
     Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

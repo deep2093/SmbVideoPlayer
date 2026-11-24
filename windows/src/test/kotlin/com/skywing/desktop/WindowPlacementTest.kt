@@ -1,11 +1,18 @@
 package com.skywing.desktop
 
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.WindowState
 import com.skywing.desktop.automation.Placement
 import com.skywing.desktop.automation.WindowRule
+import java.awt.Frame
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -81,6 +88,40 @@ class WindowPlacementTest {
         assertEquals(0.9, maxOf(large.normal.width / laptop.work.width, large.normal.height / laptop.work.height), 0.01)
         val small = WindowSizing.choose(saved, listOf(laptop), laptop, StartMode.SMALL)
         assertEquals(0.6, maxOf(small.normal.width / laptop.work.width, small.normal.height / laptop.work.height), 0.01)
+    }
+
+    // From the M3 review: what is saved for a screen must be a normal window on that screen.
+    @Test fun aNormalWindowOnTheScreenBeingSavedIsKept() {
+        val start = WindowStart(true, Area(100.0, 80.0, 1000.0, 700.0))
+        assertEquals(start, WindowSizing.forScreen(start, laptop))
+    }
+
+    @Test fun aMaximisedWindowMovedToAnotherScreenGetsThatScreensNormalWindow() {
+        val dock = ScreenInfo("dock", Area(1707.0, 0.0, 2560.0, 1400.0))
+        val fromLaptop = WindowStart(true, Area(100.0, 80.0, 1000.0, 700.0))
+        assertEquals(WindowStart(true, WindowSizing.firstStart(dock.work).normal), WindowSizing.forScreen(fromLaptop, dock))
+    }
+
+    @Test fun aMaximisedFrameReadAsTheNormalWindowIsNotSaved() {
+        val maximisedFrame = WindowStart(true, Area(-8.0, -8.0, 1723.0, 1035.0))
+        assertEquals(WindowStart(true, WindowSizing.firstStart(laptop.work).normal), WindowSizing.forScreen(maximisedFrame, laptop))
+    }
+
+    @Test fun boundsReadWhileTheFrameIsMaximisedAreNotTaken() {
+        val frame = Frame()
+        try {
+            frame.extendedState = Frame.MAXIMIZED_BOTH
+            val folder = Files.createTempDirectory("skywing-window")
+            val saver = WindowPlacementSaver(WindowPlacementStore(JsonFile(folder.resolve("window.json"))), WindowStart(true, Area(100.0, 80.0, 1000.0, 700.0)))
+            saver.window = frame
+            // Compose can still report Floating for a moment after Windows has maximised the frame.
+            val lagging = WindowState(WindowPlacement.Floating, position = WindowPosition(200.dp, 150.dp), size = DpSize(900.dp, 600.dp))
+            saver.observe(lagging)
+            val saved = saver.pending(lagging)?.second ?: error("nothing to save")
+            assertNotEquals(Area(200.0, 150.0, 900.0, 600.0), saved.normal)
+        } finally {
+            frame.dispose()
+        }
     }
 
     @Test fun theStartModeIsKeptAndResetForgetsTheBounds() {

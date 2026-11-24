@@ -34,13 +34,13 @@ class LibraryAutomationTest {
             try {
                 first.activate("Videos", PlayerControls.TAB)
                 first.find("2 of 2 videos", PlayerControls.LABEL, timeoutMs = 30_000)
-                assertTrue(first.isAbsent("notes", PlayerControls.LABEL), "a text file is not listed as a video")
+                assertTrue(first.isAbsent("notes", PlayerControls.BUTTON), "a text file is not listed as a video")
 
                 first.typeInto("Search videos", "vp9")
                 first.find("1 of 2 videos", PlayerControls.LABEL)
                 first.waitUntil("only the VP9 clip to be listed") { s ->
-                    s.nodes.any { ControlQuery.matches(it, "clip-vp9", PlayerControls.LABEL) } &&
-                        s.nodes.none { ControlQuery.matches(it, "clip-h264", PlayerControls.LABEL) }
+                    s.nodes.any { ControlQuery.matches(it, "clip-vp9", PlayerControls.BUTTON) } &&
+                        s.nodes.none { ControlQuery.matches(it, "clip-h264", PlayerControls.BUTTON) }
                 }
                 first.typeInto("Search videos", "", erase = 3)
                 first.find("2 of 2 videos", PlayerControls.LABEL)
@@ -59,8 +59,8 @@ class LibraryAutomationTest {
             SkyWingTestApp.launch("library-relaunch", dataDir = first.dataDir).use { app ->
                 app.activate("Videos", PlayerControls.TAB)
                 app.find("1 of 1 videos", PlayerControls.LABEL, timeoutMs = 30_000)
-                app.find("clip-vp9", PlayerControls.LABEL)
-                assertTrue(app.isAbsent("clip-h264", PlayerControls.LABEL), "a removed file leaves the library")
+                app.find("clip-vp9", PlayerControls.BUTTON)
+                assertTrue(app.isAbsent("clip-h264", PlayerControls.BUTTON), "a removed file leaves the library")
                 val again = app.dataDir.resolve("LocalAppData/SkyWing/library/thumbs").toFile().jpegs()
                 assertTrue(again.isNotEmpty() && again.all { it in cached }, "cached thumbnails are reused, not made again: $cached -> $again")
                 app.close()

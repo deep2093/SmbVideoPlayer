@@ -59,21 +59,21 @@ class NetworkAndStabilityAutomationTest {
             Files.createDirectories(index.parent)
             WindowsMediaIndex(index).replaceSource(GONE_ID, "SMB", GONE_NAME, listOf(FoundVideo(File(GONE_FILE), 0, 0)))
         }.use { app ->
-            app.activate("Settings", PlayerControls.TAB)
-            app.activate("Sync & scanning", PlayerControls.BUTTON)
+            app.openSettingsPage("Sync & scanning")
             app.activate("View scan errors (1)", PlayerControls.BUTTON, timeoutMs = 30_000)
             app.find(GONE_NAME, PlayerControls.LABEL)
             app.find("Not reachable; the previous list was kept", PlayerControls.LABEL)
 
             app.activate("Videos", PlayerControls.TAB)
             app.find("2 of 2 videos", PlayerControls.LABEL, timeoutMs = 30_000)
-            app.activate("Film", PlayerControls.LABEL)
+            // M3: cards are push buttons named by their title.
+            app.activate("Film", PlayerControls.BUTTON)
             app.find("Video not available", PlayerControls.LABEL)
             app.waitUntil("the reason to name the video") { s -> s.nodes.any { it.roleName == PlayerControls.LABEL && it.name.startsWith(File(GONE_FILE).name + " can’t be found") } }
             app.activate("OK", PlayerControls.BUTTON)
             app.waitUntil("the message to close") { s -> s.nodes.none { ControlQuery.matches(it, "Video not available", PlayerControls.LABEL) } }
             assertTrue(app.isAbsent("Seek", PlayerControls.LABEL), "a video on an unreachable share does not open a broken player")
-            app.activate(mp4.nameWithoutExtension, PlayerControls.LABEL)
+            app.activate(mp4.nameWithoutExtension, PlayerControls.BUTTON)
             PlayerControls(app).waitAdvancing("a local video after the unreachable one")
             app.close()
             assertEquals(true, app.exitedGracefully)
@@ -92,7 +92,7 @@ class NetworkAndStabilityAutomationTest {
             val samples = mutableListOf<Long>()
             repeat(ROUNDS) { round ->
                 val clip = if (round % 2 == 0) mp4 else mkv
-                app.activate(clip.nameWithoutExtension, PlayerControls.LABEL)
+                app.activate(clip.nameWithoutExtension, PlayerControls.BUTTON)
                 val player = PlayerControls(app)
                 player.waitTitle(clip.nameWithoutExtension)
                 player.waitAdvancing("round ${round + 1}: ${clip.name}")

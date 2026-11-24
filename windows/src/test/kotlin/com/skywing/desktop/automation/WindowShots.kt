@@ -27,6 +27,9 @@ internal object WindowShots {
         fun GetDpiForWindow(hwnd: Pointer): Int
         fun GetClientRect(hwnd: Pointer, rect: Win32.Rect): Boolean
         fun ClientToScreen(hwnd: Pointer, point: Pointer): Boolean
+        fun ScreenToClient(hwnd: Pointer, point: Pointer): Boolean
+        /** POINT by value: 8 bytes, which x64 passes as one 64-bit integer (y in the high half). */
+        fun ChildWindowFromPointEx(hwnd: Pointer, point: Long, flags: Int): Pointer?
         fun GetWindowRect(hwnd: Pointer, rect: Win32.Rect): Boolean
         fun IsZoomed(hwnd: Pointer): Boolean
         fun ShowWindow(hwnd: Pointer, command: Int): Boolean
@@ -68,6 +71,9 @@ internal object WindowShots {
     private const val SRCCOPY = 0x00CC0020
     private const val CAPTUREBLT = 0x40000000
     private const val WM_XBUTTONDOWN = 0x020B
+    private const val CWP_SKIPINVISIBLE = 0x0001
+    private const val CWP_SKIPDISABLED = 0x0002
+    private const val CWP_SKIPTRANSPARENT = 0x0004
     private const val WM_XBUTTONUP = 0x020C
     private const val MK_XBUTTON1 = 0x0020
     private const val XBUTTON1 = 0x0001
@@ -236,12 +242,37 @@ internal object WindowShots {
     /** Esc, posted to the window: it reaches SkyWing only while SkyWing is the active window. */
     fun postEscape(hwnd: Long) = Win32.postKey(hwnd, VK_ESCAPE, SCAN_ESCAPE)
 
-    /** The mouse back button (XButton1) pressed and let go at the content's centre, posted to the window. */
+    /**
+     * The mouse back button (XButton1) pressed and let go at the content's centre. A real mouse sends it to the window
+     * under the pointer, which is the content's own child window, not the frame, so it is posted there.
+     */
     fun postMouseBack(hwnd: Long) {
         val c = client(hwnd)
-        val lParam = (((c.bottom - c.top) / 2).toLong() shl 16) or (((c.right - c.left) / 2).toLong() and 0xFFFF)
-        user32.PostMessageW(Pointer(hwnd), WM_XBUTTONDOWN, ((XBUTTON1 shl 16) or MK_XBUTTON1).toLong(), lParam)
+        val x = (c.left + c.right) / 2
+        val y = (c.top + c.bottom) / 2
+        val target = windowUnder(Pointer(hwnd), x, y)
+        val point = screenToClient(target, x, y)
+        val lParam = (point.second.toLong() shl 16) or (point.first.toLong() and 0xFFFF)
+        user32.PostMessageW(target, WM_XBUTTONDOWN, ((XBUTTON1 shl 16) or MK_XBUTTON1).toLong(), lParam)
         Thread.sleep(60)
-        user32.PostMessageW(Pointer(hwnd), WM_XBUTTONUP, (XBUTTON1 shl 16).toLong(), lParam)
+        user32.PostMessageW(target, WM_XBUTTONUP, (XBUTTON1 shl 16).toLong(), lParam)
+    }
+
+    /** The deepest shown child of [top] at the screen point, as Windows picks the window a click goes to. */
+    private fun windowUnder(top: Pointer, x: Int, y: Int): Pointer {
+        var window = top
+        while (true) {
+            val (cx, cy) = screenToClient(window, x, y)
+            val packed = (cy.toLong() shl 32) or (cx.toLong() and 0xFFFFFFFFL)
+            val child = user32.ChildWindowFromPointEx(window, packed, CWP_SKIPINVISIBLE or CWP_SKIPDISABLED or CWP_SKIPTRANSPARENT)
+            if (child == null || child == window) return window
+            window = child
+        }
+    }
+
+    private fun screenToClient(window: Pointer, x: Int, y: Int): Pair<Int, Int> {
+        val point = Memory(8).apply { setInt(0, x); setInt(4, y) }
+        check(user32.ScreenToClient(window, point)) { "ScreenToClient failed" }
+        return point.getInt(0) to point.getInt(4)
     }
 }

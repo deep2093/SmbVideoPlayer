@@ -76,6 +76,7 @@ internal fun HomeScreen(
                 val column = (maxWidth - gap * (columns - 1)) / columns
                 // Continue watching cards are at least 260 dp, so the time left and the title stay readable.
                 val continueWidth = maxOf(260.dp, column)
+                KeepFirstItemAcrossColumns(hub.grid(HOME_PAGE))
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(columns),
                     state = hub.grid(HOME_PAGE),

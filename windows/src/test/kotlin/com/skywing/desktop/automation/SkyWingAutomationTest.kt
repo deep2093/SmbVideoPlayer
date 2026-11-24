@@ -28,10 +28,7 @@ class SkyWingAutomationTest {
         app.activate("Folders", TAB)
         app.find("Add", BUTTON)
 
-        app.activate("Settings", TAB)
-        app.waitUntil("Settings to be selected") { s -> ControlQuery.single(s.nodes, "Settings", TAB).selected }
-        app.activate("Playback", BUTTON)
-        app.find("Back to Settings", BUTTON)
+        app.openSettingsPage("Playback")
 
         val switches = app.withScreen { s -> s.nodes.filter { it.roleName == CHECK_BOX } }
         assertEquals(PLAYBACK_SWITCHES, switches.map { it.label }.toSet(), "Playback switches: $switches")
@@ -42,12 +39,11 @@ class SkyWingAutomationTest {
             assertEquals("", switch.name, "$switch is labelled by description, so NVDA does not call it read only")
         }
 
-        app.activate("Back to Settings", BUTTON)
-        app.find("Appearance", BUTTON)
+        app.backToSettingsList()
         app.activate("Folders", TAB)
         app.waitUntil("Folders to be selected") { s -> ControlQuery.single(s.nodes, "Folders", TAB).selected }
         app.find("Add", BUTTON)
-        assertTrue(app.isAbsent("Back to Settings", BUTTON), "Playback settings are closed")
+        assertTrue(app.isAbsent("Back to Settings", BUTTON) && app.isAbsent("Playback", TAB), "Playback settings are closed")
     }
 
     @Test
@@ -93,6 +89,8 @@ class SkyWingAutomationTest {
             File(library, "Movies/clip.mp4").writeBytes(ByteArray(0))
             root.node(LOCAL_FOLDERS_NODE).apply { putInt("count", 1); put("folder.0", library.absolutePath) }
         }.use { app ->
+            // M3: SkyWing opens on Home; Add is on the Folders page.
+            app.activate("Folders", TAB)
             app.activate("Add", BUTTON)
             app.activate("Add drive folders", LABEL)
             // The menu item (focusable) and the dialog title (not focusable) share a label while the menu fades out.
@@ -132,7 +130,7 @@ class SkyWingAutomationTest {
     /** B13: the Google Images browser (JCEF, about 150 MB) loads only when that tab of Change cover opens. */
     @Test
     fun theGoogleImagesBrowserIsNotLoadedAtStartOrOnOtherPages() = SkyWingTestApp.launch("no-browser").use { app ->
-        app.find("Add", BUTTON)
+        app.waitUntil("Home to be selected") { s -> ControlQuery.single(s.nodes, "Home", TAB).selected }
         listOf("Videos", "Settings", "Folders").forEach { page ->
             app.activate(page, TAB)
             app.waitUntil("$page to be selected") { s -> ControlQuery.single(s.nodes, page, TAB).selected }
@@ -145,11 +143,7 @@ class SkyWingAutomationTest {
         assertFalse(unpacked.exists(), "the browser was unpacked without the Google Images tab")
     }
 
-    private fun SkyWingTestApp.openPlayback() {
-        activate("Settings", TAB)
-        activate("Playback", BUTTON)
-        find("Back to Settings", BUTTON)
-    }
+    private fun SkyWingTestApp.openPlayback() = openSettingsPage("Playback")
 
     /** Toggles a check box once and waits for its new state. The action is never repeated. */
     private fun SkyWingTestApp.toggle(label: String, to: Boolean) {
