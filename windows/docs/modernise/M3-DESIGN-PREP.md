@@ -447,3 +447,7 @@ decided as recommended below.
 | Everything | Runner `numbers`: before and after | Playback, full screen in and out, Alt-Tab, close (checks runner `fullscreen` and `stress`) |
 
 Hand tests run on the laptop (RTX 5070 Ti), the MSI Claw 8 and the OneXPlayer 3 (Intel Arc B390).
+
+The built M3 was reviewed against this brief with the Intent methods (owner's request, 25 November):
+`evaluation-m3-new-look.md` (heuristics and anti-patterns), `accessibility-m3-new-look.md` (WCAG 2.2) and
+`states-m3-new-look.md` (states and edge cases).
