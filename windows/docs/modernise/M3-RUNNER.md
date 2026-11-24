@@ -33,10 +33,10 @@ On a handheld, copy the folder to the device's own NTFS drive and double-click `
 |---|---|---|---|
 | `numbers` | M1's measurements: three starts on a 5,000-clip test library (first start with the scan, everyday start, Adaptive Glow start), start times, scrolling frame times, memory. `numbers/M1-table.md` has both images side by side. | Section 10, performance checks | Measured, not judged: the owner compares before and after |
 | `pages` | A picture of every page (Home, Folders, Videos, Files and drives, Settings and each Settings category) at the boards' sizes: Desktop 1440 × 900, Handheld 1280 × 800, Compact 1024 × 720 and Narrow 680 × 720 dp, each size that fits the screen; then maximised. `gallery.html` puts before, after and the board side by side. | 6.4–6.7 | The owner looks |
-| | The width sweep on Videos, scrolled down: 1300, 1150, 1000, 800, 700 and 640 dp. At each width the navigation's shape (wide rail, narrow rail, top tabs) from the Access Bridge bounds of its entries, and whether the video at the top before is still on the page. | 6.4, 6.6 | Pass or fail against the plan; 1150 dp is reported only (below) |
+| | The width sweep on Videos, scrolled down: 1300, 1150, 1000, 800, 700 and 640 dp. At each width the navigation's shape (wide rail, narrow rail, top tabs) from the Access Bridge bounds of its entries, and whether the video at the top before is still on the page. | 6.4, 6.6 | Pass or fail against the plan, with the wide rail from 1200 dp (below) |
 | | The accessibility audit of every page at the first size: every button, switch, check box, slider, field and tab on screen has a name, every slider a value, every group of tabs a selected one. `access.md` lists what a screen reader can't tell. | 6.9, B33 | Pass when nothing is found |
 | `window` | On fresh data: the first start's size and place; Restore after a maximised first start; moved to 60 % of the work area, closed and reopened; maximised, closed, reopened and restored; moved off every screen, closed and reopened; made 200 × 150 px. | 6.8 rules 1–5 | Pass or fail against the plan |
-| `settings` | At 1300 dp, whether the category list stays beside the Playback page. At 800 dp (one pane), from the Playback page: Settings again, Esc, the mouse back button, the Back button, and Folders then Settings must each bring back the category list. | 6.5, B1 | Pass or fail |
+| `settings` | At 1300 dp, whether the category list stays beside the Playback page. At 680 dp (one pane under both 6.5's and 6.6's edges), from the Playback page: Settings again, Esc, the mouse back button, the Back button, and Folders then Settings must each bring back the category list. | 6.5, B1 | Pass or fail |
 
 With no word it does all four (about 40 minutes on the laptop). `Run M3.cmd pages window` runs only those. `trial`
 makes every check short (the M1 trial timing, two board sizes, two sweep widths, the first window steps): a trial
@@ -65,10 +65,11 @@ The checks runner's words, plus two:
 
 The runner exits 1 when the after image failed a check, 0 otherwise, 2 when it refused to start and 3 on an error.
 
-## Where the plan disagrees with itself
+## Where the plan disagreed with itself
 
 6.4 makes the rail wide from 1100 dp; 6.6 makes the Expanded width class, and so the wide rail, start at 1200 dp. The
-sweep measures 1150 dp and reports the shape without judging it, until the owner says which is meant.
+owner chose 1200 dp (2026-11-25): the rail follows the width class. At 1150 dp the sweep expects the narrow rail, which
+also shows whether a build still uses 6.4's 1100.
 
 ## What the runner can't see
 

@@ -76,10 +76,13 @@ class M3RunnerTest {
     }
 
     @Test
-    fun theNavigationShapeFollowsTheWidthAndThePlansTwoEdgesStayOpen() {
+    fun theNavigationShapeFollowsTheWidthClass() {
         assertEquals(NavShape.TOP_TABS, NavShape.expected(680))
+        assertEquals(NavShape.NARROW_RAIL, NavShape.expected(720))
         assertEquals(NavShape.NARROW_RAIL, NavShape.expected(1000))
-        assertNull(NavShape.expected(1150), "6.4 says wide from 1100 dp, 6.6 from 1200 dp")
+        // The owner chose 6.6's edge: wide from 1200 dp, not 6.4's 1100.
+        assertEquals(NavShape.NARROW_RAIL, NavShape.expected(1150))
+        assertEquals(NavShape.WIDE_RAIL, NavShape.expected(1200))
         assertEquals(NavShape.WIDE_RAIL, NavShape.expected(1300))
         assertEquals(NavShape.NARROW_RAIL, NavShape.expected(1300, handheld = true))
     }

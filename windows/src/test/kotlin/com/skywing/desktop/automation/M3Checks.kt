@@ -78,7 +78,7 @@ internal object M3Pages {
         else -> null
     }
 
-    /** The widths of the sweep (6.6): Expanded, the 1100–1200 dp edge the plan gives twice, Medium, Compact, the minimum. */
+    /** The widths of the sweep (6.6): Expanded, just under its 1200 dp edge (wide by 6.4's 1100), Medium, Compact, the minimum. */
     val SWEEP_WIDTHS = listOf(1300, 1150, 1000, 800, 700, 640)
 }
 
@@ -182,13 +182,13 @@ internal enum class NavShape(val label: String) {
         }
 
         /**
-         * What the plan asks for at a content width, or null at 1100–1199 dp, where 6.4 (wide from 1100) and 6.6
-         * (wide from 1200) disagree. Handheld mode keeps the narrow rail from 720 dp.
+         * What the plan asks for at a content width. 6.4 makes the rail wide from 1100 dp, 6.6 from 1200 dp (the
+         * Expanded width class); the owner chose 1200 dp on 2026-11-25, so the rail follows the width class. Handheld
+         * mode keeps the narrow rail from 720 dp.
          */
-        fun expected(widthDp: Int, handheld: Boolean = false): NavShape? = when {
+        fun expected(widthDp: Int, handheld: Boolean = false): NavShape = when {
             widthDp < 720 -> TOP_TABS
-            widthDp < 1100 || handheld -> NARROW_RAIL
-            widthDp < 1200 -> null
+            widthDp < 1200 || handheld -> NARROW_RAIL
             else -> WIDE_RAIL
         }
     }

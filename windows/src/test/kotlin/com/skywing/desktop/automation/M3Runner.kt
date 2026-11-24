@@ -342,8 +342,8 @@ private class M3Runner(
             shots += picture(app, hwnd, name, "Width sweep", page, folder.resolve("sweep-$width.png"))
             val (shape, railDp) = navShape(app, hwnd)
             val expected = NavShape.expected(width)
-            shapes += "$width dp: ${shape.label}" + (railDp?.let { " (about ${it.roundToInt()} dp)" } ?: "") + (expected?.let { "; the plan: ${it.label}" } ?: "; the plan's 6.4 and 6.6 differ here")
-            if (shape == NavShape.UNKNOWN) unknown++ else if (expected != null && shape != expected) wrong += "$width dp"
+            shapes += "$width dp: ${shape.label}" + (railDp?.let { " (about ${it.roundToInt()} dp)" } ?: "") + "; the plan: ${expected.label}"
+            if (shape == NavShape.UNKNOWN) unknown++ else if (shape != expected) wrong += "$width dp"
             if (anchor != null && anchor !in videosShowing(app, hwnd)) lost += width
         }
         val navProblem = when {
@@ -478,7 +478,8 @@ private class M3Runner(
                 else if (categoryShowing(app)) row("two panes: the category list beside the page (B1)", Verdict.PASS, "At 1300 dp the categories stay on screen while Playback is open")
                 else row("two panes: the category list beside the page (B1)", Verdict.FAIL, "At 1300 dp the categories went away while Playback was open")
             }
-            WindowShots.setContentSizeDp(hwnd, 800, minOf(720.0, roomHeight).toInt())
+            // One pane under either of the plan's edges: 6.5 has two panes from 900 dp, 6.6 from 720 dp.
+            WindowShots.setContentSizeDp(hwnd, 680, minOf(720.0, roomHeight).toInt())
             Thread.sleep(RESIZE_SETTLE_MS)
             val ways = linkedMapOf<String, Pair<Boolean, () -> Boolean>>(
                 "Settings again" to (false to { activateFirst(app, listOf("Settings")) }),
