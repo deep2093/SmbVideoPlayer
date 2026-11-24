@@ -79,8 +79,14 @@ import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.system.exitProcess
 
 fun main(args: Array<String>) {
+    // The hidden benchmark (plan 5.6) runs before the single-instance check, so it never hands its video to a
+    // running SkyWing, and it opens no library or settings.
+    BenchOptions.parse(args.toList())?.let { parsed ->
+        exitProcess(parsed.fold(Bench::run) { Bench.reject(it.message ?: "bad bench arguments") })
+    }
     val mainStarted = System.currentTimeMillis()
     // A second start hands its video to the SkyWing already open and exits (B38).
     val claim = SingleInstance.claim(SingleInstance.dataFolder(), args.toList())
@@ -294,10 +300,11 @@ private fun SkyWingDesktopShell(
     val (chromeVisible, showPlayerChrome) = rememberPlayerChrome(awtWindow, fullscreen,
         paused || dragging || smoothingMenu || topHovered || bottomHovered) { visible -> embedded.setCursorHidden(!visible) }
     val currentShowPlayerChrome by rememberUpdatedState(showPlayerChrome)
+    val playerFullscreen by rememberUpdatedState(fullscreen)
     LaunchedEffect(embedded, smoothingMode, currentFile, closing) {
         if (closing) return@LaunchedEffect
         while (true) {
-            smoothingStatus = withContext(Dispatchers.IO) { embedded.updateSmoothing(smoothingMode) }
+            smoothingStatus = withContext(Dispatchers.IO) { embedded.updateSmoothing(smoothingMode, playerFullscreen) }
             embedded.playbackFailure?.takeIf { it != reportedFailure }?.let { failure ->
                 reportedFailure = failure
                 message = failure

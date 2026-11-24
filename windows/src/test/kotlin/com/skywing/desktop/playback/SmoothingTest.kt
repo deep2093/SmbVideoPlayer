@@ -44,11 +44,58 @@ class SmoothingTest {
         assertEquals("HDR smoothing is not available yet", clip.copy(hdrVideo = true).unavailable(SmoothingMode.MOTION))
         assertEquals("Play a hardware-decoded video first", clip.copy(hardwareDecode = false).unavailable(SmoothingMode.MOTION))
     }
+    @Test fun interlacedVideoIsNotSmoothedAndSaysWhy() {
+        // Plan 5.8 rule 9: fields are never smoothed as if they were frames; mpv deinterlaces the video instead.
+        val tv = SmoothingCapabilities(displayHz = 60.0, sourceFps = 25.0, gpuOutput = true, hardwareDecode = true,
+            interlaced = true, width = 1920, height = 1080)
+        assertEquals("Interlaced video isn’t smoothed; it is deinterlaced instead", tv.unavailable(SmoothingMode.MOTION))
+        assertNull(tv.unavailable(SmoothingMode.OFF))
+        assertNull(tv.copy(interlaced = false).unavailable(SmoothingMode.MOTION))
+        // HDR keeps its own reason.
+        assertEquals("HDR smoothing is not available yet", tv.copy(hdrVideo = true).unavailable(SmoothingMode.MOTION))
+    }
+    @Test fun withoutAnOpenClDeviceOnly1080pAt2xIsSmoothedOnTheProcessor() {
+        // Plan 5.8 rule 4: no OpenCL device at all, so open-svpflow runs on the processor, up to 1080p at 2×.
+        val clip = SmoothingCapabilities(displayHz = 120.0, sourceFps = 24.0, gpuOutput = true, hardwareDecode = true,
+            interlaced = false, width = 1920, height = 1080, processor = true)
+        assertNull(clip.unavailable(SmoothingMode.MOTION))
+        assertNull(clip.copy(width = 1080, height = 1920).unavailable(SmoothingMode.MOTION))
+        val tooBig = "Update your graphics driver: without OpenCL, smoothing works only up to 1080p at 2×"
+        assertEquals(tooBig, clip.copy(width = 2560, height = 1440).unavailable(SmoothingMode.MOTION))
+        assertEquals(tooBig, clip.copy(width = 3840, height = 2160).unavailable(SmoothingMode.MOTION))
+        assertNull(clip.copy(width = 3840, height = 2160, processor = false).unavailable(SmoothingMode.MOTION))
+        // Only 2× is offered on the processor; with an OpenCL device every stop the screen fits.
+        assertEquals(listOf(0), MotionStops.allowed(MotionRate(24), 120.0, processor = true))
+        assertEquals(listOf(0, 1, 2, 3), MotionStops.allowed(MotionRate(24), 120.0))
+    }
+    @Test fun softwareRenderingAndASoftwareDecodeFallbackSayWhy() {
+        val clip = SmoothingCapabilities(displayHz = 60.0, sourceFps = 24.0, gpuOutput = true, hardwareDecode = true,
+            interlaced = false, width = 1920, height = 1080)
+        // Plan 5.8 rule 3: drawn by Microsoft's software renderer (no graphics driver, or remote desktop).
+        assertEquals("Install your graphics driver for smooth playback",
+            clip.copy(softwareRender = true, hardwareDecode = false).unavailable(SmoothingMode.MOTION))
+        // Plan 5.8 rule 2: mpv stepped down to software decoding during this file.
+        assertEquals("Decoding fell back to software, so this video isn’t smoothed",
+            clip.copy(hardwareDecode = false, decoderFailures = listOf("d3d11va-copy")).unavailable(SmoothingMode.MOTION))
+        // A decoder that failed but left a working hardware one is smoothed.
+        assertNull(clip.copy(decoderFailures = listOf("d3d11va")).unavailable(SmoothingMode.MOTION))
+        assertEquals("Play a hardware-decoded video first", clip.copy(hardwareDecode = false).unavailable(SmoothingMode.MOTION))
+    }
+    @Test fun mpvsDecoderStepDownIsRead() {
+        // vd_lavc.c logs this at warn once a hardware decoder was in use, before trying the next method.
+        assertEquals("d3d11va-copy", DecoderFallback.failedMethod("vd", "Attempting next decoding method after failure of d3d11va-copy.\n"))
+        assertEquals("nvdec", DecoderFallback.failedMethod("vd", "Attempting next decoding method after failure of nvdec."))
+        assertNull(DecoderFallback.failedMethod("vd", "Using software decoding.\n"))
+        assertNull(DecoderFallback.failedMethod("cplayer", "Attempting next decoding method after failure of d3d11va.\n"))
+    }
     @Test fun videoTypesKeepIndependentSettings() {
         val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
         try {
             val store = MotionPreferences(node)
             assertFalse(store.lowerAutomatically)
+            assertFalse(store.smoothAtScreenSize, "off until the owner has compared it by eye (plan 5.7 item 4)")
+            store.smoothAtScreenSize = true
+            assertTrue(MotionPreferences(node).smoothAtScreenSize)
             val keys = mutableSetOf<String>()
             for ((w,h) in listOf(1920 to 1080, 2560 to 1440, 3840 to 2160)) for (hdr in listOf(false, true)) {
                 val key = MotionStops.type(SmoothingCapabilities(width=w, height=h, hdrVideo=hdr))
@@ -59,7 +106,16 @@ class SmoothingTest {
             }
             assertEquals(6, keys.size)
             assertEquals(MotionSettings(1), store.load("new", 1))
+            // A plan 5.7 experiment is for measuring only: it is never saved for a video type.
+            store.save("4k-sdr", MotionSettings(0, MotionQuality.FAST, MotionExperiment.POTPLAYER_LIKE))
+            assertEquals(MotionSettings(0, MotionQuality.FAST), store.load("4k-sdr", 0))
         } finally { node.removeNode() }
+    }
+
+    @Test fun theReportsNameAnExperimentNextToThePreset() {
+        assertEquals("Fast", MotionSettings(0, MotionQuality.FAST).qualityLabel)
+        assertEquals("Fast; experiment: PotPlayer-like (test only, replaces the preset)",
+            MotionSettings(0, MotionQuality.FAST, MotionExperiment.POTPLAYER_LIKE).qualityLabel)
     }
 
     /** Owner decision, 23 November: Fast is the default quality on every PC; a quality chosen for a video type is kept. */
@@ -120,25 +176,56 @@ class SmoothingTest {
         val health = SmoothingHealth()
         for (second in 0..20) assertFalse(health.sample(second * 1000L, 10000, true, 55.0, 100.0))
     }
-    @Test fun vrrCapabilityDefaultNeverOverridesManualChoice() {
+    @Test fun letVrrControlRefreshIsOffUntilChosenAndKeepsTheOldSwitchsChoice() {
+        // Owner decision (plan 5.4): off on every screen, with no default from the capability queries.
         val node = java.util.prefs.Preferences.userRoot().node("skywing-vrr-test-" + java.util.UUID.randomUUID())
         try {
-            var supported: Boolean? = null
-            val prefs = MotionPreferences(node) { supported }
+            val prefs = MotionPreferences(node)
             assertFalse(prefs.vrr)
             assertNull(prefs.vrrOverride)
-            supported = true
-            assertTrue(prefs.vrr)
-            assertNull(prefs.vrrOverride) // Detection must never persist a manual preference.
+            // A choice saved with the old "My screen uses G-SYNC / FreeSync" switch is kept.
+            node.put("motion.vrr", "true")
+            assertTrue(MotionPreferences(node).vrr)
             prefs.vrr = false
-            assertFalse(prefs.vrr)
+            assertFalse(MotionPreferences(node).vrr)
             assertEquals(false, prefs.vrrOverride)
-            supported = null
-            prefs.vrr = true
-            assertTrue(prefs.vrr)
-            supported = false
-            assertTrue(prefs.vrr)
-            assertTrue(MotionPreferences(node) { false }.vrr) // Survives app restart.
         } finally { node.removeNode() }
+    }
+    @Test fun anUnknownRefreshNeverAllowsStopsAboveSixtyHz() {
+        // B30: Windows' current mode is the refresh; without one SkyWing assumes 60 Hz, never 240.
+        val film = MotionRate(24000, 1001)
+        assertEquals(listOf(0, 1), MotionStops.allowed(film, null))
+        assertEquals(listOf(0, 1), MotionStops.allowed(film, Double.NaN))
+        assertNull(MotionRate.target(MotionRate(30), null, 1))
+        assertEquals(MotionRate(60), MotionRate.target(MotionRate(30), null, 0))
+    }
+    @Test fun aStopFitsWhenTheScreenShowsItEvenly() {
+        assertTrue(MotionStops.fits(60000 / 1001.0, 120.0))
+        assertTrue(MotionStops.fits(48000 / 1001.0, 240.0002))
+        assertTrue(MotionStops.fits(60.0, 60000 / 1001.0))
+        assertFalse(MotionStops.fits(60000 / 1001.0, 144.0))
+        assertFalse(MotionStops.fits(74.93, 120.0))
+        assertFalse(MotionStops.fits(130.0, 120.0))
+    }
+    @Test fun firstUsePrefersAStopTheFixedScreenShowsEvenly() {
+        // B31: the default stays closest to 60 fps, but a stop that fits the screen goes first.
+        val film = MotionRate(24)
+        assertEquals(1, MotionStops.default(film, 60.0))
+        assertEquals(1, MotionStops.default(film, 120.0))
+        assertEquals(0, MotionStops.default(film, 144.0))
+        assertEquals(1, MotionStops.default(film, 144.0, vrr = true))
+        // Nothing fits: closest to 60 fps as before (the display limit then lowers it).
+        assertEquals(1, MotionStops.default(MotionRate(25), 60.0))
+        listOf(30, 50, 60).forEach { assertEquals(0, MotionStops.default(MotionRate(it), 144.0)) }
+    }
+    @Test fun aStopThatDoesNotFitAFixedScreenSaysItMayJudder() {
+        val film = MotionRate(24000, 1001)
+        assertEquals("May judder on this 144 Hz screen", MotionStops.note(film, 1, 144.0, vrr = false))
+        assertNull(MotionStops.note(film, 1, 120.0, vrr = false))
+        assertNull(MotionStops.note(film, 1, 144.0, vrr = true))
+        // Above the refresh the stop is turned off instead.
+        assertNull(MotionStops.note(film, 3, 60.0, vrr = false))
+        // No refresh, no claim about it.
+        assertNull(MotionStops.note(film, 1, null, vrr = false))
     }
 }

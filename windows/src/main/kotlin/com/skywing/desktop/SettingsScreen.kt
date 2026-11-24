@@ -299,6 +299,8 @@ private fun PlaybackPage(mode: SmoothingMode, status: SmoothingStatus, onMode: (
     val theme = LocalSkyTheme.current
     SmoothingOptions(mode, status, onMode)
     MotionPlaybackSettings()
+    GraphicsForVideoSetting()
+    ScreenSetting()
     val shortcuts = listOf(
         "Space or K" to "Play / pause",
         "Left / Right" to "Back 5 s / forward 10 s",

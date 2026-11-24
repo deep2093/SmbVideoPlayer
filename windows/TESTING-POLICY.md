@@ -23,7 +23,8 @@ The runner is `windows/tools/verify.ps1`. Its change-to-test table must match th
    - The test JVM itself is isolated too: `tasks.test` in `build.gradle.kts` installs the file-backed preferences
      factory and redirects `LOCALAPPDATA` and `APPDATA`. App code rendered in-process (for example
      `SkyWingWindowContent`) therefore cannot run a library sync against the user's folders and shares.
-     `TestIsolationTest` fails if that set-up is lost; focused runs always include it. A child app process a test
+     `TestIsolationTest` fails if that set-up is lost; focused runs always include it, and `DisplayStateReportTest`,
+     which writes the screens' refresh, HDR and VRR state for the report's "Display state". A child app process a test
      starts must get the same isolation (see `SkyWingTestApp.launch` and
      `FullscreenWindowTest.closingProductionApplicationLeavesNoBackgroundProcess`).
    - `verify.ps1` fingerprints `HKCU\Software\JavaSoft\Prefs\com\skywing` and `%LOCALAPPDATA%\SkyWing` before and
@@ -64,7 +65,8 @@ every test class that uses it. "Full" means a passing focused run is not enough:
 | Area | Files | Focused tests | Then |
 |---|---|---|---|
 | Playback / libmpv | `playback/EmbeddedMpv`, `GpuAdapters`, `LocalPlayback`, `ThumbnailExtractor`, `PlayerPage`, `PlaybackProblemDialog`, `LocalVideoDropHandler` | `EmbeddedPlaybackNativeTest`, `ThumbnailExtractorNativeTest`, `GpuAdaptersTest`, `VideoDropTest`, `PlaybackAutomationTest` | Full |
-| Motion / smoothing | `playback/Motion*`, `Smoothing`, `RecentDrops`, `DisplayVrr`, `WindowsDisplayAdapter`, `SmoothingDialog`, `tools/build_motion.py`, the open-svpflow patch | `MotionEngineTest`, `SmoothingTest`, `MotionNativeTest`, `MotionAutomationTest` | |
+| Motion / smoothing | `playback/Motion*`, `Smoothing`, `SmoothingSize`, `RecentDrops`, `DisplayVrr`, `WindowsDisplayAdapter`, `SmoothingDialog`, `tools/build_motion.py`, the open-svpflow patch | `MotionEngineTest`, `SmoothingTest`, `SmoothingSizeTest`, `MotionNativeTest`, `MotionAutomationTest` | |
+| Screens / measuring | `playback/PlaybackLog`, `ScreenState`, `DisplayPaths`, `DisplayChanges`, `Bench`, `tools/bench.ps1` | `PlaybackLogTest`, `ScreenStateTest`, `BenchOptionsTest`, `SmoothingTest` | |
 | Full screen / window chrome | `BorderlessFullscreen`, `FullscreenChrome`, `PlayerChrome`, `WindowChrome` | `FullscreenWindowTest`, `PlayerChromeTest`, `FullscreenAutomationTest` | Full |
 | App shell | `Main.kt`, `SingleInstance.kt` | full screen, playback, navigation and single-instance tests | Full |
 | Accessibility / shared UI | `SkyUi`, `SkyTheme`, `AdaptiveTheme`, `SkyIcons`, `GridSelection` | `AccessibilitySemanticsTest`, `SkyUiLogicTest`, `AccessBridgeTreeTest`, `SkyWingAutomationTest` | |
@@ -79,6 +81,12 @@ every test class that uses it. "Full" means a passing focused run is not enough:
 | Documentation, skills, instructions | `*.md`, `.agents/`, `.claude/skills/` | none | |
 
 Changes in three or more areas also require full mode.
+
+`FrameSharingTeardownNativeTest` (10 × 100 seeks and full-screen toggles with smoothing on, then a close) takes
+about 20 minutes and the desktop. Full and release mode always run it; focused mode runs it when the test itself
+changes. It tests frame sharing only when the libmpv folder holds the frame-sharing runtime
+(`MPV-PREVIEW-MANIFEST.json`); its report, `windows/build/reports/tests/test/frame-sharing-teardown.txt`, names the
+runtime.
 
 Release mode is required before giving anyone an installer, after any change to the installer, payload or legal
 inputs, and before any statement about release readiness.
@@ -167,9 +175,11 @@ a 0.1.1 package. `testPackageVersionGuard` (run with `test`) checks the comparis
 ## 5. What automation cannot verify
 
 Report these as not verified unless they were checked by hand on suitable hardware:
-- HDR output, tone mapping and Dolby Vision
-- VRR activation
-- displayed frame pacing (`Holding N fps` is the configured output rate, not presented frames)
+- how HDR output looks: tone mapping, colour and Dolby Vision. The report's "Display state" and Copy test report
+  show only whether HDR is on and engaged
+- VRR activation on screens not driven by NVIDIA, and whether NVIDIA's VRR-active flag follows SkyWing's fullscreen
+- displayed frame pacing, unless `tools/bench.ps1 -PresentMon` ran with the rights (`Holding N fps` is the
+  configured output rate, not presented frames), and how smooth playback feels
 - multi-monitor behaviour
 - real Alt+Tab between applications
 - a real NAS, credentials, slow links and a dropped SMB connection

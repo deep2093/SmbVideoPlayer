@@ -11,13 +11,30 @@ data class SmoothingCapabilities(
     val displayHz: Double? = null, val sourceFps: Double? = null,
     val gpuOutput: Boolean = false, val hardwareDecode: Boolean = false,
     val hdrVideo: Boolean = false, val width: Int? = null, val height: Int? = null,
+    /** The frame shown now is interlaced, or mpv is deinterlacing it (plan 5.8 rule 9); null until a frame is shown. */
+    val interlaced: Boolean? = null,
+    /** The PC has no OpenCL device, so the motion engine would run on the processor (plan 5.8 rule 4). */
+    val processor: Boolean = false,
+    /** mpv draws with Microsoft's software renderer: no graphics driver, or remote desktop (plan 5.8 rule 3). */
+    val softwareRender: Boolean = false,
+    /** The decoding methods that failed for this file, in order, before mpv tried the next one (plan 5.8 rule 2). */
+    val decoderFailures: List<String> = emptyList(),
+    /** Why this processor can't run the motion engine (plan 5.9), or null when it can. */
+    val processorBlocked: String? = null,
 ) {
     val resolution: String get() = if (width != null && height != null) "$width × $height" else "Resolution unavailable"
     fun unavailable(mode: SmoothingMode): String? = when {
         mode == SmoothingMode.OFF -> null
+        processorBlocked != null -> processorBlocked
         sourceFps != null && sourceFps > 60.001 -> "Already smooth"
         hdrVideo -> "HDR smoothing is not available yet"
+        // Fields are never smoothed as if they were frames; with deinterlace=auto mpv deinterlaces the video instead.
+        interlaced == true -> "Interlaced video isn’t smoothed; it is deinterlaced instead"
+        softwareRender -> "Install your graphics driver for smooth playback"
+        gpuOutput && !hardwareDecode && decoderFailures.isNotEmpty() -> "Decoding fell back to software, so this video isn’t smoothed"
         !gpuOutput || !hardwareDecode -> "Play a hardware-decoded video first"
+        // Some Intel and AMD drivers install OpenCL only with the full driver package. The processor keeps up only to 1080p.
+        processor && !MotionStops.type(this).startsWith("1080") -> "Update your graphics driver: without OpenCL, smoothing works only up to 1080p at 2×"
         // Any reported rate from 1 fps can be smoothed, including a variable frame rate's average (MotionRate.source).
         // Slower video, such as a slideshow, is named rather than left waiting for a rate.
         sourceFps != null && sourceFps > 0 && sourceFps < MotionRate.LOWEST_FPS -> "Can’t smooth video below 1 fps"
@@ -27,14 +44,30 @@ data class SmoothingCapabilities(
         unavailable(mode) ?: if (mode == SmoothingMode.OFF) "Smoothing off" else "Motion engine selected")
 }
 data class SmoothingDecision(val enabled: Boolean, val detail: String)
+
+/**
+ * Plan 5.8 rule 2. mpv already steps down the decoders itself (`hwdec=auto-safe` tries each method in turn, and
+ * `hwdec-software-fallback` drops one after decoding errors mid-file), going on from the same frame. It says so in
+ * one message, at warn once a hardware decoder was in use (`vd_lavc.c`); SkyWing reads that message to report it.
+ */
+internal object DecoderFallback {
+    private const val STEP = "Attempting next decoding method after failure of "
+    /** The method that failed, from one mpv log message, or null when the message is not that one. */
+    fun failedMethod(prefix: String, text: String): String? =
+        text.takeIf { prefix == "vd" && it.startsWith(STEP) }?.removePrefix(STEP)?.trim()?.removeSuffix(".")
+}
 data class SmoothingStatus(
     val capabilities: SmoothingCapabilities = SmoothingCapabilities(),
     val detail: String = "Smoothing off",
     val motionActive: Boolean = false,
     val report: String = "Play a video to collect a playback report.",
+    /** "Copy test report" (plan 5.6): the build, GPU plan, screen, HDR and VRR state and the per-minute table. */
+    val testReport: String = "Play a video with smoothing on to collect a test report.",
     val settings: MotionSettings? = null,
     val nextLowerStop: Int? = null,
     val requestOff: Boolean = false,
+    /** "Use <dedicated GPU> for smoothing" when a hybrid PC's integrated GPU can't keep up at 2× (plan 5.3), else null. */
+    val gpuOffer: String? = null,
 )
 
 /** Three consecutive ~1 s intervals with >=3 drops trip a per-file fallback after warmup.

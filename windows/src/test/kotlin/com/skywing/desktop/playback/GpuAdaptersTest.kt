@@ -1,6 +1,7 @@
 package com.skywing.desktop.playback
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -50,5 +51,26 @@ class GpuAdaptersTest {
         val adapters = GpuAdapters.list()
         assertTrue(adapters.none { it.software }, "the software renderer is left out")
         assertTrue(adapters.all { it.name.isNotBlank() })
+        // Plan 5.8 rule 7: each hardware adapter's driver version, as Device Manager shows it.
+        val version = Regex("""\d+\.\d+\.\d+\.\d+""")
+        adapters.forEach { assertTrue(it.driver?.let(version::matches) == true, "${it.name}: driver ${it.driver}") }
+        println("Graphics drivers: " + adapters.joinToString { "${it.name} ${it.driver}" })
+    }
+
+    @Test
+    fun aDriverVersionReadsAsDeviceManagerShowsIt() {
+        // DXGI packs the user-mode driver version as four 16-bit parts, highest first.
+        assertEquals("32.0.15.6094", GpuAdapters.driverVersion((32L shl 48) or (0L shl 32) or (15L shl 16) or 6094L))
+        assertEquals("32.0.101.6881", GpuAdapters.driverVersion((32L shl 48) or (101L shl 16) or 6881L))
+        assertEquals("65535.0.0.1", GpuAdapters.driverVersion((0xffffL shl 48) or 1L))
+    }
+
+    @Test
+    fun microsoftsSoftwareRendererAndRemoteDesktopAreSoftwareRendering() {
+        // Plan 5.8 rule 3: mpv's last step is WARP (d3d11-warp=auto), which DXGI names Microsoft Basic Render Driver.
+        listOf("Microsoft Basic Render Driver", "Microsoft Basic Display Adapter", "Microsoft Remote Display Adapter",
+            "microsoft basic render driver").forEach { assertTrue(GpuAdapters.softwareRenderer(it), it) }
+        listOf("NVIDIA GeForce RTX 5070 Ti Laptop GPU", "Intel(R) Arc(TM) 140V GPU (16GB)", "", null)
+            .forEach { assertFalse(GpuAdapters.softwareRenderer(it), "$it") }
     }
 }

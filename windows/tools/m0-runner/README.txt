@@ -1,15 +1,16 @@
 SkyWing M0 handheld runs
 ========================
 
-This folder measures SkyWing 0.1.101 on a handheld: the eight runs in section 4 of
-windows/docs/modernise/M0-RESULTS.md. It plays a 1080p clip and a 4K clip with motion
+This folder measures SkyWing on a handheld: the eight runs in section 4 of
+windows/docs/modernise/M0-RESULTS.md. The M0 rows are SkyWing 0.1.101's; with another
+version installed, the same runs go to results\<handheld name>-<version>, apart from M0's. It plays a 1080p clip and a 4K clip with motion
 smoothing at 2x, in Fast and in Balanced quality, plugged in and then on battery, and
 writes the results table. SkyWing runs on test data of its own, so your library and
 settings stay as they are. The folder installs nothing and changes no Windows setting.
 It is a test tool for your own devices, not a SkyWing release.
 
 Once per handheld
-1. Install SkyWing 0.1.101 if the handheld has another version.
+1. Install the SkyWing version you want to measure: 0.1.101 for the M0 rows.
 2. Copy this whole folder to the handheld's own drive, for example to C:\SkyWing-M0.
    Not to a USB stick, a memory card, a network share or a folder OneDrive syncs
    (Desktop and Documents often are).
@@ -50,3 +51,8 @@ handheld gets its own results folder.
 "Run M0.cmd trial" (from a command prompt in this folder) does a short check of the
 runner instead: the four plugged-in runs with 30-second windows. Its numbers are not
 measurements.
+
+"Run M0.cmd screen-size" (SkyWing from M2 on) does the same eight runs with "Smooth at
+screen size" on: the video is shrunk to the screen's size before smoothing. Their folders
+end in -screen-size, so they sit next to the normal runs. "Run M0.cmd trial screen-size"
+does the short check that way.

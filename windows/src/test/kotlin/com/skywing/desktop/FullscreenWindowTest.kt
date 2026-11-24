@@ -49,6 +49,7 @@ class FullscreenWindowTest {
         /** [point] is a POINT passed by value on x64: y in the high 32 bits, x in the low. */
         fun WindowFromPoint(point: Long): Pointer?
         fun GetClassNameW(hwnd: Pointer, name: CharArray, size: Int): Int
+        fun GetAncestor(hwnd: Pointer, flags: Int): Pointer?
         fun DrawIconEx(dc: Pointer, x: Int, y: Int, icon: Pointer, width: Int, height: Int, step: Int, brush: Pointer?, flags: Int): Boolean
         fun GetWindowLongW(hwnd: Pointer, index: Int): Int
     }
@@ -117,10 +118,40 @@ class FullscreenWindowTest {
             val name = systemCursors.entries.firstOrNull { user32.LoadCursorW(null, Pointer(it.key.toLong())) == handle }?.value
             val showing = if (info.getInt(4) and 1 == 0) " (not showing)" else ""
             val point = (info.getInt(20).toLong() shl 32) or (info.getInt(16).toLong() and 0xFFFF_FFFFL)
-            val under = user32.WindowFromPoint(point)?.let { hwnd -> CharArray(256).let { String(it, 0, user32.GetClassNameW(hwnd, it, it.size)) } }
-            "Windows cursor=${name ?: "not a system cursor"}$showing; window under the pointer=${under ?: "none"}"
+            val under = user32.WindowFromPoint(point)?.let(::className)
+            val top = topWindowUnderPointer()?.let(::describe)
+            "Windows cursor=${name ?: "not a system cursor"}$showing; window under the pointer=${under ?: "none"}, in ${top ?: "none"}"
         }
     }.getOrElse { "cursor state unavailable: ${it.message}" }
+
+    private fun className(hwnd: Pointer): String = CharArray(256).let { String(it, 0, user32.GetClassNameW(hwnd, it, it.size)) }
+
+    /** A window's class and the program that owns it, for failure messages. */
+    private fun describe(hwnd: Pointer): String {
+        val pid = IntByReference().also { user32.GetWindowThreadProcessId(hwnd, it) }.value
+        val program = ProcessHandle.of(pid.toLong()).flatMap { it.info().command() }.map { File(it).name }.orElse("process $pid")
+        return "${className(hwnd)} of $program"
+    }
+
+    /** The top-level window under the pointer, found through its parents and owners, so a frame's own controls give the frame. */
+    private fun topWindowUnderPointer(): Pointer? = com.sun.jna.Memory(24).use { info ->
+        info.clear(); info.setInt(0, 24)
+        check(user32.GetCursorInfo(info))
+        // ptScreenPos is in physical pixels, as WindowFromPoint takes it; AWT's pointer location is scaled.
+        val point = (info.getInt(20).toLong() shl 32) or (info.getInt(16).toLong() and 0xFFFF_FFFFL)
+        user32.WindowFromPoint(point)?.let { user32.GetAncestor(it, 3 /* GA_ROOTOWNER */) ?: it }
+    }
+
+    /**
+     * Another window over [window] at the pointer, described, or null when the pointer is over [window] or its own
+     * controls. On 24 Nov 2026 the cursor check failed with another program's window raised over the focused
+     * full-screen player: the arrow that showed was that program's.
+     */
+    private fun coverAtPointer(window: java.awt.Window): String? {
+        val own = edt { Native.getComponentPointer(window) }
+        val top = topWindowUnderPointer() ?: return "no window"
+        return if (top == own) null else describe(top)
+    }
 
     private val systemCursors = mapOf(
         32512 to "arrow", 32513 to "I-beam", 32514 to "wait", 32515 to "cross", 32646 to "size all", 32648 to "no",
@@ -206,7 +237,21 @@ class FullscreenWindowTest {
         await("Inactivity pointer did not reach the video") {
             java.awt.MouseInfo.getPointerInfo()?.location == point && edt { window.isFocused }
         }
+        // A window that went over the target after it came to the front gets one more chance to go below it.
+        if (coverAtPointer(window) != null) {
+            edt { window.toFront() }
+            robot.waitForIdle()
+        }
+        requireUncovered(window, "inactivity setup")
         return point
+    }
+
+    /**
+     * Fails, naming the window, when another window is over [window] at the pointer: the cursor and auto-hide checks
+     * would then read that window, not SkyWing, so the result would say nothing about SkyWing.
+     */
+    private fun requireUncovered(window: java.awt.Window, during: String) {
+        coverAtPointer(window)?.let { fail("Another window is over the test window under the pointer during $during: $it. Close or minimise it and run the test again") }
     }
 
     private fun awaitInactivity(window: java.awt.Window, point: java.awt.Point,
@@ -215,6 +260,7 @@ class FullscreenWindowTest {
             assertTrue(edt { window.isFocused }, "Desktop focus changed during inactivity assertion: $message")
             assertEquals(point, java.awt.MouseInfo.getPointerInfo()?.location,
                 "Desktop pointer moved during inactivity assertion: $message")
+            requireUncovered(window, "\"$message\"")
             condition()
         }
     }
@@ -242,6 +288,25 @@ class FullscreenWindowTest {
             prepareInactivity(window, canvas, Robot())
             assertTrue(edt { window.isFocused }, "Inactivity checks require the target to own focus")
         } finally { edt { other.dispose(); window.dispose() } }
+    }
+
+    @Test fun inactivitySetupNamesAWindowThatStaysOverTheTarget() {
+        assumeTrue(System.getProperty("os.name").startsWith("Windows"))
+        assumeTrue(!GraphicsEnvironment.isHeadless())
+        val (window, canvas) = inactivityFixture()
+        // Over the focused target, as another program's window was on 24 Nov 2026; bringing the target to the front
+        // doesn't move it below, so a cursor check would read that window's cursor.
+        val cover = edt { java.awt.Window(null as java.awt.Window?).apply {
+            focusableWindowState = false
+            isAlwaysOnTop = true
+            bounds = window.bounds
+            isVisible = true
+        } }
+        try {
+            await("Cover did not appear") { edt { cover.isShowing } }
+            val error = assertFailsWith<AssertionError> { prepareInactivity(window, canvas, Robot()) }
+            assertContains(error.message.orEmpty(), "Another window is over the test window")
+        } finally { edt { cover.dispose(); window.dispose() } }
     }
 
     @Test fun inactivitySetupPlacesPointerOutsideOwnedControls() {
@@ -306,7 +371,8 @@ class FullscreenWindowTest {
                         assertFalse(status.capabilities.decision(mode).enabled)
                     }
                     val rendererReport = player.updateSmoothing(com.skywing.desktop.playback.SmoothingMode.OFF).report
-                    if (rendererReport.contains("preference: NVIDIA D3D11")) {
+                    // mpv was given an NVIDIA GPU's exact name (the GPU plan), so it draws on NVIDIA.
+                    if (rendererReport.contains("preference: NVIDIA")) {
                         assertTrue(rendererReport.contains("Renderer: NVIDIA"), rendererReport)
                     }
                     // The live report names its build (commit, runtime, ed072bf) right under the version line.

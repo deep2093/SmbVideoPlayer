@@ -131,21 +131,123 @@ class EmbeddedPlaybackNativeTest {
 
     /**
      * SKYWING_GPU=NVIDIA draws on NVIDIA even where Intel drives the window's monitor, as on a Hybrid laptop's own
-     * screen. Without an NVIDIA adapter (CI), mpv refuses it and the report says so.
+     * screen. Without an NVIDIA adapter (CI) the plan keeps its usual GPU.
      */
     @Test(timeout = 60_000)
     fun skywingGpuChoosesTheGpuThatDrawsTheVideo() = withPlayer(EmbeddedMpv(forcedGpu = "NVIDIA")) { player ->
         assertTrue(player.open(mp4))
         waitFor("the video to play") { (player.playbackPosition() ?: 0.0) > 0.3 }
-        fun renderer() = player.updateSmoothing(SmoothingMode.OFF).report.lines().single { it.startsWith("Renderer: ") }
-        val line = renderer()
-        if (line.contains("preference: Automatic (mpv refused SKYWING_GPU=NVIDIA)")) {
-            println("No NVIDIA adapter here: $line")
+        fun line(prefix: String) = player.updateSmoothing(SmoothingMode.OFF).report.lines().single { it.startsWith(prefix) }
+        if (GpuAdapters.list().none { it.gpuVendor == GpuVendor.NVIDIA }) {
+            println("No NVIDIA adapter here: ${line("GPU plan: ")}")
             return@withPlayer
         }
-        assertTrue(line.contains("preference: NVIDIA D3D11, forced by SKYWING_GPU"), line)
-        waitFor("mpv to draw on NVIDIA: $line") { renderer().startsWith("Renderer: NVIDIA") }
-        println("Forced: ${renderer()}")
+        assertTrue(line("GPU plan: ").contains("Forced by SKYWING_GPU"), line("GPU plan: "))
+        assertTrue(line("Renderer: ").contains("preference: NVIDIA"), line("Renderer: "))
+        waitFor("mpv to draw on NVIDIA: ${line("Renderer: ")}") { line("Renderer: ").startsWith("Renderer: NVIDIA") }
+        println("Forced: ${line("Renderer: ")}")
+    }
+
+    /**
+     * Plan 5.8 rule 3, checked with the pinned libmpv: drawn by Microsoft's software renderer (what `d3d11-warp=auto`
+     * falls back to without a graphics driver), the video still plays, the report says so and smoothing is off with
+     * "Install your graphics driver for smooth playback".
+     */
+    @Test(timeout = 60_000)
+    fun withTheSoftwareRendererTheVideoPlaysAndSmoothingSaysToInstallTheDriver() = withPlayer(EmbeddedMpv(forceWarp = true)) { player ->
+        assertTrue(player.open(mp4))
+        waitFor("the video to play on the software renderer") { (player.playbackPosition() ?: 0.0) > 0.3 }
+        fun line(prefix: String) = player.updateSmoothing(SmoothingMode.OFF).report.lines().single { it.startsWith(prefix) }
+        waitFor("mpv to name its device: ${line("Renderer: ")}") { !line("Renderer: ").startsWith("Renderer: Not yet reported") }
+        assertTrue(line("Renderer: ").startsWith("Renderer: Microsoft Basic Render Driver"), line("Renderer: "))
+        assertTrue(line("Render path: ").contains("software (Microsoft's WARP renderer"), line("Render path: "))
+        assertEquals("Install your graphics driver for smooth playback", player.updateSmoothing(SmoothingMode.MOTION).detail)
+        println(line("Render path: "))
+        println(line("Decode path: "))
+    }
+
+    /**
+     * Plan 5.8 rule 8. Only a graphics driver reset loses the device, and that needs the owner's OK, so the test hands
+     * the player the message libplacebo logs when it happens; everything after that is the player's real recovery.
+     */
+    @Test(timeout = 90_000)
+    fun afterALostGraphicsDeviceTheVideoOutputIsRecreatedAndTheVideoGoesOn() = withPlayer { player ->
+        fun line(prefix: String) = player.updateSmoothing(SmoothingMode.OFF).report.lines().single { it.startsWith(prefix) }
+        fun renderer() = line("Renderer: ").takeUnless { it.startsWith("Renderer: Not yet reported") }
+        fun loseDevice() = player.logMessage("vo/gpu-next/libplacebo", "error", "Device lost!\n")
+        assertTrue(player.open(mp4))
+        waitFor("the video to play") { (player.playbackPosition() ?: 0.0) > 0.3 && renderer() != null }
+        assertEquals("Graphics device lost: never", line("Graphics device lost: "))
+        for ((loss, step) in listOf(1 to "on a fresh GPU plan", 2 to "on Windows' choice of graphics")) {
+            val before = player.playbackPosition()!!
+            loseDevice()
+            waitFor("loss $loss to re-create the output: ${line("Graphics device lost: ")}") {
+                line("Graphics device lost: ").endsWith("re-created $step")
+            }
+            waitFor("mpv to open a GPU again after loss $loss") { renderer() != null }
+            waitFor("the video to go on after loss $loss") { (player.playbackPosition() ?: 0.0) > before + 0.5 }
+            assertEquals(null, player.playbackFailure)
+            println(line("Graphics device lost: ") + " | " + renderer() + " | " + line("GPU plan: "))
+        }
+        assertTrue(line("GPU plan: ").contains("drawing and motion on Windows' choice"), line("GPU plan: "))
+        // A third loss within the minute is not chased: the video pauses and the player says why.
+        loseDevice()
+        // The player recovers in updateSmoothing, which the app calls once a second.
+        waitFor("the third loss to pause the video") {
+            player.updateSmoothing(SmoothingMode.OFF)
+            player.playbackFailure != null
+        }
+        assertTrue(line("Graphics device lost: ").startsWith("Graphics device lost: 3 times; last: not re-created"))
+        assertEquals("yes", player.diagnosticProperty("pause"))
+        // The next video gets a new output and plays.
+        assertTrue(player.open(mp4))
+        waitFor("the next video to play on a new output") { (player.playbackPosition() ?: 0.0) > 0.3 && renderer() != null }
+        assertEquals(null, player.playbackFailure)
+    }
+
+    /**
+     * On a PC with integrated and dedicated graphics the playing video moves to the other GPU and back (plan 5.3):
+     * mpv re-creates its output inside the same Canvas, opens the GPU it was given and the video goes on.
+     */
+    @Test(timeout = 90_000)
+    fun theVideoMovesToTheOtherGpuWhilePlaying() {
+        val adapters = GpuAdapters.list()
+        if (adapters.none { it.dedicated } || adapters.all { it.dedicated }) {
+            println("Needs integrated and dedicated graphics; this PC has ${adapters.map { it.name }}")
+            return
+        }
+        val store = MotionSettingsStore.values
+        val saved = store.gpuChoice
+        store.gpuChoice = GpuChoice.POWER_SAVING
+        try {
+            withPlayer { player ->
+                fun line(prefix: String) = player.updateSmoothing(SmoothingMode.OFF).report.lines().single { it.startsWith(prefix) }
+                fun renderer() = line("Renderer: ").takeUnless { it.startsWith("Renderer: Not yet reported") }
+                assertTrue(player.open(mp4))
+                waitFor("the video to play") { (player.playbackPosition() ?: 0.0) > 0.3 }
+                waitFor("mpv to name its GPU") { renderer() != null }
+                val integrated = renderer()!!
+                println("Power saving: $integrated | ${line("GPU plan: ")}")
+                assertTrue(adapters.any { !it.dedicated && integrated.startsWith("Renderer: " + it.name) }, integrated)
+
+                val before = player.playbackPosition()!!
+                assertEquals(true, player.useGpu(GpuChoice.PERFORMANCE))
+                waitFor("mpv to open the graphics card") { renderer().let { it != null && it != integrated } }
+                val dedicated = renderer()!!
+                println("Performance: $dedicated | ${line("GPU plan: ")}")
+                assertTrue(adapters.any { it.dedicated && dedicated.startsWith("Renderer: " + it.name) }, dedicated)
+                waitFor("the video to go on after the move") { (player.playbackPosition() ?: 0.0) > before + 0.5 }
+                assertEquals(null, player.playbackFailure)
+                // Asking for the GPU it already uses changes nothing.
+                assertEquals(null, player.useGpu(GpuChoice.PERFORMANCE))
+
+                assertEquals(true, player.useGpu(GpuChoice.POWER_SAVING))
+                waitFor("mpv to open the processor's graphics again") { renderer() == integrated }
+                assertEquals(null, player.playbackFailure)
+            }
+        } finally {
+            store.gpuChoice = saved
+        }
     }
 
     @Test(timeout = 60_000)

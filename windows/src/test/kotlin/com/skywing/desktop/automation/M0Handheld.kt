@@ -39,10 +39,13 @@ import kotlin.system.exitProcess
  * `gradlew -p windows m0Runner` builds a portable folder for it: a Java runtime, the jars, `Run M0.cmd`, `README.txt`
  * and empty `clips\1080p` and `clips\4K` folders. `Run M0.cmd` starts it. `Run M0.cmd trial` does a short check
  * instead: the plugged-in half with a 10-second warm-up and a 30-second window, which tests the runner, not the device.
+ * `Run M0.cmd screen-size` (with or without `trial`) does the same runs with "Smooth at screen size" on (M2, plan 5.7
+ * item 4), under labels ending in `-screen-size`.
+ * The M0 rows are SkyWing [M0_BUILD]'s. Another installed build runs the same table into `results\<device>-<version>`
+ * ([resultsFolder]), so its rows never mix with M0's.
  * The runner:
  * - refuses to start, saying what to fix, when the folder isn't on the device's own drive or is in OneDrive, SkyWing
- *   [M0_BUILD] isn't installed, a clips folder doesn't hold exactly one video, or plugged-in runs are left and the
- *   charger is out
+ *   isn't installed, a clips folder doesn't hold exactly one video, or plugged-in runs are left and the charger is out
  * - keeps the device and its screen awake while it runs, as a video player does
  * - before each run, waits until nobody has touched the device for Windows' foreground lock time-out (200 s unless
  *   changed): until then, Windows keeps a new SkyWing window behind the program used last. When the time-out is over
@@ -59,17 +62,19 @@ import kotlin.system.exitProcess
  * Started again, it does only the runs that have no row yet (`row.md` in the run's folder). The results folder is
  * named after the device, so one copy of the runner folder can visit both handhelds. SKYWING_M0_CLIP_1080P and
  * SKYWING_M0_CLIP_4K name the clips instead of the clips folders (for a trial on another machine). SKYWING_M0_VRR
- * (true, false or auto) overrides "My screen uses G-SYNC / FreeSync". Otherwise the setting is as the installed SkyWing
+ * (true, false or auto) overrides SkyWing's VRR setting ("My screen uses G-SYNC / FreeSync" in 0.1.101, "Let VRR
+ * control refresh (fullscreen)" from M2). Otherwise the setting is as the installed SkyWing
  * has it on the device (read, not changed), or left to SkyWing's own detection when it isn't set: section 2 says to
  * leave it as it is.
  */
 fun main(args: Array<String>) {
     val trial = args.any { it.equals("trial", ignoreCase = true) }
+    val screenSize = args.any { it.equals("screen-size", ignoreCase = true) }
     // exitProcess: AWT (the clipboard) and the Access Bridge client keep threads that would hold the JVM open.
     val code = try {
         HandheldSystem.keepConsoleRunning()
         HandheldSystem.keepAwake()
-        HandheldRunner(trial, System.getenv(), Path.of("").toAbsolutePath()).runAll()
+        HandheldRunner(trial, screenSize, System.getenv(), Path.of("").toAbsolutePath()).runAll()
     } catch (refused: IllegalArgumentException) {
         HandheldSystem.beep(3)
         println()
@@ -142,18 +147,26 @@ internal data class HandheldTiming(val warmupSeconds: Long, val windowSeconds: L
     }
 }
 
-/** One row of the section 4 table. */
-internal data class HandheldRun(val clip: ClipSize, val quality: MotionQuality, val onAc: Boolean, val trial: Boolean) {
-    /** The run's results folder ends in this: "1080p-fast-ac", or "trial-1080p-fast-ac" in a trial. */
+/** One row of the section 4 table; [screenSize] turns on "Smooth at screen size". */
+internal data class HandheldRun(
+    val clip: ClipSize,
+    val quality: MotionQuality,
+    val onAc: Boolean,
+    val trial: Boolean,
+    val screenSize: Boolean = false,
+) {
+    /** The run's results folder ends in this: "1080p-fast-ac", "trial-1080p-fast-ac" in a trial, "…-screen-size". */
     val label: String
         get() = listOfNotNull(
             "trial".takeIf { trial },
             clip.folder.lowercase(Locale.ROOT),
             quality.name.lowercase(Locale.ROOT),
             if (onAc) "ac" else "battery",
+            "screen-size".takeIf { screenSize },
         ).joinToString("-")
 
-    val title: String get() = "${clip.folder} ${quality.label}, ${if (onAc) "plugged in" else "on battery"}"
+    val title: String
+        get() = "${clip.folder} ${quality.label}, ${if (onAc) "plugged in" else "on battery"}" + if (screenSize) ", at screen size" else ""
     val power: String get() = if (onAc) "Plugged in" else "Battery"
     val timing: HandheldTiming get() = if (trial) HandheldTiming.TRIAL else HandheldTiming.FULL
 
@@ -165,6 +178,7 @@ internal data class HandheldRun(val clip: ClipSize, val quality: MotionQuality, 
         "SKYWING_M0_QUALITY" to quality.label,
         "SKYWING_M0_POWER" to if (onAc) "ac" else "battery",
         "SKYWING_M0_VRR" to (vrr?.toString() ?: "auto"),
+        "SKYWING_M0_SCREEN_SIZE" to if (screenSize) "on" else "off",
         "SKYWING_M0_WARMUP" to timing.warmupSeconds.toString(),
         "SKYWING_M0_WINDOW" to timing.windowSeconds.toString(),
     )
@@ -174,9 +188,19 @@ internal object HandheldPlan {
     private val QUALITIES = listOf(MotionQuality.FAST, MotionQuality.BALANCED)
 
     /** Section 4's rows in order: plugged in, then on battery. A trial does only the plugged-in half. */
-    fun runs(trial: Boolean): List<HandheldRun> = (if (trial) listOf(true) else listOf(true, false)).flatMap { onAc ->
-        ClipSize.entries.flatMap { clip -> QUALITIES.map { quality -> HandheldRun(clip, quality, onAc, trial) } }
+    fun runs(trial: Boolean, screenSize: Boolean = false): List<HandheldRun> = (if (trial) listOf(true) else listOf(true, false)).flatMap { onAc ->
+        ClipSize.entries.flatMap { clip -> QUALITIES.map { quality -> HandheldRun(clip, quality, onAc, trial, screenSize) } }
     }
+}
+
+/**
+ * The results folder for [machine] with SkyWing [version] installed: [machine] for [M0_BUILD], whose rows are M0's, and
+ * `<machine>-<version>` for any other build (`-version-unknown` when it can't be read), so the tables never mix.
+ */
+internal fun resultsFolder(machine: String, version: String?): String = when (version) {
+    M0_BUILD -> machine
+    null -> "$machine-version-unknown"
+    else -> machine + "-" + version.replace(Regex("[^A-Za-z0-9.]+"), "-").trim('-').take(40)
 }
 
 /** The newest folder in [results] of a finished run with this [label] (`<date>-<time>-<label>` holding row.md), or null. */
@@ -384,13 +408,19 @@ internal fun logOutput(log: Path): PrintStream {
 }
 
 /** One start of the runner on one device. */
-private class HandheldRunner(private val trial: Boolean, private val environment: Map<String, String>, private val runner: Path) {
-    private val plan = HandheldPlan.runs(trial)
+private class HandheldRunner(
+    private val trial: Boolean,
+    screenSize: Boolean,
+    private val environment: Map<String, String>,
+    private val runner: Path,
+) {
+    private val plan = HandheldPlan.runs(trial, screenSize)
     private val timing = plan.first().timing
     private val image = Path.of(requireNotNull(environment["SKYWING_TEST_IMAGE"]?.takeIf { it.isNotBlank() }) { "Start the runner with Run M0.cmd." })
     private val product = registryValue(BIOS, "SystemProductName")
     private val device = listOfNotNull(registryValue(BIOS, "SystemManufacturer"), product).joinToString(" ").ifBlank { "this device" }
-    private val results = runner.resolve("results").resolve(machineFolder(product, environment["COMPUTERNAME"]))
+    private val version = installedVersion()
+    private val results = runner.resolve("results").resolve(resultsFolder(machineFolder(product, environment["COMPUTERNAME"]), version))
     private val table = results.resolve(if (trial) "M0-trial-table.md" else "M0-table.md")
     private val lockTimeoutMs = HandheldSystem.foregroundLockTimeoutMs()
     private val quietWait = quietWaitMs(lockTimeoutMs)
@@ -411,7 +441,9 @@ private class HandheldRunner(private val trial: Boolean, private val environment
         val todo = plan.filter { finishedRun(results, it.label) == null }
         println("SkyWing M0 ${if (trial) "trial" else "handheld runs"} (M0-RESULTS.md section 4) on $device")
         println("Results: $results")
-        println("G-SYNC / FreeSync: $vrrSource")
+        println("SkyWing: ${version ?: "version can't be read here; the reports show it"}" +
+            if (version != null && version != M0_BUILD) " (not $M0_BUILD, the M0 build: these results are kept apart from M0's)" else "")
+        println("VRR setting: $vrrSource")
         println(
             "Windows foreground lock time-out: ${lockTimeoutMs / 1000} s" +
                 if (quietWait == null) ". Once the device is touched, Windows here keeps SkyWing behind other windows." else "",
@@ -472,17 +504,17 @@ private class HandheldRunner(private val trial: Boolean, private val environment
     }
 
     private fun checkInstalled() {
-        require(image.resolve("SkyWing.exe").isRegularFile()) { "SkyWing isn't installed in $image. Install SkyWing $M0_BUILD and run again." }
-        val script = "(Get-Item -LiteralPath '${image.resolve("SkyWing.exe").toString().replace("'", "''")}').VersionInfo.ProductVersion"
-        val version = runCatching { runPowerShell(script, "Reading SkyWing's version").trim() }.getOrNull()?.takeIf { it.isNotEmpty() }
-        if (version == null) {
-            println("SkyWing's version can't be read here; the reports show it.")
-        } else {
-            require(version == M0_BUILD) { "SkyWing $version is installed, but the M0 runs measure $M0_BUILD (M0-RESULTS.md section 1). Install $M0_BUILD and run again." }
-        }
+        require(image.resolve("SkyWing.exe").isRegularFile()) { "SkyWing isn't installed in $image. Install SkyWing and run again." }
     }
 
-    /** "My screen uses G-SYNC / FreeSync" for every run, and where the choice came from. */
+    /** The installed SkyWing.exe's product version, or null when it isn't there or can't be read. */
+    private fun installedVersion(): String? {
+        val exe = image.resolve("SkyWing.exe").takeIf { it.isRegularFile() } ?: return null
+        val script = "(Get-Item -LiteralPath '${exe.toString().replace("'", "''")}').VersionInfo.ProductVersion"
+        return runCatching { runPowerShell(script, "Reading SkyWing's version").trim() }.getOrNull()?.takeIf { it.isNotEmpty() }
+    }
+
+    /** SkyWing's VRR setting for every run, and where the choice came from. */
     private fun vrrChoice(): Pair<Boolean?, String> = when (val text = environment["SKYWING_M0_VRR"]?.trim()?.takeIf { it.isNotEmpty() }) {
         null -> when (val owner = registryValue(PLAYBACK, "motion.vrr")?.toBooleanStrictOrNull()) {
             null -> null to "not set in SkyWing on this device, so SkyWing detects it"

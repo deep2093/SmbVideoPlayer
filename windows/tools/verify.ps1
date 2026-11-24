@@ -69,8 +69,11 @@ $rules = @(
        Tests = @("$pkg.playback.EmbeddedPlaybackNativeTest", "$pkg.playback.ThumbnailExtractorNativeTest", "$pkg.playback.GpuAdaptersTest", "$pkg.VideoDropTest",
                  "$pkg.automation.PlaybackAutomationTest") }
     @{ Area = 'Motion interpolation / smoothing'; Escalate = $false
-       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(Motion\w*|Smoothing|RecentDrops|DisplayVrr|WindowsDisplayAdapter)\.kt|SmoothingDialog\.kt)$|windows/tools/(build_motion\.py|open-svpflow-windows\.patch)$'
-       Tests = @("$pkg.playback.MotionEngineTest", "$pkg.playback.SmoothingTest", "$pkg.playback.MotionNativeTest", "$pkg.automation.MotionAutomationTest") }
+       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(Motion\w*|Smoothing|SmoothingSize|RecentDrops|DisplayVrr|WindowsDisplayAdapter)\.kt|SmoothingDialog\.kt)$|windows/tools/(build_motion\.py|open-svpflow-windows\.patch)$'
+       Tests = @("$pkg.playback.MotionEngineTest", "$pkg.playback.SmoothingTest", "$pkg.playback.SmoothingSizeTest", "$pkg.playback.MotionNativeTest", "$pkg.automation.MotionAutomationTest") }
+    @{ Area = 'Screens / measuring'; Escalate = $false
+       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(PlaybackLog|ScreenState|DisplayPaths|DisplayChanges)\.kt|Bench\.kt)$|windows/tools/bench\.ps1$'
+       Tests = @("$pkg.playback.PlaybackLogTest", "$pkg.playback.ScreenStateTest", "$pkg.BenchOptionsTest", "$pkg.playback.SmoothingTest") }
     @{ Area = 'Full screen / window chrome'; Escalate = $true
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(BorderlessFullscreen|FullscreenChrome|PlayerChrome|WindowChrome)\.kt$'
        Tests = @("$pkg.FullscreenWindowTest", "$pkg.PlayerChromeTest", "$pkg.automation.FullscreenAutomationTest") }
@@ -98,16 +101,18 @@ $rules = @(
        Pattern = 'windows/src/test/(kotlin/com/skywing/desktop/automation/(SkyWingTestApp|AccessBridgeClient|ControlQuery|TestMedia)\.kt|java/.*)$'
        Tests = @() }
     @{ Area = 'Installer / packaging / native payload / legal'; Escalate = $true; Release = $true
-       Pattern = '^(windows/build\.gradle\.kts|windows/legal/.*|windows/LICENSE|windows/tools/build_mpv_preview\.sh|windows/tools/mpv-vapoursynth-output-preview\.patch|\.github/workflows/skywing-windows-x64\.yml|windows/tools/(compare_builds|test_compare_builds)\.py|gradle/.*|gradlew(\.bat)?)$'
+       Pattern = '^(windows/build\.gradle\.kts|windows/legal/.*|windows/LICENSE|windows/tools/build_mpv_preview\.sh|windows/tools/mpv-vapoursynth-output-preview\.patch|\.github/workflows/skywing-windows-x64\.yml|windows/tools/(compare_builds|test_compare_builds|stage_mpv_preview|test_stage_mpv_preview)\.py|windows/tools/mpv-preview-packages\.json|gradle/.*|gradlew(\.bat)?)$'
        Tests = @() }
 )
 # Python build tools have their own unittest suite (windows/tools/test_*.py), run with the system Python.
 $toolTestsPattern = '^windows/tools/[^/]+\.py$'
 # Tests that open windows, go full screen or launch SkyWing. Everything else runs off screen.
-$focusTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|AccessBridgeTreeTest|playback\.EmbeddedPlaybackNativeTest|playback\.MotionNativeTest)$'
-$nativeTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|playback\.(EmbeddedPlaybackNativeTest|MotionNativeTest|ThumbnailExtractorNativeTest))$'
+$focusTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|AccessBridgeTreeTest|playback\.EmbeddedPlaybackNativeTest|playback\.MotionNativeTest|playback\.FrameSharingTeardownNativeTest)$'
+$nativeTests = '^com\.skywing\.desktop\.(automation\..*|FullscreenWindowTest|playback\.(EmbeddedPlaybackNativeTest|MotionNativeTest|ThumbnailExtractorNativeTest|FrameSharingTeardownNativeTest))$'
 $ffmpegTests = '^com\.skywing\.desktop\.(automation\.MotionAutomationTest|playback\.(EmbeddedPlaybackNativeTest|MotionNativeTest))$'
-$notMeasured = 'HDR output and tone mapping, VRR activation, displayed frame pacing (the engine reports its configured rate), ' +
+# The display state (refresh, Windows HDR, VRR range, NVIDIA's VRR-active flag) is in the report; on-screen frame times
+# come from windows/tools/bench.ps1 -PresentMon. Neither shows how HDR looks or how smooth playback feels.
+$notMeasured = 'How HDR looks (tone mapping, colour) and how smooth playback feels; on-screen frame times unless windows/tools/bench.ps1 -PresentMon ran; ' +
     'multi-monitor, real Alt+Tab, a real NAS or a dropped SMB connection, fresh install and uninstall on a clean PC.'
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -169,8 +174,9 @@ function Select-Tests([string[]]$changed) {
         }
     }
     if ($plan.Areas.Count -ge 3 -and $plan.Escalate -notcontains 'Three or more areas') { $plan.Escalate += 'Three or more areas' }
-    # Any run that executes tests also proves the test JVM cannot reach the user's preferences or data folders.
-    if ($plan.Tests.Count -gt 0) { [void]$plan.Tests.Add("$pkg.TestIsolationTest") }
+    # Any run that executes tests also proves the test JVM cannot reach the user's preferences or data folders, and
+    # records the screens it ran on (refresh, HDR, VRR) for the report's "Display state" (plan 5.6).
+    if ($plan.Tests.Count -gt 0) { @("$pkg.TestIsolationTest", "$pkg.playback.DisplayStateReportTest") | ForEach-Object { [void]$plan.Tests.Add($_) } }
     $plan
 }
 
@@ -694,6 +700,12 @@ if ($Mode -eq 'release' -and $script:payload) {
     $script:payload | ForEach-Object { Add ("- {0} {1}" -f $(if ($_.Ok) { 'PASS' } elseif ($_.Blocker) { '**BLOCKER**' } elseif ($_.Warn) { 'WARNING' } else { '**FAIL**' }), $_.Check) }
     $blockers = @($script:payload | Where-Object { -not $_.Ok -and $_.Blocker })
     Add ""; Add "Public release: **$(if ($blockers -or $verdict -ne 'PASS') { 'NOT READY' } else { 'gates passed; still needs clean-PC install, upgrade and uninstall checks' })**. This script never certifies a release."
+}
+$displayState = Join-Path $windows 'build\reports\tests\test\display-state.txt'
+if ($run -and (Test-Path $displayState) -and (Get-Item $displayState).LastWriteTime -ge $started) {
+    Add ""; Add "## Display state"
+    Get-Content -Encoding UTF8 $displayState | Where-Object { $_ } | ForEach-Object { Add "- $_" }
+    Add "- On-screen frame times: not measured by this run (windows/tools/bench.ps1 -PresentMon records them when you have the rights)"
 }
 Add ""; Add "## Not covered by automation"
 Add "- $notMeasured"

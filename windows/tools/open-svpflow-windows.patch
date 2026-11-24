@@ -1,25 +1,41 @@
+diff --git a/crates/svpflow-host/src/opencl.rs b/crates/svpflow-host/src/opencl.rs
+index ebd6ba4..f3e4c4a 100644
 --- a/crates/svpflow-host/src/opencl.rs
 +++ b/crates/svpflow-host/src/opencl.rs
-@@ -235,3 +235,16 @@
+@@ -235,3 +235,28 @@ impl OpenCl {
          Ok(me)
      }
  }
 +
-+/// Optional process-local vendor filter for hybrid Windows laptops.
-+/// An explicit selection never silently switches to another vendor.
++/// Optional process-local device filter for Windows PCs with more than one GPU.
++/// SKYWING_OPENCL_VENDOR keeps devices whose vendor contains it. SKYWING_OPENCL_LUID (16 hex digits) also keeps
++/// only the device with that Windows adapter LUID, where the driver reports LUIDs (cl_khr_device_uuid), so two
++/// GPUs from one vendor are told apart. An explicit selection never silently switches to another vendor.
 +pub unsafe fn device_matches_vendor(cl: &OpenCl, device: Handle) -> bool {
 +    let wanted = std::env::var("SKYWING_OPENCL_VENDOR").unwrap_or_default();
 +    let wanted = wanted.trim().to_ascii_lowercase();
-+    if wanted.is_empty() { return true; }
-+    let mut bytes = [0u8; 256];
-+    let rc = unsafe { (cl.GetDeviceInfo)(device, 0x102C, bytes.len(), bytes.as_mut_ptr().cast(), std::ptr::null_mut()) };
-+    if rc != CL_SUCCESS { return false; }
-+    let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
-+    String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase().contains(&wanted)
++    if !wanted.is_empty() {
++        let mut bytes = [0u8; 256];
++        let rc = unsafe { (cl.GetDeviceInfo)(device, 0x102C, bytes.len(), bytes.as_mut_ptr().cast(), std::ptr::null_mut()) };
++        if rc != CL_SUCCESS { return false; }
++        let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
++        if !String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase().contains(&wanted) { return false; }
++    }
++    let luid = std::env::var("SKYWING_OPENCL_LUID").unwrap_or_default();
++    let Ok(luid) = u64::from_str_radix(luid.trim(), 16) else { return true; };
++    // CL_DEVICE_LUID_VALID_KHR, then CL_DEVICE_LUID_KHR. A driver that reports no LUID keeps the vendor match.
++    let mut valid = [0u8; 4];
++    let rc = unsafe { (cl.GetDeviceInfo)(device, 0x106C, valid.len(), valid.as_mut_ptr().cast(), std::ptr::null_mut()) };
++    if rc != CL_SUCCESS || u32::from_ne_bytes(valid) == 0 { return true; }
++    let mut bytes = [0u8; 8];
++    let rc = unsafe { (cl.GetDeviceInfo)(device, 0x106D, bytes.len(), bytes.as_mut_ptr().cast(), std::ptr::null_mut()) };
++    rc == CL_SUCCESS && u64::from_le_bytes(bytes) == luid
 +}
+diff --git a/crates/svpflow1/src/analyse/gpu.rs b/crates/svpflow1/src/analyse/gpu.rs
+index 5013427..2145366 100644
 --- a/crates/svpflow1/src/analyse/gpu.rs
 +++ b/crates/svpflow1/src/analyse/gpu.rs
-@@ -342,6 +342,7 @@
+@@ -342,6 +342,7 @@ impl RefineGpu {
              {
                  continue;
              }
@@ -27,9 +43,11 @@
              let mut err = 0;
              let context = svpflow_host::context::shared(device, || {
                  let context = unsafe {
+diff --git a/crates/svpflow2/src/gpu.rs b/crates/svpflow2/src/gpu.rs
+index 4f83e5a..97e7988 100644
 --- a/crates/svpflow2/src/gpu.rs
 +++ b/crates/svpflow2/src/gpu.rs
-@@ -497,6 +497,7 @@
+@@ -497,6 +497,7 @@ impl GpuContext {
                  0
              };
              let device = devs[idx];
