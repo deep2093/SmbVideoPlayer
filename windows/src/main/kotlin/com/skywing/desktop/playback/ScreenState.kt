@@ -27,8 +27,8 @@ internal data class EdidRefresh(val vrr: VrrRange?, val limits: IntRange?, val l
  * Whether a screen can vary its refresh, which sets the default of "Let VRR control refresh (fullscreen)" (owner,
  * 25 November). Windows has no call that says so, so this follows Linux's DRM (drm_edid.c, i915 and amdgpu): a VRR
  * block in the EDID, or on a DisplayPort link the EDID 1.4 range limits only, more than 10 Hz apart. Those drivers also
- * read the DisplayPort screen's "ignores MSA timing" bit, which Windows doesn't show. NVIDIA's per-display answer wins
- * when it gives one. Whether VRR then engages is the driver's setting.
+ * read the DisplayPort screen's "ignores MSA timing" bit, which Windows doesn't show. Whether VRR then engages is the
+ * driver's setting.
  */
 internal object VrrScreen {
     /** DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL (0x80000000): a laptop's or handheld's own screen, as Windows names it. */
@@ -36,8 +36,7 @@ internal object VrrScreen {
     /** wingdi.h's DisplayPort links: external (10), embedded (11) and over a USB4 tunnel (18), and a built-in screen. */
     private val DISPLAY_PORT = setOf(10, 11, 18, INTERNAL)
 
-    fun capable(edid: EdidRefresh, link: Int?, nvidiaPossible: Boolean?): Boolean {
-        nvidiaPossible?.let { return it }
+    fun capable(edid: EdidRefresh, link: Int?): Boolean {
         if (edid.vrr != null) return true
         val limits = edid.limits ?: return false
         return link != null && link in DISPLAY_PORT && edid.limitsOnly && limits.last - limits.first > 10
@@ -206,24 +205,22 @@ internal object ScreenSummary {
      * the EDID's VRR block, else its range limits, as DisplayPort Adaptive-Sync declares it. [link]: the screen's
      * DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY.
      */
-    fun variableRefresh(edid: EdidRefresh, nvidiaPossible: Boolean?, link: Int? = null): String {
-        if (!VrrScreen.capable(edid, link, nvidiaPossible))
-            return if (nvidiaPossible == false) "No variable refresh" else "Variable refresh not detected"
+    fun variableRefresh(edid: EdidRefresh, link: Int? = null): String {
+        if (!VrrScreen.capable(edid, link)) return "Variable refresh not detected"
         val range = edid.vrr?.label ?: edid.limits?.let { "${it.first}–${it.last} Hz" } ?: return "Variable refresh (range not reported)"
         return "Variable refresh $range (detected)"
     }
 
-    fun line(refreshHz: Double?, edid: EdidRefresh, nvidiaPossible: Boolean?, hdr: HdrState, link: Int? = null): String = listOf(
+    fun line(refreshHz: Double?, edid: EdidRefresh, hdr: HdrState, link: Int? = null): String = listOf(
         refreshHz?.takeIf { it.isFinite() && it > 0 }?.let { hz(it) + " Hz" } ?: "Refresh not reported",
-        variableRefresh(edid, nvidiaPossible, link),
+        variableRefresh(edid, link),
         "HDR " + hdr.label,
     ).joinToString(" · ")
 
-    /** One screen in verify.ps1's "Display state" (plan 5.6): the Settings line plus whether VRR is active now. */
-    fun state(index: Int, screen: ScreenState, vrr: VrrCapability): String =
+    /** One screen in verify.ps1's "Display state" (plan 5.6): its name and the Settings line. */
+    fun state(index: Int, screen: ScreenState): String =
         "Screen ${index + 1}" + screen.path.friendlyName.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty() + ": " +
-            line(screen.path.refreshHz, screen.edid, vrr.supported, screen.hdr, screen.path.outputTechnology) +
-            " · VRR active: " + DisplayState.vrrActive(vrr).text
+            line(screen.path.refreshHz, screen.edid, screen.hdr, screen.path.outputTechnology)
 }
 
 /** One screen as last read: its display path, HDR state and EDID refresh. */
@@ -271,20 +268,18 @@ internal object Screens {
     fun appWindow(): Pointer? = Frame.getFrames().firstOrNull { it.isShowing }
         ?.let { runCatching { Native.getWindowPointer(it) }.getOrNull() }
 
-    /** Every active screen, one line each, as Windows and the driver report them now. It asks NVIDIA, so call it off the UI thread. */
+    /** Every active screen, one line each, as Windows reports them now. It reads the registry, so call it off the UI thread. */
     fun report(): List<String> {
         val screens = synchronized(this) { paths().map(::state) }
         if (screens.isEmpty()) return listOf("No active screens reported by Windows")
-        return screens.mapIndexed { i, screen -> ScreenSummary.state(i, screen, DisplayVrr.read(screen.path.gdiName)) }
+        return screens.mapIndexed { i, screen -> ScreenSummary.state(i, screen) }
     }
 
-    /** The Settings line for the screen showing [window]. It asks NVIDIA, so call it off the UI thread. */
+    /** The Settings line for the screen showing [window]. It reads the registry, so call it off the UI thread. */
     fun describe(window: Pointer): String? = forWindow(window)?.let {
-        ScreenSummary.line(it.path.refreshHz, it.edid, DisplayVrr.read(it.path.gdiName).supported, it.hdr, it.path.outputTechnology)
+        ScreenSummary.line(it.path.refreshHz, it.edid, it.hdr, it.path.outputTechnology)
     }
 
-    /** Whether the screen showing [window] can vary its refresh ([VrrScreen]). It asks NVIDIA, so call it off the UI thread. */
-    fun canVary(window: Pointer): Boolean = forWindow(window)?.let {
-        VrrScreen.capable(it.edid, it.path.outputTechnology, DisplayVrr.read(it.path.gdiName).supported)
-    } == true
+    /** Whether the screen showing [window] can vary its refresh ([VrrScreen]). It reads the registry, so call it off the UI thread. */
+    fun canVary(window: Pointer): Boolean = forWindow(window)?.let { VrrScreen.capable(it.edid, it.path.outputTechnology) } == true
 }

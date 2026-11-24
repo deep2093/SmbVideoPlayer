@@ -338,10 +338,6 @@ class EmbeddedMpv(
         val filterFailed = drainEvents()
         if (deviceLost) recoverDevice()
         checkGpus()
-        // NvAPI knows only screens on NVIDIA GPUs, and Intel's driver reports nothing; ask it unless another maker's
-        // GPU drives the screen.
-        DisplayVrr.refresh(if (monitorGpu?.gpuVendor.let { it == null || it == GpuVendor.NVIDIA })
-            screen?.path?.gdiName ?: textProperty("display-names/0") else null, fullscreen)
         lastMinuteDrops = recentDrops.sample(System.nanoTime() / 1_000_000, listOf(
             numberProperty("frame-drop-count")?.toLong(), numberProperty("decoder-frame-drop-count")?.toLong()))
         if (filterFailed && motion.active) {
@@ -375,7 +371,7 @@ class EmbeddedMpv(
             softwareRender = GpuAdapters.softwareRenderer(openedGpu),
             decoderFailures = decoderFailures,
             processorBlocked = Processor.current.motionBlocked,
-            vrrScreen = screen?.let { VrrScreen.capable(it.edid, it.path.outputTechnology, DisplayVrr.current.supported) } == true,
+            vrrScreen = screen?.let { VrrScreen.capable(it.edid, it.path.outputTechnology) } == true,
         ).let { it.copy(gpuNote = GpuFamily.note(motionGpu(), it)) }
         lastCaps = caps
         if (mode == SmoothingMode.MOTION) return updateMotion(caps).also { if (!motion.active) endLog() }
@@ -627,13 +623,11 @@ class EmbeddedMpv(
                 "; VRR range: ${shown?.edid?.vrr?.let { it.label + " (" + it.source + " in EDID)" } ?: "not in EDID"}" +
                 "; EDID refresh limits: ${shown?.edid?.limits?.let { "${it.first}–${it.last} Hz" } ?: "none"}" +
                 "; display changes heard: ${DisplayChanges.listening}")
-            appendLine("Screen: " + (shown?.let { ScreenSummary.line(caps.displayHz, it.edid, DisplayVrr.current.supported, it.hdr, it.path.outputTechnology) } ?: "not reported"))
-            appendLine("VRR capability: " + (DisplayVrr.current.supported?.toString() ?: "unknown") + "; " + DisplayVrr.current.detail +
-                "; " + (DisplayVrr.current.nvidia?.label ?: "VRR active now: not reported") +
+            appendLine("Screen: " + (shown?.let { ScreenSummary.line(caps.displayHz, it.edid, it.hdr, it.path.outputTechnology) } ?: "not reported"))
+            appendLine("VRR capability: " + (if (shown == null) "unknown (screen not reported)" else if (caps.vrrScreen) "yes (EDID)" else "no (EDID)") +
                 "; VRR control: " + if (MotionSettingsStore.values.vrrOverride != null) "chosen in Settings"
                     else if (caps.vrrScreen) "on by default on this screen" else "off by default on this screen")
             appendLine("HDR engaged: " + hdrEngaged().text)
-            appendLine("VRR active: " + DisplayState.vrrActive(DisplayVrr.current).text)
             appendLine("File: $fileKind; ${caps.resolution}; source ${caps.sourceFps ?: "unavailable"} fps")
             appendLine("Frame times: " + frameTimes(caps))
             appendLine("Codec: ${textProperty("video-codec") ?: "unavailable"}; pixel format: ${textProperty("video-params/pixelformat") ?: "unavailable"}")
@@ -671,7 +665,7 @@ class EmbeddedMpv(
 
     /**
      * "Copy test report" (plan 5.6): what a test run needs to compare PCs. The build with its runtime and sharing
-     * state, the GPU plan, the screen with its HDR and VRR state, and the per-minute table.
+     * state, the GPU plan, the screen with its HDR state, the VRR switch, and the per-minute table.
      */
     private fun testReport(caps: SmoothingCapabilities, state: String): String {
         val build = BuildIdentity.current
@@ -686,10 +680,9 @@ class EmbeddedMpv(
             appendLine("Processor: ${Processor.current.line()}")
             appendLine("Decode path: ${decodePath()}")
             appendLine("Graphics device lost: ${deviceLoss.summary()}")
-            appendLine("Screen: " + (shown?.let { ScreenSummary.line(caps.displayHz, it.edid, DisplayVrr.current.supported, it.hdr, it.path.outputTechnology) } ?: "not reported"))
+            appendLine("Screen: " + (shown?.let { ScreenSummary.line(caps.displayHz, it.edid, it.hdr, it.path.outputTechnology) } ?: "not reported"))
             appendLine("HDR engaged: " + hdrEngaged().text)
-            appendLine("VRR active: " + DisplayState.vrrActive(DisplayVrr.current).text +
-                "; let VRR control refresh: " + MotionSettingsStore.values.vrr(caps.vrrScreen) + " (fullscreen: " + fullscreen +
+            appendLine("Let VRR control refresh: " + MotionSettingsStore.values.vrr(caps.vrrScreen) + " (fullscreen: " + fullscreen +
                 (if (MotionSettingsStore.values.vrrOverride == null) "; this screen's default" else "; chosen in Settings") + ")")
             appendLine("File: ${com.skywing.desktop.NetworkPaths.kindOf(expectedPath)}; ${caps.resolution}; source ${caps.sourceFps ?: "unavailable"} fps" +
                 "; transfer ${textProperty("video-params/gamma") ?: "unavailable"}; decoder ${textProperty("hwdec-current") ?: "unavailable"}")
@@ -744,7 +737,7 @@ class EmbeddedMpv(
             heartbeatAgeMillis = motion.lastHeartbeat?.let { now - it.updatedMillis },
             generations = motion.rebuilds, seeks = seekCount, restarts = motion.restarts,
             paused = paused, cacheWait = cacheWait, fullscreen = fullscreen,
-            hdr = hdrEngaged(), vrr = DisplayState.vrrActive(DisplayVrr.current), refreshHz = caps.displayHz,
+            hdr = hdrEngaged(), refreshHz = caps.displayHz,
             focused = canvasHandle?.let(WindowFocus::inFront),
         ))
     }

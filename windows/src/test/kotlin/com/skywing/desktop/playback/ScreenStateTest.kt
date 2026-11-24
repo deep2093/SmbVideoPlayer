@@ -71,20 +71,17 @@ class ScreenStateTest {
     fun aScreenCanVaryItsRefreshByItsVrrBlockOrByRangeLimitsOnADisplayPortLink() {
         val internal = VrrScreen.INTERNAL
         val panel = EdidRefresh(null, 48..240, limitsOnly = true)
-        assertTrue(VrrScreen.capable(panel, internal, null), "a laptop or handheld's own screen")
-        assertTrue(VrrScreen.capable(panel, 10, null), "DisplayPort")
-        assertTrue(VrrScreen.capable(panel, 11, null), "embedded DisplayPort")
-        assertTrue(VrrScreen.capable(panel, 18, null), "DisplayPort over USB4")
-        assertFalse(VrrScreen.capable(panel, 5, null), "HDMI needs its own VRR block")
-        assertFalse(VrrScreen.capable(panel, null, null), "a link Windows didn't name")
-        assertFalse(VrrScreen.capable(EdidRefresh(null, 50..60, limitsOnly = true), internal, null), "10 Hz is no range")
-        assertTrue(VrrScreen.capable(EdidRefresh(null, 49..60, limitsOnly = true), internal, null))
-        assertFalse(VrrScreen.capable(EdidRefresh(null, 48..240), internal, null), "other range descriptors")
-        assertTrue(VrrScreen.capable(EdidRefresh(VrrRange(48, 144, "FreeSync"), null), 5, null))
-        // NVIDIA's per-display answer, when it gives one, wins.
-        assertFalse(VrrScreen.capable(EdidRefresh(VrrRange(48, 144, "FreeSync"), null), 10, false))
-        assertFalse(VrrScreen.capable(panel, internal, false))
-        assertTrue(VrrScreen.capable(EdidRefresh(null, null), 5, true))
+        assertTrue(VrrScreen.capable(panel, internal), "a laptop or handheld's own screen")
+        assertTrue(VrrScreen.capable(panel, 10), "DisplayPort")
+        assertTrue(VrrScreen.capable(panel, 11), "embedded DisplayPort")
+        assertTrue(VrrScreen.capable(panel, 18), "DisplayPort over USB4")
+        assertFalse(VrrScreen.capable(panel, 5), "HDMI needs its own VRR block")
+        assertFalse(VrrScreen.capable(panel, null), "a link Windows didn't name")
+        assertFalse(VrrScreen.capable(EdidRefresh(null, 50..60, limitsOnly = true), internal), "10 Hz is no range")
+        assertTrue(VrrScreen.capable(EdidRefresh(null, 49..60, limitsOnly = true), internal))
+        assertFalse(VrrScreen.capable(EdidRefresh(null, 48..240), internal), "other range descriptors")
+        assertTrue(VrrScreen.capable(EdidRefresh(VrrRange(48, 144, "FreeSync"), null), 5))
+        assertFalse(VrrScreen.capable(EdidRefresh(null, null), 10), "no EDID says nothing")
     }
 
     @Test
@@ -157,33 +154,21 @@ class ScreenStateTest {
     }
 
     @Test
-    fun nvidiaVrrBitsFollowNvapiH() {
-        val bits = NvidiaVrr.parse(0b10011)
-        assertEquals(NvidiaVrr(enabled = true, possible = true, requested = false, indicator = false, inVrrMode = true), bits)
-        assertEquals(NvidiaVrr(enabled = false, possible = false, requested = true, indicator = true, inVrrMode = false), NvidiaVrr.parse(0b01100))
-    }
-
-    @Test
     fun theScreenLineSaysRefreshVariableRefreshAndHdr() {
         val hdrOff = HdrState(supported = true, on = false, source = "test")
         assertEquals("240 Hz · Variable refresh 48–240 Hz (detected) · HDR off",
-            ScreenSummary.line(240.0002, EdidRefresh(VrrRange(48, 240, "FreeSync"), 48..240), null, hdrOff))
+            ScreenSummary.line(240.0002, EdidRefresh(VrrRange(48, 240, "FreeSync"), 48..240), hdrOff))
         assertEquals("59.94 Hz · Variable refresh not detected · HDR not reported",
-            ScreenSummary.line(59.94, EdidRefresh(null, 56..76), null, AdvancedColor.UNKNOWN))
-        // NVIDIA says VRR is possible: the EDID's range limits are then the range (DisplayPort Adaptive-Sync).
-        assertEquals("144 Hz · Variable refresh 48–144 Hz (detected) · HDR on",
-            ScreenSummary.line(143.9998, EdidRefresh(null, 48..144), true, HdrState(true, true, "test")))
-        assertEquals("120 Hz · Variable refresh (range not reported) · HDR off",
-            ScreenSummary.line(120.0, EdidRefresh(null, null), true, hdrOff))
-        assertEquals("Refresh not reported · No variable refresh · HDR not reported",
-            ScreenSummary.line(null, EdidRefresh(null, 48..144), false, AdvancedColor.UNKNOWN))
+            ScreenSummary.line(59.94, EdidRefresh(null, 56..76), AdvancedColor.UNKNOWN))
+        assertEquals("Refresh not reported · Variable refresh not detected · HDR not reported",
+            ScreenSummary.line(null, EdidRefresh(null, null), AdvancedColor.UNKNOWN))
         assertEquals("60 Hz · Variable refresh from 40 Hz (detected) · HDR off",
-            ScreenSummary.line(60.0, EdidRefresh(VrrRange(40, null, "HDMI VRR"), null), null, hdrOff))
+            ScreenSummary.line(60.0, EdidRefresh(VrrRange(40, null, "HDMI VRR"), null), hdrOff))
         // A built-in screen whose EDID gives its range limits only (the laptop's and the Claw's kind).
         val panel = EdidRefresh(null, 48..240, limitsOnly = true)
         assertEquals("240 Hz · Variable refresh 48–240 Hz (detected) · HDR off",
-            ScreenSummary.line(240.0, panel, null, hdrOff, VrrScreen.INTERNAL))
-        assertEquals("240 Hz · Variable refresh not detected · HDR off", ScreenSummary.line(240.0, panel, null, hdrOff, 5))
+            ScreenSummary.line(240.0, panel, hdrOff, VrrScreen.INTERNAL))
+        assertEquals("240 Hz · Variable refresh not detected · HDR off", ScreenSummary.line(240.0, panel, hdrOff, 5))
     }
 
     @Test
@@ -195,10 +180,8 @@ class ScreenStateTest {
         assumeTrue("no active screens (a hosted runner)", paths.isNotEmpty())
         val states = paths.map { ScreenState(it, DisplayPaths.hdr(it), Edid.read(it.devicePath)) }
         states.forEach {
-            val nvidia = DisplayVrr.read(it.path.gdiName)
-            println("screen: " + ScreenSummary.line(it.path.refreshHz, it.edid, nvidia.supported, it.hdr, it.path.outputTechnology) +
-                " [" + it.hdr.source + "; EDID " + it.edid + "; link " + it.path.outputTechnology + "; " + nvidia.detail + "; " +
-                (nvidia.nvidia?.label ?: "no NVIDIA bits") + "]")
+            println("screen: " + ScreenSummary.line(it.path.refreshHz, it.edid, it.hdr, it.path.outputTechnology) +
+                " [" + it.hdr.source + "; EDID " + it.edid + "; link " + it.path.outputTechnology + "]")
         }
         // Type 9 exists since Windows 10 1709, so every active screen answers one of the two packets.
         states.forEach { assertNotNull(it.hdr.on, "HDR state of " + it.path.gdiName) }

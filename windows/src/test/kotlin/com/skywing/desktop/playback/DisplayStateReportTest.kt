@@ -6,25 +6,22 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Plan 5.6: verify.ps1 puts the display state in its report. This test reads every active screen as Windows and the
- * driver report it now, off screen and read-only, and writes `build/reports/tests/test/display-state.txt` for it.
+ * Plan 5.6: verify.ps1 puts the display state in its report. This test reads every active screen as Windows reports
+ * it now, off screen and read-only, and writes `build/reports/tests/test/display-state.txt` for it.
  */
 class DisplayStateReportTest {
     private fun screen(name: String, hz: Double?, hdr: HdrState, edid: EdidRefresh = EdidRefresh(null, null)) =
         ScreenState(DisplayPath("\\\\.\\DISPLAY1", 1L, 1, hz, name, ""), hdr, edid)
 
     @Test fun eachScreenLineNamesRefreshVrrAndHdr() {
-        val nvidia = VrrCapability("\\\\.\\DISPLAY1", true, "NVIDIA per-display capability", NvidiaVrr.parse(0x03))
         assertEquals(
-            "Screen 1 (Panel A): 165 Hz · Variable refresh 48–165 Hz (detected) · HDR on · VRR active: yes " +
-                "(NVIDIA VRR: enabled true, possible true, requested false, display in VRR mode false)",
+            "Screen 1 (Panel A): 165 Hz · Variable refresh 48–165 Hz (detected) · HDR on",
             ScreenSummary.state(0, screen("Panel A", 165.0, HdrState(true, true, "test"),
-                EdidRefresh(VrrRange(48, 165, "Adaptive-Sync"), null)), nvidia),
+                EdidRefresh(VrrRange(48, 165, "Adaptive-Sync"), null))),
         )
         assertEquals(
-            "Screen 2: Refresh not reported · Variable refresh not detected · HDR not reported · VRR active: not measured " +
-                "(only NVIDIA reports it; Display capability unavailable)",
-            ScreenSummary.state(1, screen("", null, AdvancedColor.UNKNOWN), VrrCapability()),
+            "Screen 2: Refresh not reported · Variable refresh not detected · HDR not reported",
+            ScreenSummary.state(1, screen("", null, AdvancedColor.UNKNOWN)),
         )
     }
 

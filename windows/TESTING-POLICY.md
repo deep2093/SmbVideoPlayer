@@ -65,7 +65,7 @@ every test class that uses it. "Full" means a passing focused run is not enough:
 | Area | Files | Focused tests | Then |
 |---|---|---|---|
 | Playback / libmpv | `playback/EmbeddedMpv`, `GpuAdapters`, `LocalPlayback`, `ThumbnailExtractor`, `PlayerPage`, `PlaybackProblemDialog`, `LocalVideoDropHandler` | `EmbeddedPlaybackNativeTest`, `ThumbnailExtractorNativeTest`, `GpuAdaptersTest`, `VideoDropTest`, `PlaybackAutomationTest` | Full |
-| Motion / smoothing | `playback/Motion*`, `Smoothing`, `SmoothingSize`, `RecentDrops`, `DisplayVrr`, `WindowsDisplayAdapter`, `SmoothingDialog`, `tools/build_motion.py`, the open-svpflow patch | `MotionEngineTest`, `SmoothingTest`, `SmoothingSizeTest`, `MotionNativeTest`, `MotionAutomationTest` | |
+| Motion / smoothing | `playback/Motion*`, `Smoothing`, `SmoothingSize`, `RecentDrops`, `WindowsDisplayAdapter`, `SmoothingDialog`, `tools/build_motion.py`, the open-svpflow patch | `MotionEngineTest`, `SmoothingTest`, `SmoothingSizeTest`, `MotionNativeTest`, `MotionAutomationTest` | |
 | Screens / measuring | `playback/PlaybackLog`, `ScreenState`, `DisplayPaths`, `DisplayChanges`, `Bench`, `tools/bench.ps1` | `PlaybackLogTest`, `ScreenStateTest`, `BenchOptionsTest`, `SmoothingTest` | |
 | Full screen / window chrome | `BorderlessFullscreen`, `FullscreenChrome`, `PlayerChrome`, `WindowChrome` | `FullscreenWindowTest`, `PlayerChromeTest`, `FullscreenAutomationTest` | Full |
 | App shell | `Main.kt`, `SingleInstance.kt` | full screen, playback, navigation and single-instance tests | Full |
@@ -177,7 +177,7 @@ a 0.1.1 package. `testPackageVersionGuard` (run with `test`) checks the comparis
 Report these as not verified unless they were checked by hand on suitable hardware:
 - how HDR output looks: tone mapping, colour and Dolby Vision. The report's "Display state" and Copy test report
   show only whether HDR is on and engaged
-- VRR activation on screens not driven by NVIDIA, and whether NVIDIA's VRR-active flag follows SkyWing's fullscreen
+- VRR activation: SkyWing doesn't read it; PresentMon's frame times or the driver's indicator show it
 - displayed frame pacing, unless `tools/bench.ps1 -PresentMon` ran with the rights (`Holding N fps` is the
   configured output rate, not presented frames), and how smooth playback feels
 - multi-monitor behaviour

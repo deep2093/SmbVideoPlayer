@@ -64,11 +64,12 @@ verify driver-level VRR activation.
 
 Until the user chooses, the VRR switch is on where the screen showing SkyWing can vary
 its refresh and off on every other screen (owner decision, 25 November). A screen can
-vary it (`VrrScreen.capable`) when NVIDIA's read-only per-display query says so; when
-NVIDIA has no answer, when its EDID has a VRR block (HDMI VRR, AMD FreeSync), or when
-it is a DisplayPort, embedded DisplayPort, USB4 or built-in screen whose EDID range
-descriptor is "range limits only" and spans more than 10 Hz (the Linux DRM rule;
-Windows can't read the DisplayPort "ignore MSA timing" bit). A saved choice, including
+vary it (`VrrScreen.capable`) when its EDID has a VRR block (DisplayID Adaptive-Sync,
+AMD FreeSync, HDMI VRR), or when it is a DisplayPort, embedded DisplayPort, USB4 or
+built-in screen whose EDID range descriptor is "range limits only" and spans more than
+10 Hz (the Linux DRM rule; Windows can't read the DisplayPort "ignore MSA timing" bit).
+SkyWing doesn't ask the graphics driver: NVIDIA's G-SYNC query was removed on
+25 November (owner) because it changed no playback. A saved choice, including
 one made with the old "My screen uses G-SYNC / FreeSync" switch, holds on every screen.
 Settings and reports say whether the setting is chosen or this screen's default.
 Three consecutive recent drop intervals offer the next lower stop; three clean
@@ -208,7 +209,7 @@ row each minute. Each row holds the target and the filter's output rate (from th
 not presented frames), and the minute's change in mpv's `frame-drop-count`, `decoder-frame-drop-count`,
 `vo-delayed-frame-count` and `mistimed-frame-count`. It also holds the largest `vsync-jitter`,
 `estimated-display-fps`, the process CPU in cores, the oldest heartbeat age, and the graph generations, seeks, pauses,
-cache waits, fullscreen changes and recoveries in that minute. It ends with HDR engaged, VRR active, the refresh and
+cache waits, fullscreen changes and recoveries in that minute. It ends with HDR engaged, the refresh and
 whether SkyWing's window was in front: yes, no or mixed (plan 5.9). Windows may give a window that is not in front
 less processor time, or move its threads to slower cores on a hybrid processor; this column tells those minutes
 apart.
@@ -219,11 +220,10 @@ another video plays; a seek or a settings change stays in the same file. The new
 - **HDR engaged** is "yes" only when Windows HDR is on for the screen, the source is PQ or HLG (`video-params/gamma`)
   and mpv sends PQ or HLG (`video-target-params/gamma`). A "no" names the part that is not HDR. "unknown" names what
   was not reported.
-- **VRR active** is NVIDIA's `bIsVRREnabled` ("VRR Mode is currently active on given display", nvapi.h). Other GPUs
-  report nothing, so it reads "not measured". Whether NVIDIA's flag follows SkyWing's fullscreen is still to be
-  measured on real screens.
+- Whether VRR is active is not read: Windows has no call for it, and NVIDIA's flag was removed with its query.
+  PresentMon's frame times (`tools/bench.ps1 -PresentMon`) or the driver's own indicator show it.
 
-**Copy test report** copies the build, GPU plan, renderer, screen, HDR engaged, VRR active, the VRR control setting,
+**Copy test report** copies the build, GPU plan, renderer, screen, HDR engaged, the VRR control setting,
 the smoothing state, the log file's name and the per-minute table, to compare PCs.
 
 **Benchmark mode** is hidden: `SkyWing.exe --bench <file> [--minutes 10] [--quality Balanced] [--stop 2x] [--start 0]
