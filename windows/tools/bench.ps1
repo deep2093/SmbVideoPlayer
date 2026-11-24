@@ -17,7 +17,7 @@
   -PresentMonCsv summarises a capture made earlier and runs nothing else.
 
   Exit code: SkyWing's (0 smoothing held, 1 it stopped or the run ended early, 2 the run could not start), or 2 when
-  this script could not start it.
+  this script could not start it. A SkyWing still running 10 minutes after -Minutes is stopped, with exit code 1.
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File windows\tools\bench.ps1 -Video D:\clips\4k-24fps.mkv
@@ -152,8 +152,16 @@ if ($PresentMon -and -not $notMeasured) {
         '--process_name', 'SkyWing.exe', '--output_file', "`"$capture`"", '--v1_metrics', '--no_console_stats',
         '--session_name', 'SkyWingBench', '--stop_existing_session', '--terminate_on_proc_exit')
 }
-$skywing.WaitForExit()
-$code = $skywing.ExitCode
+# SkyWing's own waits (window, loading, a minute to start smoothing, closing) take a few minutes at most; past that it
+# is stuck, so stop it rather than keep a chain of runs waiting.
+$deadlineSeconds = [int]($Minutes * 60) + 600
+$hung = -not $skywing.WaitForExit($deadlineSeconds * 1000)
+if ($hung) {
+    Stop-Process -Id $skywing.Id -Force -ErrorAction SilentlyContinue
+    $skywing.WaitForExit(10000) | Out-Null
+    $code = 1
+}
+else { $code = $skywing.ExitCode }
 if ($monitor) {
     if (-not $monitor.WaitForExit(30000)) {
         Stop-Process -Id $monitor.Id -ErrorAction SilentlyContinue
@@ -162,6 +170,8 @@ if ($monitor) {
 }
 
 $summary = @()
+if ($hung) { $summary += "SkyWing did not finish within $deadlineSeconds s, so it was stopped" }
+elseif (-not (Get-ChildItem $Out -Filter 'bench-*.txt')) { $summary += "SkyWing wrote no report: it did not start (exit code $code)" }
 if (-not $PresentMon) { $summary += 'On-screen frame times: not measured (run with -PresentMon)' }
 elseif ($notMeasured) { $summary += "On-screen frame times: $notMeasured" }
 elseif (-not (Test-Path $capture)) { $summary += "On-screen frame times: not measured (PresentMon wrote no capture; exit code $($monitor.ExitCode))" }
