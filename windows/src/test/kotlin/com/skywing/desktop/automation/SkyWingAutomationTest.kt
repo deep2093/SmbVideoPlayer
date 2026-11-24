@@ -23,7 +23,9 @@ class SkyWingAutomationTest {
 
     @Test
     fun navigatesFromFoldersToPlaybackSettingsAndBack() = SkyWingTestApp.launch("navigation").use { app ->
-        assertTrue(app.find("Folders", TAB).selected, "SkyWing opens on Folders")
+        // M3: Home is the start page (decision O3).
+        assertTrue(app.find("Home", TAB).selected, "SkyWing opens on Home")
+        app.activate("Folders", TAB)
         app.find("Add", BUTTON)
 
         app.activate("Settings", TAB)

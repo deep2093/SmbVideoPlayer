@@ -88,7 +88,7 @@ class LibraryAutomationTest {
             val index = dir.resolve("LocalAppData/SkyWing/library").also { Files.createDirectories(it) }
             Files.write(index.resolve("media-index.bin"), ByteArray(4096) { (it * 7).toByte() })
         }.use { app ->
-            assertTrue(app.find("Folders", PlayerControls.TAB).selected, "SkyWing opens normally")
+            assertTrue(app.find("Home", PlayerControls.TAB).selected, "SkyWing opens normally")
             app.activate("Videos", PlayerControls.TAB)
             app.find("2 of 2 videos", PlayerControls.LABEL, timeoutMs = 30_000)
             app.activate("Play all", PlayerControls.BUTTON)

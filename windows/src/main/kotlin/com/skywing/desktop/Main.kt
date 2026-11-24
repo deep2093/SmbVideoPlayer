@@ -47,7 +47,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
+import com.skywing.desktop.ui.adaptive.Adaptive
+import com.skywing.desktop.ui.adaptive.InputMode
+import com.skywing.desktop.ui.adaptive.LocalAdaptive
+import com.skywing.desktop.ui.adaptive.NavigationShape
+import com.skywing.desktop.ui.adaptive.followInputMode
+import com.skywing.desktop.ui.adaptive.rememberSettledWidth
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -142,7 +150,7 @@ internal fun SkyWingWindowContent(
     embedded: EmbeddedMpv,
     closing: Boolean,
     initialFile: File? = null,
-    initialSection: String = "Folders",
+    initialSection: String = "Home",
     handoffs: ReceiveChannel<List<String>>? = null,
 ) {
     var fullscreen by remember { mutableStateOf(false) }
@@ -189,72 +197,6 @@ private fun chooseLocalVideo(): File? {
     return file
 }
 
-private class NavEntry(val section: String, val icon: SkyIcon)
-
-private val TOP_NAV = listOf(
-    NavEntry("Folders", SkyIcon.Folder),
-    NavEntry("Videos", SkyIcon.VideoLibrary),
-    NavEntry("Files", SkyIcon.Cloud),
-)
-
-@Composable
-internal fun NavRow(label: String, icon: SkyIcon, selected: Boolean, onClick: () -> Unit) {
-    val theme = LocalSkyTheme.current
-    val ink = if (selected) theme.ink else theme.muted
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(RoundedCornerShape(50))
-            .background(if (selected) theme.card else Color.Transparent)
-            .skyClickable(onClick, role = Role.Tab)
-            .semantics { this.selected = selected }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        SkyIconView(icon, if (selected) theme.accent else ink)
-        Text(label, color = ink, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-    }
-}
-
-/** The sidebar, like the Android tablet sidebar: mark and name, the pages, Settings at the bottom. */
-@Composable
-private fun Sidebar(
-    selected: String,
-    nowPlaying: String?,
-    paused: Boolean,
-    onSelect: (String) -> Unit,
-    onTogglePause: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val theme = LocalSkyTheme.current
-    Column(modifier.skyPanel(RoundedCornerShape(22.dp)).padding(12.dp)) {
-        SkyMark(32.dp, Modifier.padding(top = 4.dp, bottom = 6.dp))
-        Text("SkyWing", color = theme.ink, style = MaterialTheme.typography.titleMedium)
-        Text("Video library", color = theme.muted, style = MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(16.dp))
-        TOP_NAV.forEach { entry ->
-            NavRow(entry.section, entry.icon, selected == entry.section) { onSelect(entry.section) }
-            Spacer(Modifier.height(2.dp))
-        }
-        Spacer(Modifier.weight(1f))
-        if (nowPlaying != null) {
-            Row(
-                Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                    .skyPanel(RoundedCornerShape(20.dp), color = theme.card)
-                    .skyClickable({ onSelect("Now Playing") })
-                    .padding(start = 10.dp, top = 4.dp, bottom = 4.dp, end = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Now playing", color = if (selected == "Now Playing") theme.accent else theme.muted, style = MaterialTheme.typography.labelSmall)
-                    Text(nowPlaying, color = theme.ink, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                SkyIconButton(if (paused) SkyIcon.Play else SkyIcon.Pause, if (paused) "Play" else "Pause", onTogglePause, box = 36.dp, glyph = 20.dp)
-            }
-        }
-        NavRow("Settings", SkyIcon.Settings, selected == "Settings") { onSelect("Settings") }
-    }
-}
-
 @Composable
 private fun SkyWingDesktopShell(
     awtWindow: java.awt.Window,
@@ -269,7 +211,7 @@ private fun SkyWingDesktopShell(
     handoffs: ReceiveChannel<List<String>>?,
 ) {
     var selected by remember { mutableStateOf(initialSection) }
-    var previous by remember { mutableStateOf("Folders") }
+    var previous by remember { mutableStateOf("Home") }
     var message by remember { mutableStateOf("") }
     var playbackProblem by remember { mutableStateOf<PlaybackProblem?>(null) }
     var reportedFailure by remember { mutableStateOf<String?>(null) }
@@ -370,7 +312,7 @@ private fun SkyWingDesktopShell(
 
     fun go(section: String) {
         if (section == selected) return
-        // Leaving the player pauses the video; Now playing in the sidebar brings it back.
+        // Leaving the player pauses the video; Now playing in the navigation brings it back.
         if (selected == "Now Playing") {
             embedded.pause()
             if (fullscreen) onFullscreenChange(false)
@@ -622,105 +564,124 @@ private fun SkyWingDesktopShell(
             }
         }
     }
-    val playerShown = selected == "Now Playing"
+    val playerShown = selected == NOW_PLAYING
+    val nowPlaying = currentFile?.let { NowPlaying(it.nameWithoutExtension, paused, if (duration > 0) (playbackTime / duration).toFloat() else 0f) }
+    // One answer for every screen (M3 item 3): the window's width, read again once a resize settles, and the last input.
+    val density = LocalDensity.current
+    @OptIn(ExperimentalComposeUiApi::class)
+    val windowWidth = with(density) { LocalWindowInfo.current.containerSize.width.toDp() }
+    val inputMode = remember { mutableStateOf(InputMode.Mouse) }
+    val adaptive = Adaptive(rememberSettledWidth(windowWidth), inputMode.value)
 
     @OptIn(ExperimentalComposeUiApi::class)
     val takesDrop: (DragAndDropEvent) -> Boolean = { it.awtTransferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor) }
-    Box(Modifier.fillMaxSize().skyWallpaper(theme).dragAndDropTarget(shouldStartDragAndDrop = takesDrop, target = videoDrop)) {
-        Row(Modifier.fillMaxSize()) {
-            if (!fullscreen) {
-                Sidebar(
-                    selected = selected,
-                    nowPlaying = currentFile?.nameWithoutExtension,
-                    paused = paused,
-                    onSelect = { go(it) },
-                    onTogglePause = { embedded.togglePause() },
-                    modifier = Modifier.width(196.dp).fillMaxHeight().padding(8.dp),
-                )
-            }
-            Column(
-                modifier = if (fullscreen) Modifier.weight(1f).fillMaxHeight()
-                else Modifier.weight(1f).fillMaxHeight().padding(start = 6.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
-            ) {
-                if (!fullscreen && !playerShown) {
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        CompositionLocalProvider(LocalCovers provides covers) { when (selected) {
-                            "Folders" -> FoldersScreen(library, organizer, hub, history, playOne, { renameTarget = it })
-                            "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it }) { go("Files") }
-                            "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
-                            else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,
-                                smoothingMode, smoothingStatus, ::selectSmoothing) { go("Files") }
-                        } }
+    CompositionLocalProvider(LocalAdaptive provides adaptive) {
+        Box(Modifier.fillMaxSize().skyWallpaper(theme).followInputMode(inputMode).dragAndDropTarget(shouldStartDragAndDrop = takesDrop, target = videoDrop)) {
+            Row(Modifier.fillMaxSize()) {
+                // The rail by width (M3 design brief 5.2); the video's SwingPanel below keeps its one place in the tree.
+                if (!fullscreen && adaptive.navigation != NavigationShape.TopTabs) {
+                    NavRail(
+                        wide = adaptive.navigation == NavigationShape.WideRail,
+                        selected = selected,
+                        nowPlaying = nowPlaying,
+                        onSelect = { go(it) },
+                        onTogglePause = { embedded.togglePause() },
+                    )
+                }
+                Column(
+                    modifier = when {
+                        fullscreen -> Modifier.weight(1f).fillMaxHeight()
+                        playerShown -> Modifier.weight(1f).fillMaxHeight().padding(12.dp)
+                        else -> Modifier.weight(1f).fillMaxHeight()
+                            .padding(start = adaptive.pagePadding, end = adaptive.pagePadding, top = 16.dp, bottom = 12.dp)
+                    },
+                ) {
+                    if (!fullscreen && adaptive.navigation == NavigationShape.TopTabs) {
+                        TopTabs(selected, nowPlaying, { go(it) }, Modifier.padding(bottom = 8.dp))
+                    }
+                    if (!fullscreen && !playerShown) {
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            CompositionLocalProvider(LocalCovers provides covers) { when (selected) {
+                                "Home" -> HomeScreen(library, hub, history, playOne, { file, position -> openVideo(file, listOf(file), position) },
+                                    { go("Videos") }) { go("Files") }
+                                "Folders" -> FoldersScreen(library, organizer, hub, history, playOne, { renameTarget = it })
+                                "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it }) { go("Files") }
+                                "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
+                                else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,
+                                    smoothingMode, smoothingStatus, ::selectSmoothing) { go("Files") }
+                            } }
+                        }
+                    }
+                    FullscreenChrome(awtWindow, fullscreen, playerShown && chromeVisible, bottom = false) {
+                        PlayerTopBar(
+                            title = currentFile?.nameWithoutExtension ?: "Nothing playing",
+                            queueLabel = if (queueIndex >= 0 && queue.size > 1) "Queue " + (queueIndex + 1) + " / " + queue.size else null,
+                            onBack = { if (fullscreen) onFullscreenChange(false); go(previous) },
+                            modifier = Modifier.hoverable(topInteractions),
+                        )
+                    }
+                    // Keep the AWT Canvas HWND alive across navigation. Removing SwingPanel
+                    // destroys the native window while libmpv still renders into it.
+                    // A one-dp placeholder preserves the component's lifecycle in other pages.
+                    SwingPanel(
+                        modifier = if (fullscreen || playerShown) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(1.dp),
+                        factory = {
+                            Canvas().apply {
+                                background = java.awt.Color.BLACK
+                                isFocusable = true
+                                videoCanvas = this
+                                SwingUtilities.invokeLater { embedded.attach(this) }
+                            }
+                        },
+                    )
+                    FullscreenChrome(awtWindow, fullscreen, playerShown && chromeVisible, bottom = true) {
+                        PlayerControls(
+                            position = playbackTime,
+                            duration = duration,
+                            seekFraction = seekTarget,
+                            paused = paused,
+                            muted = muted,
+                            canPrevious = queueIndex > 0,
+                            canNext = queueIndex >= 0 && queueIndex + 1 < queue.size,
+                            status = listOf(smoothingStatus.detail, message).filter { it.isNotBlank() }.joinToString(" · "),
+                            smoothingMode = smoothingMode,
+                            smoothingActive = smoothingStatus.motionActive,
+                            onSmoothingToggle = { selectSmoothing(if (smoothingMode == SmoothingMode.OFF) SmoothingMode.MOTION else SmoothingMode.OFF) },
+                            onSmoothingOptions = { smoothingMenu = true },
+                            onSeekChange = { dragging = true; seekTarget = it },
+                            onSeekFinished = {
+                                message = if (duration > 0 && embedded.seekAbsolute(duration * seekTarget / 100.0)) "Seeked to ${seekTarget.toInt()}%" else "Duration unavailable"
+                                dragging = false
+                            },
+                            onTogglePause = { message = if (embedded.togglePause()) "" else "Embedded not ready" },
+                            onStop = { stopPlayback() },
+                            onBack10 = { embedded.seek(-10) },
+                            onForward10 = { embedded.seek(10) },
+                            onPrevious = { openQueueAt(queueIndex - 1) },
+                            onNext = { openQueueAt(queueIndex + 1) },
+                            onAudio = { message = if (embedded.nextAudioTrack()) "Audio track changed" else "No audio track" },
+                            onSubtitles = { message = if (embedded.nextSubtitleTrack()) "Subtitle track changed" else "No subtitle track" },
+                            onSubtitlesOff = { message = if (embedded.subtitleOff()) "Subtitles off" else "Player not ready" },
+                            onVolumeDown = { message = if (embedded.volumeDown()) "Volume -5" else "Player not ready" },
+                            onVolumeUp = { message = if (embedded.volumeUp()) "Volume +5" else "Player not ready" },
+                            onMute = { embedded.toggleMute() },
+                            onFullscreen = { onFullscreenChange(!fullscreen) },
+                            onOpenFile = { chooseLocalVideo()?.let { openVideo(it) } },
+                            modifier = Modifier.hoverable(bottomInteractions),
+                        )
                     }
                 }
-                FullscreenChrome(awtWindow, fullscreen, playerShown && chromeVisible, bottom = false) {
-                    PlayerTopBar(
-                        title = currentFile?.nameWithoutExtension ?: "Nothing playing",
-                        queueLabel = if (queueIndex >= 0 && queue.size > 1) "Queue " + (queueIndex + 1) + " / " + queue.size else null,
-                        onBack = { if (fullscreen) onFullscreenChange(false); go(previous) },
-                        modifier = Modifier.hoverable(topInteractions),
-                    )
-                }
-                // Keep the AWT Canvas HWND alive across navigation. Removing SwingPanel
-                // destroys the native window while libmpv still renders into it.
-                // A one-dp placeholder preserves the component's lifecycle in other pages.
-                SwingPanel(
-                    modifier = if (fullscreen || playerShown) Modifier.fillMaxWidth().weight(1f) else Modifier.fillMaxWidth().height(1.dp),
-                    factory = {
-                        Canvas().apply {
-                            background = java.awt.Color.BLACK
-                            isFocusable = true
-                            videoCanvas = this
-                            SwingUtilities.invokeLater { embedded.attach(this) }
-                        }
-                    },
-                )
-                FullscreenChrome(awtWindow, fullscreen, playerShown && chromeVisible, bottom = true) {
-                    PlayerControls(
-                        position = playbackTime,
-                        duration = duration,
-                        seekFraction = seekTarget,
-                        paused = paused,
-                        muted = muted,
-                        canPrevious = queueIndex > 0,
-                        canNext = queueIndex >= 0 && queueIndex + 1 < queue.size,
-                        status = listOf(smoothingStatus.detail, message).filter { it.isNotBlank() }.joinToString(" · "),
-                        smoothingMode = smoothingMode,
-                        smoothingActive = smoothingStatus.motionActive,
-                        onSmoothingToggle = { selectSmoothing(if (smoothingMode == SmoothingMode.OFF) SmoothingMode.MOTION else SmoothingMode.OFF) },
-                        onSmoothingOptions = { smoothingMenu = true },
-                        onSeekChange = { dragging = true; seekTarget = it },
-                        onSeekFinished = {
-                            message = if (duration > 0 && embedded.seekAbsolute(duration * seekTarget / 100.0)) "Seeked to ${seekTarget.toInt()}%" else "Duration unavailable"
-                            dragging = false
-                        },
-                        onTogglePause = { message = if (embedded.togglePause()) "" else "Embedded not ready" },
-                        onStop = { stopPlayback() },
-                        onBack10 = { embedded.seek(-10) },
-                        onForward10 = { embedded.seek(10) },
-                        onPrevious = { openQueueAt(queueIndex - 1) },
-                        onNext = { openQueueAt(queueIndex + 1) },
-                        onAudio = { message = if (embedded.nextAudioTrack()) "Audio track changed" else "No audio track" },
-                        onSubtitles = { message = if (embedded.nextSubtitleTrack()) "Subtitle track changed" else "No subtitle track" },
-                        onSubtitlesOff = { message = if (embedded.subtitleOff()) "Subtitles off" else "Player not ready" },
-                        onVolumeDown = { message = if (embedded.volumeDown()) "Volume -5" else "Player not ready" },
-                        onVolumeUp = { message = if (embedded.volumeUp()) "Volume +5" else "Player not ready" },
-                        onMute = { embedded.toggleMute() },
-                        onFullscreen = { onFullscreenChange(!fullscreen) },
-                        onOpenFile = { chooseLocalVideo()?.let { openVideo(it) } },
-                        modifier = Modifier.hoverable(bottomInteractions),
-                    )
-                }
             }
+            PerfOverlay(Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 20.dp))
         }
-        PerfOverlay(Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 20.dp))
+        // The dialogs follow the same input mode: bigger targets after a touch.
+        playbackProblem?.let { PlaybackProblemDialog(it) { playbackProblem = null } }
+        if (smoothingMenu) SmoothingDialog(smoothingMode, smoothingStatus, ::selectSmoothing) { smoothingMenu = false }
+        renameTarget?.let { file ->
+            RenameVideoDialog(file, videoRenamer::rename) { renameTarget = null; historyRevision++ }
+        }
     }
     PerfFrameProbe()
-    playbackProblem?.let { PlaybackProblemDialog(it) { playbackProblem = null } }
-    if (smoothingMenu) SmoothingDialog(smoothingMode, smoothingStatus, ::selectSmoothing) { smoothingMenu = false }
-    renameTarget?.let { file ->
-        RenameVideoDialog(file, videoRenamer::rename) { renameTarget = null; historyRevision++ }
-    }
 }
 
 /**

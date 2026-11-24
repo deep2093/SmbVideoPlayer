@@ -13,7 +13,8 @@ import kotlin.test.assertTrue
 
 /**
  * Full screen and navigation in the packaged SkyWing, through its own controls over Java Access Bridge. Window
- * rectangles are read with GetWindowRect. Shortcuts are posted to SkyWing's own window; nothing uses screen
+ * rectangles are read with GetWindowRect. Shortcuts are posted to SkyWing's own window; nothing uses screen
+
  * coordinates or global input.
  */
 class FullscreenAutomationTest {
@@ -79,7 +80,8 @@ class FullscreenAutomationTest {
             app.find("Playback", PlayerControls.BUTTON)
             app.activate("Videos", PlayerControls.TAB)
             Thread.sleep(1_500)
-            app.activate("Now playing", PlayerControls.LABEL)
+            // M3: Now playing is a tab of the navigation, beside the sections.
+            app.activate("Now playing", PlayerControls.TAB)
             val back = PlayerControls(app)
             back.waitTitle(clip.nameWithoutExtension)
             // Leaving the player pauses the video (Main.kt go()); it comes back paused where it was.
