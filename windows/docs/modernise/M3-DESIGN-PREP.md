@@ -66,7 +66,8 @@ Plan 6.1, "calm, cinematic Windows 11", made concrete by the boards:
 
 **In M3** (brief, items 1–7): tokens and components; `LocalAdaptive` (width class and input mode); the shell with the
 new Home page; Folders and Videos grids with the ↑/↓ sort menu; Settings two-pane with search, breadcrumb and the
-`go()` reselect fix; window size and position; accessibility.
+`go()` reselect fix; window size and position; accessibility. Item 8, added by the owner on 25 November: three
+fixes to the full-screen player overlay (section 7, *Player overlay*).
 
 **Not in M3:**
 
@@ -74,7 +75,8 @@ new Home page; Folders and Videos grids with the ↑/↓ sort menu; Settings two
 - Handheld mode, the controller, the touch keyboard and the button-hint bar (boards `HandheldHome`,
   `SettingsHandheld`, section 8, M5). M3 leaves room for them: `InputMode.Controller` exists, every target can grow to
   48 dp, and Settings rows work as tiles later.
-- The new player (section 9). M3 restyles nothing inside the player except shared components.
+- The new player (section 9). M3 restyles nothing inside the player except shared components and the overlay fixes
+  of item 8.
 - Mica (see above), and any new scanning: Home uses only data the library already has.
 
 ## 5. Layout
@@ -355,6 +357,19 @@ folder name are part of the hand tests.
 - **Controller (M5):** the ring always on, LB/RB between sections, B back, A select, Y search.
 - **Resizing:** the class changes 100 ms after the last resize; scroll position and keyboard focus carry over; the video
   keeps playing.
+- **Player overlay (item 8, owner, 25 November).** Today the full-screen bars hide 2.5 s after the last key, click,
+  wheel or pointer move (`PlayerChromeClock`), and stay while paused, while the seek bar is dragged, while Motion
+  options is open, or while the pointer is over a bar (`rememberPlayerChrome` in `Main.kt`). M3 changes three things:
+  1. **2 s, not 2.5 s.** `PlayerChromeTest`'s edges and `FullscreenWindowTest`'s comment move with it. This replaces
+     plan 9.1's "after 2.5 s, as now".
+  2. **Touch doesn't hold the bars open.** A tap leaves Windows' hidden pointer where it touched, so after tapping full
+     screen the bar counts as hovered and the bars never hide (seen on the Claw). Hover holds them open only for a
+     mouse, using M3's input mode. Likely cause and the detector are **verify** first: `GetCursorInfo`'s
+     `CURSOR_SUPPRESSED` flag (the system hides the cursor after touch or pen) can be read in the existing 100 ms poll.
+  3. **A click or tap on the video hides the bars at once** in full screen while they show; on hidden bars it shows
+     them. Clicks on a bar act as now. This replaces plan 9.1's "A click toggles play/pause" as the full-screen
+     default. **Verify** how SkyWing hears the click: libmpv's own child window likely takes it before AWT, so the
+     candidates are an mpv `keybind MBTN_LEFT` that sends a `script-message`, or `input-cursor-passthrough`.
 
 ## 8. Tokens and components against today's code
 
@@ -428,6 +443,7 @@ decided as recommended below.
 | 5. Settings | Runner `settings`: two panes at 1300 and 1000 dp; five ways back at 680 dp. Semantics tests of the reselect handler | Alt+Left; search highlight; every moved row found by its old name |
 | 6. Window | Runner `window`: rules 1–5. Unit tests of the placement rules | Rule 8 on the laptop with an external monitor; both handhelds |
 | 7. Accessibility | Semantics tests per section 5.7; runner audit with no findings | NVDA and Narrator read the pages; Windows text size and 125–200 % scaling |
+| 8. Player overlay | Unit tests: the clock hides at 2000 ms; hover holds the bars only in Mouse mode; a video click hides them at once | Claw: tap full screen and touch nothing, the bars hide after 2 s; a tap on the video hides them. Laptop: a mouse resting on a bar keeps it; a click on the video hides it |
 | Everything | Runner `numbers`: before and after | Playback, full screen in and out, Alt-Tab, close (checks runner `fullscreen` and `stress`) |
 
 Hand tests run on the laptop (RTX 5070 Ti), the MSI Claw 8 and the OneXPlayer 3 (Intel Arc B390).
