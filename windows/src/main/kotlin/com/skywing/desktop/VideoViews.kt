@@ -392,7 +392,10 @@ internal fun VideoGridView(
     }
 }
 
-/** The line at the top of an opened folder: back arrow, name, how many videos, and its actions. */
+/**
+ * The line at the top of an opened folder: back arrow, name, how many videos, and its actions. In a narrow window the
+ * actions go under the name ([HeaderLine]).
+ */
 @Composable
 internal fun FolderHeader(
     title: String,
@@ -401,11 +404,10 @@ internal fun FolderHeader(
     modifier: Modifier = Modifier,
     actions: @Composable () -> Unit = {},
 ) {
-    Row(modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    HeaderLine(modifier.heightIn(min = 56.dp), leadMin = 200.dp, gap = 10.dp, lead = {
         SkyIconButton(SkyIcon.Back, "Back", onBack)
         PageTitle(title, subtitle, Modifier.weight(1f))
-        actions()
-    }
+    }, trail = actions)
 }
 
 /**

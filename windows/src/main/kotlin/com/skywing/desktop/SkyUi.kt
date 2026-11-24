@@ -67,8 +67,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
@@ -396,6 +401,76 @@ internal fun PageTitle(title: String, subtitle: String? = null, modifier: Modifi
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, color = theme.ink, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (!subtitle.isNullOrBlank()) Text(subtitle, color = theme.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * A page header's line (M3 design brief 5.6: Compact always fits, from the 640 dp minimum window): [lead], then the
+ * [trail] actions at the end. When the line can't hold [lead] at [leadMin] (or, with no [leadMin], at its own width)
+ * and every action at its own width, the actions go under [lead] instead, at the end, wrapping onto further lines if
+ * they must. No action is ever squeezed.
+ */
+@Composable
+internal fun HeaderLine(
+    modifier: Modifier = Modifier,
+    leadMin: Dp? = null,
+    gap: Dp = 8.dp,
+    lead: @Composable RowScope.() -> Unit,
+    trail: @Composable () -> Unit,
+) {
+    Layout(
+        contents = listOf(
+            { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(gap)) { lead() } },
+            trail,
+        ),
+        modifier = modifier.fillMaxWidth(),
+    ) { (leadParts, trailParts), constraints ->
+        val gapPx = gap.roundToPx()
+        val lineGap = 8.dp.roundToPx()
+        val actions = trailParts.map { it.measure(Constraints(maxWidth = constraints.maxWidth)) }
+        // A part with no width (a closed menu's anchor) takes no room and no gap.
+        fun widthOf(parts: List<Placeable>): Int {
+            val seen = parts.filter { it.width > 0 }
+            return seen.sumOf { it.width } + gapPx * (seen.size - 1).coerceAtLeast(0)
+        }
+        val actionsWidth = widthOf(actions)
+        val leadPart = leadParts.single()
+        val leadNeed = leadMin?.roundToPx() ?: leadPart.maxIntrinsicWidth(constraints.maxHeight)
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else leadNeed + gapPx + actionsWidth
+        val oneLine = actionsWidth == 0 || leadNeed + gapPx + actionsWidth <= width
+        val leadPlaced = leadPart.measure(Constraints(maxWidth = if (oneLine && actionsWidth > 0) width - gapPx - actionsWidth else width))
+
+        if (oneLine) {
+            val height = maxOf(constraints.minHeight, leadPlaced.height, actions.maxOfOrNull { it.height } ?: 0)
+            layout(width, height) {
+                leadPlaced.placeRelative(0, (height - leadPlaced.height) / 2)
+                var x = width - actionsWidth
+                actions.forEach { p ->
+                    p.placeRelative(x, (height - p.height) / 2)
+                    if (p.width > 0) x += p.width + gapPx
+                }
+            }
+        } else {
+            val lines = mutableListOf(mutableListOf<Placeable>())
+            actions.forEach { p ->
+                val line = lines.last()
+                if (p.width > 0 && line.any { it.width > 0 } && widthOf(line) + gapPx + p.width > width) lines += mutableListOf(p) else line += p
+            }
+            val lineHeights = lines.map { line -> line.maxOfOrNull { it.height } ?: 0 }
+            val height = maxOf(constraints.minHeight, leadPlaced.height + lineHeights.sumOf { it + lineGap })
+            layout(width, height) {
+                leadPlaced.placeRelative(0, 0)
+                var y = leadPlaced.height + lineGap
+                lines.forEachIndexed { index, line ->
+                    var x = width - widthOf(line)
+                    line.forEach { p ->
+                        p.placeRelative(x, y + (lineHeights[index] - p.height) / 2)
+                        if (p.width > 0) x += p.width + gapPx
+                    }
+                    y += lineHeights[index] + lineGap
+                }
+            }
+        }
     }
 }
 
