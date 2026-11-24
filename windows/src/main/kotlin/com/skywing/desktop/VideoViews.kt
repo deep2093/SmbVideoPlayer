@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import com.skywing.desktop.ui.adaptive.Adaptive
+import com.skywing.desktop.ui.adaptive.AutoColumns
+import com.skywing.desktop.ui.adaptive.LocalAdaptive
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -42,12 +45,14 @@ import java.io.File
 internal const val VIDEOS_PAGE = "videos"
 
 /**
- * The grid columns: one row per item in list mode, a fixed number chosen in Settings, otherwise as many cards of
- * the size picked with the grid size buttons as fit.
+ * The grid columns: one row per item in list mode, a fixed number chosen in Settings, as many as the window calls for
+ * while the cards keep their first size (M3 design brief 5.4), otherwise as many cards of the size picked with the grid
+ * size buttons as fit.
  */
-internal fun FolderPrefs.cells(page: String): GridCells = when {
+internal fun FolderPrefs.cells(page: String, adaptive: Adaptive): GridCells = when {
     listMode -> GridCells.Fixed(1)
     columns in 2..5 -> GridCells.Fixed(columns)
+    CardSizes.of(cardSizeFor(page)) == CardSizes.NORMAL -> AutoColumns(adaptive)
     else -> GridCells.Adaptive(CardSizes.of(cardSizeFor(page)).dp)
 }
 
@@ -174,7 +179,7 @@ internal fun TileGrid(
         },
     ) {
         LazyVerticalGrid(
-            columns = prefs.cells(page),
+            columns = prefs.cells(page, LocalAdaptive.current),
             state = state,
             modifier = Modifier.fillMaxSize().padding(end = 14.dp),
             contentPadding = PaddingValues(bottom = 28.dp),
@@ -319,7 +324,7 @@ internal fun VideoGridView(
         },
     ) {
         LazyVerticalGrid(
-            columns = prefs.cells(VIDEOS_PAGE),
+            columns = prefs.cells(VIDEOS_PAGE, LocalAdaptive.current),
             state = state,
             modifier = Modifier.fillMaxSize().padding(end = 14.dp),
             contentPadding = PaddingValues(bottom = 28.dp),
@@ -392,7 +397,7 @@ internal fun FolderSelectionBar(
     val theme = LocalSkyTheme.current
     var asking by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).skyGlass(RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).skyPanel(RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -432,7 +437,7 @@ internal fun SelectionBar(
     val chosen = visible.filter { it.path in selection.paths }
     var filing by remember { mutableStateOf<Boolean?>(null) }
     Row(
-        modifier.fillMaxWidth().skyGlass(RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 6.dp),
+        modifier.fillMaxWidth().skyPanel(RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {

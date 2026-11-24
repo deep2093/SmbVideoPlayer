@@ -321,7 +321,7 @@ internal fun FoldersScreen(
 private fun FolderTabsRow(f: Folders) {
     val prefs = f.prefs
     var menuFor by remember { mutableStateOf<Int?>(null) }
-    Row(Modifier.skyGlass(RoundedCornerShape(50)).padding(5.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+    Row(Modifier.skyPanel(RoundedCornerShape(50)).padding(5.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         prefs.tabs.forEach { tab ->
             Box {
                 SkyChip(

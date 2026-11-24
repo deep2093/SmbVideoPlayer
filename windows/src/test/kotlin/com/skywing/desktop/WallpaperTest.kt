@@ -26,7 +26,7 @@ import org.junit.Rule
 class WallpaperTest {
     @get:Rule val compose = createComposeRule()
 
-    private val style = skyThemes.first { it.adaptive?.layout == AdaptiveLayout.GLOW }.adaptive!!
+    private val style = skyThemes.first { it.adaptive != null }.adaptive!!
 
     @Test
     fun theWallpaperIsPaintedOnceIntoAPictureHalfTheWindowsSize() {

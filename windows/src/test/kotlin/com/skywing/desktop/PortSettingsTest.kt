@@ -28,7 +28,7 @@ class PortSettingsTest {
     }
 
     @Test fun adaptiveColoursFollowTheCovers() {
-        val style = skyThemes.first { it.id == "ADAPTIVE_GLOW" }.adaptive!!
+        val style = skyThemes.first { it.id == "ADAPTIVE" }.adaptive!!
         assertEquals(style.fallback, adaptivePalette(emptyList(), style))
         assertEquals(style.fallbackAccent, adaptiveAccent(emptyList(), style))
         val palette = adaptivePalette(listOf(Color(0xFFE03030), Color(0xFF3040E0)), style)

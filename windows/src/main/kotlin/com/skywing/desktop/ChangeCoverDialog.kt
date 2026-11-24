@@ -642,7 +642,7 @@ private fun FramePicker(video: WindowsMediaEntry, busy: Boolean, run: (suspend (
             position = (next / length * 100.0).toFloat().coerceIn(0f, 99f)
         }
     }
-    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(16.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(16.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.width(570.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(10.dp)).background(theme.card), contentAlignment = Alignment.Center) {
             val bitmap = remember(frame) { frame?.toComposeImageBitmap() }
             if (bitmap != null) Image(bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)

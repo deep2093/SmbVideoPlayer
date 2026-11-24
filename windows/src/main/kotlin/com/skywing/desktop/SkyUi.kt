@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
@@ -76,6 +77,11 @@ import androidx.compose.ui.input.pointer.areAnyPressed
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.layout.heightIn
+import com.skywing.desktop.ui.adaptive.LocalAdaptive
+import com.skywing.desktop.ui.theme.SkyMotion
+import com.skywing.desktop.ui.theme.SkyRadius
 import java.io.File
 import java.util.Locale
 
@@ -174,6 +180,10 @@ internal fun formatClock(seconds: Double): String {
 
 internal fun WindowsMediaEntry.title(): String = file.nameWithoutExtension
 
+/**
+ * A button (plan 6.3): Accent (the page's main action), Standard (a control-coloured fill with the 1 px edge) or
+ * Subtle (no fill). Radius 8; at least as tall as the input mode's smallest target.
+ */
 @Composable
 internal fun SkyButton(
     text: String,
@@ -182,26 +192,31 @@ internal fun SkyButton(
     enabled: Boolean = true,
     primary: Boolean = true,
     icon: SkyIcon? = null,
+    subtle: Boolean = false,
 ) {
     val theme = LocalSkyTheme.current
-    val shape = RoundedCornerShape(50)
+    val c = theme.colors
+    val shape = RoundedCornerShape(SkyRadius.control)
+    val accent = primary && !subtle
     val container = when {
-        !enabled -> theme.ink.copy(alpha = 0.08f)
-        primary -> theme.accent
-        else -> Color.Transparent
+        subtle -> Color.Transparent
+        !enabled -> c.control.copy(alpha = 0.5f)
+        accent -> c.accent
+        else -> c.control
     }
     val content = when {
-        !enabled -> theme.muted.copy(alpha = 0.5f)
-        primary -> theme.onAccent
-        else -> theme.ink
+        !enabled -> c.textDisabled
+        accent -> c.onAccent
+        else -> c.text
     }
     Row(
         modifier
+            .heightIn(min = LocalAdaptive.current.minTarget)
             .clip(shape)
             .background(container)
-            .then(if (primary) Modifier else Modifier.border(1.dp, theme.ink.copy(alpha = 0.25f), shape))
+            .then(if (accent || subtle) Modifier else Modifier.border(1.dp, c.stroke, shape))
             .skyClickable(onClick, enabled = enabled, role = Role.Button)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -210,7 +225,7 @@ internal fun SkyButton(
     }
 }
 
-/** A rounded filter or tab chip with a lens behind it when selected (like the Android navigation bar). */
+/** One choice of a segmented control (plan 6.3, SkySegmented): the selected one has the accent at 16 % and accent text. */
 @Composable
 internal fun SkyChip(
     text: String,
@@ -219,37 +234,48 @@ internal fun SkyChip(
     modifier: Modifier = Modifier,
     icon: SkyIcon? = null,
     onLongClick: (() -> Unit)? = null,
+    /** What screen readers hear, when it says more than [text] (a short tab label). */
+    name: String? = null,
 ) {
     val theme = LocalSkyTheme.current
-    val lens by animateColorAsState(
-        when {
-            !selected -> Color.Transparent
-            theme.light -> theme.accent.copy(alpha = 0.16f)
-            else -> Color.White.copy(alpha = 0.18f)
-        },
-        animationSpec = tween(200),
-    )
-    val ink = if (selected) theme.accent else theme.ink.copy(alpha = if (theme.light) 0.78f else 0.88f)
+    val lens by animateColorAsState(if (selected) theme.colors.accentSubtle else Color.Transparent, animationSpec = SkyMotion.fast())
+    val ink = if (selected) theme.accent else theme.ink
     Row(
-        modifier.clip(RoundedCornerShape(50)).background(lens)
+        modifier.heightIn(min = LocalAdaptive.current.minTarget - 8.dp).clip(RoundedCornerShape(6.dp)).background(lens)
             .skyClickable(onClick, onLongClick, role = Role.Tab).semantics { this.selected = selected }
-            .padding(horizontal = 16.dp, vertical = 9.dp),
+            .then(if (name != null && name != text) Modifier.accessibleName(name) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (icon != null) SkyIconView(icon, ink, size = 18.dp)
-        Text(text, color = ink, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        Text(
+            text, color = ink, style = MaterialTheme.typography.labelLarge, maxLines = 1,
+            modifier = if (name != null && name != text) Modifier.clearAndSetSemantics {} else Modifier,
+        )
     }
 }
 
-/** A glass capsule holding a row of chips. */
+/** A segmented control (plan 6.3): choices side by side in one control-coloured frame, one of them selected. */
+@Composable
+internal fun SkySegmented(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) =
+    SkyChipBar(labels, selected, onSelect, modifier)
+
+/** The row of choices of [SkySegmented]. */
 @Composable
 internal fun SkyChipBar(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.skyGlass(RoundedCornerShape(50)).padding(5.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+    val c = LocalSkyTheme.current.colors
+    val shape = RoundedCornerShape(SkyRadius.control)
+    Row(
+        modifier.clip(shape).background(c.control.copy(alpha = 0.6f)).border(1.dp, c.stroke, shape).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         labels.forEachIndexed { index, label -> SkyChip(label, index == selected, { onSelect(index) }) }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun SkyIconButton(
     icon: SkyIcon,
@@ -264,17 +290,34 @@ internal fun SkyIconButton(
 ) {
     val theme = LocalSkyTheme.current
     val color = (tint ?: theme.ink).let { if (enabled) it else it.copy(alpha = 0.35f) }
-    Box(
-        modifier
-            .size(box)
-            .clip(CircleShape)
-            .then(if (outlined) Modifier.border(2.dp, color, CircleShape) else Modifier)
-            .skyClickable(onClick, enabled = enabled, role = Role.Button)
-            .accessibleName(description),
-        contentAlignment = Alignment.Center,
-    ) {
-        SkyIconView(icon, color, size = glyph)
+    val shape = if (outlined) CircleShape else RoundedCornerShape(SkyRadius.control)
+    // The tooltip says what an icon-only button does (plan 6.3); the accessible name stays on the button.
+    TooltipArea(tooltip = { SkyTooltip(description) }, delayMillis = 600) {
+        Box(
+            modifier
+                .size(box)
+                .clip(shape)
+                .then(if (outlined) Modifier.border(2.dp, color, CircleShape) else Modifier)
+                .skyClickable(onClick, enabled = enabled, role = Role.Button)
+                .accessibleName(description),
+            contentAlignment = Alignment.Center,
+        ) {
+            SkyIconView(icon, color, size = glyph)
+        }
     }
+}
+
+/** A tooltip: layer 3, radius 8, Caption text. */
+@Composable
+internal fun SkyTooltip(text: String) {
+    val c = LocalSkyTheme.current.colors
+    val shape = RoundedCornerShape(SkyRadius.control)
+    Text(
+        text,
+        color = c.text,
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.clip(shape).background(c.layer3).border(1.dp, c.stroke, shape).padding(horizontal = 8.dp, vertical = 4.dp),
+    )
 }
 
 @Composable
@@ -295,17 +338,17 @@ internal fun SkyField(
         modifier = modifier.semantics { contentDescription = placeholder },
         singleLine = true,
         visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-        shape = RoundedCornerShape(50),
+        shape = RoundedCornerShape(SkyRadius.control),
         placeholder = { Text(placeholder, color = theme.muted, maxLines = 1) },
         leadingIcon = if (leading != null) ({ SkyIconView(leading, theme.muted) }) else null,
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = theme.ink,
             unfocusedTextColor = theme.ink,
             cursorColor = theme.accent,
-            focusedContainerColor = theme.panelTint(),
-            unfocusedContainerColor = theme.panelTint(),
+            focusedContainerColor = theme.card,
+            unfocusedContainerColor = theme.card,
             focusedBorderColor = theme.accent,
-            unfocusedBorderColor = theme.ink.copy(alpha = 0.22f),
+            unfocusedBorderColor = theme.ink.copy(alpha = 0.30f),
             focusedLabelColor = theme.accent,
             unfocusedLabelColor = theme.muted,
         ),
@@ -463,7 +506,7 @@ private fun CardFrame(
     text: @Composable () -> Unit,
 ) {
     val theme = LocalSkyTheme.current
-    val frame = modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+    val frame = modifier.fillMaxWidth().clip(RoundedCornerShape(SkyRadius.card))
         .background(if (highlighted) theme.accent.copy(alpha = 0.22f) else theme.surface)
         .skyClickable(onClick, onLongClick)
     if (listMode) {

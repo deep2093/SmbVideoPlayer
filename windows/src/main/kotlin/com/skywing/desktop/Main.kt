@@ -1,5 +1,6 @@
 package com.skywing.desktop
 
+import com.skywing.desktop.ui.theme.SkyTypography
 import androidx.compose.foundation.background
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.hoverable
@@ -171,7 +172,7 @@ internal fun SkyWingWindowContent(
     // Adaptive themes take their accent from the covers on screen.
     val shownTheme = rememberShownTheme(theme)
     CompositionLocalProvider(LocalSkyTheme provides shownTheme, LocalContentColor provides shownTheme.ink) {
-        MaterialTheme(colorScheme = shownTheme.colorScheme()) {
+        MaterialTheme(colorScheme = shownTheme.colorScheme(), typography = SkyTypography) {
             SkyWingDesktopShell(
                 awtWindow, embedded, fullscreen, closing, changeFullscreen, initialFile, initialSection,
                 shownTheme, { chosen -> theme = chosen; SkyThemeStore.save(chosen) }, handoffs,
@@ -225,7 +226,7 @@ private fun Sidebar(
     modifier: Modifier = Modifier,
 ) {
     val theme = LocalSkyTheme.current
-    Column(modifier.skyGlass(RoundedCornerShape(22.dp)).padding(12.dp)) {
+    Column(modifier.skyPanel(RoundedCornerShape(22.dp)).padding(12.dp)) {
         SkyMark(32.dp, Modifier.padding(top = 4.dp, bottom = 6.dp))
         Text("SkyWing", color = theme.ink, style = MaterialTheme.typography.titleMedium)
         Text("Video library", color = theme.muted, style = MaterialTheme.typography.bodySmall)
@@ -238,7 +239,7 @@ private fun Sidebar(
         if (nowPlaying != null) {
             Row(
                 Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                    .skyGlass(RoundedCornerShape(20.dp), tint = theme.card)
+                    .skyPanel(RoundedCornerShape(20.dp), color = theme.card)
                     .skyClickable({ onSelect("Now Playing") })
                     .padding(start = 10.dp, top = 4.dp, bottom = 4.dp, end = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,

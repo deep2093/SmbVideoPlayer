@@ -82,7 +82,7 @@ internal fun DrivePicker(
                     }, enabled = current != null)
                     Text(current ?: "Your folders and shares", color = theme.ink, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Box(Modifier.fillMaxWidth().height(380.dp).skyGlass(RoundedCornerShape(16.dp)).padding(6.dp)) {
+                Box(Modifier.fillMaxWidth().height(380.dp).skyPanel(RoundedCornerShape(16.dp)).padding(6.dp)) {
                     val shown = contents
                     when {
                         shown == null -> EmptyNote("Loading…")

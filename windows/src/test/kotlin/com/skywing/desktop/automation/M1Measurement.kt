@@ -542,7 +542,7 @@ internal class M1Pass(
     private companion object {
         val STAGES = listOf("first", "everyday", "adaptive")
         const val PAGE_TAB = "page tab"
-        const val ADAPTIVE_THEME = "ADAPTIVE_GLOW"
+        const val ADAPTIVE_THEME = "ADAPTIVE"
         const val SCAN_TIMEOUT_MS = 10 * 60 * 1000L
         const val MIB = 1024.0 * 1024.0
 
