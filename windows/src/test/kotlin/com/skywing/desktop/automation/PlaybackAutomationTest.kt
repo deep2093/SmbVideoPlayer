@@ -8,6 +8,7 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /** The player's transport bar as JAB shows it: the Seek slider and the buttons next to it. */
@@ -72,6 +73,68 @@ class PlaybackAutomationTest {
 
     @Test
     fun mkvPlaysPausesResumesAndSeeks() = transport(mkv)
+
+    /** B38: a second start with a video plays it in the window already open and exits. */
+    @Test
+    fun aSecondStartPlaysItsVideoInTheOpenWindow() = SkyWingTestApp.launch("second-start", args = listOf(mp4.absolutePath)).use { app ->
+        val player = PlayerControls(app)
+        player.waitTitle(mp4.nameWithoutExtension)
+        val window = app.mainWindow()
+        assertEquals(0, app.startAgain(listOf(mkv.absolutePath)), "the second start exits once it has handed over")
+        player.waitTitle(mkv.nameWithoutExtension)
+        player.waitAdvancing("${mkv.name} playing after a second start")
+        assertEquals(listOf(window), app.windows(), "still one SkyWing window")
+        app.close()
+        assertEquals(true, app.exitedGracefully)
+    }
+
+    /**
+     * M1 start times: the recorder starts after the single-instance check (B38), so SkyWing logs how long Java took
+     * to reach its code and how long the check took, and whether the start runs without the check.
+     */
+    @Test
+    fun theRecorderLogTimesWhatTheStartDidBeforeIt() {
+        val log = Files.createTempFile("skywing-perf-", ".log")
+        try {
+            SkyWingTestApp.launch("start-timing", extraEnvironment = mapOf("SKYWING_PERF_LOG" to log.toString())).use { app ->
+                app.waitUntil("the first frame in the recorder's log") { PerfLog.read(log).mark("first frame") != null }
+                val mark = assertNotNull(PerfLog.read(log).mark("single instance"), "the log has no single-instance mark")
+                assertEquals(0.0, mark.values["alone"], "the only SkyWing on its data owns the single-instance check")
+                val java = assertNotNull(mark.values["main_ms"], "the time Java took to reach SkyWing's code")
+                val check = assertNotNull(mark.values["check_ms"], "the time the check took")
+                assertTrue(java > 0 && check >= 0 && java + check <= mark.atMs, "$java + $check ms must fit in the ${mark.atMs} ms before the mark")
+            }
+        } finally {
+            Files.deleteIfExists(log)
+        }
+    }
+
+    /** B37: files dragged from Explorer play the first video, dropped on the library and then on the playing video. */
+    @Test
+    fun aDroppedVideoPlaysOnTheLibraryAndOnTheVideo() = SkyWingTestApp.launch("drop").use { app ->
+        val window = app.mainWindow()
+        val player = PlayerControls(app)
+        val notes = File(media, "notes.txt").apply { writeText("not a video") }
+        fun dropAtCentre(files: List<File>, what: String) {
+            val area = Win32.bounds(window)
+            val x = (area.left + area.right) / 2
+            val y = (area.top + area.bottom) / 2
+            Win32.raise(window)
+            Thread.sleep(300)
+            val under = Win32.processAt(x, y)
+            assertTrue(under in app.processIds(), "SkyWing is the window under the centre of $what (found process $under, " +
+                "SkyWing ${app.processIds()}, this test ${ProcessHandle.current().pid()})")
+            FileDrag.drop(files, x, y)
+        }
+        dropAtCentre(listOf(notes, mkv, mp4), "the library")
+        player.waitTitle(mkv.nameWithoutExtension)
+        player.waitAdvancing("${mkv.name} dropped on the library")
+        dropAtCentre(listOf(mp4), "the playing video")
+        player.waitTitle(mp4.nameWithoutExtension)
+        player.waitAdvancing("${mp4.name} dropped on the video")
+        app.close()
+        assertEquals(true, app.exitedGracefully)
+    }
 
     private fun transport(clip: File) = SkyWingTestApp.launch("transport-${clip.extension}", args = listOf(clip.absolutePath)).use { app ->
         val player = PlayerControls(app)

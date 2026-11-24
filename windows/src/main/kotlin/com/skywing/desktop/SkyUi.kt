@@ -56,8 +56,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.ScrollState
@@ -327,10 +329,13 @@ internal fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun EmptyNote(text: String, modifier: Modifier = Modifier) {
+internal fun EmptyNote(text: String, modifier: Modifier = Modifier, action: MenuAction? = null) {
     val theme = LocalSkyTheme.current
     Box(modifier.fillMaxWidth().padding(vertical = 40.dp), contentAlignment = Alignment.Center) {
-        Text(text, color = theme.muted, style = MaterialTheme.typography.bodyMedium)
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(text, color = theme.muted, style = MaterialTheme.typography.bodyMedium)
+            if (action != null) SkyButton(action.label, action.action, enabled = action.enabled, icon = action.icon)
+        }
     }
 }
 
@@ -338,11 +343,12 @@ internal fun EmptyNote(text: String, modifier: Modifier = Modifier) {
 @Composable
 internal fun Thumb(file: File?, stamp: Long, modifier: Modifier = Modifier, glyph: SkyIcon = SkyIcon.Play) {
     val theme = LocalSkyTheme.current
-    val picture by produceState<ImageBitmap?>(initialValue = null, file?.path, stamp) {
-        value = if (file == null) null else ThumbnailStore.load(file, stamp)
+    var box by remember { mutableStateOf(IntSize.Zero) }
+    val picture by produceState<ImageBitmap?>(initialValue = null, file?.path, stamp, box) {
+        value = if (file == null) null else ThumbnailStore.load(file, stamp, box)
     }
     Box(
-        modifier.background(Brush.linearGradient(listOf(theme.card, theme.surface))),
+        modifier.background(Brush.linearGradient(listOf(theme.card, theme.surface))).onSizeChanged { box = it },
         contentAlignment = Alignment.Center,
     ) {
         val bitmap = picture

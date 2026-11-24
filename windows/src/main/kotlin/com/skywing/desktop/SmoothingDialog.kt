@@ -90,7 +90,8 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
     } else Text(status.detail, color = theme.muted)
     var copied by remember { mutableStateOf(false) }
     SkyButton(if (copied) "Copied" else "Copy playback report", {
-        runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(status.report), null) }
+        val report = PerfMonitor.reportLine()?.let { status.report.trimEnd() + "\n" + it + "\n" } ?: status.report
+        runCatching { Toolkit.getDefaultToolkit().systemClipboard.setContents(StringSelection(report), null) }
             .onSuccess { copied = true }
     }, primary = false)
 }

@@ -1,5 +1,6 @@
 package com.skywing.desktop.automation
 
+import com.skywing.desktop.FoundVideo
 import com.skywing.desktop.WindowsMediaIndex
 import com.sun.jna.Native
 import com.sun.jna.Pointer
@@ -56,7 +57,7 @@ class NetworkAndStabilityAutomationTest {
             root.node("com/skywing/desktop/local-library-folders").apply { putInt("count", 1); put("folder.0", library.absolutePath) }
             val index = dir.resolve("LocalAppData/SkyWing/library/media-index.bin")
             Files.createDirectories(index.parent)
-            WindowsMediaIndex(index).replaceSource(GONE_ID, "SMB", GONE_NAME, listOf(File(GONE_FILE)))
+            WindowsMediaIndex(index).replaceSource(GONE_ID, "SMB", GONE_NAME, listOf(FoundVideo(File(GONE_FILE), 0, 0)))
         }.use { app ->
             app.activate("Settings", PlayerControls.TAB)
             app.activate("Sync & scanning", PlayerControls.BUTTON)

@@ -25,6 +25,13 @@ import kotlinx.coroutines.withContext
 private val SORT_NAMES = listOf("Name", "Recently added", "File size")
 private val SOURCE_NAMES = listOf("All", "This PC", "Network")
 
+/** Whether [entry] belongs under the source chip [source] ([SOURCE_NAMES]); every row on the page uses it (B39). */
+private fun inSource(entry: WindowsMediaEntry, source: Int): Boolean = when (source) {
+    1 -> entry.sourceType == "PC"
+    2 -> entry.sourceType == "SMB"
+    else -> true
+}
+
 /** Every video in one grid, with Continue watching on top, like the Videos tab on Android. */
 @Composable
 internal fun VideosScreen(
@@ -36,6 +43,8 @@ internal fun VideosScreen(
     onPlay: (File, List<File>) -> Unit,
     onResume: (File, Double) -> Unit,
     onRename: (File) -> Unit,
+    /** Opens Files, where folders on this PC are added. */
+    onAddFolder: () -> Unit,
 ) {
     // Starts with the last list shown, so the grid keeps its place when coming back from a video.
     val shown by produceState(hub.lastResult<List<WindowsMediaEntry>>(VIDEOS_PAGE) ?: emptyList(), library.all, hub.videoSource, hub.videoSort, hub.videoQuery) {
@@ -44,7 +53,7 @@ internal fun VideosScreen(
         val term = hub.videoQuery.trim()
         value = withContext(Dispatchers.Default) {
             val filtered = library.all.filter { entry ->
-                (source == 0 || (source == 1 && entry.sourceType == "PC") || (source == 2 && entry.sourceType == "SMB")) &&
+                inSource(entry, source) &&
                     (term.isEmpty() || entry.file.name.contains(term, ignoreCase = true))
             }
             when (sort) {
@@ -54,13 +63,13 @@ internal fun VideosScreen(
             }
         }.also { hub.keepResult(VIDEOS_PAGE, it) }
     }
-    val byPath = remember(library.all) { library.all.associateBy { it.path.lowercase() } }
+    val byPath = library.byPath
     val artworkOn = LocalCovers.current?.artwork?.settings?.enabled == true
     var cover by remember { mutableStateOf<CoverTarget?>(null) }
     var filing by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
-    val continueItems = remember(history, byPath) {
+    val continueItems = remember(history, byPath, hub.videoSource) {
         history.values.sortedByDescending { it.updated }.mapNotNull { record ->
-            byPath[record.path.lowercase()]?.let { it to record }
+            byPath[record.path.lowercase()]?.takeIf { inSource(it, hub.videoSource) }?.let { it to record }
         }.take(14)
     }
 
@@ -89,6 +98,8 @@ internal fun VideosScreen(
                 }, enabled = shown.isNotEmpty(), icon = SkyIcon.Play)
             }
         }
+        // With This PC chosen and nothing found on it, the page says so and offers the way to add a folder (B39).
+        val thisPcEmpty = !library.loading && hub.videoSource == 1 && hub.videoQuery.isBlank() && shown.isEmpty()
         // Continue watching sits at the top of the same grid, so the whole page scrolls top to bottom.
         val header: LazyGridScope.() -> Unit = {
             if (continueItems.isNotEmpty() && hub.videoQuery.isBlank() && !selection.active) {
@@ -115,7 +126,12 @@ internal fun VideosScreen(
             onPlay = onPlay,
             modifier = Modifier.weight(1f),
             header = header,
-            emptyText = if (library.loading) "Loading…" else "No videos yet. Add folders or a network share in Files.",
+            emptyText = when {
+                library.loading -> "Loading…"
+                thisPcEmpty -> "No videos on this PC yet. Add a folder on this PC to see its videos here."
+                else -> "No videos yet. Add folders or a network share in Files."
+            },
+            emptyAction = if (thisPcEmpty) MenuAction("Add folder", SkyIcon.Add) { onAddFolder() } else null,
             menu = { entry ->
                 listOfNotNull(
                     MenuAction("Play", SkyIcon.Play) { onPlay(entry.file, shown.map { it.file }) },

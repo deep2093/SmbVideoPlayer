@@ -137,7 +137,7 @@ The handhelds also have built-in game controllers and usually **no physical keyb
 - **B22:** pass the resume time to `loadfile` as a per-file option (`loadfile <path> replace -1 start=<seconds>`; **verify** the argument order for the bundled mpv version). No timer.
 - **B23:** a shared `TextInputFocus` state that every `SkyField` sets on focus; the dispatcher ignores single-key shortcuts while it is true (Esc still exits fullscreen).
 - **B24:** one reusable thumbnail mpv per worker; `hwdec=auto-copy` (falls back to software by itself); HDR sources get tone mapping (`vf=lavfi=[zscale=t=linear:npl=100,format=gbrpf32le,tonemap=hable,zscale=t=bt709:m=bt709:r=tv,format=yuv420p]`; **verify** the bundled FFmpeg has `zscale`, else use mpv's own `tone-mapping` with a screenshot path). Workers: 1 on battery or integrated-only, 2 on handhelds plugged in, 3 on dedicated GPUs. Paused while a video plays.
-- **B25:** publish scan progress through a `StateFlow`, sampled at 4 Hz.
+- **B25:** publish scan progress through a `StateFlow`, sampled at 4 Hz. *M1: not needed. The code differs from the finding: `LibrarySync.kt` sets `current` once per source (This PC, then each share) and `status` and `problems` once when the scan ends, so a scan writes a handful of states, not one per file.*
 
 **Fourth pass (the owner's reports from laptop run A, 23 November):**
 
@@ -235,14 +235,14 @@ Report after each phase. M0 comes first because the watchdog fix isn't in any bu
 
 ### 4.4 Start-up and memory
 - **Packaging:**
-  - Add a release build with ProGuard (`compose.desktop.application.buildTypes.release.proguard`). Keep rules for JNA, JCEF and anything reflective. **Verify** the packaged app starts and plays.
-  - Ship the release variant in CI.
+  - Add a release build with ProGuard (`compose.desktop.application.buildTypes.release.proguard`). Keep rules for JNA, JCEF and anything reflective. **Verify** the packaged app starts and plays. *M1: not done yet. Compose 1.8.2 runs ProGuard 7.7.0, which isn't in the build PC's Gradle cache, so the release build would download it; that waits for the owner's OK.*
+  - Ship the release variant in CI. *M1: waits for the release build. The workflow is outside `windows/`, so changing it needs the owner's OK.*
 - **JVM:**
-  - Move to JDK 21 if Compose 1.8.2 and jpackage are fine with it (**verify**).
-  - Add an AppCDS archive if the Compose Gradle plugin supports it for this version (**verify**).
-  - Set `jvmArgs += listOf("-XX:+UseG1GC", "-XX:MaxGCPauseMillis=8", "-Xss2m", "-XX:+UseStringDeduplication")` and measure. Remove anything that doesn't help.
-- **Skia renderer:** keep the default Direct3D 12. Add a hidden fallback setting `SKYWING_RENDER_API=OPENGL|SOFTWARE` for broken drivers, passed as `-Dskiko.renderApi`.
-- **JCEF:** load only when the Google Images tab opens. Free it after that dialog closes, if JCEF allows it (**verify**).
+  - Move to JDK 21 if Compose 1.8.2 and jpackage are fine with it (**verify**). *M1: not checked. Only JDK 17 is installed on the build PC, and installing JDK 21 needs the owner's OK.*
+  - Add an AppCDS archive if the Compose Gradle plugin supports it for this version (**verify**). *M1: plugin 1.8.2 has no AppCDS support. The JDK's default CDS archive works (jlink `--generate-cds-archive`, or a dump after jlink, because the plugin strips `java.exe` and keeps its strip switch internal), but it wasn't adopted. In 7 alternating everyday starts on the laptop (a throwaway probe, empty library) the start to first frame was 2.14 s without it and 2.57 s with it (medians; each spread over about 1.6 to 3.7 s), so no gain showed above the noise. It adds 22 MB, and JDK 17 doesn't write the archive the same twice (two jlink runs differ in 5,230 bytes), so CI's check that the app image rebuilds identically would fail.*
+  - Set `jvmArgs += listOf("-XX:+UseG1GC", "-XX:MaxGCPauseMillis=8", "-Xss2m", "-XX:+UseStringDeduplication")` and measure. Remove anything that doesn't help. *M1 start-up: no gain. In the same probe the first frame was 2.59 s with the flags (2.14 s without) and private memory 387 MB (370 MB); with the CDS archive too, 612 MB. G1 is already JDK 17's default here. Their effect on scrolling is in `M1-RESULTS.md`.*
+- **Skia renderer:** keep the default Direct3D 12. Add a hidden fallback setting `SKYWING_RENDER_API=OPENGL|SOFTWARE` for broken drivers, passed as `-Dskiko.renderApi`. *M1: already there, so no new name. Skiko 0.9.4.2 reads the environment variable `SKIKO_RENDER_API` (OPENGL, SOFTWARE or DIRECT3D) before `skiko.renderApi`. SkyWing starts and draws with each; with SOFTWARE it loads no `d3d12.dll` and uses 280 MB instead of 372 MB. `windows/README.md` says how to use it.*
+- **JCEF:** load only when the Google Images tab opens. Free it after that dialog closes, if JCEF allows it (**verify**). *M1: it loads only there. `EmbeddedGoogleImages.kt` creates the browser only inside that tab, and a UI test checks that a start and three pages load no `jcef.dll`, `libcef.dll` or `chrome_elf.dll` and unpack no browser. It can't be freed after the dialog: CEF starts once per process, so disposing it would break the tab until SkyWing restarts.*
 
 ### 4.5 Measure, don't guess
 - Add a hidden **performance overlay** (Ctrl+Shift+F12): UI frame time (from `withFrameNanos`), recompositions per second, image cache size, decode queue length, JVM heap.

@@ -84,16 +84,7 @@ internal class M0Settings private constructor(
     val gpu: String?,
 ) {
     /** Motion on at 2× in [quality] for every video class, as section 2 sets it, "Lower automatically" off, and [vrr]. */
-    fun seed(root: Preferences) {
-        val playback = root.node(MotionStatus.PLAYBACK_NODE)
-        playback.put("smoothing", "MOTION")
-        for (size in listOf("1080", "1440", "4k")) for (range in listOf("sdr", "hdr")) {
-            playback.putInt("motion.$size-$range.stop", 0)
-            playback.put("motion.$size-$range.quality", quality.name)
-        }
-        vrr?.let { playback.putBoolean("motion.vrr", it) }
-        playback.putBoolean("motion.lowerAutomatically", false)
-    }
+    fun seed(root: Preferences) = seedMotion(root, quality, vrr)
 
     companion object {
         private val LABEL = Regex("[A-Za-z0-9_-]{1,40}")
@@ -145,6 +136,26 @@ internal class M0Settings private constructor(
         }
     }
 }
+
+/**
+ * Motion on at 2× in [quality] for every video class (stop 0), "Lower automatically" off, so SkyWing never lowers the
+ * rate by itself, and "My screen uses G-SYNC / FreeSync" set to [vrr] (null: SkyWing detects it).
+ */
+internal fun seedMotion(root: Preferences, quality: MotionQuality, vrr: Boolean?) {
+    val playback = root.node(MotionStatus.PLAYBACK_NODE)
+    playback.put("smoothing", "MOTION")
+    for (size in listOf("1080", "1440", "4k")) for (range in listOf("sdr", "hdr")) {
+        playback.putInt("motion.$size-$range.stop", 0)
+        playback.put("motion.$size-$range.quality", quality.name)
+    }
+    vrr?.let { playback.putBoolean("motion.vrr", it) }
+    playback.putBoolean("motion.lowerAutomatically", false)
+}
+
+/** Every running SkyWing.exe, whoever started it. The runners count every one, so they start only when none runs. */
+internal fun skyWingProcesses(): List<ProcessHandle> = ProcessHandle.allProcesses().filter { process ->
+    process.info().command().map { Path.of(it).fileName.toString().equals("SkyWing.exe", ignoreCase = true) }.orElse(false)
+}.toList()
 
 /** True when this path is [folder] or inside it. Windows paths, so case doesn't matter. */
 private fun Path.isInside(folder: Path): Boolean {
@@ -224,7 +235,7 @@ internal class M0Run(private val settings: M0Settings) {
         line("Full screen at: ${clock()}")
         // Windows keeps a new window behind the active one when someone has just used another program. The taskbar and
         // that program then stay over the video and Windows composes them, which changes what the run measures.
-        check(awaitForeground(app, timeoutMs = 10_000)) {
+        check(app.awaitForeground(timeoutMs = 10_000)) {
             "SkyWing isn't the active window (${programName(Win32.foregroundProcess())} is), so other windows cover the " +
                 "video. Windows does this when another program was used just before SkyWing started. Run it again " +
                 "and leave the PC alone from the start."
@@ -241,16 +252,6 @@ internal class M0Run(private val settings: M0Settings) {
             ?: throw SmoothingStopped("the measured window", window.disturbances(), end.powerMode(settings.onAc))
         line("Window disturbances: ${window.describe()}")
         return record(start, end, PlaybackReport(reportA), PlaybackReport(reportB), holding, window.disturbances())
-    }
-
-    /** Whether a window of this run's SkyWing becomes the foreground window within [timeoutMs]. */
-    private fun awaitForeground(app: SkyWingTestApp, timeoutMs: Long): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (true) {
-            if (Win32.foregroundProcess()?.let { it in app.processIds() } == true) return true
-            if (System.currentTimeMillis() >= deadline) return false
-            Thread.sleep(250)
-        }
     }
 
     /**
@@ -271,26 +272,14 @@ internal class M0Run(private val settings: M0Settings) {
      * Returns null when Motion options shows smoothing off, which has no report button; the run then ends.
      */
     private fun copyReport(app: SkyWingTestApp, screen: FullScreen, name: String): String? {
-        val marker = "SkyWing M0 harness ${System.nanoTime()}"
-        Clipboard.write(marker)
-        Win32.postKey(screen.keyTarget(), Win32.VK_SHIFT, Win32.SCAN_SHIFT)
-        // A new PlayerControls: its control bar is the full-screen window's.
-        PlayerControls(app).press("Motion options")
-        if (!app.find("Motion smoothing", CHECK_BOX).checked) {
+        val report = copyPlaybackReport(app, screen)
+        if (report == null) {
             line("Smoothing was off when report $name was due, at ${clock()}")
             return null
         }
-        app.activate("Copy playback report", PlayerControls.BUTTON)
-        val report = Clipboard.await("report $name on the clipboard") { it != marker && it.startsWith("SkyWing ") }
-        app.activate("Done", PlayerControls.BUTTON)
-        app.waitUntil("the Motion options window to close") { s -> s.nodes.none { ControlQuery.matches(it, "Motion smoothing", CHECK_BOX) } }
         folder.resolve("report-$name.txt").writeText(report)
         line("Report $name copied at ${clock()}")
-        if (!screen.awaitHeld(3_000)) {
-            line("Full screen was left after report $name; entering it again")
-            PlayerControls(app).press("Toggle full screen (F)")
-            app.waitUntil("a SkyWing window to cover the monitor again") { screen.held() }
-        }
+        if (screen.enterAgainIfLeft()) line("Full screen was left after report $name; entered it again")
         return report
     }
 
@@ -348,13 +337,8 @@ internal class M0Run(private val settings: M0Settings) {
     private companion object {
         val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
         val DATE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-        const val CHECK_BOX = "check box"
         const val MIB = 1024.0 * 1024.0
         const val GIB = MIB * 1024.0
-
-        fun skyWingProcesses(): List<ProcessHandle> = ProcessHandle.allProcesses().filter { process ->
-            process.info().command().map { Path.of(it).fileName.toString().equals("SkyWing.exe", ignoreCase = true) }.orElse(false)
-        }.toList()
 
         fun power(onAc: Boolean?) = when (onAc) {
             true -> "on AC power"
@@ -403,11 +387,45 @@ internal data class Disturbances(val foregroundLostSeconds: Int, val fullScreenL
 }
 
 /** Local time of day, as HWiNFO's CSV log writes it. */
-private fun clock(epochMillis: Long = System.currentTimeMillis()): String =
+internal fun clock(epochMillis: Long = System.currentTimeMillis()): String =
     LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
+/** Whether a window of this SkyWing becomes the foreground window within [timeoutMs]. Posted keys reach it only then. */
+internal fun SkyWingTestApp.awaitForeground(timeoutMs: Long): Boolean {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (true) {
+        if (Win32.foregroundProcess()?.let { it in processIds() } == true) return true
+        if (System.currentTimeMillis() >= deadline) return false
+        Thread.sleep(250)
+    }
+}
+
+/**
+ * Copies one playback report with the player's own button (Motion options, then "Copy playback report") and closes
+ * Motion options again. Returns null when Motion options shows smoothing off, which has no report button. The report is
+ * left on the clipboard; the caller puts back what was there before.
+ */
+internal fun copyPlaybackReport(app: SkyWingTestApp, screen: FullScreen): String? {
+    val marker = "SkyWing harness ${System.nanoTime()}"
+    Clipboard.write(marker)
+    Win32.postKey(screen.keyTarget(), Win32.VK_SHIFT, Win32.SCAN_SHIFT)
+    // A new PlayerControls: its control bar is the full-screen window's.
+    PlayerControls(app).press("Motion options")
+    val report = if (app.find("Motion smoothing", CHECK_BOX).checked) {
+        app.activate("Copy playback report", PlayerControls.BUTTON)
+        Clipboard.await("the playback report on the clipboard") { it != marker && it.startsWith("SkyWing ") }
+    } else {
+        null
+    }
+    app.activate("Done", PlayerControls.BUTTON)
+    app.waitUntil("the Motion options window to close") { s -> s.nodes.none { ControlQuery.matches(it, "Motion smoothing", CHECK_BOX) } }
+    return report
+}
+
+private const val CHECK_BOX = "check box"
+
 /** The SkyWing window that covers [monitor] in full screen. */
-private class FullScreen(private val app: SkyWingTestApp, private val monitor: Win32.Bounds) {
+internal class FullScreen(private val app: SkyWingTestApp, private val monitor: Win32.Bounds) {
     private var window: Long? = null
 
     /** True while a SkyWing window covers the monitor. One GetWindowRect while that window is known. */
@@ -428,6 +446,14 @@ private class FullScreen(private val app: SkyWingTestApp, private val monitor: W
 
     /** Where a key goes: the full-screen window, or the main window when SkyWing is not full screen. */
     fun keyTarget(): Long = if (held()) window!! else app.mainWindow()
+
+    /** Enters full screen again when SkyWing left it (closing Motion options can do that). True when it had to. */
+    fun enterAgainIfLeft(): Boolean {
+        if (awaitHeld(3_000)) return false
+        PlayerControls(app).press("Toggle full screen (F)")
+        app.waitUntil("a SkyWing window to cover the monitor again") { held() }
+        return true
+    }
 
     private fun covers(hwnd: Long) = runCatching { Win32.bounds(hwnd) == monitor }.getOrDefault(false)
 }
@@ -486,7 +512,7 @@ private class Watch(private val app: SkyWingTestApp, private val screen: FullScr
 }
 
 /** The program file name of the process that owns the foreground window, for the run's notes. */
-private fun programName(pid: Long?): String = pid?.let { id ->
+internal fun programName(pid: Long?): String = pid?.let { id ->
     ProcessHandle.of(id).flatMap { it.info().command() }.map { Path.of(it).fileName.toString() }.orElse("process $id")
 } ?: "no window"
 
@@ -495,7 +521,7 @@ private fun programName(pid: Long?): String = pid?.let { id ->
  * Get-Process (TotalProcessorTime and PrivateMemorySize64, summed over every process named SkyWing) and the
  * root\wmi battery classes. [at] is when the processes were read. Read only.
  */
-private class Probe(
+internal class Probe(
     val at: Long,
     val ids: Set<Long>,
     val cpuSeconds: Double,
@@ -599,7 +625,7 @@ internal class PlaybackReport(val text: String) {
 }
 
 /** Text on the system clipboard, where the player's "Copy playback report" button puts the report. */
-private object Clipboard {
+internal object Clipboard {
     private val clipboard get() = Toolkit.getDefaultToolkit().systemClipboard
 
     /** The clipboard's text, or null when it holds something else or nothing. */

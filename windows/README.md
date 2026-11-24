@@ -20,3 +20,9 @@ Thumbnails are grabbed with a short, windowless libmpv run and cached in `%LOCAL
 Network shares use the current Windows sign-in (no SMB library yet).
 
 See [the full Windows x64 roadmap](../docs/WINDOWS-X64-PROJECT-PLAN.md) for the stages, HDR/Dolby limits and acceptance gates.
+
+## If the window draws wrongly
+SkyWing draws its interface with Skia on Direct3D 12, and Skia falls back to OpenGL or software drawing by itself
+when Direct3D can't start. If a graphics driver starts Direct3D but draws the window wrongly, set the environment
+variable `SKIKO_RENDER_API` to `OPENGL` (or `SOFTWARE`, which is slower) before SkyWing starts. Skia reads it at
+start. The video itself is drawn by libmpv and doesn't change.

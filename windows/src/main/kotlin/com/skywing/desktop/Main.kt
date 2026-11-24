@@ -1,6 +1,7 @@
 package com.skywing.desktop
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -26,12 +27,17 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.awtTransferable
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -55,6 +61,7 @@ import java.awt.Frame
 import java.awt.KeyEventDispatcher
 import java.awt.KeyboardFocusManager
 import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
 import java.awt.dnd.DnDConstants
 import java.awt.dnd.DropTarget
 import java.awt.event.AWTEventListener
@@ -68,11 +75,28 @@ import com.skywing.desktop.artwork.ArtworkRepository
 import com.skywing.desktop.artwork.LookupTarget
 import com.skywing.desktop.artwork.PortraitLookup
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-fun main(args: Array<String>) = application {
+fun main(args: Array<String>) {
+    val mainStarted = System.currentTimeMillis()
+    // A second start hands its video to the SkyWing already open and exits (B38).
+    val claim = SingleInstance.claim(SingleInstance.dataFolder(), args.toList())
+    val checkMs = System.currentTimeMillis() - mainStarted
+    val instance = when (claim) {
+        SingleInstance.HandedOff -> return
+        is SingleInstance.Owner -> claim
+        is SingleInstance.Alone -> null.also { System.err.println("SkyWing runs without the single-instance check: " + claim.reason) }
+    }
+    PerfMonitor.startIfLogging()
+    // The recorder starts after the check, so it logs what came before it: Java reaching this code, then the check.
+    PerfMonitor.mark("single instance", "main_ms" to PerfMonitor.sinceStart(mainStarted), "check_ms" to checkMs, "alone" to if (instance == null) 1 else 0)
+    skyWingApplication(args, instance)
+}
+
+private fun skyWingApplication(args: Array<String>, instance: SingleInstance.Owner?) = application {
     val state = rememberWindowState(width = 1280.dp, height = 800.dp)
     var closing by remember { mutableStateOf(false) }
     val embedded = remember { EmbeddedMpv() }
@@ -92,7 +116,8 @@ fun main(args: Array<String>) = application {
             if (!closing) {
                 closing = true
                 scope.launch {
-                    try { withContext(Dispatchers.IO) { embedded.close() } }
+                    // A start from now on opens its own window rather than handing its video to this closing one.
+                    try { withContext(Dispatchers.IO) { instance?.close(); embedded.close() } }
                     finally { exitApplication() }
                 }
             }
@@ -100,12 +125,19 @@ fun main(args: Array<String>) = application {
         title = "SkyWing for Windows (Development Preview)",
         state = state,
     ) {
-        SkyWingWindowContent(window, embedded, closing, initialFile)
+        SkyWingWindowContent(window, embedded, closing, initialFile, handoffs = instance?.handoffs)
     }
 }
 
 @Composable
-internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: EmbeddedMpv, closing: Boolean, initialFile: File? = null, initialSection: String = "Folders") {
+internal fun SkyWingWindowContent(
+    awtWindow: java.awt.Window,
+    embedded: EmbeddedMpv,
+    closing: Boolean,
+    initialFile: File? = null,
+    initialSection: String = "Folders",
+    handoffs: ReceiveChannel<List<String>>? = null,
+) {
     var fullscreen by remember { mutableStateOf(false) }
     var theme by remember { mutableStateOf(SkyThemeStore.load()) }
     val controller = remember(awtWindow) { BorderlessFullscreen(awtWindow) }
@@ -136,7 +168,7 @@ internal fun SkyWingWindowContent(awtWindow: java.awt.Window, embedded: Embedded
         MaterialTheme(colorScheme = shownTheme.colorScheme()) {
             SkyWingDesktopShell(
                 awtWindow, embedded, fullscreen, closing, changeFullscreen, initialFile, initialSection,
-                shownTheme, { chosen -> theme = chosen; SkyThemeStore.save(chosen) },
+                shownTheme, { chosen -> theme = chosen; SkyThemeStore.save(chosen) }, handoffs,
             )
         }
     }
@@ -227,6 +259,7 @@ private fun SkyWingDesktopShell(
     initialSection: String,
     theme: SkyTheme,
     onTheme: (SkyTheme) -> Unit,
+    handoffs: ReceiveChannel<List<String>>?,
 ) {
     var selected by remember { mutableStateOf(initialSection) }
     var previous by remember { mutableStateOf("Folders") }
@@ -282,7 +315,14 @@ private fun SkyWingDesktopShell(
     LaunchedEffect(library.all) {
         if (library.revision > 0) ThumbnailStore.prefetch(library.all.map { it.file to it.modified })
     }
+    // While a video plays, thumbnails wait so they don't take the processor or disk from it (B24).
+    LaunchedEffect(currentFile != null) { ThumbnailStore.playing = currentFile != null }
     val organizer = remember { Organizer(FolderOrganizerStore()) { WindowsCustomFolderStore().load() } }
+    // Once folders.bin holds the custom folders, their old registry copy goes (B20). It can hold one value per video,
+    // so it is removed off the screen thread.
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { runCatching { if (FolderOrganizerStore().exists()) WindowsCustomFolderStore().clear() } }
+    }
     // Covers and portraits: one store for the app, and the background portrait lookup after each scan.
     val artwork = remember { ArtworkRepository() }
     val videoRenamer = remember(library, organizer, artwork, historyStore) { VideoRenameService(library, organizer, artwork, historyStore) }
@@ -315,7 +355,10 @@ private fun SkyWingDesktopShell(
     val hub = remember { HubState() }
     val selection = remember { SelectionState() }
     val filesBack = remember { mutableStateOf<(() -> Boolean)?>(null) }
-    val history = remember(historyRevision) { historyStore.load().associateBy { it.path.lowercase() } }
+    // Read off the screen thread (B8). The pages keep the last history until the new one is read.
+    val history by produceState(emptyMap<String, WindowsWatchRecord>(), historyRevision) {
+        value = withContext(Dispatchers.IO) { historyStore.load().associateBy { it.path.lowercase() } }
+    }
 
     fun go(section: String) {
         if (section == selected) return
@@ -410,26 +453,34 @@ private fun SkyWingDesktopShell(
         files.getOrNull(index)?.let { openVideo(it, files) }
     }
     val latestOpenVideo by rememberUpdatedState<(File) -> Unit>({ file -> openVideo(file) })
-    // The Canvas is a heavyweight child; both it and the frame need drop targets.
-    DisposableEffect(awtWindow, videoCanvas) {
+    // Compose puts its own drop target on the window content, so drops there come through Compose (B37). The video
+    // Canvas is a native window of its own that Compose doesn't reach, so it keeps an AWT drop target.
+    @OptIn(ExperimentalComposeUiApi::class)
+    val videoDrop = remember {
+        object : DragAndDropTarget {
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                val file = droppedVideo(event.awtTransferable) ?: return false
+                latestOpenVideo(file)
+                return true
+            }
+        }
+    }
+    DisposableEffect(videoCanvas) {
+        val canvas = videoCanvas ?: return@DisposableEffect onDispose { }
         val listener = LocalVideoDropHandler { file -> latestOpenVideo(file) }
-        val oldWindowTarget = awtWindow.dropTarget
-        val target = DropTarget(awtWindow, DnDConstants.ACTION_COPY, listener, true)
-        val canvas = videoCanvas
-        val oldCanvasTarget = canvas?.dropTarget
-        val canvasTarget = canvas?.let { DropTarget(it, DnDConstants.ACTION_COPY, listener, true) }
+        val oldCanvasTarget = canvas.dropTarget
+        val canvasTarget = DropTarget(canvas, DnDConstants.ACTION_COPY, listener, true)
         onDispose {
-            awtWindow.dropTarget = oldWindowTarget
-            canvas?.dropTarget = oldCanvasTarget
-            target.removeDropTargetListener(listener)
-            canvasTarget?.removeDropTargetListener(listener)
+            canvas.dropTarget = oldCanvasTarget
+            canvasTarget.removeDropTargetListener(listener)
         }
     }
     LaunchedEffect(currentFile, closing) {
         val file = currentFile ?: return@LaunchedEffect
         suspend fun savePosition() {
-            val position = embedded.playbackPosition() ?: return
-            val length = embedded.playbackDuration() ?: return
+            val reading = withContext(Dispatchers.IO) { embedded.reading() }
+            val position = reading.position ?: return
+            val length = reading.duration ?: return
             runCatching { withContext(Dispatchers.IO) { historyStore.saveProgress(file, position, length) } }
                 .onSuccess { historyRevision++ }
         }
@@ -437,12 +488,32 @@ private fun SkyWingDesktopShell(
             savePosition()
             return@LaunchedEffect
         }
+        // While it plays, the place is written after a pause or a seek and at most every 30 s (B20). Stopping, closing
+        // and the next video write it straight away.
+        val saves = HistorySaves(startedAt = System.nanoTime() / 1_000_000)
         while (true) {
             delay(5000)
-            savePosition()
+            // Read off the screen thread: the player may be busy, for example starting motion smoothing (B7).
+            val reading = withContext(Dispatchers.IO) { embedded.reading() }
+            val position = reading.position ?: continue
+            val length = reading.duration ?: continue
+            val now = System.nanoTime() / 1_000_000
+            if (!saves.due(now, position, paused = reading.paused == true)) continue
+            runCatching { withContext(Dispatchers.IO) { historyStore.saveProgress(file, position, length) } }
+                .onSuccess {
+                    saves.saved(now, position)
+                    historyRevision++
+                }
         }
     }
 
+    // Another start of SkyWing handed this window its video (B38): come forward and play it the way a start file plays.
+    LaunchedEffect(handoffs) {
+        for (paths in handoffs ?: return@LaunchedEffect) {
+            SingleInstance.bringToFront(awtWindow)
+            paths.firstOrNull()?.let { initialFilePending = File(it) }
+        }
+    }
     LaunchedEffect(videoCanvas, initialFilePending) {
         val file = initialFilePending ?: return@LaunchedEffect
         val canvas = videoCanvas ?: return@LaunchedEffect
@@ -460,12 +531,11 @@ private fun SkyWingDesktopShell(
     LaunchedEffect(embedded, closing) {
         if (closing) return@LaunchedEffect
         while (true) {
-            val d = embedded.playbackDuration() ?: 0.0
-            val p = embedded.playbackPosition() ?: 0.0
-            duration = d.coerceAtLeast(0.0)
-            playbackTime = p.coerceAtLeast(0.0)
-            paused = embedded.isPaused() ?: true
-            muted = embedded.isMuted() ?: false
+            val reading = withContext(Dispatchers.IO) { embedded.reading() }
+            duration = (reading.duration ?: 0.0).coerceAtLeast(0.0)
+            playbackTime = (reading.position ?: 0.0).coerceAtLeast(0.0)
+            paused = reading.paused ?: true
+            muted = reading.muted ?: false
             if (!dragging && duration > 0) seekTarget = (playbackTime / duration * 100.0).toFloat().coerceIn(0f, 100f)
             delay(500)
         }
@@ -489,6 +559,9 @@ private fun SkyWingDesktopShell(
             } else if (currentFullscreen && event.keyCode == KeyEvent.VK_ESCAPE) {
                 // Escape must work even when a text field or a slider owns focus.
                 currentFullscreenChange(false)
+                true
+            } else if (event.keyCode == KeyEvent.VK_F12 && event.isControlDown && event.isShiftDown && !event.isAltDown) {
+                PerfMonitor.toggleOverlay()
                 true
             } else if (
                 event.isControlDown || event.isAltDown || event.isMetaDown ||
@@ -543,7 +616,9 @@ private fun SkyWingDesktopShell(
     }
     val playerShown = selected == "Now Playing"
 
-    Box(Modifier.fillMaxSize().skyWallpaper(theme)) {
+    @OptIn(ExperimentalComposeUiApi::class)
+    val takesDrop: (DragAndDropEvent) -> Boolean = { it.awtTransferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor) }
+    Box(Modifier.fillMaxSize().skyWallpaper(theme).dragAndDropTarget(shouldStartDragAndDrop = takesDrop, target = videoDrop)) {
         Row(Modifier.fillMaxSize()) {
             if (!fullscreen) {
                 Sidebar(
@@ -563,7 +638,7 @@ private fun SkyWingDesktopShell(
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         CompositionLocalProvider(LocalCovers provides covers) { when (selected) {
                             "Folders" -> FoldersScreen(library, organizer, hub, history, playOne, { renameTarget = it })
-                            "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it })
+                            "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it }) { go("Files") }
                             "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
                             else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,
                                 smoothingMode, smoothingStatus, ::selectSmoothing) { go("Files") }
@@ -630,7 +705,9 @@ private fun SkyWingDesktopShell(
                 }
             }
         }
+        PerfOverlay(Modifier.align(Alignment.TopEnd).padding(top = 14.dp, end = 20.dp))
     }
+    PerfFrameProbe()
     playbackProblem?.let { PlaybackProblemDialog(it) { playbackProblem = null } }
     if (smoothingMenu) SmoothingDialog(smoothingMode, smoothingStatus, ::selectSmoothing) { smoothingMenu = false }
     renameTarget?.let { file ->
