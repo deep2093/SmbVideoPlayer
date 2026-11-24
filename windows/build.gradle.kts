@@ -232,8 +232,9 @@ compose.desktop {
     application {
         mainClass = "com.skywing.desktop.MainKt"
         nativeDistributions {
-            // Compose Desktop uses Java Access Bridge for Windows accessibility.
-            modules("jdk.accessibility")
+            // Compose Desktop uses Java Access Bridge for Windows accessibility. The player reads its own processor
+            // time for the per-minute log through com.sun.management, which is in jdk.management.
+            modules("jdk.accessibility", "java.management", "jdk.management")
             appResourcesRootDir.set(layout.buildDirectory.dir("native-resources"))
             // Build these packages on Windows x64. ARM/32-bit variants are intentionally excluded.
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
