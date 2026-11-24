@@ -109,9 +109,9 @@ class WindowPlacementTest {
 
     @Test fun boundsReadWhileTheFrameIsMaximisedAreNotTaken() {
         val frame = Frame()
+        val folder = Files.createTempDirectory("skywing-window")
         try {
             frame.extendedState = Frame.MAXIMIZED_BOTH
-            val folder = Files.createTempDirectory("skywing-window")
             val saver = WindowPlacementSaver(WindowPlacementStore(JsonFile(folder.resolve("window.json"))), WindowStart(true, Area(100.0, 80.0, 1000.0, 700.0)))
             saver.window = frame
             // Compose can still report Floating for a moment after Windows has maximised the frame.
@@ -121,28 +121,38 @@ class WindowPlacementTest {
             assertNotEquals(Area(200.0, 150.0, 900.0, 600.0), saved.normal)
         } finally {
             frame.dispose()
+            folder.toFile().deleteRecursively()
         }
     }
 
     @Test fun theStartModeIsKeptAndResetForgetsTheBounds() {
-        val store = WindowPlacementStore(JsonFile(Files.createTempDirectory("skywing-window").resolve("window.json")))
-        assertEquals(StartMode.REMEMBER, store.mode())
-        store.save("laptop", WindowStart(false, Area(10.0, 20.0, 1200.0, 750.0)))
-        store.setMode(StartMode.LARGE)
-        assertEquals(StartMode.LARGE, store.mode())
-        store.forget()
-        assertEquals(SavedWindow(null, emptyMap()), store.load())
-        assertEquals(StartMode.LARGE, store.mode())
+        val folder = Files.createTempDirectory("skywing-window")
+        try {
+            val store = WindowPlacementStore(JsonFile(folder.resolve("window.json")))
+            assertEquals(StartMode.REMEMBER, store.mode())
+            store.save("laptop", WindowStart(false, Area(10.0, 20.0, 1200.0, 750.0)))
+            store.setMode(StartMode.LARGE)
+            assertEquals(StartMode.LARGE, store.mode())
+            store.forget()
+            assertEquals(SavedWindow(null, emptyMap()), store.load())
+            assertEquals(StartMode.LARGE, store.mode())
+        } finally {
+            folder.toFile().deleteRecursively()
+        }
     }
 
     @Test fun eachScreenKeepsItsOwnPlacementInTheJsonFile() {
         val folder = Files.createTempDirectory("skywing-window")
-        val store = WindowPlacementStore(JsonFile(folder.resolve("window.json")))
-        val onLaptop = WindowStart(true, Area(10.0, 20.0, 1200.0, 750.0))
-        val onDock = WindowStart(false, Area(30.0, 40.0, 1300.0, 800.0))
-        store.save("laptop", onLaptop)
-        store.save("dock", onDock)
-        assertEquals(SavedWindow("dock", mapOf("laptop" to onLaptop, "dock" to onDock)), store.load())
-        assertEquals(SavedWindow(null, emptyMap()), WindowPlacementStore(JsonFile(folder.resolve("none.json"))).load())
+        try {
+            val store = WindowPlacementStore(JsonFile(folder.resolve("window.json")))
+            val onLaptop = WindowStart(true, Area(10.0, 20.0, 1200.0, 750.0))
+            val onDock = WindowStart(false, Area(30.0, 40.0, 1300.0, 800.0))
+            store.save("laptop", onLaptop)
+            store.save("dock", onDock)
+            assertEquals(SavedWindow("dock", mapOf("laptop" to onLaptop, "dock" to onDock)), store.load())
+            assertEquals(SavedWindow(null, emptyMap()), WindowPlacementStore(JsonFile(folder.resolve("none.json"))).load())
+        } finally {
+            folder.toFile().deleteRecursively()
+        }
     }
 }
