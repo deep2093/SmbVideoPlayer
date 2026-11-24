@@ -385,12 +385,17 @@ class MotionNativeTest {
         try { block(folder) } finally { folder.deleteRecursively() }
     }
 
-    /** A 4-second generated clip of [size] at [rate] fps, encoded by ffmpeg with [options]. */
+    /**
+     * A 4-second generated clip of [size] at [rate] fps, encoded by ffmpeg with [options]. A keyframe every 24 frames,
+     * as films have every few seconds: starting smoothing switches mpv's decoder, which then skips to the next keyframe
+     * until the filter's refresh seek; with x264's default of one keyframe in 250 frames it can reach the end of this
+     * clip first, and mpv then takes the video for a single image.
+     */
     private fun encode(folder: File, name: String, rate: String, vararg options: String, size: String = "320x240"): File {
         val video = File(folder, name)
         val encode = ProcessBuilder(listOf(TestMedia.ffmpeg!!.absolutePath, "-hide_banner", "-loglevel", "error", "-y",
             "-f", "lavfi", "-i", "testsrc2=size=$size:rate=$rate:duration=4") + options +
-            listOf("-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", video.absolutePath),
+            listOf("-g", "24", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", video.absolutePath),
         ).redirectErrorStream(true).start()
         val encodeLog = encode.inputStream.bufferedReader().readText()
         assertTrue(encode.waitFor(60, TimeUnit.SECONDS) && encode.exitValue() == 0 && video.isFile, "ffmpeg: $encodeLog")
@@ -519,8 +524,11 @@ class MotionNativeTest {
                 "pause" to "yes", "log-file" to log.path).forEach { (k, v) -> assertTrue(api.mpv_set_option_string(ctx, k, v) >= 0) }
             assertTrue(api.mpv_initialize(ctx) >= 0)
             assertTrue(command(listOf("loadfile", video.path)))
+            // Until the first frame is on the output, a frame step only finishes the start; a 4K frame takes long enough
+            // to decode for that to happen.
             waitFor("${video.name} did not load") {
-                get("container-fps")?.toDoubleOrNull() != null && get("time-pos")?.toDoubleOrNull() != null
+                get("container-fps")?.toDoubleOrNull() != null && get("time-pos")?.toDoubleOrNull() != null &&
+                    get("vo-configured") == "yes"
             }
             // Each frame's own time, from playback without the filter.
             val source = frameTimes(24)

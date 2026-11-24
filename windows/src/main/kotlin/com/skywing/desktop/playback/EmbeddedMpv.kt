@@ -820,7 +820,9 @@ class EmbeddedMpv(
         val paths = Screens.paths()
         val luids = paths.map { it.adapterLuid }.toSet()
         if (force || luids != pathLuids || now - inventoryReadAt >= 60_000) {
-            inventory = GpuInventory.read()
+            // A PC without its graphics driver lists no hardware adapter, so no plan names one: mpv only uses
+            // d3d11-warp when d3d11-adapter is empty.
+            inventory = if (forceWarp) GpuInventory(emptyList()) else GpuInventory.read()
             pathLuids = luids
             inventoryReadAt = now
         }

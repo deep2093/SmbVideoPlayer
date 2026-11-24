@@ -192,7 +192,11 @@ class EmbeddedPlaybackNativeTest {
         assertTrue(line("GPU plan: ").contains("drawing and motion on Windows' choice"), line("GPU plan: "))
         // A third loss within the minute is not chased: the video pauses and the player says why.
         loseDevice()
-        waitFor("the third loss to pause the video") { player.playbackFailure != null }
+        // The player recovers in updateSmoothing, which the app calls once a second.
+        waitFor("the third loss to pause the video") {
+            player.updateSmoothing(SmoothingMode.OFF)
+            player.playbackFailure != null
+        }
         assertTrue(line("Graphics device lost: ").startsWith("Graphics device lost: 3 times; last: not re-created"))
         assertEquals("yes", player.diagnosticProperty("pause"))
         // The next video gets a new output and plays.
