@@ -182,8 +182,9 @@ class SkyWingAutomationTest {
         const val VRR = "motion.vrr"
         const val LOWER_LABEL = "Lower automatically when needed"
         const val VRR_LABEL = "Let VRR control refresh (fullscreen)"
+        const val SCREEN_SIZE_LABEL = "Smooth at screen size"
         const val SUBFOLDERS_LABEL = "Include sub folders"
-        val PLAYBACK_SWITCHES = setOf("Motion smoothing", VRR_LABEL, LOWER_LABEL)
+        val PLAYBACK_SWITCHES = setOf("Motion smoothing", VRR_LABEL, LOWER_LABEL, SCREEN_SIZE_LABEL)
     }
 }
 
