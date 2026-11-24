@@ -27,6 +27,8 @@ internal class JabNode(
     val value: String?,
     val childCount: Int,
     internal val handle: Long,
+    /** Where the bridge says the control is, in screen coordinates as the app's Java sees them. */
+    val bounds: Rect4 = Rect4(0, 0, 0, 0),
 ) : ControlView {
     override val enabled: Boolean get() = "enabled" in states
     val checked: Boolean get() = "checked" in states
@@ -142,6 +144,7 @@ internal class AccessBridgeClient private constructor(dll: Path) : AutoCloseable
                 value = current,
                 childCount = children,
                 handle = context,
+                bounds = Rect4(info.getInt(INFO_X), info.getInt(INFO_X + 4), info.getInt(INFO_X + 8), info.getInt(INFO_X + 12)),
             )
             if (depth < 60 && nodes.size < 3000) {
                 for (i in 0 until children.coerceAtLeast(0)) {
@@ -172,6 +175,8 @@ internal class AccessBridgeClient private constructor(dll: Path) : AutoCloseable
         // role_en_US[256], states[256], states_en_US[256], then jints.
         private const val INFO_SIZE = 4096L + 4 * 512 + 11 * 4
         private const val INFO_CHILDREN = 4096L + 2048 + 4
+        // Then jint x, y, width, height.
+        private const val INFO_X = 4096L + 2048 + 2 * 4
         private const val INFO_ACTION = 4096L + 2048 + 7 * 4
         private const val INFO_INTERFACES = 4096L + 2048 + 10 * 4
         private const val ACTIONS_SIZE = 4L + 256 * 512

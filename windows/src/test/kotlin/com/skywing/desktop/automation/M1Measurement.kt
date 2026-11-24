@@ -312,8 +312,21 @@ internal fun closing(byItself: Boolean, seconds: Double, stillRunning: Boolean):
 
 private fun twoPlaces(value: Double) = String.format(Locale.ROOT, "%.2f", value)
 
-/** One image's three starts. Returns its numbers, or throws [Spoiled] when the machine wasn't left alone. */
-private class M1Pass(
+/** The main screen's mode, as the M1 and M3 runners write it at the top of their tables. */
+internal fun displayText(): String {
+    val mode = GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice.displayMode
+    return "${mode.width} × ${mode.height} at ${mode.refreshRate} Hz"
+}
+
+/** Mains or battery, and the power mode, as the M1 and M3 runners write it. */
+internal fun powerText(probe: Probe): String = when (probe.onAc) {
+    true -> "plugged in, " + probe.powerMode(true)
+    false -> "on battery, " + probe.powerMode(false)
+    null -> "no battery reading"
+}
+
+/** One image's three starts. Returns its numbers, or throws [Spoiled] when the machine wasn't left alone. M3 reuses it. */
+internal class M1Pass(
     private val name: String,
     private val image: Path,
     private val library: Path,
@@ -564,7 +577,7 @@ private class M1Runner(private val trial: Boolean, private val environment: Map<
         // Started again, it keeps an image it measured already (same build), unless SKYWING_M1_ONLY names that image.
         val todo = images.filterKeys { name -> if (only != null) name == only else numbersOf(name)["build"] != buildOf(name) }
         if (todo.isEmpty()) {
-            writeTable(display())
+            writeTable(displayText())
             println("Both images are already measured. The table is in ${results.resolve("M1-table.md")}.")
             return 0
         }
@@ -577,7 +590,7 @@ private class M1Runner(private val trial: Boolean, private val environment: Map<
         val library = runner.resolve("work").resolve("library")
         val videos = M1Library.build(clips, library)
         val power = Probe.take()
-        val display = display()
+        val display = displayText()
         val quietWait = quietWaitMs(HandheldSystem.foregroundLockTimeoutMs())
         println("SkyWing M1 ${if (trial) "trial" else "measurements"} on $device")
         println("Display: $display")
@@ -636,17 +649,6 @@ private class M1Runner(private val trial: Boolean, private val environment: Map<
     /** The commit the runner's image was built from (images\<name>-build.txt). */
     private fun buildOf(name: String): String =
         runCatching { runner.resolve("images").resolve("$name-build.txt").readText().trim() }.getOrDefault("unknown")
-
-    private fun display(): String {
-        val mode = GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice.displayMode
-        return "${mode.width} × ${mode.height} at ${mode.refreshRate} Hz"
-    }
-
-    private fun powerText(probe: Probe): String = when (probe.onAc) {
-        true -> "plugged in, " + probe.powerMode(true)
-        false -> "on battery, " + probe.powerMode(false)
-        null -> "no battery reading"
-    }
 
     private companion object {
         const val BIOS = "HKLM\\HARDWARE\\DESCRIPTION\\System\\BIOS"

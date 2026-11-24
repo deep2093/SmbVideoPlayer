@@ -228,6 +228,45 @@ tasks.register<Sync>("checksRunner") {
     doLast { destinationDir.resolve("app-build.txt").writeText(checkoutBuild() + "\n") }
 }
 
+// The M3 runner (docs/modernise/M3-RUNNER.md): M3's checks of two SkyWing app images, the build before M3 (kept by
+// m3KeepBefore) and the current one: M1's numbers, a picture of every page beside the design boards, the window's size
+// and place, and moving around Settings. A test tool for the owner's own devices, not part of any installer. Starting it
+// takes that device's desktop.
+tasks.register<Sync>("m3KeepBefore") {
+    group = "verification"
+    description = "Keeps the current app image as the M3 runner's before image; build it from the commit before the M3 changes"
+    dependsOn("createDistributable")
+    from(layout.buildDirectory.dir("compose/binaries/main/app/SkyWing"))
+    into(layout.buildDirectory.dir("m3-images/before/SkyWing"))
+    doLast { layout.buildDirectory.file("m3-images/before/build.txt").get().asFile.writeText(checkoutBuild() + "\n") }
+}
+
+tasks.register<Sync>("m3Runner") {
+    group = "verification"
+    description = "Builds the portable M3 runner in build/m3-runner/SkyWing-M3-runner"
+    dependsOn("createDistributable")
+    into(layout.buildDirectory.dir("m3-runner/SkyWing-M3-runner"))
+    // What a run left in the folder stays: the results, the test libraries and the harness's own preferences.
+    preserve { include("results/**", "work/**", "data/**") }
+    from("tools/m3-runner") { exclude(".gitattributes") }
+    into("runtime") { from(m0RunnerRuntime) }
+    into("lib") {
+        from(tasks.jar) { rename { "skywing-main.jar" } }
+        from(m0HarnessJar, m0SupportJar)
+        from(sourceSets.test.get().runtimeClasspath.filter { it.isFile && !it.name.startsWith("jcef-natives-") && !it.name.startsWith("skiko-awt-runtime-") })
+    }
+    into("media") { from(m1Media) }
+    into("boards") { from("docs/modernise/design/png") { include("*.png") } }
+    into("images/before") { from(layout.buildDirectory.dir("m3-images/before/SkyWing")) }
+    into("images") { from(layout.buildDirectory.file("m3-images/before/build.txt")) { rename { "before-build.txt" } } }
+    into("images/after") { from(layout.buildDirectory.dir("compose/binaries/main/app/SkyWing")) }
+    doLast {
+        val before = layout.buildDirectory.file("m3-images/before/SkyWing/SkyWing.exe").get().asFile
+        check(before.isFile) { "No before image: run m3KeepBefore on the commit before the M3 changes first." }
+        destinationDir.resolve("images/after-build.txt").writeText(checkoutBuild() + "\n")
+    }
+}
+
 compose.desktop {
     application {
         mainClass = "com.skywing.desktop.MainKt"
