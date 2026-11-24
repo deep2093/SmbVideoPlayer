@@ -91,7 +91,8 @@ class SmoothingTest {
     @Test fun videoTypesKeepIndependentSettings() {
         val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
         try {
-            val store = MotionPreferences(node)
+            // No graphics card of its own, so an unsaved video type starts at Fast on any PC that runs this test.
+            val store = MotionPreferences(node) { false }
             assertFalse(store.lowerAutomatically)
             assertFalse(store.smoothAtScreenSize, "off until the owner has compared it by eye (plan 5.7 item 4)")
             store.smoothAtScreenSize = true
