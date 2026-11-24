@@ -121,7 +121,8 @@ class SkyWingAutomationTest {
 
             app.activate("Add", BUTTON, where = inDialog)
             app.waitUntil("the folder picker to close") { s -> s.nodes.none { ControlQuery.matches(it, "Add drive folders", LABEL) } }
-            app.find("Library", LABEL, where = { it.actions.isNotEmpty() })
+            // M3: a folder card is a button for screen readers (M3 design brief 5.7).
+            app.find("Library", BUTTON)
             app.find("Add", BUTTON)
         }
         assertEquals(registryBefore, registry(LOCAL_FOLDERS_KEY), "the user's registry preferences were not touched")
