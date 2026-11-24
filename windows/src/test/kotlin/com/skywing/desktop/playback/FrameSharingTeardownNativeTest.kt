@@ -2,6 +2,7 @@ package com.skywing.desktop.playback
 
 import com.skywing.desktop.BorderlessFullscreen
 import com.skywing.desktop.automation.TestMedia
+import org.junit.Assume.assumeFalse
 import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
@@ -45,6 +46,16 @@ class FrameSharingTeardownNativeTest {
         try {
             // A keyframe every half second, so each seek lands close to where it was asked to.
             val clip = TestMedia.encode(folder, TestMedia.MP4_H264.copy(name = "teardown.mp4", seconds = LENGTH, ovcopts = "g=12"))
+            // Plan 5.8 rule 3: drawn by Microsoft's software renderer (no graphics driver, as on a hosted CI runner),
+            // smoothing stays off, so there is nothing to tear down. The player decides; the test only asks it.
+            var software = false
+            withPlayer { player, _ ->
+                assertTrue(player.open(clip))
+                waitFor("the video to play") { (player.playbackPosition() ?: 0.0) > 0.3 }
+                software = player.updateSmoothing(SmoothingMode.MOTION).capabilities.softwareRender
+            }
+            if (software) lines += "Not run: drawn by Microsoft's software renderer, so smoothing is off (plan 5.8 rule 3)"
+            assumeFalse("Smoothing is off on Microsoft's software renderer (no graphics driver), so this PC can't run it", software)
             repeat(ROUNDS) { round ->
                 val started = System.nanoTime()
                 val closeMs = withPlayer { player, fullscreen ->

@@ -168,7 +168,10 @@ class ScreenStateTest {
         // Plan 5.7 item 4: each screen's desktop size, in physical pixels, from its source mode.
         paths.forEach { println("screen size: " + it.desktop) }
         paths.forEach { assertNotNull(it.desktop, "desktop size of " + it.gdiName) }
-        assertTrue(states.any { it.edid.limits != null || it.edid.vrr != null }, "at least one screen's EDID is readable")
+        // A virtual screen (a hosted runner's Hyper-V monitor) has no EDID for Windows to keep; a real one does.
+        val real = states.filterNot { VIRTUAL_SCREEN.containsMatchIn(it.path.friendlyName) }
+        if (real.isNotEmpty()) assertTrue(real.any { it.edid.limits != null || it.edid.vrr != null }, "at least one screen's EDID is readable")
+        else println("EDID not checked: only virtual screens, which have none")
     }
 
     private interface User32 : StdCallLibrary {
@@ -186,5 +189,10 @@ class ScreenStateTest {
         // WM_DISPLAYCHANGE (0x7E): wParam bits per pixel, lParam the packed resolution. Sent only to SkyWing's own window.
         Native.load("user32", User32::class.java).SendMessageW(window, 0x7E, 32, (1080L shl 16) or 1920L)
         assertEquals(before + 1, DisplayChanges.generation)
+    }
+
+    private companion object {
+        /** The monitor names virtual machines give their screens, such as a hosted runner's "HyperVMonitor". */
+        val VIRTUAL_SCREEN = Regex("Hyper-?V|Virtual|Remote", RegexOption.IGNORE_CASE)
     }
 }
