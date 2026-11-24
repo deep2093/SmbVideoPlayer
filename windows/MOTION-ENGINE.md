@@ -51,8 +51,9 @@ standard rate can be its fastest rate rather than its average.
 Both sliders save on release and the worker applies the latest saved values on
 its next poll. A changed filter seeks exactly back to its sampled playback position.
 Multiplier and quality are stored independently for six resolution/HDR classes
-(≤1080p, ≤1440p, 4K and above × SDR/HDR). Fast is the quality default on every PC
-until the user picks a quality for a class; each PC keeps the choices made on it.
+(≤1080p, ≤1440p, 4K and above × SDR/HDR). Until the user picks a quality for a class,
+it starts at Balanced on a PC with a graphics card of its own and at Fast on every
+other PC (owner decision, 25 November); each PC keeps the choices made on it.
 
 Settings → Playback contains G-SYNC/FreeSync and Lower automatically when needed
 (default off). VRR uses audio sync; a fixed display with a matching target can use

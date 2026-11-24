@@ -118,18 +118,25 @@ class SmoothingTest {
             MotionSettings(0, MotionQuality.FAST, MotionExperiment.POTPLAYER_LIKE).qualityLabel)
     }
 
-    /** Owner decision, 23 November: Fast is the default quality on every PC; a quality chosen for a video type is kept. */
-    @Test fun fastIsTheQualityUntilAVideoTypeSavesOne() {
+    /**
+     * Owner decisions: until a video type saves its own quality it starts at Fast (23 November), or at Balanced on a PC
+     * with a graphics card of its own (25 November). A quality chosen for a video type is kept.
+     */
+    @Test fun aVideoTypeStartsAtBalancedWithADedicatedGpuAndAtFastWithout() {
         val node = java.util.prefs.Preferences.userRoot().node("skywing-test-" + java.util.UUID.randomUUID())
         try {
-            val store = MotionPreferences(node)
             assertEquals(MotionQuality.FAST, MotionSettings(0).quality)
-            assertEquals(MotionQuality.FAST, store.load("1080-sdr", 0).quality)
-            store.save("1080-sdr", MotionSettings(0, MotionQuality.BALANCED))
-            assertEquals(MotionQuality.BALANCED, store.load("1080-sdr", 0).quality)
-            assertEquals(MotionQuality.FAST, store.load("2160-sdr", 0).quality)
+            val integrated = MotionPreferences(node) { false }
+            assertEquals(MotionQuality.FAST, integrated.load("1080-sdr", 0).quality)
+            val dedicated = MotionPreferences(node) { true }
+            assertEquals(MotionQuality.BALANCED, dedicated.load("1080-sdr", 0).quality)
+            integrated.save("1080-sdr", MotionSettings(0, MotionQuality.BEST))
+            assertEquals(MotionQuality.BEST, dedicated.load("1080-sdr", 0).quality)
+            // A saved quality is used without looking at the GPUs.
+            assertEquals(MotionQuality.BEST, MotionPreferences(node) { error("the GPUs were looked at") }.load("1080-sdr", 0).quality)
             node.put("motion.1440-sdr.quality", "NOT-A-PRESET")
-            assertEquals(MotionQuality.FAST, store.load("1440-sdr", 0).quality)
+            assertEquals(MotionQuality.FAST, integrated.load("1440-sdr", 0).quality)
+            assertEquals(MotionQuality.BALANCED, dedicated.load("1440-sdr", 0).quality)
         } finally { node.removeNode() }
     }
 
