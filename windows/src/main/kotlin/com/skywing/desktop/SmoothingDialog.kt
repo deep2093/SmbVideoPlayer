@@ -75,6 +75,8 @@ internal fun SmoothingOptions(mode: SmoothingMode, status: SmoothingStatus, onMo
         MotionStops.note(source, rate.roundToInt(), caps.displayHz, MotionSettingsStore.values.vrr(caps.vrrScreen))?.let {
             Text(it, color = theme.muted, style = MaterialTheme.typography.bodySmall)
         }
+        // Plan 5.8, kept short: "May struggle on this graphics chip above 1080p" or "Not tested on this graphics chip".
+        caps.gpuNote?.let { Text(it, color = theme.muted, style = MaterialTheme.typography.bodySmall) }
         Text("Quality · " + MotionQuality.entries[quality.roundToInt()].label, color = theme.ink)
         Slider(value = quality, onValueChange = { quality = it }, valueRange = 0f..4f, steps = 3,
             modifier = Modifier.accessibleName("Quality").semantics {

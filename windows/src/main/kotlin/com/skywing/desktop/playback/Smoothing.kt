@@ -23,6 +23,8 @@ data class SmoothingCapabilities(
     val processorBlocked: String? = null,
     /** The screen showing the video can vary its refresh ([VrrScreen]): the VRR switch's default. */
     val vrrScreen: Boolean = false,
+    /** [GpuFamily]'s note for the GPU that smooths this video, or null. Advice only. */
+    val gpuNote: String? = null,
 ) {
     val resolution: String get() = if (width != null && height != null) "$width × $height" else "Resolution unavailable"
     fun unavailable(mode: SmoothingMode): String? = when {

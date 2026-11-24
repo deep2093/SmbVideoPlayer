@@ -138,6 +138,13 @@ plays and smoothing is off with "Install your graphics driver for smooth playbac
 version as Device Manager shows it, and a "Decode path:" line (decoder in use, interop, what was asked for and what
 failed for this file). The "Renderer:" line is unchanged.
 
+Motion options adds a note for the GPU that smooths (`GpuFamily`, plan 5.8 kept short, owner, 25 November). It goes
+by the name Windows lists, with no device-ID tables. Graphics cards and the newest built-in chips (Arc 130V/140V,
+Arc B3xx, Radeon 8040S to 8060S) get no note. Older cards (GeForce GTX 10 and older, GT, MX; Radeon RX 400 to 5000,
+RX Vega, R5 to R9, HD) and all other built-in graphics get "May struggle on this graphics chip above 1080p" for video
+larger than 1080p. Other makers and virtual machines get "Not tested on this graphics chip". The note is advice
+only and changes no setting; both reports show it as "GPU note:".
+
 mpv does not step down when its graphics device is lost while a video plays (a driver reset or update, or the GPU
 removed or hung). libplacebo then logs "Device lost!" at error level and refuses every frame after it; mpv skips those
 frames without a word, so the window would stay black. SkyWing reads that message and, on its next once-a-second

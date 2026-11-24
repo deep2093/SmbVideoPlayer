@@ -414,7 +414,7 @@ Detect capabilities at start-up (DXGI adapter + a one-off mpv probe of `hwdec-in
 | Any other GPU: other vendors (Moore Threads, Zhaoxin and similar) and virtual machines (Hyper-V, VMware, VirtualBox, Parallels) | D3D11 if the probe finds it, else `d3d11-warp=auto` | What the probe finds | Only if an OpenCL device is found | Off by default; allowed, with "Not tested on this graphics chip" |
 | No driver / Microsoft Basic Render / remote desktop | `d3d11-warp=auto` (software) | None (`hwdec=no`) | No | Off, with "Install your graphics driver for smooth playback" |
 
-The "Default smoothing" column only sets the first-use **quality** and the resolution above which a "may struggle on this graphics chip" note appears. The frame-rate stop keeps the existing first-use rule (closest to 60 fps), and the user's choices per video class always win.
+The "Default smoothing" column only sets the first-use **quality** and the resolution above which a "may struggle on this graphics chip" note appears. The frame-rate stop keeps the existing first-use rule (closest to 60 fps), and the user's choices per video class always win. *Changed 25 November (owner):* built short and name-based in `GpuFamily` (see `MOTION-ENGINE.md`): three groups, one note each, and no device-ID tables; the first-use quality follows the Balanced/Fast rule instead of this column.
 
 **Rules that make this work everywhere:**
 1. **Start-up probe, not vendor names:** pick features by what the probe says the device supports. Never assume from the brand.

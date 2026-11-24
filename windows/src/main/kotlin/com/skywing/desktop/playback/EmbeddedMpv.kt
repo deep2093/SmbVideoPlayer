@@ -376,7 +376,7 @@ class EmbeddedMpv(
             decoderFailures = decoderFailures,
             processorBlocked = Processor.current.motionBlocked,
             vrrScreen = screen?.let { VrrScreen.capable(it.edid, it.path.outputTechnology, DisplayVrr.current.supported) } == true,
-        )
+        ).let { it.copy(gpuNote = GpuFamily.note(motionGpu(), it)) }
         lastCaps = caps
         if (mode == SmoothingMode.MOTION) return updateMotion(caps).also { if (!motion.active) endLog() }
         endLog()
@@ -612,6 +612,7 @@ class EmbeddedMpv(
             appendLine("Graphics device lost: ${deviceLoss.summary()}")
             val onBattery = com.skywing.desktop.PowerSource.onBattery()
             appendLine("GPU plan: " + (gpuPlan?.describe(onBattery) ?: "not made yet"))
+            caps.gpuNote?.let { appendLine("GPU note: $it") }
             appendLine("Graphics for video: ${gpuChoice.label}; Settings: ${MotionSettingsStore.values.gpuChoice.label}; Windows' graphics setting for SkyWing: " +
                 when (inventory.windowsPreference) {
                     WindowsGpuPreference.NONE -> "none"
@@ -679,6 +680,7 @@ class EmbeddedMpv(
             appendLine("SkyWing ${build.version} · Windows x64 test report")
             appendLine(build.reportLine())
             appendLine("GPU plan: " + (gpuPlan?.describe(com.skywing.desktop.PowerSource.onBattery()) ?: "not made yet"))
+            caps.gpuNote?.let { appendLine("GPU note: $it") }
             appendLine("Renderer: $rendererDevice; output: ${textProperty("current-vo") ?: "unavailable"}; render path: ${renderPath()}")
             appendLine("Graphics drivers: ${drivers()}")
             appendLine("Processor: ${Processor.current.line()}")
