@@ -27,6 +27,8 @@ You are working on **SkyWing for Windows**, the PC port of my Android video play
 
 The handhelds also have built-in game controllers and usually **no physical keyboard**.
 
+*Changed 25 November (owner):* no test runs on the OneXPlayer 3 in M2 or any later milestone. The owner judges the two handhelds very close, so a pass on the MSI Claw 8 stands for both. Wherever this plan asks for a test on the OneXPlayer 3 or on both handhelds, run it on the Claw only. SkyWing must still run on the OneXPlayer 3.
+
 **Beyond my machines:** the app must run on most Windows x64 PCs: NVIDIA, AMD and Intel, dedicated or integrated, old or new, with or without OpenCL. Section 5.8 is the compatibility matrix. A missing feature on some GPU must switch that feature off with a plain reason, never crash or block playback.
 
 ---
@@ -363,7 +365,7 @@ fun plan(inv: GpuInventory, monitorAdapter: Adapter, choice: GpuChoice, onBatter
   - **Verify** which costs less: running PresentMon (MIT licence; downloading it needs my OK, shipping it needs its notice) next to `--bench`, or reading the events in the app.
 - **"Copy test report"** in the playback report: build, runtime and sharing state, GPU plan, screen, HDR and VRR state, and the per-minute table.
 - **`verify.ps1`** adds the display state, and the frame times when measured, to its report. Its "Not covered by automation" list then keeps only the display checks no reading can make: how HDR looks and how smooth playback feels.
-- **Benchmark mode** (hidden, `--bench <file> --minutes 10 --quality Balanced --stop 2x`): plays fullscreen from a fixed start time and writes the CSV, so laptop, Claw and OneXPlayer runs are comparable.
+- **Benchmark mode** (hidden, `--bench <file> --minutes 10 --quality Balanced --stop 2x`): plays fullscreen from a fixed start time and writes the CSV, so laptop and Claw runs are comparable.
 
 ### 5.7 Making smoothing cheaper (experiments, not promises)
 The profile shows the full-resolution motion search is about 70% of the analysis work, with colour (chroma) scoring a big part of it, and SkyWing Balanced uses about 2.3 CPU cores against PotPlayer's 1.3 on Intel.
@@ -379,7 +381,7 @@ The profile shows the full-resolution motion search is about 70% of the analysis
    - The playback report adds "Smoothing size: 1920 × 1080 (screen 1920 × 1200)".
    - Off by default. The owner compares it by eye on the Claw at 4K Fast and Balanced. If it looks the same, it becomes on by default. Measure process CPU and battery drain with the handheld runner; the M0 rows are the "before".
    - Tests: the fit size for 4K, 1080p and portrait video on 1920 × 1200, 2560 × 1600, 3840 × 2160, 1366 × 768 and 3440 × 1440 screens; a native test that a 4K source on a 1920 × 1200 screen is smoothed at 1920 × 1080 with exact frame times.
-5. **Efficiency floor (owner runs, no code):** on the Claw, 1080p Fast on battery with MSI's limit at 20 W and then 15 W, in Windows Best performance. Then repeat the lowest limit that kept 0 drops in Windows Balanced. M0 measured 14.2 W of battery drain at 30 W and Best performance. Then do the same on the OneXPlayer 3.
+5. **Efficiency floor (owner runs, no code):** on the Claw, 1080p Fast on battery with MSI's limit at 20 W and then 15 W, in Windows Best performance. Then repeat the lowest limit that kept 0 drops in Windows Balanced. M0 measured 14.2 W of battery drain at 30 W and Best performance. ~~Then do the same on the OneXPlayer 3.~~ *Dropped 25 November (owner): the Claw stands in for both handhelds.*
    - Use the handheld runner one run at a time: move the old `…-1080p-fast-battery` folder out of `results`, and the runner redoes only that run (about 7 minutes).
    - Keep the screen brightness the same for every run, because the runner's `Battery:` line is the whole device's draw. The runner records the Windows power mode but not MSI's limit, so name each run's folder after its limit.
    - Record the rows in M0-RESULTS section 4.
@@ -764,7 +766,7 @@ It shows the first failing step with one suggestion, e.g. "Your Wi-Fi is on 192.
 4. **When to hide:** focus leaves all text fields (wait 150 ms, so moving from Username to Password keeps it open), the dialog closes, or Enter submits.
 5. **Keep the field visible:** subscribe to `InputPane` `Showing` / `Hiding` (`OccludedRect`), or poll `IFrameworkInputPane::Location` every 200 ms while a field is focused. Add a bottom inset equal to the covered height, animate it 200 ms, and call `bringIntoView` on the focused field. Dialogs (Add drive, rename) move up so their buttons stay above the keyboard.
 6. **Enter key:** each field declares its action: Search (search boxes), Next (moves to the next field), Done (submits). Handle Enter ourselves.
-7. **Fullscreen player:** the keyboard can't show over an exclusive-like borderless fullscreen in some builds. If a field is focused in the player (track search), drop to windowed chrome first or show the field in a small overlay window that the keyboard can sit under (**verify** on the OneXPlayer 3).
+7. **Fullscreen player:** the keyboard can't show over an exclusive-like borderless fullscreen in some builds. If a field is focused in the player (track search), drop to windowed chrome first or show the field in a small overlay window that the keyboard can sit under (**verify** on the Claw).
 8. **Controller-only typing:** the Windows touch keyboard can't always be driven by a gamepad (**verify** on both handhelds). If not, add a simple **SkyWing on-screen keyboard** for controller use only: a QWERTY grid, D-pad moves, A types, X deletes, Y space, Start done, plus recent searches as chips.
 9. **Setting:** Settings → Controls → "Show touch keyboard": Automatic (default) / Always / Never.
 10. **Test:** on both handhelds, tap search, drive address, username, password and rename: the keyboard appears every time, the field stays visible, Username → Password keeps it open, closing the dialog hides it.
@@ -1062,7 +1064,7 @@ Do these after P7, in this order. The first three come first because I'd notice 
 
 For each phase:
 - **What changed:** 3–6 plain bullets.
-- **What to test on which machine:** laptop / Claw / OneXPlayer.
+- **What to test on which machine:** laptop / Claw (no OneXPlayer 3 runs; the Claw stands in for both handhelds).
 - **Numbers:** frame time p95, start time, memory, playback drops (before → after).
 - **Commit IDs.**
 - **Anything you couldn't do, and why.**

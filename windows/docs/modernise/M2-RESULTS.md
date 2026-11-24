@@ -212,6 +212,8 @@ Every check below needs CI's installer from the M2 pull request. It is the first
 
 ### OneXPlayer 3 (Intel Arc B390)
 
+*Dropped 25 November (owner):* no OneXPlayer 3 runs in M2 or later. The Claw list above stands in for both handhelds.
+
 1. Items 1 to 4 of the Claw list, with OneXConsole's limits in place of MSI's.
 2. The report's `GPU plan:` line names the Arc B390, and its `Preferred motion GPU:` line names that GPU's OpenCL device.
 3. The screen-size comparison by eye matters most here: its 4K drops in M0 came from the start.
