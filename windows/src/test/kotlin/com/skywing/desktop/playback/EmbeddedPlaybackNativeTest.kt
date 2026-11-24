@@ -73,6 +73,17 @@ class EmbeddedPlaybackNativeTest {
         waitFor("the player to become idle") { player.diagnosticProperty("idle-active") == "yes" }
     }
 
+    /** M3 item 10: a left click on mpv's own video window reaches SkyWing at once, which hides the full-screen bars. */
+    @Test(timeout = 120_000)
+    fun aClickOnTheVideoReachesSkyWing() = withPlayer { player ->
+        val clicks = java.util.concurrent.atomic.AtomicInteger()
+        player.onVideoClick = { clicks.incrementAndGet() }
+        assertTrue(player.open(mp4))
+        waitFor("the clip to start playing") { (player.playbackPosition() ?: 0.0) > 0.3 }
+        assertTrue(player.clickVideoForTest())
+        waitFor("the click to arrive", timeoutMs = 2_000) { clicks.get() == 1 }
+    }
+
     @Test(timeout = 120_000)
     fun controlsOnTheScreenThreadDoNotWaitForABusyPlayer() = withPlayer { player ->
         assertTrue(player.open(mp4))

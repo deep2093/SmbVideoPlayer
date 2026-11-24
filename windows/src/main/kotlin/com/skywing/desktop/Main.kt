@@ -256,13 +256,22 @@ private fun SkyWingDesktopShell(
         smoothingMode = mode
         playbackScope.launch(Dispatchers.IO) { SmoothingStore.save(mode) }
     }
+    // The last input used (M3 item 3). In full screen a touch leaves the hidden pointer over a bar, which must not hold it.
+    val inputMode = remember { mutableStateOf(InputMode.Mouse) }
     val topInteractions = remember { MutableInteractionSource() }
     val bottomInteractions = remember { MutableInteractionSource() }
     val topHovered by topInteractions.collectIsHoveredAsState()
     val bottomHovered by bottomInteractions.collectIsHoveredAsState()
-    val (chromeVisible, showPlayerChrome) = rememberPlayerChrome(awtWindow, fullscreen,
-        paused || dragging || smoothingMenu || topHovered || bottomHovered) { visible -> embedded.setCursorHidden(!visible) }
+    val barHovered = inputMode.value == InputMode.Mouse && (topHovered || bottomHovered)
+    val (chromeVisible, showPlayerChrome, playerVideoClick) = rememberPlayerChrome(awtWindow, fullscreen,
+        paused || dragging || smoothingMenu || barHovered) { visible -> embedded.setCursorHidden(!visible) }
     val currentShowPlayerChrome by rememberUpdatedState(showPlayerChrome)
+    // A click or tap on the video reaches the window of mpv, not AWT; mpv passes it on (M3 item 10).
+    val currentVideoClick by rememberUpdatedState(playerVideoClick)
+    DisposableEffect(embedded) {
+        embedded.onVideoClick = { SwingUtilities.invokeLater { currentVideoClick() } }
+        onDispose { embedded.onVideoClick = null }
+    }
     val playerFullscreen by rememberUpdatedState(fullscreen)
     LaunchedEffect(embedded, smoothingMode, currentFile, closing) {
         if (closing) return@LaunchedEffect
@@ -599,7 +608,6 @@ private fun SkyWingDesktopShell(
     val density = LocalDensity.current
     @OptIn(ExperimentalComposeUiApi::class)
     val windowWidth = with(density) { LocalWindowInfo.current.containerSize.width.toDp() }
-    val inputMode = remember { mutableStateOf(InputMode.Mouse) }
     val adaptive = Adaptive(rememberSettledWidth(windowWidth), inputMode.value)
 
     @OptIn(ExperimentalComposeUiApi::class)
