@@ -45,8 +45,10 @@ import kotlin.system.exitProcess
  * - SKYWING_M0_CLIP: the clip, on a local drive.
  * - SKYWING_M0_OUT: where results go, outside this checkout and outside OneDrive (it would upload them while written).
  * - SKYWING_M0_LABEL: the run's name, used for its results folder (letters, digits, '-' and '_').
- * - SKYWING_M0_VRR: true or false, written as SkyWing's "My screen uses G-SYNC / FreeSync" setting, or auto to leave
- *   it unset, so SkyWing detects it from the display.
+ * - SKYWING_M0_VRR: true or false, written as SkyWing's VRR setting ("My screen uses G-SYNC / FreeSync" in 0.1.101,
+ *   "Let VRR control refresh (fullscreen)" from M2), or auto to leave it unset: 0.1.101 then detects it from the
+ *   display, and M2 leaves it off.
+ * - SKYWING_M0_SCREEN_SIZE: on or off, SkyWing's "Smooth at screen size" (M2, plan 5.7 item 4); off when unset.
  * - SKYWING_M0_QUALITY: the motion quality (Fastest, Fast, Balanced, Better or Best); Balanced when unset.
  * - SKYWING_M0_POWER: ac or battery, what the machine must be on.
  * - SKYWING_M0_WARMUP and SKYWING_M0_WINDOW: seconds; 60 and 600 when unset.
@@ -75,16 +77,18 @@ internal class M0Settings private constructor(
     val clip: Path,
     val out: Path,
     val label: String,
-    /** "My screen uses G-SYNC / FreeSync"; null leaves it unset, so SkyWing detects it from the display. */
+    /** SkyWing's VRR setting; null leaves it unset (0.1.101 detects it, M2 leaves it off). */
     val vrr: Boolean?,
+    /** "Smooth at screen size" (M2); 0.1.101 has no such setting and ignores it. */
+    val screenSize: Boolean,
     val onAc: Boolean,
     val quality: MotionQuality,
     val warmupSeconds: Long,
     val windowSeconds: Long,
     val gpu: String?,
 ) {
-    /** Motion on at 2× in [quality] for every video class, as section 2 sets it, "Lower automatically" off, and [vrr]. */
-    fun seed(root: Preferences) = seedMotion(root, quality, vrr)
+    /** Motion on at 2× in [quality] for every video class, as section 2 sets it, "Lower automatically" off, [vrr] and [screenSize]. */
+    fun seed(root: Preferences) = seedMotion(root, quality, vrr, screenSize)
 
     companion object {
         private val LABEL = Regex("[A-Za-z0-9_-]{1,40}")
@@ -129,8 +133,10 @@ internal class M0Settings private constructor(
             val quality = requireNotNull(
                 MotionQuality.entries.firstOrNull { qualityText.equals(it.label, ignoreCase = true) || qualityText.equals(it.name, ignoreCase = true) },
             ) { "SKYWING_M0_QUALITY must be one of ${MotionQuality.entries.joinToString { it.label }}." }
+            val screenSizeText = value("SKYWING_M0_SCREEN_SIZE") ?: "off"
+            require(screenSizeText == "on" || screenSizeText == "off") { "SKYWING_M0_SCREEN_SIZE must be on or off." }
             return M0Settings(
-                clip, out, label, vrr, power == "ac", quality,
+                clip, out, label, vrr, screenSizeText == "on", power == "ac", quality,
                 seconds("SKYWING_M0_WARMUP", 60), seconds("SKYWING_M0_WINDOW", 600), value("SKYWING_GPU"),
             )
         }
@@ -139,9 +145,9 @@ internal class M0Settings private constructor(
 
 /**
  * Motion on at 2× in [quality] for every video class (stop 0), "Lower automatically" off, so SkyWing never lowers the
- * rate by itself, and "My screen uses G-SYNC / FreeSync" set to [vrr] (null: SkyWing detects it).
+ * rate by itself, the VRR setting set to [vrr] (null: left unset), and "Smooth at screen size" set to [screenSize].
  */
-internal fun seedMotion(root: Preferences, quality: MotionQuality, vrr: Boolean?) {
+internal fun seedMotion(root: Preferences, quality: MotionQuality, vrr: Boolean?, screenSize: Boolean = false) {
     val playback = root.node(MotionStatus.PLAYBACK_NODE)
     playback.put("smoothing", "MOTION")
     for (size in listOf("1080", "1440", "4k")) for (range in listOf("sdr", "hdr")) {
@@ -150,6 +156,7 @@ internal fun seedMotion(root: Preferences, quality: MotionQuality, vrr: Boolean?
     }
     vrr?.let { playback.putBoolean("motion.vrr", it) }
     playback.putBoolean("motion.lowerAutomatically", false)
+    playback.putBoolean("motion.screenSize", screenSize)
 }
 
 /** Every running SkyWing.exe, whoever started it. The runners count every one, so they start only when none runs. */
@@ -194,7 +201,7 @@ internal class M0Run(private val settings: M0Settings) {
             line("Image: ${SkyWingTestApp.image}")
             line("Clip: a local file, %.2f GiB (its name is not recorded)".format(Locale.ROOT, settings.clip.fileSize() / GIB))
             line("SKYWING_GPU: ${settings.gpu ?: "unset"}")
-            line("Seeded: motion on; 2×; ${settings.quality.label}; G-SYNC / FreeSync ${settings.vrr ?: "unset (SkyWing detects it)"}; lower automatically false")
+            line("Seeded: motion on; 2×; ${settings.quality.label}; VRR ${settings.vrr ?: "unset"}; lower automatically false; smooth at screen size ${if (settings.screenSize) "on" else "off"}")
             val app = SkyWingTestApp.launch("m0-${settings.label}", args = listOf(settings.clip.toString())) { root, _ -> settings.seed(root) }
             return try {
                 measure(app)

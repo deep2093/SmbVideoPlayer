@@ -91,6 +91,19 @@ class M0SettingsTest {
     }
 
     @Test
+    fun smoothAtScreenSizeIsSeededOffUnlessTheRunTurnsItOn() {
+        fun seeded(name: String, vararg changes: Pair<String, String?>) =
+            IsolatedPreferencesFactory.openUserRoot(temp.resolve("screen size $name.properties")).also { root ->
+                M0Settings.fromEnvironment(environment(*changes)).seed(root)
+            }.node("com/skywing/desktop/playback")
+
+        assertEquals("false", seeded("default").get("motion.screenSize", null))
+        assertEquals("true", seeded("on", "SKYWING_M0_SCREEN_SIZE" to "on").get("motion.screenSize", null))
+        assertEquals("false", seeded("off", "SKYWING_M0_SCREEN_SIZE" to "off").get("motion.screenSize", null))
+        assertContains(refusal("SKYWING_M0_SCREEN_SIZE" to "yes"), "SKYWING_M0_SCREEN_SIZE must be on or off")
+    }
+
+    @Test
     fun aClipOnANetworkShareIsRefusedWithoutOpeningIt() {
         assertContains(refusal("SKYWING_M0_CLIP" to """\\nas.invalid\videos\clip.mp4"""), "network")
     }

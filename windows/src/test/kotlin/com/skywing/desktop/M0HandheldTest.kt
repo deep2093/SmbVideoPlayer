@@ -5,8 +5,10 @@ import com.skywing.desktop.automation.ClipSize
 import com.skywing.desktop.automation.Disturbances
 import com.skywing.desktop.automation.FinishedRun
 import com.skywing.desktop.automation.HandheldPlan
+import com.skywing.desktop.automation.HandheldRun
 import com.skywing.desktop.automation.HandheldSystem
 import com.skywing.desktop.automation.M0Outcome
+import com.skywing.desktop.automation.M0_BUILD
 import com.skywing.desktop.automation.M0Settings
 import com.skywing.desktop.automation.PlaybackReport
 import com.skywing.desktop.automation.PowerStatus
@@ -19,6 +21,7 @@ import com.skywing.desktop.automation.quietWaitMs
 import com.skywing.desktop.automation.registryString
 import com.skywing.desktop.automation.registryValue
 import com.skywing.desktop.automation.reportMismatch
+import com.skywing.desktop.automation.resultsFolder
 import com.skywing.desktop.automation.runPowerShell
 import com.skywing.desktop.automation.runnerFolderRefusal
 import com.skywing.desktop.automation.SmoothingStopped
@@ -79,6 +82,30 @@ class M0HandheldTest {
             listOf("trial-1080p-fast-ac", "trial-1080p-balanced-ac", "trial-4k-fast-ac", "trial-4k-balanced-ac"),
             HandheldPlan.runs(trial = true).map { it.label },
         )
+    }
+
+    @Test
+    fun screenSizeRunsHaveTheirOwnLabelsAndTurnTheSwitchOn() {
+        val atScreenSize = HandheldPlan.runs(trial = false, screenSize = true)
+        assertEquals(runs.map { it.label + "-screen-size" }, atScreenSize.map { it.label })
+        assertEquals("4K Fast, on battery, at screen size", atScreenSize[6].title)
+        assertEquals("trial-1080p-fast-ac-screen-size", HandheldPlan.runs(trial = true, screenSize = true)[0].label)
+
+        val image = temp.resolve("SkyWing").createDirectories().also { it.resolve("SkyWing.exe").createFile() }
+        val clip = temp.resolve("clip.mp4").createFile()
+        fun settings(run: HandheldRun) = M0Settings.fromEnvironment(
+            mapOf("SKYWING_TEST_IMAGE" to image.toString()) + run.environment(clip, temp.resolve("results"), vrr = null),
+        )
+        assertTrue(settings(atScreenSize[0]).screenSize)
+        assertFalse(settings(runs[0]).screenSize)
+    }
+
+    @Test
+    fun anotherBuildsResultsGoToAFolderOfTheirOwn() {
+        assertEquals("Claw-8", resultsFolder("Claw-8", M0_BUILD))
+        assertEquals("Claw-8-0.1.104", resultsFolder("Claw-8", "0.1.104"))
+        assertEquals("Claw-8-version-unknown", resultsFolder("Claw-8", null))
+        assertEquals("Claw-8-1.0-beta", resultsFolder("Claw-8", "1.0 beta"))
     }
 
     @Test
