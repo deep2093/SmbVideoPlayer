@@ -94,6 +94,8 @@ internal fun SettingsScreen(
     onSmoothingMode: (SmoothingMode) -> Unit,
     /** Receives what Back does here: closes the open page when the list is hidden, and says whether it did. */
     onBackHandler: ((() -> Boolean)?) -> Unit = {},
+    /** "Reset window size" in Appearance. */
+    onResetWindow: () -> Unit = {},
     onOpenFiles: () -> Unit,
 ) {
     val adaptive = LocalAdaptive.current
@@ -110,7 +112,7 @@ internal fun SettingsScreen(
         Box(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().padding(end = 14.dp).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 when (page) {
-                    "Appearance" -> AppearancePage(current, onTheme)
+                    "Appearance" -> AppearancePage(current, onTheme, onResetWindow)
                     "Library" -> LibraryPage(library, organizer, onOpenFiles)
                     "Auto grouping" -> GroupingPage(organizer)
                     "App layout" -> LayoutPage(organizer)
@@ -216,7 +218,7 @@ internal fun SettingsRow(icon: SkyIcon, title: String, subtitle: String, onClick
 }
 
 @Composable
-private fun AppearancePage(current: SkyTheme, onTheme: (SkyTheme) -> Unit) {
+private fun AppearancePage(current: SkyTheme, onTheme: (SkyTheme) -> Unit, onResetWindow: () -> Unit) {
     val theme = LocalSkyTheme.current
     Text("Theme", color = theme.ink, style = MaterialTheme.typography.titleMedium)
     Text(
@@ -231,6 +233,19 @@ private fun AppearancePage(current: SkyTheme, onTheme: (SkyTheme) -> Unit) {
             }
         }
     }
+    // Plan 6.8 rule 6.
+    Text("Window at start", color = theme.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 10.dp))
+    Text(
+        "Remember last opens SkyWing as you left it, on the same screen. Small, Medium and Large take 60, 75 and 90 % of the screen.",
+        color = theme.muted, style = MaterialTheme.typography.bodySmall,
+    )
+    val store = remember { WindowPlacementStore() }
+    var mode by remember { mutableStateOf(store.mode()) }
+    SkySegmented(StartMode.entries.map { it.label }, StartMode.entries.indexOf(mode), { index ->
+        mode = StartMode.entries[index]
+        store.setMode(mode)
+    })
+    SkyButton("Reset window size", onResetWindow, primary = false)
 }
 
 @Composable

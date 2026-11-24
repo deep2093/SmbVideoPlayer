@@ -58,7 +58,6 @@ import com.skywing.desktop.ui.adaptive.followInputMode
 import com.skywing.desktop.ui.adaptive.rememberSettledWidth
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
-import androidx.compose.ui.window.rememberWindowState
 import com.skywing.desktop.playback.EmbeddedMpv
 import com.skywing.desktop.playback.SmoothingStatus
 import com.skywing.desktop.playback.SmoothingMode
@@ -112,7 +111,10 @@ fun main(args: Array<String>) {
 }
 
 private fun skyWingApplication(args: Array<String>, instance: SingleInstance.Owner?) = application {
-    val state = rememberWindowState(width = 1280.dp, height = 800.dp)
+    // Where the window opens and what it remembers (M3 item 8, plan 6.8).
+    val placementStore = remember { WindowPlacementStore() }
+    val (start, state) = remember { startWindowState(placementStore) }
+    val placementSaver = remember { WindowPlacementSaver(placementStore, start) }
     var closing by remember { mutableStateOf(false) }
     val embedded = remember { EmbeddedMpv() }
     val initialFile = remember { args.firstOrNull()?.let(::File) }
@@ -130,9 +132,16 @@ private fun skyWingApplication(args: Array<String>, instance: SingleInstance.Own
         onCloseRequest = {
             if (!closing) {
                 closing = true
+                val placement = placementSaver.pending(state)
                 scope.launch {
                     // A start from now on opens its own window rather than handing its video to this closing one.
-                    try { withContext(Dispatchers.IO) { instance?.close(); embedded.close() } }
+                    try {
+                        withContext(Dispatchers.IO) {
+                            placement?.let { (screen, start) -> placementStore.save(screen, start) }
+                            instance?.close()
+                            embedded.close()
+                        }
+                    }
                     finally { exitApplication() }
                 }
             }
@@ -140,7 +149,12 @@ private fun skyWingApplication(args: Array<String>, instance: SingleInstance.Own
         title = "SkyWing for Windows (Development Preview)",
         state = state,
     ) {
-        SkyWingWindowContent(window, embedded, closing, initialFile, handoffs = instance?.handoffs)
+        RememberWindowPlacement(window, state, placementSaver)
+        SkyWingWindowContent(
+            window, embedded, closing, initialFile, handoffs = instance?.handoffs,
+            onFullscreenChange = { placementSaver.fullscreen = it },
+            onResetWindow = { resetWindow(window, placementStore) },
+        )
     }
 }
 
@@ -152,6 +166,10 @@ internal fun SkyWingWindowContent(
     initialFile: File? = null,
     initialSection: String = "Home",
     handoffs: ReceiveChannel<List<String>>? = null,
+    /** Told of every change of the full-screen player, as it happens (the window placement is not saved meanwhile). */
+    onFullscreenChange: (Boolean) -> Unit = {},
+    /** "Reset window size" in Appearance. */
+    onResetWindow: () -> Unit = {},
 ) {
     var fullscreen by remember { mutableStateOf(false) }
     var theme by remember { mutableStateOf(SkyThemeStore.load()) }
@@ -165,6 +183,7 @@ internal fun SkyWingWindowContent(
                 fullscreen = controller.isFullscreen
                 System.err.println("Fullscreen transition failed: ${failure.message}")
             }
+            onFullscreenChange(fullscreen)
         }
     }
     // The Windows title bar follows the theme.
@@ -183,7 +202,7 @@ internal fun SkyWingWindowContent(
         MaterialTheme(colorScheme = shownTheme.colorScheme(), typography = SkyTypography) {
             SkyWingDesktopShell(
                 awtWindow, embedded, fullscreen, closing, changeFullscreen, initialFile, initialSection,
-                shownTheme, { chosen -> theme = chosen; SkyThemeStore.save(chosen) }, handoffs,
+                shownTheme, { chosen -> theme = chosen; SkyThemeStore.save(chosen) }, handoffs, onResetWindow,
             )
         }
     }
@@ -209,6 +228,7 @@ private fun SkyWingDesktopShell(
     theme: SkyTheme,
     onTheme: (SkyTheme) -> Unit,
     handoffs: ReceiveChannel<List<String>>?,
+    onResetWindow: () -> Unit,
 ) {
     var selected by remember { mutableStateOf(initialSection) }
     var previous by remember { mutableStateOf("Home") }
@@ -617,7 +637,7 @@ private fun SkyWingDesktopShell(
                                 "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it }) { go("Files") }
                                 "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
                                 else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,
-                                    smoothingMode, smoothingStatus, ::selectSmoothing, { settingsBack.value = it }) { go("Files") }
+                                    smoothingMode, smoothingStatus, ::selectSmoothing, { settingsBack.value = it }, onResetWindow) { go("Files") }
                             } }
                         }
                     }
