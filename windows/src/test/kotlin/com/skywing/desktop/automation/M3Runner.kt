@@ -471,12 +471,14 @@ private class M3Runner(
             val hwnd = app.mainWindow()
             Thread.sleep(WINDOW_SETTLE_MS)
             val (roomWidth, roomHeight) = roomDp(hwnd)
-            if (roomWidth >= 1300 && roomHeight >= 760) {
-                WindowShots.setContentSizeDp(hwnd, 1300, 760)
+            // Two panes from 900 dp (the owner's choice, M3-DESIGN-PREP.md decision O1): Expanded, and Medium above 900 dp.
+            for (width in TWO_PANE_WIDTHS.filter { it <= roomWidth }) {
+                WindowShots.setContentSizeDp(hwnd, width, minOf(760.0, roomHeight).toInt())
                 Thread.sleep(RESIZE_SETTLE_MS)
-                if (!openPlayback(app)) row("two panes", Verdict.NOT_MEASURED, "The Playback page didn't open")
-                else if (categoryShowing(app)) row("two panes: the category list beside the page (B1)", Verdict.PASS, "At 1300 dp the categories stay on screen while Playback is open")
-                else row("two panes: the category list beside the page (B1)", Verdict.FAIL, "At 1300 dp the categories went away while Playback was open")
+                val what = "two panes at $width dp: the category list beside the page (B1)"
+                if (!openPlayback(app)) row(what, Verdict.NOT_MEASURED, "The Playback page didn't open")
+                else if (categoryShowing(app)) row(what, Verdict.PASS, "At $width dp the categories stay on screen while Playback is open")
+                else row(what, Verdict.FAIL, "At $width dp the categories went away while Playback was open")
             }
             // One pane under either of the plan's edges: 6.5 has two panes from 900 dp, 6.6 from 720 dp.
             WindowShots.setContentSizeDp(hwnd, 680, minOf(720.0, roomHeight).toInt())
@@ -628,6 +630,8 @@ private class M3Runner(
         const val GALLERY_PER_FOLDER = 8
         const val LIBRARY_WAIT_MS = 90_000L
         const val RESIZE_SETTLE_MS = 1_200L
+        /** Settings' two-pane widths: Expanded, and Medium above the 900 dp edge. */
+        val TWO_PANE_WIDTHS = listOf(1300, 1000)
         const val PAGE_SETTLE_MS = 1_500L
         const val WINDOW_SETTLE_MS = 2_500L
         /** SkyWing saves the window 500 ms after it last moved (6.8 rule 2); the runner waits three times that. */

@@ -36,7 +36,7 @@ On a handheld, copy the folder to the device's own NTFS drive and double-click `
 | | The width sweep on Videos, scrolled down: 1300, 1150, 1000, 800, 700 and 640 dp. At each width the navigation's shape (wide rail, narrow rail, top tabs) from the Access Bridge bounds of its entries, and whether the video at the top before is still on the page. | 6.4, 6.6 | Pass or fail against the plan, with the wide rail from 1200 dp (below) |
 | | The accessibility audit of every page at the first size: every button, switch, check box, slider, field and tab on screen has a name, every slider a value, every group of tabs a selected one. `access.md` lists what a screen reader can't tell. | 6.9, B33 | Pass when nothing is found |
 | `window` | On fresh data: the first start's size and place; Restore after a maximised first start; moved to 60 % of the work area, closed and reopened; maximised, closed, reopened and restored; moved off every screen, closed and reopened; made 200 × 150 px. | 6.8 rules 1–5 | Pass or fail against the plan |
-| `settings` | At 1300 dp, whether the category list stays beside the Playback page. At 680 dp (one pane under both 6.5's and 6.6's edges), from the Playback page: Settings again, Esc, the mouse back button, the Back button, and Folders then Settings must each bring back the category list. | 6.5, B1 | Pass or fail |
+| `settings` | At 1300 and 1000 dp (two panes from 900 dp, below), whether the category list stays beside the Playback page. At 680 dp (one pane), from the Playback page: Settings again, Esc, the mouse back button, the Back button, and Folders then Settings must each bring back the category list. | 6.5, B1 | Pass or fail |
 
 With no word it does all four (about 40 minutes on the laptop). `Run M3.cmd pages window` runs only those. `trial`
 makes every check short (the M1 trial timing, two board sizes, two sweep widths, the first window steps): a trial
@@ -70,6 +70,9 @@ The runner exits 1 when the after image failed a check, 0 otherwise, 2 when it r
 6.4 makes the rail wide from 1100 dp; 6.6 makes the Expanded width class, and so the wide rail, start at 1200 dp. The
 owner chose 1200 dp (2026-11-25): the rail follows the width class. At 1150 dp the sweep expects the narrow rail, which
 also shows whether a build still uses 6.4's 1100.
+
+6.5 makes Settings two panes from 900 dp; 6.6 from 720 dp. Settings is two panes from 900 dp (`M3-DESIGN-PREP.md`,
+decision O1), so the runner checks two panes at 1300 and 1000 dp and one pane at 680 dp.
 
 ## What the runner can't see
 

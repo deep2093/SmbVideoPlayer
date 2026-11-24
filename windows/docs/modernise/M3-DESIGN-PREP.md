@@ -89,7 +89,7 @@ the last resize:
 | Class | Content width | Navigation | Grid | Settings |
 |---|---|---|---|---|
 | Compact | under 720 dp | Top tabs | 2 columns | One pane: list, then the page with ← Back |
-| Medium | 720–1199 dp | Rail 72 dp, icon above a short label | 3–4 columns | See decision O1 |
+| Medium | 720–1199 dp | Rail 72 dp, icon above a short label | 3–4 columns | One pane under 900 dp; two panes, 240 dp list, from 900 dp (decision O1) |
 | Expanded | 1200 dp and up | Rail 240 dp, full labels, Now playing card | 5–6 columns, cards at most 320 dp | Two panes, 288 dp list with search |
 
 The wide rail starts at 1200 dp: the owner chose 6.6's edge over 6.4's 1100 dp on 2026-11-25. Handheld mode (M5) will
@@ -229,7 +229,7 @@ Board `SettingsDesktop`; fixes B1.
 
 **Panes:**
 
-- **Two panes** (see O1 for where they start): the category list on the left, the page on the right.
+- **Two panes** from 900 dp (decision O1): the category list on the left, the page on the right.
   - The list is 240 dp wide below 1200 dp and 288 dp from 1200 dp, on `layer1`. At the top: "Settings" (Display 28)
     and a "Search settings" field.
   - Category rows are 44 dp tall with a 28 dp letter tile tinted at 16 % of its own colour, as on the board.
@@ -386,28 +386,28 @@ A suggested order for small `M3:` commits, each with its tests:
 
 ## 9. Decisions
 
-**Decided**
+**Decided by the owner** (2026-11-25)
 
-- **D1. The wide rail starts at 1200 dp** (owner, 2026-11-25): it follows 6.6's width classes, not 6.4's 1100 dp. The
-  M3 runner's sweep expects the narrow rail at 1150 dp.
+- **D1. The wide rail starts at 1200 dp:** it follows 6.6's width classes, not 6.4's 1100 dp. The M3 runner's sweep
+  expects the narrow rail at 1150 dp.
 
-**Open, for the owner** (each has a recommendation; M3 follows it unless the owner says otherwise)
+The owner then left O1–O5 and A1–A6 to the recommendations ("do whatever you feel is good", 2026-11-25), so each is
+decided as recommended below.
 
 - **O1. Where Settings becomes two panes.** 6.5 says from 900 dp with a 280 dp list. 6.6 and the Tokens board say from
   720 dp with a 240 dp list, and 288 dp from 1200 dp. At 720 dp, 6.6 leaves the page about 400 dp, too narrow for the
-  Playback page's rows. *Recommendation:* two panes from 900 dp; a 240 dp list below 1200 dp and 288 dp from 1200 dp;
-  search always in the list. The runner's one-pane check now uses 680 dp, so it holds either way.
+  Playback page's rows. *Decided:* two panes from 900 dp; a 240 dp list below 1200 dp and 288 dp from 1200 dp; search
+  always in the list. The runner checks two panes at 1300 and 1000 dp, and one pane at 680 dp.
 - **O2. The rail beside Settings at 1200 dp and up.** Board `SettingsDesktop` draws the 72 dp rail at 1440 dp; 6.6 says
-  240 dp at that width. *Recommendation:* follow the width class everywhere, so the rail doesn't jump when you open
-  Settings and the Now playing card stays.
-- **O3. Settings categories:** the mapping in 5.5. *Recommendation:* as in that table, with Performance shown only once
-  it holds a real setting.
-- **O4. Columns:** the user's fixed column count and card size win; the width class sets only the default (5.4).
-  *Recommendation:* as described.
-- **O5. The start page:** Home (the new page, as on board `Main`) or Folders (today). *Recommendation:* Home. Existing UI
-  tests that expect Folders at start must then open Folders first.
+  240 dp at that width. *Decided:* follow the width class everywhere, so the rail doesn't jump when you open Settings
+  and the Now playing card stays.
+- **O3. Settings categories.** *Decided:* the mapping in 5.5, with Performance shown only once it holds a real setting.
+- **O4. Columns.** *Decided:* the user's fixed column count and card size win; the width class sets only the default
+  (5.4).
+- **O5. The start page.** *Decided:* Home, as on board `Main` (today it is Folders). Existing UI tests that expect
+  Folders at start must then open Folders first.
 
-**Assumptions in this brief** (small; changed if the owner or the boards say otherwise)
+**Assumptions in this brief** (accepted with the decisions above)
 
 - A1. Now playing is a rail item with a progress ring in Medium, and a fifth tab in Compact, while a video is loaded.
 - A2. Page titles are Display 28 at Medium and Expanded (the boards) and Title 20 in Compact; 6.4's text says Title.
@@ -425,7 +425,7 @@ A suggested order for small `M3:` commits, each with its tests:
 | 2. `LocalAdaptive` | Unit tests of the width classes (the edges 719, 720, 1199, 1200) and of the input-mode rules | Touch on a handheld switches density between gestures |
 | 3. Shell and Home | Runner `pages`: the width sweep (navigation shape, the top video still on the page) | Resize across 720 and 1200 dp while a video plays: no black flash, playback goes on (the video window survives) |
 | 4. Grids and sort | Unit tests of the column rule and of the sort flip | Ctrl + wheel, multi-select, right-click menus |
-| 5. Settings | Runner `settings`: two panes at 1300 dp; five ways back at 680 dp. Semantics tests of the reselect handler | Alt+Left; search highlight; every moved row found by its old name |
+| 5. Settings | Runner `settings`: two panes at 1300 and 1000 dp; five ways back at 680 dp. Semantics tests of the reselect handler | Alt+Left; search highlight; every moved row found by its old name |
 | 6. Window | Runner `window`: rules 1–5. Unit tests of the placement rules | Rule 8 on the laptop with an external monitor; both handhelds |
 | 7. Accessibility | Semantics tests per section 5.7; runner audit with no findings | NVDA and Narrator read the pages; Windows text size and 125–200 % scaling |
 | Everything | Runner `numbers`: before and after | Playback, full screen in and out, Alt-Tab, close (checks runner `fullscreen` and `stress`) |
