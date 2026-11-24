@@ -113,6 +113,22 @@ An 8-minute Balanced benchmark of the same clip. A helper kept SkyWing in front 
 
 Plugged in, being behind another window changed neither drops nor SkyWing's CPU on the laptop. So nothing here asks for opting out of Windows' power throttling. The handheld on battery, where Windows throttles harder, is the owner's run (section 5).
 
+### The owner's hand tests (25 November)
+
+CI's installers 0.1.113 (b49c7ad) and 0.1.117 (merge 5052bf4), local files, audio on. Numbers come from the test report's per-minute table unless the row says otherwise.
+
+| PC and setup | Check | Result |
+|---|---|---|
+| Claw, 0.1.113, plugged in, 1080p 23.976 fps Fast 3× = 71.93 fps, VRR switch on, Intel Adaptive Sync on, `bench.ps1 -PresentMon`, 3 min | VRR with SkyWing's window (laptop item 5's question, asked on the Claw) | Present mode independent flip 100%. Displayed-frame interval median 13.96 ms: a fixed 120 Hz screen allows only 8.33 or 16.67 ms, so VRR engaged. 0 drops; 3.8% of frames took over 1.5× the median. |
+| Laptop, 0.1.117, NVIDIA-only, 4K Fast 4×, native size, full screen, switch on and then off | G-SYNC indicator | Never showed, switch on or off. On: 13, 12, 14 drops a minute after the first minute, 0 delayed. Off: 3 and 18 drops, 101 and 79 delayed. The cause wasn't pursued (owner); NVIDIA's query was removed (section 2, item 3). |
+| Claw, 0.1.117, battery, 4K 29.97 fps Fast 2× = 59.94 fps, full screen, VRR switch on; Explorer in front for minutes 4 to 7 | In front and behind (plan 5.9) | Minute 1: 15 drops, 25 delayed (the start). Minutes 2 to 7: 0 drops and 0 delayed, in front and behind; 1.32 to 1.41 cores. Explorer closed itself during the run (cause unknown). |
+| Claw, 0.1.117, battery, 20 W, same clip and settings, Windows Balanced (4 min) and Best performance (3 min) | Efficiency floor (plan 5.7 item 5) | Both 0 drops after minute 1 (minute 1: 8 drops and 10 delayed; 15 and 28). 1.37 to 1.42 cores and 1.33 to 1.43 cores: Best performance adds nothing. |
+| Claw, 15 W | Efficiency floor | Fine, by the owner's eye (no report). |
+| Claw, "Smooth at screen size" off and on | By eye (plan 5.7 item 4) | Keep it off by default (owner). |
+| Laptop, 0.1.117, Hybrid, Performance (NVIDIA), plugged in, Windows HDR on, 4K 29.97 fps SDR Better 4× = 119.88 fps on 240 Hz, VRR switch off | HDR line | The Screen line says HDR on; "HDR engaged: no (source is SDR)". Stutter for the first 1 to 2 s (546 drops and 17 delayed in the first seconds, a 1.5 s heartbeat gap), then smooth: 0 drops in the last minute when the report was copied. |
+
+Not done: an external screen (no second screen), an interlaced clip, a 59.94 fps file's stops, Hybrid's three choices, the charger, an HDR video, Win+Alt+B while SkyWing is open, a driver reset and the PotPlayer baselines.
+
 ### Before and after
 
 "Before" is M1's after build (061ea24) on this laptop: its M1-runner numbers and its M0-method playback run (`M1-RESULTS.md`). "After" is the M2 build (3f4b7d6), measured the same way on 24 November. One run each (three for M2's playback), so small differences may be chance.
@@ -237,6 +253,7 @@ Every check below needs CI's installer from the M2 pull request. It is the first
 - **Variable rate.** Interlaced video plays at the field rate after deinterlacing. A variable-rate Matroska file reports its fastest rate as its rate, so its first frames are timed from that.
 - **PotPlayer's 1.3 cores** may come from `Prefetch(1)` (one VapourSynth thread); not measured.
 - **open-svpflow's search types** are numbered differently from MVTools': MVTools' `search=3` is open-svpflow's default type 4.
+- **HDR on, start of playback.** With Windows HDR on, an SDR video stuttered for its first 1 to 2 s on the laptop (4K Better 4×), then played smoothly. Not compared with HDR off at the same settings.
 
 ## 7. Decisions for the owner
 
@@ -244,10 +261,10 @@ Every check below needs CI's installer from the M2 pull request. It is the first
 2. **The GPU-family rows (5.8).** *Decided 25 November:* built short (section 2, item 7). The two questions were:
    - Their first-use quality per family conflicts with your M0 decision (Fast on every PC). Keep Fast everywhere?
    - The notes ("may struggle on this graphics chip", "Off by default" on small integrated GPUs, "Not tested on this graphics chip") need each GPU's family, and its name doesn't tell it. It needs PCI device-ID tables per family, kept up to date. Build them, or drop the notes?
-3. **Smooth at screen size.** On by default only after your by-eye comparison on the Claw.
+3. **Smooth at screen size.** On by default only after your by-eye comparison on the Claw. *Decided 25 November:* it stays off by default after the owner's comparison on the Claw.
 4. **"Let VRR control refresh (fullscreen)".** Stays off until VRR is seen to engage with SkyWing's window (laptop item 5, or PresentMon's present mode with your rights). *Decided 25 November:* PresentMon on the Claw showed independent flip at 72 fps on its 120 Hz screen, so the switch is now on by default where the screen can vary its refresh and off elsewhere (`MOTION-ENGINE.md`).
 5. **The driver-reset test** needs your OK each time (plan rule 8).
-6. **Power throttling.** SkyWing opts out of Windows' throttling only if the minutes behind show more drops. On the laptop, plugged in, they didn't (section 3); the Claw on battery is your run. The automatic "lowest power" work (EcoQoS on the motion threads, plan 5.9) wasn't in the M2 brief: start it in a later milestone, after those numbers?
+6. **Power throttling.** SkyWing opts out of Windows' throttling only if the minutes behind show more drops. On the laptop, plugged in, they didn't (section 3); the Claw on battery is your run. The automatic "lowest power" work (EcoQoS on the motion threads, plan 5.9) wasn't in the M2 brief: start it in a later milestone, after those numbers? *Decided 25 November:* no opt-out: on the Claw on battery the minutes behind had no more drops (section 3). EcoQoS waits for the handheld and power milestone (P5) and is discussed before it is built.
 7. **Pre-warming the card code** stays parked until all phases are done, as you said.
 
 ## 8. Commits
