@@ -642,6 +642,11 @@ internal class Organizer(private val store: FolderOrganizerStore, legacy: () -> 
         edit { d -> d.copy(sets = d.sets.map { if (it.id == setId) it.copy(hidden = it.hidden + identities) else it }) }
     }
 
+    /** Brings back one hidden subfolder (the Undo of Hide); the others stay hidden. */
+    fun restoreSubfolder(setId: String, identity: String) {
+        edit { d -> d.copy(sets = d.sets.map { if (it.id == setId) it.copy(hidden = it.hidden - identity) else it }) }
+    }
+
     fun restoreSubfolders(setId: String) {
         edit { d -> d.copy(sets = d.sets.map { if (it.id == setId) it.copy(hidden = emptySet()) else it }) }
     }

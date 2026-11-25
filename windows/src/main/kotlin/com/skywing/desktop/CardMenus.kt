@@ -47,6 +47,35 @@ internal fun videoMenu(state: VideoMenuState, actions: VideoMenuActions): List<M
     MenuAction("Select", SkyIcon.Check, action = actions.select),
 )
 
+/**
+ * The menu of an actor card, the name in the actor list and the actor page: the same dividers and keys as the video menu.
+ * Open is left out on the actor page itself, Change photo when Artwork is off and Rename where the group has no rename.
+ * With videos in several folders, Show in File Explorer lists them (name and count) in place of the menu.
+ */
+internal fun actorMenu(state: ActorMenuState, actions: ActorMenuActions): List<MenuAction> = listOfNotNull(
+    if (state.onActorPage) null else MenuAction("Open", SkyIcon.Folder, shortcut = "Enter", action = actions.open),
+    MenuAction("Play all", SkyIcon.Play, action = actions.playAll),
+    MenuAction("Shuffle", SkyIcon.Queue, action = actions.shuffle),
+    if (state.artworkOn) MenuAction("Change photo…", SkyIcon.Image, dividerBefore = true, action = actions.changePhoto) else null,
+    if (state.canRename) MenuAction("Rename…", SkyIcon.Edit, shortcut = "F2", dividerBefore = !state.artworkOn, action = actions.rename) else null,
+    when (state.folders.size) {
+        0 -> MenuAction("Show in File Explorer", SkyIcon.Folder, enabled = false, dividerBefore = true)
+        1 -> MenuAction("Show in File Explorer", SkyIcon.Folder, dividerBefore = true) { actions.showFolder(state.folders.single().first) }
+        else -> MenuAction(
+            "Show in File Explorer", SkyIcon.Folder, dividerBefore = true,
+            children = state.folders.map { (path, count) ->
+                MenuAction(folderLeaf(path), SkyIcon.Folder, hint = if (count == 1) "1 video" else "$count videos") { actions.showFolder(path) }
+            },
+        )
+    },
+    MenuAction("Details", SkyIcon.Info, shortcut = "Alt+Enter", action = actions.details),
+    MenuAction("Select", SkyIcon.Check, action = actions.select),
+    MenuAction(
+        if (state.removal == ActorRemoval.HIDE) "Hide from ${state.folderName}" else "Take out of ${state.folderName}…",
+        SkyIcon.Close, dividerBefore = true, action = actions.remove,
+    ),
+)
+
 /** The enabled item of [menu] shown with [shortcut] on its right, for the key that was pressed. */
 internal fun shortcutAction(menu: List<MenuAction>, shortcut: String): MenuAction? =
     menu.firstOrNull { it.enabled && it.shortcut == shortcut }

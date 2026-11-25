@@ -59,7 +59,10 @@ internal sealed interface Tile {
     val title: String
 }
 
-/** A folder card. [selected] is null when this page is not selecting; [menu] opens on hold or right click. */
+/**
+ * A folder card. [selected] is null when this page is not selecting; [menu] opens on hold or right click. An [actor] card
+ * shows a photo or [initials], the name in a serif font, and a [dot] when it has new videos.
+ */
 internal data class FolderTile(
     override val key: String,
     override val title: String,
@@ -69,9 +72,13 @@ internal data class FolderTile(
     /** The videos the cover may be made from. */
     val coverVideos: List<WindowsMediaEntry>,
     val onOpen: () -> Unit,
-    val menu: List<MenuAction> = emptyList(),
+    /** Built when the menu opens or a card key arrives, never for every card on every composition. */
+    val menu: () -> List<MenuAction> = { emptyList() },
     val selected: Boolean? = null,
     val onSelect: (() -> Unit)? = null,
+    val actor: Boolean = false,
+    val dot: Boolean = false,
+    val initials: String? = null,
 ) : Tile
 
 /** A video card; clicking plays it with [queue]. */
@@ -108,6 +115,8 @@ internal fun TileGrid(
     emptyText: String? = null,
     footer: String? = null,
     letters: Boolean = true,
+    /** The letters are for the actor cards only, and only when they fill more than about two screens. */
+    lettersOnlyForActors: Boolean = false,
 ) {
     KeepFirstItemAcrossColumns(state)
     val prefs = organizer.data.prefs
@@ -160,7 +169,11 @@ internal fun TileGrid(
         GridScrollbar(
             state,
             Modifier.align(Alignment.CenterEnd),
-            labelFor = if (letters) ({ index -> tiles.getOrNull(index)?.takeIf { it !is LabelTile }?.title?.let(FolderLogic::sectionLetter) }) else null,
+            labelFor = if (letters) ({ index ->
+                tiles.getOrNull(index)
+                    ?.takeIf { it !is LabelTile && (!lettersOnlyForActors || ((it as? FolderTile)?.actor == true && lettersWanted(tiles.count { t -> (t as? FolderTile)?.actor == true }, state.layoutInfo.visibleItemsInfo.size))) }
+                    ?.title?.let(FolderLogic::sectionLetter)
+            }) else null,
         )
     }
 }
@@ -186,15 +199,18 @@ private fun TileView(
                 onClick = { if (!modified()) { if (tile.selected != null) tile.onSelect?.invoke() else tile.onOpen() } },
                 onLongClick = {
                     if (tile.selected != null) tile.onSelect?.invoke()
-                    else if (tile.menu.isNotEmpty()) menu = true
+                    else if (tile.menu().isNotEmpty()) menu = true
                     else tile.onSelect?.invoke()
                 },
                 listMode = view.list,
                 aspect = view.folderAspect,
                 selected = tile.selected,
-                modifier = cardKeys { tile.menu },
+                modifier = cardKeys(tile.menu),
+                actor = tile.actor,
+                dot = tile.dot,
+                initials = tile.initials,
             )
-            SkyMenu(menu, { menu = false }, tile.menu)
+            SkyMenu(menu, { menu = false }, if (menu) tile.menu() else emptyList())
         }
         is VideoTile -> Box {
             VideoCard(
@@ -430,9 +446,9 @@ internal fun FolderSelectionBar(
     }
     if (asking && confirm != null) {
         ConfirmDialog(
-            title = "${confirm.label} $count ${if (count == 1) "item" else "items"}?",
+            title = "${confirm.label.removeSuffix("…")} $count ${if (count == 1) "item" else "items"}?",
             text = confirmText,
-            confirmLabel = confirm.label,
+            confirmLabel = confirm.label.removeSuffix("…"),
             onDismiss = { asking = false },
             onConfirm = confirm.action,
         )

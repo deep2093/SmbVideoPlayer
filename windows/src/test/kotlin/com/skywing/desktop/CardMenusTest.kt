@@ -163,6 +163,76 @@ class CardMenusTest {
         assertEquals(listOf("resume 754.0 false", "play", "watched true"), ran)
     }
 
+    private val noActorActions = ActorMenuActions({}, {}, {}, {}, {}, {}, {}, {}, {})
+
+    private val actor = ActorMenuState(
+        folderName = "Example", onActorPage = false, artworkOn = true, canRename = true,
+        folders = listOf("C:\\Clips" to 3), removal = ActorRemoval.HIDE,
+    )
+
+    @Test fun actorMenuVirtualGrid() {
+        val items = actorMenu(actor, noActorActions)
+        assertEquals(
+            listOf("Open", "Play all", "Shuffle", "Change photo…", "Rename…", "Show in File Explorer", "Details", "Select", "Hide from Example"),
+            items.map { it.label },
+        )
+        assertEquals(
+            listOf("Change photo…", "Show in File Explorer", "Hide from Example"),
+            items.filter { it.dividerBefore }.map { it.label },
+        )
+        assertEquals("Enter", items.first { it.label == "Open" }.shortcut)
+        assertEquals("F2", items.first { it.label == "Rename…" }.shortcut)
+        assertEquals("Alt+Enter", items.first { it.label == "Details" }.shortcut)
+    }
+
+    @Test fun actorMenuArtworkOff() {
+        val items = actorMenu(actor.copy(artworkOn = false), noActorActions)
+        assertTrue(items.none { it.label == "Change photo…" })
+        assertEquals(listOf("Rename…", "Show in File Explorer", "Hide from Example"), items.filter { it.dividerBefore }.map { it.label })
+    }
+
+    @Test fun actorMenuCustom() {
+        val items = actorMenu(actor.copy(canRename = false, removal = ActorRemoval.TAKE_OUT), noActorActions)
+        assertTrue(items.none { it.label == "Rename…" })
+        assertEquals("Take out of Example…", items.last().label)
+        assertTrue(items.last().dividerBefore)
+    }
+
+    @Test fun actorMenuOnActorPageHasNoOpen() {
+        val items = actorMenu(actor.copy(onActorPage = true), noActorActions)
+        assertTrue(items.none { it.label == "Open" })
+        assertEquals("Play all", items.first().label)
+    }
+
+    @Test fun actorMenuSeveralFoldersHasChildren() {
+        val shown = mutableListOf<String>()
+        val actions = ActorMenuActions({}, {}, {}, {}, {}, { shown += it }, {}, {}, {})
+        val one = actorMenu(actor, actions).first { it.label == "Show in File Explorer" }
+        assertTrue(one.children.isEmpty())
+        one.action()
+        assertEquals(listOf("C:\\Clips"), shown)
+
+        val many = actorMenu(actor.copy(folders = listOf("C:\\Clips\\Alpha" to 5, "\\\\192.0.2.5\\share\\Beta" to 1)), actions)
+            .first { it.label == "Show in File Explorer" }
+        assertEquals(listOf("Alpha", "Beta"), many.children.map { it.label })
+        assertEquals(listOf("5 videos", "1 video"), many.children.map { it.hint })
+        many.children.last().action()
+        assertEquals(listOf("C:\\Clips", "\\\\192.0.2.5\\share\\Beta"), shown)
+    }
+
+    @Test fun actorMenuItemsRunTheirActions() {
+        val ran = mutableListOf<String>()
+        val actions = ActorMenuActions(
+            open = { ran += "open" }, playAll = { ran += "all" }, shuffle = { ran += "shuffle" }, changePhoto = { ran += "photo" },
+            rename = { ran += "rename" }, showFolder = {}, details = { ran += "details" }, select = { ran += "select" }, remove = { ran += "remove" },
+        )
+        actorMenu(actor, actions).forEach { if (it.children.isEmpty() && it.label != "Show in File Explorer") it.action() }
+        assertEquals(listOf("open", "all", "shuffle", "photo", "rename", "details", "select", "remove"), ran)
+        ran.clear()
+        shortcutAction(actorMenu(actor, actions), "F2")!!.action()
+        assertEquals(listOf("rename"), ran)
+    }
+
     @Test fun buildingTheMenuDoesNoWorkOverTheQueue() {
         val entry = WindowsMediaEntry("C:/clips/a.mkv", "s", "PC", "Clips", 1, 1)
         val other = WindowsMediaEntry("C:/clips/b.mkv", "s", "PC", "Clips", 1, 1)

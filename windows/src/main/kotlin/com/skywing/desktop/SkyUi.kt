@@ -1,6 +1,7 @@
 package com.skywing.desktop
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -37,6 +38,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
@@ -45,7 +47,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.delay
+import com.skywing.desktop.ui.theme.SerifNames
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -545,23 +552,71 @@ internal fun FolderCard(
     listMode: Boolean = false,
     selected: Boolean? = null,
     aspect: Float = CardAspect.SCENE,
+    /** An actor: a photo or [initials] on a tinted tile (never a video collage), and the name in a serif font. */
+    actor: Boolean = false,
+    /** An accent dot at the top left: the actor has new videos. */
+    dot: Boolean = false,
+    initials: String? = null,
 ) {
     val theme = LocalSkyTheme.current
     val picture: @Composable (Modifier) -> Unit = { pictureModifier ->
         Box(pictureModifier) {
-            if (coverVideos.isNotEmpty() || coverKey != null) {
+            if (actor) {
+                ActorPicture(coverKey, initials ?: "#", aspect < 1f, listMode, Modifier.fillMaxSize())
+            } else if (coverVideos.isNotEmpty() || coverKey != null) {
                 FolderPicture(coverKey, coverVideos, aspect < 1f, listMode, Modifier.fillMaxSize())
             } else {
                 Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(theme.card, theme.surface))), contentAlignment = Alignment.Center) {
                     SkyIconView(SkyIcon.Folder, theme.muted.copy(alpha = 0.6f), size = if (listMode) 26.dp else 40.dp)
                 }
             }
+            if (dot) {
+                Box(
+                    Modifier.align(Alignment.TopStart).padding(if (listMode) 4.dp else 8.dp).size(10.dp).clip(CircleShape)
+                        .background(theme.accent).border(1.5.dp, Color.White.copy(alpha = 0.9f), CircleShape),
+                )
+            }
             if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
     }
-    CardFrame(modifier, selected, null, listMode, aspect, onClick, onLongClick, picture) {
-        Text(title, color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    // Screen readers hear the name, then ", new videos" (the title's own text is replaced, as on a tab).
+    val named = if (dot) modifier.accessibleName("$title, new videos") else modifier
+    CardFrame(named, selected, null, listMode, aspect, onClick, onLongClick, picture) {
+        Text(
+            title, color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            fontFamily = if (actor) SerifNames else null,
+            modifier = if (dot) Modifier.clearAndSetSemantics {} else Modifier,
+        )
         Text(detail, color = theme.muted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** How long an [UndoNotice] stays. */
+internal const val UNDO_NOTICE_MS = 6000L
+
+/**
+ * A short notice with an Undo button ("Hidden." then Undo), shown over the bottom of a page for 6 s, then [onGone] is
+ * called. It never takes focus: the grid keeps it, and Undo is reached with Tab. With Windows animations off it appears
+ * at once and is simply removed; otherwise it fades in. Screen readers are told the text when it appears.
+ */
+@Composable
+internal fun UndoNotice(text: String, onUndo: () -> Unit, onGone: () -> Unit, modifier: Modifier = Modifier) {
+    val theme = LocalSkyTheme.current
+    val gone by rememberUpdatedState(onGone)
+    LaunchedEffect(text) {
+        delay(UNDO_NOTICE_MS)
+        gone()
+    }
+    var shown by remember { mutableStateOf(!SkyMotion.animations) }
+    LaunchedEffect(Unit) { shown = true }
+    val alpha by animateFloatAsState(if (shown) 1f else 0f, SkyMotion.fast())
+    Row(
+        modifier.graphicsLayer { this.alpha = alpha }.skyPanel(RoundedCornerShape(50), theme.menu).padding(start = 18.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(text, color = theme.ink, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+        SkyButton("Undo", onUndo, primary = false)
     }
 }
 

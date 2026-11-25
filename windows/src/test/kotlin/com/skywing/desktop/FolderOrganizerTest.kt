@@ -116,6 +116,19 @@ class FolderOrganizerTest {
         assertEquals(setOf(library[0].path, library[3].path), favourites.videos.map { it.path }.toSet())
     }
 
+    @Test fun restoreSubfolderBringsBackOnlyThatOne() {
+        val dir = temp.newFolder("skywing-restore-one").toPath()
+        val path = dir.resolve("folders.bin")
+        val organizer = Organizer(FolderOrganizerStore(path))
+        val id = organizer.createSet("People")!!
+        organizer.hideSubfolders(id, listOf("tom cruise", "brad pitt"))
+        organizer.restoreSubfolder(id, "tom cruise")
+        assertEquals(setOf("brad pitt"), organizer.data.sets.first { it.id == id }.hidden)
+        assertEquals(setOf("brad pitt"), Organizer(FolderOrganizerStore(path)).data.sets.first { it.id == id }.hidden)
+        organizer.restoreSubfolder(id, "someone else")
+        assertEquals(setOf("brad pitt"), organizer.data.sets.first { it.id == id }.hidden)
+    }
+
     @Test fun cardSizesStepWithinTheirRange() {
         assertEquals(170, CardSizes.step(0, -1))
         assertEquals(470, CardSizes.step(420, 1))
