@@ -303,7 +303,8 @@ internal fun TileGrid(
     onFocused: () -> Unit = {},
     /**
      * The grid takes the focus when it first shows (an actor page that opens: the card that had it is gone), on its first
-     * card fully in view, without a scroll. A [focusKey] with no card falls back the same way.
+     * card fully in view, without a scroll. A [focusKey] with no card falls back the same way. It takes it again each
+     * time this turns true (an actor page opened again while it still fades out).
      */
     focusOnStart: Boolean = false,
     /** Where that focus goes when the grid has no card to take it (the actor page's Back). */
@@ -365,8 +366,8 @@ internal fun TileGrid(
             withFrameNanos {}
         }
     }
-    val start = remember { StartFocus(focusOnStart) }
-    LaunchedEffect(focusKey) {
+    val start = remember(focusOnStart) { StartFocus(focusOnStart) }
+    LaunchedEffect(focusKey, start) {
         val wanted = focusKey
         if (wanted == null && !start.pending) return@LaunchedEffect
         start.pending = false

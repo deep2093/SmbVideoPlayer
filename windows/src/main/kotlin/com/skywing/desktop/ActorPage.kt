@@ -302,7 +302,8 @@ private data class ActorRowFocus(val identity: String)
  * The page of [actor], one of [actors] (the actors of its folder). [onOpenActor] opens another by identity; [menuOf] is
  * the actor menu of an actor, true for this page's own actor (no Open there), with the list its Play all and Shuffle
  * play; it is built only when a menu opens or a key arrives. [add] is the folder kind's "add more" button, at the end of
- * the sort bar. [focusKey] is the video card to give the keyboard focus to (coming back from playing it).
+ * the sort bar. [focusKey] is the video card to give the keyboard focus to (coming back from playing it). [entering]
+ * is false while the page fades out; each time it turns true the page takes the focus, as when it opens.
  */
 @Composable
 internal fun ActorPage(
@@ -314,6 +315,7 @@ internal fun ActorPage(
     menuOf: (ActorRef, Boolean, List<WindowsMediaEntry>) -> List<MenuAction>,
     add: MenuAction? = null,
     focusKey: String? = null,
+    entering: Boolean = true,
 ) {
     val hub = f.hub
     val page = actor.pageKey
@@ -422,7 +424,8 @@ internal fun ActorPage(
                     focusKey = focusKey,
                     onFocused = { hub.focusTile = null },
                     // The card that had the focus went with the grid: the page takes it (spec 5.10: focus is always visible).
-                    focusOnStart = true,
+                    // Opened again while it still fades out, the page is the same one, so it takes the focus again.
+                    focusOnStart = entering,
                     noCardFocus = backFocus,
                     comeback = comeback,
                 )

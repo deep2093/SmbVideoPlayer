@@ -822,6 +822,7 @@ private fun OwnPage(f: Folders) {
                 },
                 add = MenuAction("Add more files/folders", SkyIcon.Add) { f.chooseOwn(folder) },
                 focusKey = if (entering) f.hub.focusTile else null,
+                entering = entering,
             )
             return@ActorSwitch
         }
@@ -1093,6 +1094,7 @@ private fun SetPage(f: Folders) {
                 },
                 add = MenuAction("Add to this subfolder", SkyIcon.Add) { f.addToSetGroup(set, actor.title) },
                 focusKey = if (entering) f.hub.focusTile else null,
+                entering = entering,
             )
             return@ActorSwitch
         }

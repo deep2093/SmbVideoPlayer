@@ -444,27 +444,7 @@ class GridFocusTest {
      * again, then click › [frames] frames later (null: once everything is idle). Returns the focused card's name.
      */
     private fun actorFlowOnTheFoldersScreen(frames: Int?): String? {
-        val library = folder.resolve("Library").toFile().apply { mkdirs() }
-        FolderOrganizerStore(folder.resolve("folders.bin")).save(
-            OrganizerData(sets = listOf(VirtualSet(id = "test-set", name = "Mix", folders = listOf(library.absolutePath)))),
-        )
-        val organizer = organizer()
-        val model = LibraryModel(WindowsMediaIndex(folder.resolve("media-index.bin")))
-        model.all = listOf("Ada Moss - one.mp4", "Bea Lund - one.mp4", "Ada Moss - two.mkv", "Bea Lund - two.mkv").mapIndexed { i, name ->
-            WindowsMediaEntry(File(library, name).absolutePath, "local", "PC", "Library", 1, 1_000L + i)
-        }
-        val hub = HubState().apply { tab = 1; setId = "test-set" }
-        compose.setContent {
-            Page {
-                Box(Modifier.size(800.dp, 650.dp)) {
-                    FoldersScreen(model, organizer, hub, emptyMap(), { _, _ -> }, {}, { _, _, _, _ -> }, {}, { _, _ -> })
-                }
-            }
-        }
-        fun click(text: String) {
-            compose.waitUntil(5_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
-            compose.onNodeWithText(text).performSemanticsAction(SemanticsActions.OnClick)
-        }
+        showVirtualFolder()
         click("Ada Moss")
         compose.waitForIdle()
         focused().performKeyInput { pressKey(Key.Escape) }
@@ -482,6 +462,53 @@ class GridFocusTest {
         }
         compose.waitForIdle()
         return focusedText()
+    }
+
+    /** The screen test's click: the button's own click action, as the accessibility action runs it. */
+    private fun click(text: String) {
+        compose.waitUntil(5_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(text).performSemanticsAction(SemanticsActions.OnClick)
+    }
+
+    /** The real Folders screen of a Virtual folder of four videos, two by Ada Moss and two by Bea Lund. */
+    private fun showVirtualFolder() {
+        val library = folder.resolve("Library").toFile().apply { mkdirs() }
+        FolderOrganizerStore(folder.resolve("folders.bin")).save(
+            OrganizerData(sets = listOf(VirtualSet(id = "test-set", name = "Mix", folders = listOf(library.absolutePath)))),
+        )
+        val organizer = organizer()
+        val model = LibraryModel(WindowsMediaIndex(folder.resolve("media-index.bin")))
+        model.all = listOf("Ada Moss - one.mp4", "Bea Lund - one.mp4", "Ada Moss - two.mkv", "Bea Lund - two.mkv").mapIndexed { i, name ->
+            WindowsMediaEntry(File(library, name).absolutePath, "local", "PC", "Library", 1, 1_000L + i)
+        }
+        val hub = HubState().apply { tab = 1; setId = "test-set" }
+        compose.setContent {
+            Page {
+                Box(Modifier.size(800.dp, 650.dp)) {
+                    FoldersScreen(model, organizer, hub, emptyMap(), { _, _ -> }, {}, { _, _, _, _ -> }, {}, { _, _ -> })
+                }
+            }
+        }
+    }
+
+    @Test fun anActorOpenedAgainAsSoonAsItsCardHasTheFocusAfterEscTakesTheFocusToo() {
+        // The screen test's pace: Esc, then the actor is opened again the moment its card has the focus, while the page
+        // it left is still fading out.
+        showVirtualFolder()
+        click("Ada Moss")
+        compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        focused().performKeyInput { pressKey(Key.Escape) }
+        var frames = 0
+        while (focusedText() != "Ada Moss" && frames < 60) {
+            compose.mainClock.advanceTimeByFrame()
+            frames++
+        }
+        assertEquals("Ada Moss", focusedText(), "Ada's card has the focus after Esc")
+        focused().performSemanticsAction(SemanticsActions.OnClick)
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        assertEquals("Ada Moss - two", focusedText())
     }
 
     @Test fun theScreenTestsActorFlowKeepsTheFocusOnTheNextActorsFirstCard() {
