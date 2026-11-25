@@ -300,8 +300,9 @@ private fun SkyWingDesktopShell(
         val before = previousLibrary
         val after = library.all
         previousLibrary = after
-        val arrivals = NewVideos.arrivals(before, after)
-        if (arrivals.isNotEmpty()) withContext(Dispatchers.IO) { runCatching { records.arrived(arrivals) } }
+        withContext(Dispatchers.IO) {
+            runCatching { NewVideos.arrivals(before, after).takeIf { it.isNotEmpty() }?.let(records::arrived) }
+        }
     }
     // Thumbnails for the whole library are made in the background, cards on screen first.
     LaunchedEffect(library.all) {
@@ -408,7 +409,7 @@ private fun SkyWingDesktopShell(
         currentFile?.let { earlier ->
             val previousPosition = embedded.playbackPosition() ?: 0.0
             val previousDuration = embedded.playbackDuration() ?: 0.0
-            playbackScope.launch(Dispatchers.IO) { records.save(earlier, previousPosition, previousDuration) }
+            playbackScope.launch(Dispatchers.IO) { runCatching { records.save(earlier, previousPosition, previousDuration) } }
         }
         val safeQueue = queuedFiles.ifEmpty { listOf(file) }
         val selectedIndex = safeQueue.indexOfFirst { it.absolutePath.equals(file.absolutePath, ignoreCase = true) }
