@@ -123,6 +123,16 @@ internal fun sortVideos(
         .map { it.first }
 }
 
+/**
+ * The grid's list: [sorted] with the "Search here" [query] (in the file name, ignoring case) and Hide watched applied
+ * ([watched] holds lower-case paths). Play all and Shuffle play it, in the header and in ⋯ alike.
+ */
+internal fun actorPlayList(sorted: List<WindowsMediaEntry>, query: String, hideWatched: Boolean, watched: Set<String>): List<WindowsMediaEntry> =
+    sorted.filter { video ->
+        (query.isEmpty() || video.file.name.contains(query, ignoreCase = true)) &&
+            !(hideWatched && video.path.lowercase(Locale.ROOT) in watched)
+    }
+
 private fun videosText(n: Int) = if (n == 1) "1 video" else "$n videos"
 
 /** "24 videos · 9 watched · 2 new", leaving out the parts that are 0. */
@@ -200,8 +210,9 @@ private val HEADER_SLIM = 60.dp
 
 /**
  * The page of [actor], one of [actors] (the actors of its folder). [onOpenActor] opens another by identity; [menuOf] is
- * the actor menu of an actor, true for this page's own actor (no Open there), built only when a menu opens or a key
- * arrives. [extra] is today's "add more" action of the folder kind, kept at the end of ⋯.
+ * the actor menu of an actor, true for this page's own actor (no Open there), with the list its Play all and Shuffle
+ * play; it is built only when a menu opens or a key arrives. [extra] is today's "add more" action of the folder kind,
+ * kept at the end of ⋯.
  */
 @Composable
 internal fun ActorPage(
@@ -210,7 +221,7 @@ internal fun ActorPage(
     f: Folders,
     onOpenActor: (String) -> Unit,
     onBack: () -> Unit,
-    menuOf: (ActorRef, Boolean) -> List<MenuAction>,
+    menuOf: (ActorRef, Boolean, List<WindowsMediaEntry>) -> List<MenuAction>,
     extra: MenuAction? = null,
 ) {
     val hub = f.hub
@@ -235,9 +246,8 @@ internal fun ActorPage(
     val sorted = remember(actor.videos, sort, info) { sortVideos(actor.videos, sort) { info.lengths[it.path.lowercase(Locale.ROOT)] } }
     val query = f.query
     val hideWatched = hub.hideWatched
-    val shown = remember(sorted, query, hideWatched, info) {
-        sorted.filter { (query.isEmpty() || it.file.name.contains(query, ignoreCase = true)) && !(hideWatched && it.path.lowercase(Locale.ROOT) in info.watched) }
-    }
+    // What the grid shows, and what every Play all and Shuffle on this page plays.
+    val shown = remember(sorted, query, hideWatched, info) { actorPlayList(sorted, query, hideWatched, info.watched) }
     val resume = remember(actor.videos, f.history) { pickResume(actor.videos, f.history) }
     // The videos as shown, in the current sort; the whole sorted list when search or Hide watched hides the one to start.
     fun queueFor(entry: WindowsMediaEntry) = (if (shown.any { it.path == entry.path }) shown else sorted).map { it.file }
@@ -255,7 +265,7 @@ internal fun ActorPage(
     BoxWithConstraints(Modifier.fillMaxSize().searchKey(searchFocus)) {
         val showList = maxWidth >= LIST_FROM
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            if (showList) ActorList(alphabetical, actor, onOpenActor, menuOf, Modifier.width(LIST_WIDTH).fillMaxHeight())
+            if (showList) ActorList(alphabetical, actor, shown, onOpenActor, menuOf, Modifier.width(LIST_WIDTH).fillMaxHeight())
             Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 val (previous, next) = if (showList) null to null else neighbours(alphabetical, actor.identity)
                 ActorHeader(
@@ -268,8 +278,8 @@ internal fun ActorPage(
                     onResume = playResume,
                     onPlayAll = { f.play(shown) },
                     onShuffle = { f.play(shown.shuffled()) },
-                    // Play all and Shuffle in the menu play the actor's videos in the current sort too.
-                    menu = { menuOf(actor.copy(videos = sorted), true) + listOfNotNull(extra) },
+                    // Play all and Shuffle in ⋯ play the grid's list, the same as the buttons.
+                    menu = { menuOf(actor, true, shown) + listOfNotNull(extra) },
                     onBack = onBack,
                     arrows = !showList,
                     previous = previous,
@@ -389,14 +399,16 @@ private fun SortBar(hub: HubState, page: String, searchFocus: FocusRequester) {
 
 /**
  * The actors of the folder, A–Z, with this page's actor marked. The search icon opens a field that filters as you type:
- * Enter opens the first match, Esc clears it, then closes it. Right-click, the menu key or Shift+F10 opens a row's menu.
+ * Enter opens the first match, Esc clears it, then closes it. Right-click, the menu key or Shift+F10 opens a row's menu;
+ * the marked actor's menu plays [currentPlay] (the grid's list), every other actor its own videos.
  */
 @Composable
 private fun ActorList(
     actors: List<ActorRef>,
     current: ActorRef,
+    currentPlay: List<WindowsMediaEntry>,
     onOpenActor: (String) -> Unit,
-    menuOf: (ActorRef, Boolean) -> List<MenuAction>,
+    menuOf: (ActorRef, Boolean, List<WindowsMediaEntry>) -> List<MenuAction>,
     modifier: Modifier,
 ) {
     val theme = LocalSkyTheme.current
@@ -440,7 +452,7 @@ private fun ActorList(
                 if (shown.isEmpty()) item { EmptyNote("No actors found.") }
                 items(shown, key = { it.identity }) { ref ->
                     val here = ref.identity == current.identity
-                    ActorRow(ref, here, { onOpenActor(ref.identity) }) { menuOf(ref, here) }
+                    ActorRow(ref, here, { onOpenActor(ref.identity) }) { menuOf(ref, here, if (here) currentPlay else ref.videos) }
                 }
             }
             ListScrollbar(state, Modifier.align(Alignment.CenterEnd))

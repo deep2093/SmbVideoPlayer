@@ -54,8 +54,8 @@ internal fun videoMenu(state: VideoMenuState, actions: VideoMenuActions): List<M
  */
 internal fun actorMenu(state: ActorMenuState, actions: ActorMenuActions): List<MenuAction> = listOfNotNull(
     if (state.onActorPage) null else MenuAction("Open", SkyIcon.Folder, shortcut = "Enter", action = actions.open),
-    MenuAction("Play all", SkyIcon.Play, action = actions.playAll),
-    MenuAction("Shuffle", SkyIcon.Queue, action = actions.shuffle),
+    MenuAction("Play all", SkyIcon.Play, enabled = state.canPlay, action = actions.playAll),
+    MenuAction("Shuffle", SkyIcon.Queue, enabled = state.canPlay, action = actions.shuffle),
     if (state.artworkOn) MenuAction("Change photo…", SkyIcon.Image, dividerBefore = true, action = actions.changePhoto) else null,
     if (state.canRename) MenuAction("Rename…", SkyIcon.Edit, shortcut = "F2", dividerBefore = !state.artworkOn, action = actions.rename) else null,
     when (state.folders.size) {

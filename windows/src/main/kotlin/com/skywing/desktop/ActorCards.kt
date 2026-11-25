@@ -73,6 +73,8 @@ internal data class ActorMenuState(
     /** The folders their videos are in, with the number of videos in each ([actorFolders]). */
     val folders: List<Pair<String, Int>>,
     val removal: ActorRemoval,
+    /** False when there is nothing to play: on the actor page, everything is filtered out of its grid. */
+    val canPlay: Boolean = true,
 )
 
 internal class ActorMenuActions(

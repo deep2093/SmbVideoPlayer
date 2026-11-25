@@ -122,4 +122,26 @@ class ActorPageTest {
     @Test fun photoKeyIsNamedByThePage() {
         assertEquals("actor-photo:set:s|owen pike", actorPhotoKey("set:s|owen pike"))
     }
+
+    @Test fun playListIsTheGridList() {
+        val first = video("C:\\Clips\\Harbour Walk.mp4")
+        val seen = video("C:\\Clips\\Harbour Night.mp4")
+        val other = video("C:\\Clips\\Market.mp4")
+        val sorted = listOf(first, seen, other)
+        val watched = setOf(seen.path.lowercase())
+        // The current sort is kept; the search ignores case; Hide watched leaves out watched videos only when it is on.
+        assertEquals(listOf(first, seen), actorPlayList(sorted, "harbour", hideWatched = false, watched = watched))
+        assertEquals(listOf(first, other), actorPlayList(sorted, "", hideWatched = true, watched = watched))
+        assertEquals(sorted, actorPlayList(sorted, "", hideWatched = false, watched = watched))
+        assertTrue(actorPlayList(sorted, "beach", hideWatched = false, watched = watched).isEmpty())
+    }
+
+    @Test fun emptyPlayListDisablesPlayAllAndShuffleInTheMenu() {
+        val state = ActorMenuState("Example", true, false, true, listOf("C:\\Clips" to 3), ActorRemoval.HIDE)
+        val actions = ActorMenuActions({}, {}, {}, {}, {}, {}, {}, {}, {})
+        val off = actorMenu(state.copy(canPlay = false), actions).filter { it.label == "Play all" || it.label == "Shuffle" }
+        assertEquals(listOf(false, false), off.map { it.enabled })
+        val on = actorMenu(state, actions).filter { it.label == "Play all" || it.label == "Shuffle" }
+        assertEquals(listOf(true, true), on.map { it.enabled })
+    }
 }

@@ -212,8 +212,9 @@ internal class Folders(
     }
 
     /**
-     * The actor menu (spec 5.6) of [title] with [videos], on a card or, with [onActorPage], on the actor's own page. Built
-     * when a menu opens or a key arrives, never for every card on every composition.
+     * The actor menu (spec 5.6) of [title] with [videos], on a card or, with [onActorPage], on the actor's own page. Play
+     * all and Shuffle play [playList] (the actor page's grid list there); both are off when it is empty. Built when a menu
+     * opens or a key arrives, never for every card on every composition.
      */
     fun actorMenuOf(
         title: String,
@@ -225,13 +226,14 @@ internal class Folders(
         onOpen: () -> Unit,
         rename: ((String) -> Unit)?,
         remove: () -> Unit,
+        playList: List<WindowsMediaEntry> = videos,
         select: () -> Unit,
     ): List<MenuAction> = actorMenu(
-        ActorMenuState(containerName, onActorPage, artworkOn, rename != null, actorFolders(videos), removal),
+        ActorMenuState(containerName, onActorPage, artworkOn, rename != null, actorFolders(videos), removal, canPlay = playList.isNotEmpty()),
         ActorMenuActions(
             open = onOpen,
-            playAll = { play(videos) },
-            shuffle = { play(videos.shuffled()) },
+            playAll = { play(playList) },
+            shuffle = { play(playList.shuffled()) },
             changePhoto = { dialogs.cover = CoverTarget(coverKey, title, null, videos) },
             rename = { rename?.let { act -> dialogs.naming = NameSpec("Rename actor", title, actorRenameHint, "Rename", act) } },
             showFolder = { showInExplorer(File(it), select = false) },
@@ -790,12 +792,13 @@ private fun OwnPage(f: Folders) {
             actor, refs, f,
             onOpenActor = { identity -> f.go { ownGroup = identity } },
             onBack = { f.go { ownGroup = null } },
-            menuOf = { ref, here ->
+            menuOf = { ref, here, playList ->
                 f.actorMenuOf(
                     ref.title, ref.videos, ref.photoKey, folder.name, ActorRemoval.TAKE_OUT, here,
                     onOpen = { f.go { ownGroup = ref.identity } },
                     rename = null,
                     remove = { f.takeActorsOut(folder, ref.title, ref.videos.map { it.path }) },
+                    playList = playList,
                 ) { f.tickOnGrid(container, "group:" + ref.identity) { ownGroup = null } }
             },
             extra = MenuAction("Add more files/folders", SkyIcon.Add, dividerBefore = true) { f.chooseOwn(folder) },
@@ -1040,12 +1043,13 @@ private fun SetPage(f: Folders) {
             actor, refs, f,
             onOpenActor = { identity -> f.go { setGroup = identity } },
             onBack = { f.go { setGroup = null } },
-            menuOf = { ref, here ->
+            menuOf = { ref, here, playList ->
                 f.actorMenuOf(
                     ref.title, ref.videos, ref.photoKey, set.name, ActorRemoval.HIDE, here,
                     onOpen = { f.go { setGroup = ref.identity } },
                     rename = { f.organizer.renameSubfolder(set.id, ref.identity, it) },
                     remove = { f.hideActors(set.id, listOf(ref.identity)) },
+                    playList = playList,
                 ) { f.tickOnGrid(container, "group:" + ref.identity) { setGroup = null } }
             },
             extra = MenuAction("Add to this subfolder", SkyIcon.Add, dividerBefore = true) { f.addToSetGroup(set, current.title) },
