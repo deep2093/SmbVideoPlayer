@@ -127,4 +127,22 @@ class AdaptiveLayoutTest {
         compose.mainClock.advanceTimeBy(80)
         assertEquals(700.dp, settled)
     }
+
+    @Test fun theWindowsFirstRealWidthIsUsedAtOnceAfterTheZeroBeforeLayout() {
+        compose.mainClock.autoAdvance = false
+        // A Compose window's first composition comes before it is laid out, with a width of 0.
+        var window by mutableStateOf(0.dp)
+        var settled: Dp = (-1).dp
+        compose.setContent { settled = rememberSettledWidth(window) }
+        compose.mainClock.advanceTimeByFrame()
+        window = 1300.dp
+        compose.mainClock.advanceTimeByFrame()
+        assertEquals(1300.dp, settled, "SkyWing opens on its rail, not on the top tabs for 100 ms")
+
+        window = 700.dp
+        compose.mainClock.advanceTimeBy(60)
+        assertEquals(1300.dp, settled, "a resize after that still waits")
+        compose.mainClock.advanceTimeBy(80)
+        assertEquals(700.dp, settled)
+    }
 }

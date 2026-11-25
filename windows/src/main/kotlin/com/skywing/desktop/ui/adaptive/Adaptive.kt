@@ -152,17 +152,21 @@ private val FOCUS_KEYS = setOf(Key.Tab, Key.DirectionUp, Key.DirectionDown, Key.
 /** How long the window's width must stay the same before the layout follows it. */
 internal const val WIDTH_SETTLE_MS = 100L
 
-/** [width], read again 100 ms after the last change, so a resize in progress doesn't relayout on every step. */
+/**
+ * [width], read again 100 ms after the last change, so a resize in progress doesn't relayout on every step. A window
+ * is composed once before it is laid out, with a width of 0; that is no width, so the first real one is used at once
+ * and SkyWing never opens on the top tabs of a narrow window.
+ */
 @Composable
 internal fun rememberSettledWidth(width: Dp): Dp {
     var settled by remember { mutableStateOf(width) }
     LaunchedEffect(width) {
         if (width != settled) {
-            delay(WIDTH_SETTLE_MS)
+            if (settled > 0.dp) delay(WIDTH_SETTLE_MS)
             settled = width
         }
     }
-    return settled
+    return if (settled > 0.dp) settled else width
 }
 
 internal object InputModes {
