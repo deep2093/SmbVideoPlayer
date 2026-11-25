@@ -11,15 +11,19 @@ import org.junit.After
 
 class PageViewsTest {
     private val folders = mutableListOf<Path>()
+    private val opened = mutableListOf<LibraryViews>()
 
     @After
     fun cleanUp() {
+        // A save still waiting would write its file again after the folder is gone.
+        opened.forEach { it.flush() }
         folders.forEach { it.toFile().deleteRecursively() }
     }
 
     private fun file(): Path = Files.createTempDirectory("skywing-views-test").also { folders.add(it) }.resolve("views.json")
 
-    private fun views(seed: FolderPrefs = FolderPrefs(), path: Path = file()) = LibraryViews(LibraryViewStore(path), seed)
+    private fun views(seed: FolderPrefs = FolderPrefs(), path: Path = file()) =
+        LibraryViews(LibraryViewStore(path), seed).also { opened.add(it) }
 
     @Test
     fun unsetPageUsesLastChoice() {
