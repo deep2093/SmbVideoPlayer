@@ -125,7 +125,8 @@ test in the task that owns the code.
     in `before`. An empty `before` gives an empty list.
   - `internal class NewVideoStore(path: Path = libraryFile("new-videos.json"), now: () -> Long = System::currentTimeMillis)`
     with `fun add(paths: List<String>)`, `fun played(path: String)`, `fun openedActor(key: String)`,
-    `fun renamePath(old: String, new: String)` (moves the entry, and the next `arrivals` call ignores `new` once)
+    `fun renamePath(old: String, new: String)` (moves the entry, and remembers `new` in memory so the next `add` call
+    drops it once; `NewVideos.arrivals` stays a pure function)
     and `fun snapshot(): NewMarks`.
   - `internal data class NewMarks(val firstSeen: Map<String, Long>, val opened: Map<String, Long>)` with:
     - `fun isNew(path: String, now: Long): Boolean`: seen within `NEW_FOR_MS = 7 * 24 * 3600 * 1000L` and never played.
@@ -170,15 +171,18 @@ test in the task that owns the code.
     - `fun started(file: File)`: calls `newVideos.played(...)`.
     - `fun rename(old: String, new: String)`: renames in all three stores.
     - `fun setWatched(file: File, watched: Boolean)`: unwatching also calls `history.forget`.
+    - `fun openedActor(key: String)` and `fun arrived(paths: List<String>)`: pass through to `newVideos`.
+    - `val revision: State<Int>`: goes up after every write above, so marks refresh at once (spec 5.5).
   - `internal data class LibraryMarks(val watched: Set<String> = emptySet(), val news: NewMarks = NewMarks(emptyMap(), emptyMap()))`
     with `fun isWatched(e: WindowsMediaEntry) = e.path.lowercase() in watched` and
     `fun isNew(e: WindowsMediaEntry, now: Long)`.
   - In Main, `val records = remember { PlaybackRecords(...) }` and
-    `val marks by produceState(LibraryMarks(), historyRevision) { … }`, read off the screen thread.
+    `val marks by produceState(LibraryMarks(), historyRevision, records.revision.value) { … }`, read off the screen
+    thread.
 - Every `historyStore.saveProgress(...)` call in Main becomes `records.save(...)`, and `openVideo` calls
   `records.started(file)`. `VideoRenameService` gets `records` in place of `historyStore`.
 - The `library.revision` effect keeps the previous `library.all` in a `remember` and calls
-  `records.newVideos.add(NewVideos.arrivals(previous, library.all))`.
+  `records.arrived(NewVideos.arrivals(previous, library.all))`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `finishingMarksWatchedAndDropsResume`: `save(file, 980.0, 1000.0)` leaves the video watched and history empty.
@@ -272,7 +276,7 @@ test in the task that owns the code.
   - `ThumbnailStore.lengths: VideoLengthStore`
 - Where lengths come from:
   - `generate` records the duration on success.
-  - After its picture passes, `prefetchPasses` runs `LengthCatchUp(ThumbnailExtractor::durationSeconds, lengths)`
+  - After its picture passes, `prefetchPasses` runs `LengthCatchUp({ ThumbnailExtractor.durationSeconds(it) }, lengths)`
     with the same idle wait as pictures: no card waiting, nothing playing, inside `gate.withPermit`.
   - Main records `reading.duration` once per opened video and calls `lengths.flush()` on close.
 
@@ -318,6 +322,8 @@ test in the task that owns the code.
   - `internal data class PageView(val actorPortrait: Boolean = false, val videoPoster: Boolean = false, val size: Int = CardSizes.NORMAL, val list: Boolean = false)`
   - `internal enum class ActorLayout { HEADER, STUDIO }`
   - `internal data class ViewsData(val last: PageView = PageView(), val pages: Map<String, PageView> = emptyMap(), val actorLayout: ActorLayout = ActorLayout.HEADER, val keepMenuOpen: Boolean = false)`
+  - `FolderPrefs.tallPages`, `videoCardSize` and `folderCardSize` stay in `FolderPrefs`, and stay in its binary
+    write and read, unchanged; the organizer data format must stay readable. They are only no longer used for display.
   - `internal class LibraryViewStore(path: Path = libraryFile("views.json"))` with
     `fun load(seed: FolderPrefs): ViewsData` and `fun save(data: ViewsData)`. When the file is missing, `load` seeds:
     `last.size = CardSizes.of(folderCardSize)` and `last.list = listMode`; the `VIDEOS_PAGE` page gets
@@ -398,6 +404,13 @@ test in the task that owns the code.
   - `internal data class VideoMenuState(val resumeAt: Double?, val watched: Boolean, val artworkOn: Boolean, val pictureHint: String)`
   - `internal class VideoMenuActions(val play: () -> Unit, val playFromStart: () -> Unit, val setWatched: (Boolean) -> Unit, val changePicture: () -> Unit, val addToFolder: () -> Unit, val addToVirtual: () -> Unit, val rename: () -> Unit, val showInExplorer: () -> Unit, val details: () -> Unit, val select: () -> Unit)`
   - `internal fun videoMenu(state: VideoMenuState, actions: VideoMenuActions): List<MenuAction>`
+  - `internal fun clickSelection(keys: List<String>, selected: Set<String>, anchor: String?, clicked: String, ctrl: Boolean, shift: Boolean): Set<String>?`:
+    - Ctrl toggles `clicked`.
+    - Shift selects every key from `anchor` to `clicked` in `keys` order, added to `selected` (just `clicked` when
+      there is no anchor).
+    - A plain click returns null (it opens or plays, as today).
+    - It is used by `TileView`/`TileGrid` with today's `hub.folderKeys`/`hub.folderPage` selection (spec 5.6:
+      "Ctrl+click and Shift+click also select").
 - Other changes:
   - `TileView` handles keys on the focused card: F2 → `shortcutAction(menu, "F2")`, Alt+Enter → `"Alt+Enter"`, and
     Shift+F10 or the menu key opens the menu.
@@ -419,6 +432,10 @@ test in the task that owns the code.
     "Change picture…", and the divider moves to "Add to folder…".
   - `changePictureShowsItsSource`: the hint is "Automatic".
   - `shortcutFindsRename`
+  - `ctrlClickToggles`: `clickSelection(listOf("a","b","c"), setOf("a"), "a", "b", ctrl = true, shift = false) == setOf("a","b")`,
+    and Ctrl-clicking "a" again gives `emptySet()`.
+  - `shiftClickSelectsRange`: `clickSelection(listOf("a","b","c","d"), setOf("b"), "b", "d", ctrl = false, shift = true) == setOf("b","c","d")`
+  - `plainClickIsNull`: `clickSelection(listOf("a"), emptySet(), null, "a", ctrl = false, shift = false) == null`
   - `explorerSelectsAShareFile`:
     `explorerCommand(File("\\\\192.0.2.10\\videos\\a b.mkv"), true) == listOf("explorer.exe", "/select,\\\\192.0.2.10\\videos\\a b.mkv")`
 - [ ] **Step 2: Run and see them fail.**
@@ -588,7 +605,7 @@ test in the task that owns the code.
     a tick when watched (`LibraryMarks`) and a "New" tag.
   - Ctrl+F focuses the page search field (today's `hub.query` "Search here", filtering this actor's videos). When nothing matches,
     the grid says so and shows a **Clear search** button.
-  - Opening the page calls `records.newVideos.openedActor(pageKey)`.
+  - Opening the page calls `records.openedActor(pageKey)`.
 - **The rail:** in Main,
   `wide = adaptive.navigation == WideRail && !(hub.onActorPage && views.data.actorLayout == HEADER && !views.data.keepMenuOpen)`.
   The footer shows a "Keep menu open" pin toggle (`views.setKeepMenuOpen`) only when
