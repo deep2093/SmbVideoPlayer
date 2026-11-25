@@ -622,10 +622,13 @@ internal class Organizer(private val store: FolderOrganizerStore, legacy: () -> 
         ) }
     }
 
-    /** Only the name in the app changes. Giving it the name of another subfolder joins the two. */
-    fun renameSubfolder(setId: String, identity: String, name: String) {
-        val clean = named(name)?.let(WindowsVirtualNames::display) ?: return
-        edit { d ->
+    /**
+     * Only the name in the app changes. Giving it the name of another subfolder joins the two. Returns the subfolder's
+     * identity under its new name, or null when nothing was saved.
+     */
+    fun renameSubfolder(setId: String, identity: String, name: String): String? {
+        val clean = named(name)?.let(WindowsVirtualNames::display) ?: return null
+        val saved = edit { d ->
             d.copy(sets = d.sets.map { set ->
                 if (set.id != setId) set else {
                     // A folder already renamed keeps its original name as the key, so rename every entry that points at it.
@@ -636,6 +639,7 @@ internal class Organizer(private val store: FolderOrganizerStore, legacy: () -> 
                 }
             })
         }
+        return if (saved) WindowsVirtualNames.identity(clean) else null
     }
 
     fun hideSubfolders(setId: String, identities: Collection<String>) {

@@ -103,6 +103,34 @@ class FolderOrganizerTest {
         assertNull(again.createOwn("bad/name"))
     }
 
+    @Test fun renamingASubfolderGivesItsNewIdentity() {
+        val organizer = Organizer(FolderOrganizerStore(temp.newFolder("skywing-rename").toPath().resolve("folders.bin")))
+        val setId = organizer.createSet("People")!!
+        assertEquals("owen hale", organizer.renameSubfolder(setId, "owen pike", "owen  HALE"))
+        assertEquals(mapOf("owen pike" to "Owen Hale"), organizer.data.sets.first().renames)
+        // Renamed again, the name in the file names stays the key.
+        assertEquals("owen vale", organizer.renameSubfolder(setId, "owen hale", "Owen Vale"))
+        assertEquals(mapOf("owen pike" to "Owen Vale"), organizer.data.sets.first().renames)
+        // A name that cannot be saved changes nothing and gives no identity.
+        assertNull(organizer.renameSubfolder(setId, "owen vale", "bad/name"))
+        assertEquals(mapOf("owen pike" to "Owen Vale"), organizer.data.sets.first().renames)
+    }
+
+    @Test fun renamingASubfolderIntoAnotherJoinsThemAndThePageDoesNotFollow() {
+        val clips = listOf(entry("C:\\Clips\\Owen Pike - Harbour.mp4"), entry("C:\\Clips\\Mara Vale - Market.mp4"))
+        val organizer = Organizer(FolderOrganizerStore(temp.newFolder("skywing-rename-join").toPath().resolve("folders.bin")))
+        val setId = organizer.createSet("People")!!
+        organizer.setSetMembers(setId, listOf("C:\\Clips"), emptyList())
+        fun groups() = organizer.data.sets.first().let { FolderLogic.buildGroups(it, FolderLogic.members(it.folders, it.files, clips), GroupingSwitches(), emptyMap()) }
+        val before = groups().map { it.identity }
+        assertEquals(setOf("owen pike", "mara vale"), before.toSet())
+
+        val renamed = organizer.renameSubfolder(setId, "owen pike", "Mara Vale")
+        assertEquals("mara vale", renamed)
+        assertEquals(listOf("mara vale" to 2), groups().map { it.identity to it.videos.size })
+        assertNull(followRename("owen pike", renamed, before))
+    }
+
     @Test fun moreVideosCanBeAddedToAnExistingVirtualSubfolder() {
         val dir = temp.newFolder("skywing-virtual-add").toPath()
         val path = dir.resolve("folders.bin")

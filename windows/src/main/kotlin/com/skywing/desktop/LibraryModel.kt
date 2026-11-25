@@ -102,6 +102,9 @@ internal class HubState {
     /** A card to tick ([page] to key) once the next move has ended any selection: Select on an actor page ticks it on the grid. */
     var tickAfterMove: Pair<String, String>? = null
 
+    /** The actor page's own actor was renamed (old identity to new): once the old one is gone, the page goes to the new one. */
+    var renamedActor: Pair<String, String>? = null
+
     /** Folder cards ticked on the page named [folderPage]; empty when not selecting folders. */
     var folderPage by mutableStateOf<String?>(null)
     var folderKeys by mutableStateOf(emptySet<String>())

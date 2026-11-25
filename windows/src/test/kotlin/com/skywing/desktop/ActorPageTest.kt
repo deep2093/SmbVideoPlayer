@@ -136,6 +136,16 @@ class ActorPageTest {
         assertTrue(actorPlayList(sorted, "beach", hideWatched = false, watched = watched).isEmpty())
     }
 
+    @Test fun renameOnThePageFollowsTheActorUnlessItJoinsAnother() {
+        val identities = listOf("owen pike", "mara vale")
+        assertEquals("owen hale", followRename("owen pike", "owen hale", identities))
+        // Joined to another actor: this page is gone, so the grid shows.
+        assertEquals(null, followRename("owen pike", "mara vale", identities))
+        // Only the case changed, or nothing was saved: the page stays as it is.
+        assertEquals(null, followRename("owen pike", "owen pike", identities))
+        assertEquals(null, followRename("owen pike", null, identities))
+    }
+
     @Test fun emptyPlayListDisablesPlayAllAndShuffleInTheMenu() {
         val state = ActorMenuState("Example", true, false, true, listOf("C:\\Clips" to 3), ActorRemoval.HIDE)
         val actions = ActorMenuActions({}, {}, {}, {}, {}, {}, {}, {}, {})

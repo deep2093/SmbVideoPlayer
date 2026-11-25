@@ -801,7 +801,7 @@ private fun OwnPage(f: Folders) {
                     playList = playList,
                 ) { f.tickOnGrid(container, "group:" + ref.identity) { ownGroup = null } }
             },
-            extra = MenuAction("Add more files/folders", SkyIcon.Add, dividerBefore = true) { f.chooseOwn(folder) },
+            add = MenuAction("Add more files/folders", SkyIcon.Add) { f.chooseOwn(folder) },
         )
         return
     }
@@ -1025,9 +1025,14 @@ private fun SetPage(f: Folders) {
     }
     val group = f.hub.setGroup
     val current = groups?.firstOrNull { it.identity == group }
-    // A subfolder that disappears (renamed, taken out, emptied by a scan) returns to the list.
+    // A subfolder that disappears (renamed into another, taken out, emptied by a scan) returns to the list. Renamed on its
+    // own page, it stays open under the new name once the subfolders show it.
     LaunchedEffect(groups != null, group, current == null) {
-        if (groups != null && group != null && current == null) f.hub.setGroup = null
+        if (groups != null && group != null && current == null) {
+            val renamed = f.hub.renamedActor?.takeIf { (from, to) -> from == group && groups.any { it.identity == to } }
+            f.hub.renamedActor = null
+            f.hub.setGroup = renamed?.second
+        }
     }
     val page = "set:" + set.id + (group?.let { "|$it" } ?: "")
     val actors = f.actorEntries("actors:set:" + set.id, "set:" + set.id, groups) { groups.orEmpty() }
@@ -1047,12 +1052,16 @@ private fun SetPage(f: Folders) {
                 f.actorMenuOf(
                     ref.title, ref.videos, ref.photoKey, set.name, ActorRemoval.HIDE, here,
                     onOpen = { f.go { setGroup = ref.identity } },
-                    rename = { f.organizer.renameSubfolder(set.id, ref.identity, it) },
+                    rename = { name ->
+                        val renamed = f.organizer.renameSubfolder(set.id, ref.identity, name)
+                        // Renaming this page's actor keeps the page on it, unless the new name joins another actor.
+                        if (here) f.hub.renamedActor = followRename(ref.identity, renamed, refs.map { it.identity })?.let { ref.identity to it }
+                    },
                     remove = { f.hideActors(set.id, listOf(ref.identity)) },
                     playList = playList,
                 ) { f.tickOnGrid(container, "group:" + ref.identity) { setGroup = null } }
             },
-            extra = MenuAction("Add to this subfolder", SkyIcon.Add, dividerBefore = true) { f.addToSetGroup(set, current.title) },
+            add = MenuAction("Add to this subfolder", SkyIcon.Add) { f.addToSetGroup(set, current.title) },
         )
         return
     }

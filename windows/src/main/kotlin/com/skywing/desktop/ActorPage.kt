@@ -6,8 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -21,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -174,6 +174,14 @@ internal fun neighbours(actors: List<ActorRef>, identity: String): Pair<ActorRef
     return if (at < 0) null to null else actors.getOrNull(at - 1) to actors.getOrNull(at + 1)
 }
 
+/**
+ * Where the page of [current] goes after it was renamed and saved as [renamed]: that identity, so the page stays on its
+ * actor. Null when there is nothing to follow (the save failed, or only the case of letters changed) or when the new name
+ * joins it to another actor of [identities]: that actor's page is gone and the grid shows, as when it is hidden.
+ */
+internal fun followRename(current: String, renamed: String?, identities: Collection<String>): String? =
+    renamed?.takeIf { it != current && it !in identities }
+
 /** The key the photo moves under between the actor card and this page's header (Task 11 hangs the move on it). */
 internal fun actorPhotoKey(pageKey: String) = "actor-photo:$pageKey"
 
@@ -211,8 +219,8 @@ private val HEADER_SLIM = 60.dp
 /**
  * The page of [actor], one of [actors] (the actors of its folder). [onOpenActor] opens another by identity; [menuOf] is
  * the actor menu of an actor, true for this page's own actor (no Open there), with the list its Play all and Shuffle
- * play; it is built only when a menu opens or a key arrives. [extra] is today's "add more" action of the folder kind,
- * kept at the end of ⋯.
+ * play; it is built only when a menu opens or a key arrives. [add] is the folder kind's "add more" button, at the end of
+ * the sort bar.
  */
 @Composable
 internal fun ActorPage(
@@ -222,7 +230,7 @@ internal fun ActorPage(
     onOpenActor: (String) -> Unit,
     onBack: () -> Unit,
     menuOf: (ActorRef, Boolean, List<WindowsMediaEntry>) -> List<MenuAction>,
-    extra: MenuAction? = null,
+    add: MenuAction? = null,
 ) {
     val hub = f.hub
     val page = actor.pageKey
@@ -278,15 +286,15 @@ internal fun ActorPage(
                     onResume = playResume,
                     onPlayAll = { f.play(shown) },
                     onShuffle = { f.play(shown.shuffled()) },
-                    // Play all and Shuffle in ⋯ play the grid's list, the same as the buttons.
-                    menu = { menuOf(actor, true, shown) + listOfNotNull(extra) },
+                    // Exactly the actor menu (spec 5.6); its Play all and Shuffle play the grid's list, the same as the buttons.
+                    menu = { menuOf(actor, true, shown) },
                     onBack = onBack,
                     arrows = !showList,
                     previous = previous,
                     next = next,
                     onOpenActor = onOpenActor,
                 )
-                if (hub.folderPage == page) VideoSelectionBar(f, page, shown) else SortBar(hub, page, searchFocus)
+                if (hub.folderPage == page) VideoSelectionBar(f, page, shown) else SortBar(hub, page, searchFocus, add)
                 TileGrid(
                     f.videoTiles(shown, page) { info.badges(it) }, grid, f.organizer, page, f.history, f.onPlay, Modifier.weight(1f),
                     emptyText = "Nothing matches.",
@@ -304,7 +312,6 @@ internal fun ActorPage(
  * grid scrolls it folds into a slim bar with the photo, the name and Resume; with Windows animations off it follows the
  * scroll at once. Below 900 dp ‹ › beside the name go to the previous and next actor.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ActorHeader(
     actor: ActorRef,
@@ -354,7 +361,8 @@ private fun ActorHeader(
             if (open) {
                 Column(Modifier.graphicsLayer { alpha = 1f - fold * 2f }, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(line, color = theme.muted, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // One line that scrolls sideways on a narrow page, so the open header (a fixed height) never cuts a button off.
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         SkyButton(resumeLabel, onResume, enabled = canResume, icon = SkyIcon.Play)
                         SkyButton("Play all", onPlayAll, enabled = canPlay, primary = false, icon = SkyIcon.Play)
                         SkyButton("Shuffle", onShuffle, enabled = canPlay, primary = false, icon = SkyIcon.Queue)
@@ -381,9 +389,9 @@ private fun LazyMenuButton(description: String, items: () -> List<MenuAction>) {
     }
 }
 
-/** The bar that stays above the grid: Newest / A–Z / Longest, Hide watched, the page's search and View. */
+/** The bar that stays above the grid: Newest / A–Z / Longest, Hide watched, the page's search, View and [add]. */
 @Composable
-private fun SortBar(hub: HubState, page: String, searchFocus: FocusRequester) {
+private fun SortBar(hub: HubState, page: String, searchFocus: FocusRequester, add: MenuAction?) {
     val theme = LocalSkyTheme.current
     HeaderLine(Modifier.heightIn(min = 48.dp), gap = 12.dp, lead = {
         SkyChipBar(SORTS.map { it.second }, SORTS.indexOfFirst { it.first == hub.actorSort }, { hub.actorSort = SORTS[it].first })
@@ -394,6 +402,7 @@ private fun SortBar(hub: HubState, page: String, searchFocus: FocusRequester) {
     }, trail = {
         SkyField(hub.query, { hub.query = it }, "Search here", Modifier.width(220.dp).focusRequester(searchFocus), leading = SkyIcon.Search)
         ViewButton(page, actors = false, videos = true)
+        if (add != null) SkyButton(add.label, add.action, primary = false, icon = add.icon)
     })
 }
 
