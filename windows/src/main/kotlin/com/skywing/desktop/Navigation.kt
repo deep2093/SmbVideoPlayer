@@ -33,6 +33,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.skywing.desktop.ui.adaptive.LocalAdaptive
@@ -113,7 +115,7 @@ internal fun NavRow(
 /**
  * The rail (M3 design brief 5.2) on layer 1 with a 1 px edge on its right: 240 dp with full labels and a Now playing
  * card, or 72 dp with icons over short labels and Now playing as an entry with a progress ring. Every entry is a tab
- * in one group, so one of them is always the selected one.
+ * in one group, so one of them is always the selected one. [footer] goes at the very bottom (the actor page's pin).
  */
 @Composable
 internal fun NavRail(
@@ -123,6 +125,7 @@ internal fun NavRail(
     onSelect: (String) -> Unit,
     onTogglePause: () -> Unit,
     modifier: Modifier = Modifier,
+    footer: (@Composable () -> Unit)? = null,
 ) {
     val c = LocalSkyTheme.current.colors
     Column(
@@ -151,8 +154,40 @@ internal fun NavRail(
             else NowPlayingEntry(nowPlaying, selected == NOW_PLAYING) { onSelect(NOW_PLAYING) }
         }
         NavRow(SETTINGS, SkyIcon.Settings, selected == SETTINGS, narrow = !wide) { onSelect(SETTINGS) }
+        footer?.invoke()
     }
 }
+
+/**
+ * The pin at the bottom of the rail on an actor page (spec 5.3): on, the rail keeps its 240 dp there; off, it folds to
+ * its 72 dp icons to give the videos room. [wide] is the rail's width now; the choice is kept with the views.
+ */
+@Composable
+internal fun KeepMenuOpenPin(wide: Boolean, on: Boolean, onToggle: () -> Unit) {
+    val c = LocalSkyTheme.current.colors
+    val tint = if (on) c.accent else c.textSecondary
+    val state = Modifier.semantics { toggleableState = ToggleableState(on) }
+    if (wide) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = LocalAdaptive.current.rowHeight).clip(RoundedCornerShape(SkyRadius.control))
+                .background(if (on) c.accentSubtle else Color.Transparent)
+                .skyClickable(onToggle, role = Role.Checkbox).then(state)
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            SkyIconView(SkyIcon.Pin, tint, size = 20.dp)
+            Text(KEEP_MENU_OPEN, color = if (on) c.text else c.textSecondary, style = MaterialTheme.typography.bodyMedium, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+        }
+    } else {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            SkyIconButton(SkyIcon.Pin, KEEP_MENU_OPEN, onToggle, modifier = state, tint = tint)
+        }
+    }
+}
+
+private const val KEEP_MENU_OPEN = "Keep menu open"
 
 /** The wide rail's Now playing card: the title on one line, a 2 dp accent progress line, and play or pause. */
 @Composable

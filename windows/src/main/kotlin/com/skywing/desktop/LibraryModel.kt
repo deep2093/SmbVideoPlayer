@@ -92,6 +92,16 @@ internal class HubState {
     var setId by mutableStateOf<String?>(null)
     var setGroup by mutableStateOf<String?>(null)
 
+    // The actor page: how its videos are sorted and whether watched ones are hidden, the same on every actor.
+    var actorSort by mutableStateOf(VideoSort.NEWEST)
+    var hideWatched by mutableStateOf(false)
+
+    /** True on an actor's own page: a Virtual folder's name subfolder or a Custom folder's name group, not a drive folder in it. */
+    val onActorPage: Boolean get() = (setId != null && setGroup != null || ownId != null && ownGroup != null) && drivePath == null
+
+    /** A card to tick ([page] to key) once the next move has ended any selection: Select on an actor page ticks it on the grid. */
+    var tickAfterMove: Pair<String, String>? = null
+
     /** Folder cards ticked on the page named [folderPage]; empty when not selecting folders. */
     var folderPage by mutableStateOf<String?>(null)
     var folderKeys by mutableStateOf(emptySet<String>())

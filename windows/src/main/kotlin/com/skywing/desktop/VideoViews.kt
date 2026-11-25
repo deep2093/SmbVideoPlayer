@@ -92,9 +92,14 @@ internal data class VideoTile(
     val onSelect: (() -> Unit)? = null,
     /** What a click or Enter does when the card is not selecting; null plays the video with [queue]. */
     val open: (() -> Unit)? = null,
+    /** The length, watched tick and "New" tag on its picture (the actor page); null shows none of them. */
+    val badges: VideoBadges? = null,
 ) : Tile {
     override val title: String get() = entry.file.name
 }
+
+/** What a video card shows on its picture besides the progress bar: its length when known, a tick when watched, and "New". */
+internal data class VideoBadges(val length: Double? = null, val watched: Boolean = false, val new: Boolean = false)
 
 /** A heading across the whole grid ("Folders", "Videos"). */
 internal data class LabelTile(override val key: String, override val title: String) : Tile
@@ -113,6 +118,8 @@ internal fun TileGrid(
     onPlay: (File, List<File>) -> Unit,
     modifier: Modifier = Modifier,
     emptyText: String? = null,
+    /** A button under [emptyText] ("Clear search"). */
+    emptyAction: MenuAction? = null,
     footer: String? = null,
     letters: Boolean = true,
     /** The letters are for the actor cards only, and only when they fill more than about two screens. */
@@ -157,7 +164,7 @@ internal fun TileGrid(
             verticalArrangement = Arrangement.spacedBy(if (view.list) 8.dp else 14.dp),
         ) {
             if (tiles.isEmpty() && emptyText != null) {
-                item(span = { GridItemSpan(maxLineSpan) }) { EmptyNote(emptyText) }
+                item(span = { GridItemSpan(maxLineSpan) }) { EmptyNote(emptyText, action = emptyAction) }
             }
             items(tiles, key = { it.key }, span = { if (it is LabelTile) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { tile ->
                 TileView(tile, view, history, onPlay, ::clicked)
@@ -219,6 +226,7 @@ private fun TileView(
                 selected = tile.selected,
                 listMode = view.list,
                 aspect = view.videoAspect,
+                badges = tile.badges,
                 modifier = cardKeys(tile.menu),
                 onClick = {
                     if (!modified()) {

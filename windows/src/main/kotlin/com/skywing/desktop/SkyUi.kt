@@ -13,6 +13,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -535,6 +536,37 @@ internal fun SelectionMark(selected: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
+/** A video picture's marks: "New" and a tick when watched at the top left, the length at the bottom right. */
+@Composable
+private fun BoxScope.VideoBadgeMarks(badges: VideoBadges, small: Boolean) {
+    val theme = LocalSkyTheme.current
+    val edge = if (small) 4.dp else 8.dp
+    Row(
+        Modifier.align(Alignment.TopStart).padding(edge).clearAndSetSemantics {},
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (badges.new) {
+            Text(
+                "New", color = theme.onAccent, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(theme.accent).padding(horizontal = 6.dp, vertical = 1.dp),
+            )
+        }
+        if (badges.watched) {
+            Box(Modifier.size(if (small) 18.dp else 22.dp).clip(CircleShape).background(theme.accent), contentAlignment = Alignment.Center) {
+                SkyIconView(SkyIcon.Check, theme.onAccent, size = if (small) 12.dp else 15.dp)
+            }
+        }
+    }
+    badges.length?.takeIf { it > 0 }?.let { length ->
+        Text(
+            formatClock(length), color = Color.White, fontSize = 11.sp, lineHeight = 14.sp,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = edge, bottom = edge).clearAndSetSemantics {}
+                .clip(RoundedCornerShape(4.dp)).background(Color.Black.copy(alpha = 0.65f)).padding(horizontal = 5.dp, vertical = 1.dp),
+        )
+    }
+}
+
 /**
  * One folder card, the same for Custom, Virtual and drive folders: the cover (chosen in Change cover, a portrait, or
  * made from its videos), the name and a short detail line. Clicking opens it; holding (or a right click) opens its options.
@@ -632,11 +664,14 @@ internal fun VideoCard(
     detail: String? = null,
     listMode: Boolean = false,
     aspect: Float = CardAspect.SCENE,
+    /** The length, watched tick and "New" tag on the picture; null shows none. */
+    badges: VideoBadges? = null,
 ) {
     val theme = LocalSkyTheme.current
     val picture: @Composable (Modifier) -> Unit = { pictureModifier ->
         Box(pictureModifier) {
             VideoPicture(entry, aspect < 1f, Modifier.fillMaxSize())
+            if (badges != null) VideoBadgeMarks(badges, listMode)
             if (progress != null && progress > 0f) {
                 Box(
                     Modifier.align(Alignment.BottomStart).fillMaxWidth(progress.coerceIn(0f, 1f)).height(3.dp)
@@ -646,7 +681,13 @@ internal fun VideoCard(
             if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
     }
-    val watched = progress?.takeIf { it > 0f }?.let { "${(it.coerceIn(0f, 1f) * 100).roundToInt()}% watched" }
+    val percent = progress?.takeIf { it > 0f }?.let { "${(it.coerceIn(0f, 1f) * 100).roundToInt()}% watched" }
+    // The marks are drawn without words of their own, so the card's name stays its title; they join its description.
+    val watched = if (badges == null) percent else listOfNotNull(
+        if (badges.new) "New" else null,
+        if (badges.watched) "Watched" else percent,
+        badges.length?.takeIf { it > 0 }?.let { "Length " + formatClock(it) },
+    ).joinToString(", ").ifEmpty { null }
     CardFrame(modifier, selected, watched, listMode, aspect, onClick, onLongClick, picture) {
         Text(entry.title(), color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(

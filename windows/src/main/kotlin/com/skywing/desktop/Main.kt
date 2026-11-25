@@ -706,12 +706,18 @@ var openCount by remember { mutableStateOf(0) }
             Row(Modifier.fillMaxSize()) {
                 // The rail by width (M3 design brief 5.2); the video's SwingPanel below keeps its one place in the tree.
                 if (!fullscreen && adaptive.navigation != NavigationShape.TopTabs) {
+                    val wideRail = adaptive.navigation == NavigationShape.WideRail
+                    // An actor page in the Header layout folds the wide rail to its icons, unless Keep menu open is on (spec 5.3).
+                    val actorHeader = selected == "Folders" && hub.onActorPage && libraryViews.data.actorLayout == ActorLayout.HEADER
+                    val keepOpen = libraryViews.data.keepMenuOpen
+                    val wide = wideRail && !(actorHeader && !keepOpen)
                     NavRail(
-                        wide = adaptive.navigation == NavigationShape.WideRail,
+                        wide = wide,
                         selected = selected,
                         nowPlaying = nowPlaying,
                         onSelect = { go(it) },
                         onTogglePause = { embedded.togglePause() },
+                        footer = if (wideRail && actorHeader) ({ KeepMenuOpenPin(wide, keepOpen) { libraryViews.setKeepMenuOpen(!keepOpen) } }) else null,
                     )
                 }
                 Column(
@@ -735,7 +741,9 @@ var openCount by remember { mutableStateOf(0) }
                                     { files -> files.firstOrNull()?.let { playQueue(it, files, autoNext = true) } },
                                     { file, position, files, auto -> openVideo(file, files, position, autoNext = auto) },
                                     { renameTarget = it },
-                                    setWatched, marks)
+                                    setWatched, marks,
+                                    // new.json is written as it is called, so never on the screen thread.
+                                    onOpenedActor = { key -> playbackScope.launch(Dispatchers.IO) { runCatching { records.openedActor(key) } } })
                                 "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { files -> files.firstOrNull()?.let { playQueue(it, files, autoNext = true) } }, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it },
                                     onAddFolder = { go("Files") },
                                     onResumeQueue = { file, position, files, auto -> openVideo(file, files, position, autoNext = auto) },
