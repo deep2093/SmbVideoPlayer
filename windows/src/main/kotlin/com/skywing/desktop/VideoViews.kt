@@ -79,7 +79,8 @@ internal data class VideoTile(
     override val key: String,
     val entry: WindowsMediaEntry,
     val queue: List<WindowsMediaEntry>,
-    val menu: List<MenuAction> = emptyList(),
+    /** Built when the menu opens or a card key arrives, never for every card on every composition. */
+    val menu: () -> List<MenuAction> = { emptyList() },
     val selected: Boolean? = null,
     val onSelect: (() -> Unit)? = null,
     /** What a click or Enter does when the card is not selecting; null plays the video with [queue]. */
@@ -175,7 +176,7 @@ private fun TileView(
 ) {
     var menu by remember { mutableStateOf(false) }
     val window = LocalWindowInfo.current
-    fun cardKeys(items: List<MenuAction>) = Modifier.cardKeys(items) { menu = true }
+    fun cardKeys(items: () -> List<MenuAction>) = Modifier.cardKeys(items) { menu = true }
     fun modified(): Boolean = onModifiedClick(tile, window.keyboardModifiers.isCtrlPressed, window.keyboardModifiers.isShiftPressed)
     when (tile) {
         is LabelTile -> SectionLabel(tile.title, Modifier.padding(top = 4.dp))
@@ -191,7 +192,7 @@ private fun TileView(
                 listMode = view.list,
                 aspect = view.folderAspect,
                 selected = tile.selected,
-                modifier = cardKeys(tile.menu),
+                modifier = cardKeys { tile.menu },
             )
             SkyMenu(menu, { menu = false }, tile.menu)
         }
@@ -211,22 +212,22 @@ private fun TileView(
                 },
                 onLongClick = {
                     if (tile.selected != null) tile.onSelect?.invoke()
-                    else if (tile.menu.isNotEmpty()) menu = true
+                    else if (tile.menu().isNotEmpty()) menu = true
                     else tile.onSelect?.invoke()
                 },
             )
-            SkyMenu(menu, { menu = false }, tile.menu)
+            SkyMenu(menu, { menu = false }, if (menu) tile.menu() else emptyList())
         }
     }
 }
 
 /** Keys on a focused card: its menu's shortcuts (F2, Alt+Enter), and Shift+F10 or the menu key for [openMenu]. */
-internal fun Modifier.cardKeys(items: List<MenuAction>, openMenu: () -> Unit): Modifier = onPreviewKeyEvent { event ->
+internal fun Modifier.cardKeys(items: () -> List<MenuAction>, openMenu: () -> Unit): Modifier = onPreviewKeyEvent { event ->
     val shortcut = if (event.type == KeyEventType.KeyDown) cardKeyShortcut(event.key, event.isAltPressed, event.isShiftPressed) else null
     when {
         shortcut == null -> false
-        shortcut == MENU_KEY -> items.isNotEmpty().also { if (it) openMenu() }
-        else -> shortcutAction(items, shortcut)?.let { it.action(); true } ?: false
+        shortcut == MENU_KEY -> items().isNotEmpty().also { if (it) openMenu() }
+        else -> shortcutAction(items(), shortcut)?.let { it.action(); true } ?: false
     }
 }
 
@@ -355,7 +356,7 @@ internal fun VideoGridView(
                         selected = if (selection.active) entry.path in selection.paths else null,
                         listMode = view.list,
                         aspect = view.videoAspect,
-                        modifier = Modifier.cardKeys(menu(entry)) { open = true },
+                        modifier = Modifier.cardKeys({ menu(entry) }) { open = true },
                         onClick = {
                             if (modifiedClick(entry)) Unit
                             else if (selection.active) selection.toggle(entry.path)

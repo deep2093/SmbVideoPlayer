@@ -106,7 +106,7 @@ internal fun libraryVideoMenu(
     details: () -> Unit,
     select: (() -> Unit)?,
 ): List<MenuAction> {
-    val files = queue.map { it.file }
+    // Nothing is mapped over the queue until an item is chosen: a page builds this menu only when it opens.
     val at = resumePosition(history, entry)
     return videoMenu(
         VideoMenuState(
@@ -116,8 +116,9 @@ internal fun libraryVideoMenu(
             pictureHint = if (artwork?.row(com.skywing.desktop.artwork.ArtworkKeys.video(entry.path)) == null) "Automatic" else "Chosen",
         ),
         VideoMenuActions(
-            play = { if (at != null) onResume(entry.file, at, files, false) else onPlay(entry.file, files) },
-            playFromStart = { onPlay(entry.file, files) },
+            play = { val files = queue.map { it.file }
+                if (at != null) onResume(entry.file, at, files, false) else onPlay(entry.file, files) },
+            playFromStart = { onPlay(entry.file, queue.map { it.file }) },
             setWatched = { onSetWatched(listOf(entry.file), it) },
             changePicture = changePicture,
             addToFolder = addToFolder,

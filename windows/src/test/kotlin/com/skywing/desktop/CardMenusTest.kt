@@ -162,4 +162,24 @@ class CardMenusTest {
         withSelect.first { it.label == "Mark as watched" }.action()
         assertEquals(listOf("resume 754.0 false", "play", "watched true"), ran)
     }
+
+    @Test fun buildingTheMenuDoesNoWorkOverTheQueue() {
+        val entry = WindowsMediaEntry("C:/clips/a.mkv", "s", "PC", "Clips", 1, 1)
+        val other = WindowsMediaEntry("C:/clips/b.mkv", "s", "PC", "Clips", 1, 1)
+        var reads = 0
+        val queue = object : AbstractList<WindowsMediaEntry>() {
+            private val items = listOf(entry, other)
+            override val size get() = items.size
+            override fun get(index: Int): WindowsMediaEntry { reads++; return items[index] }
+        }
+        var played = emptyList<java.io.File>()
+        val menu = libraryVideoMenu(
+            entry, queue, emptyMap(), LibraryMarks(), null, true,
+            { _, files -> played = files }, { _, _, _, _ -> }, { _, _ -> }, {}, {}, {}, {}, {}, null,
+        )
+        assertEquals(0, reads)
+        menu.first().action()
+        assertEquals(listOf(entry.file, other.file), played)
+        assertTrue(reads > 0)
+    }
 }

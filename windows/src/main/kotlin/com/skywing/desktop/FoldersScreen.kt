@@ -150,7 +150,7 @@ private class Folders(
 
     fun videoTiles(list: List<WindowsMediaEntry>, page: String): List<VideoTile> = list.map { entry ->
         VideoTile(
-            "file:" + entry.path.lowercase(Locale.ROOT), entry, list, videoMenu(entry, list, page),
+            "file:" + entry.path.lowercase(Locale.ROOT), entry, list, { videoMenu(entry, list, page) },
             hub.ticked(page, "file:" + entry.path), { hub.toggleFolder(page, "file:" + entry.path) },
             open = { open(entry, list) },
         )
