@@ -252,6 +252,7 @@ internal fun FoldersScreen(
     history: Map<String, WindowsWatchRecord>,
     onPlay: (File, List<File>) -> Unit,
     onRename: (File) -> Unit,
+    marks: LibraryMarks = LibraryMarks(),
 ) {
     val prefs = organizer.data.prefs
     val tabs = prefs.tabs

@@ -241,6 +241,7 @@ private fun SkyWingDesktopShell(
     var queue by remember { mutableStateOf<List<File>>(emptyList()) }
     var queueIndex by remember { mutableStateOf(-1) }
     val historyStore = remember { WindowsPlaybackHistoryStore() }
+    val records = remember { PlaybackRecords(historyStore, WindowsWatchedStore(), NewVideoStore()) }
     var historyRevision by remember { mutableStateOf(0) }
     val playbackScope = rememberCoroutineScope()
     var videoCanvas by remember { mutableStateOf<Canvas?>(null) }
@@ -292,6 +293,16 @@ private fun SkyWingDesktopShell(
     // What the pages show.
     val library = remember { LibraryModel(WindowsMediaIndex()) }
     LaunchedEffect(library.revision) { library.reload() }
+    // Videos that arrive in folders SkyWing already knows are marked new; the first load marks nothing.
+    var previousLibrary by remember { mutableStateOf<List<WindowsMediaEntry>>(emptyList()) }
+    // Keyed on the list itself: reload() fills it after the revision goes up, so that is when the scan result is there.
+    LaunchedEffect(library.all) {
+        val before = previousLibrary
+        val after = library.all
+        previousLibrary = after
+        val arrivals = NewVideos.arrivals(before, after)
+        if (arrivals.isNotEmpty()) withContext(Dispatchers.IO) { runCatching { records.arrived(arrivals) } }
+    }
     // Thumbnails for the whole library are made in the background, cards on screen first.
     LaunchedEffect(library.all) {
         if (library.revision > 0) ThumbnailStore.prefetch(library.all.map { it.file to it.modified })
@@ -306,7 +317,7 @@ private fun SkyWingDesktopShell(
     }
     // Covers and portraits: one store for the app, and the background portrait lookup after each scan.
     val artwork = remember { ArtworkRepository() }
-    val videoRenamer = remember(library, organizer, artwork, historyStore) { VideoRenameService(library, organizer, artwork, historyStore) }
+    val videoRenamer = remember(library, organizer, artwork, records) { VideoRenameService(library, organizer, artwork, records) }
     var renameTarget by remember { mutableStateOf<File?>(null) }
     // Always check for library changes at startup; the optional periodic scan runs while the app is open.
     val sync = remember { LibrarySync(library) }
@@ -341,6 +352,10 @@ private fun SkyWingDesktopShell(
     // Read off the screen thread (B8). The pages keep the last history until the new one is read.
     val history by produceState(emptyMap<String, WindowsWatchRecord>(), historyRevision) {
         value = withContext(Dispatchers.IO) { historyStore.load().associateBy { it.path.lowercase() } }
+    }
+    // Watched and new marks, read off the screen thread like the history.
+    val marks by produceState(LibraryMarks(), historyRevision, records.revision.value) {
+        value = withContext(Dispatchers.IO) { LibraryMarks(records.watched.load(), records.newVideos.snapshot()) }
     }
 
     fun go(section: String) {
@@ -393,7 +408,7 @@ private fun SkyWingDesktopShell(
         currentFile?.let { earlier ->
             val previousPosition = embedded.playbackPosition() ?: 0.0
             val previousDuration = embedded.playbackDuration() ?: 0.0
-            playbackScope.launch(Dispatchers.IO) { historyStore.saveProgress(earlier, previousPosition, previousDuration) }
+            playbackScope.launch(Dispatchers.IO) { records.save(earlier, previousPosition, previousDuration) }
         }
         val safeQueue = queuedFiles.ifEmpty { listOf(file) }
         val selectedIndex = safeQueue.indexOfFirst { it.absolutePath.equals(file.absolutePath, ignoreCase = true) }
@@ -403,6 +418,7 @@ private fun SkyWingDesktopShell(
         selected = "Now Playing"
         selection.clear()
         currentFile = file
+        playbackScope.launch(Dispatchers.IO) { runCatching { records.started(file) } }
         reportedFailure = null
         val canvas = videoCanvas
         val accepted = canvas != null && embedded.attach(canvas) && embedded.open(file)
@@ -429,7 +445,7 @@ private fun SkyWingDesktopShell(
         queueIndex = -1
         message = ""
         playbackScope.launch(Dispatchers.IO) {
-            runCatching { historyStore.saveProgress(file, position, length) }
+            runCatching { records.save(file, position, length) }
             historyRevision++
         }
         if (fullscreen) onFullscreenChange(false)
@@ -468,7 +484,7 @@ private fun SkyWingDesktopShell(
             val reading = withContext(Dispatchers.IO) { embedded.reading() }
             val position = reading.position ?: return
             val length = reading.duration ?: return
-            runCatching { withContext(Dispatchers.IO) { historyStore.saveProgress(file, position, length) } }
+            runCatching { withContext(Dispatchers.IO) { records.save(file, position, length) } }
                 .onSuccess { historyRevision++ }
         }
         if (closing) {
@@ -486,7 +502,7 @@ private fun SkyWingDesktopShell(
             val length = reading.duration ?: continue
             val now = System.nanoTime() / 1_000_000
             if (!saves.due(now, position, paused = reading.paused == true)) continue
-            runCatching { withContext(Dispatchers.IO) { historyStore.saveProgress(file, position, length) } }
+            runCatching { withContext(Dispatchers.IO) { records.save(file, position, length) } }
                 .onSuccess {
                     saves.saved(now, position)
                     historyRevision++
@@ -645,7 +661,7 @@ private fun SkyWingDesktopShell(
                             CompositionLocalProvider(LocalCovers provides covers) { when (selected) {
                                 "Home" -> HomeScreen(library, hub, history, playOne, { file, position -> openVideo(file, listOf(file), position) },
                                     { go("Videos") }) { go("Files") }
-                                "Folders" -> FoldersScreen(library, organizer, hub, history, playOne, { renameTarget = it })
+                                "Folders" -> FoldersScreen(library, organizer, hub, history, playOne, { renameTarget = it }, marks)
                                 "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it }) { go("Files") }
                                 "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
                                 else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,
