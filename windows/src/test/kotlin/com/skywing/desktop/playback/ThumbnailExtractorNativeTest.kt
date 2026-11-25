@@ -43,6 +43,14 @@ class ThumbnailExtractorNativeTest {
     }
 
     @Test(timeout = 120_000)
+    fun pictureReportsLength() {
+        val result = ThumbnailExtractor.extractDetailed(sdr, File(media, "length.jpg"))
+        assertTrue(result.success, result.reason)
+        val seconds = result.duration
+        assertTrue(seconds != null && seconds.isFinite() && seconds > 0, "length: $seconds")
+    }
+
+    @Test(timeout = 120_000)
     fun aFileThatCannotBeReadDoesNotStopTheNextOne() {
         val broken = File(media, "broken.mp4").apply { writeBytes(ByteArray(8192) { 7 }) }
         val failed = ThumbnailExtractor.extractDetailed(broken, File(media, "broken.jpg"))

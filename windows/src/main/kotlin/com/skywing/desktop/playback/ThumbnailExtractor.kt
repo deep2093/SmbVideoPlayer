@@ -94,6 +94,8 @@ internal object ThumbnailExtractor {
         val timedOut: Boolean = false,
         /** True when the video is HDR and the picture went through the tone-mapping pass. */
         val toneMapped: Boolean = false,
+        /** The video's length in seconds, read as the picture was made; null when it could not be read. */
+        val duration: Double? = null,
     )
 
     fun extract(video: File, target: File, start: String = "10%", exact: Boolean = false, width: Int = 480): Boolean =
@@ -101,8 +103,9 @@ internal object ThumbnailExtractor {
 
     fun extractDetailed(video: File, target: File, start: String = "10%", exact: Boolean = false, width: Int = 480, timeoutMs: Long = 45_000): Result {
         val begun = System.nanoTime()
+        var duration: Double? = null
         fun result(success: Boolean, reason: String, timedOut: Boolean = false, toneMapped: Boolean = false) =
-            Result(success, reason, (System.nanoTime() - begun) / 1_000_000, timedOut, toneMapped)
+            Result(success, reason, (System.nanoTime() - begun) / 1_000_000, timedOut, toneMapped, duration)
         if (api == null) return result(false, "libmpv-2.dll could not be loaded")
         if (!video.isFile) return result(false, "Video file is unavailable")
         val player = try {
@@ -115,6 +118,7 @@ internal object ThumbnailExtractor {
             val scale = "scale=${width.coerceIn(64, 1920)}:-2"
             val first = player.grab(video, start, exact, "lavfi=[$scale]", timeoutMs)
             healthy = !first.broken
+            duration = first.duration
             val picture = first.picture ?: return result(false, first.failure, first.timedOut)
             target.parentFile?.mkdirs()
             Files.move(picture.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
@@ -145,7 +149,8 @@ internal object ThumbnailExtractor {
         "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
 
     /** One picture's outcome. [broken] means the player must not be used again. */
-    private class Grab(val picture: File?, val failure: String, val timedOut: Boolean, val broken: Boolean, val gamma: String?)
+    private class Grab(val picture: File?, val failure: String, val timedOut: Boolean, val broken: Boolean, val gamma: String?,
+        val duration: Double? = null)
 
     /** A windowless player kept for many pictures, with its own folder for the image output. */
     private class Player(private val native: Api, val ctx: Pointer, val folder: File) {
@@ -161,6 +166,7 @@ internal object ThumbnailExtractor {
             if (loaded < 0) return Grab(null, "mpv loadfile: ${error(loaded)}", false, false, null)
             var failure = "mpv produced no JPEG"
             var gamma: String? = null
+            var duration: Double? = null
             var ended = false
             var broken = false
             val deadline = System.nanoTime() + timeoutMs * 1_000_000
@@ -174,6 +180,9 @@ internal object ThumbnailExtractor {
                             gamma = native.mpv_get_property_string(ctx, "video-params/gamma")?.let { text ->
                                 try { text.getString(0, "UTF-8") } finally { native.mpv_free(text) }
                             }
+                            duration = native.mpv_get_property_string(ctx, "duration")?.let { text ->
+                                try { text.getString(0, "UTF-8").toDoubleOrNull() } finally { native.mpv_free(text) }
+                            }?.takeIf { it.isFinite() && it > 0 }
                         } finally {
                             if (hook != null) native.mpv_hook_continue(ctx, hook.getLong(8))
                         }
@@ -190,10 +199,10 @@ internal object ThumbnailExtractor {
                     }
                 }
             }
-            if (!ended) return Grab(null, "Timed out after ${timeoutMs / 1000}s", timedOut = true, broken = true, gamma = gamma)
+            if (!ended) return Grab(null, "Timed out after ${timeoutMs / 1000}s", timedOut = true, broken = true, gamma = gamma, duration = duration)
             val picture = folder.listFiles()?.filter { it.isFile && it.extension.equals("jpg", ignoreCase = true) && it.length() > 0 }
                 ?.minByOrNull { it.name }
-            return Grab(picture, failure, false, broken, gamma)
+            return Grab(picture, failure, false, broken, gamma, duration)
         }
 
         fun close() {

@@ -143,6 +143,7 @@ private fun skyWingApplication(args: Array<String>, instance: SingleInstance.Own
                             placement?.let { (screen, start) -> placementStore.save(screen, start) }
                             instance?.close()
                             embedded.close()
+                            runCatching { ThumbnailStore.lengths.flush() }
                         }
                     }
                     finally { exitApplication() }
@@ -502,12 +503,23 @@ var openCount by remember { mutableStateOf(0) }
         // While it plays, the place is written after a pause or a seek and at most every 30 s (B20). Stopping, closing
         // and the next video write it straight away.
         val saves = HistorySaves(startedAt = System.nanoTime() / 1_000_000)
+        var lengthNoted = -1
         while (true) {
             delay(5000)
             // Read off the screen thread: the player may be busy, for example starting motion smoothing (B7).
             val reading = withContext(Dispatchers.IO) { embedded.reading() }
             val position = reading.position ?: continue
             val length = reading.duration ?: continue
+            // The video's length, once per open, written off the screen thread and never in the way of playback.
+            if (lengthNoted != openCount) {
+                lengthNoted = openCount
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        ThumbnailStore.lengths.record(ThumbnailStore.keyOf(file.path, file.lastModified()), length)
+                        ThumbnailStore.lengths.flushIfDue()
+                    }
+                }
+            }
             val now = System.nanoTime() / 1_000_000
             if (!saves.due(now, position, paused = reading.paused == true)) continue
             runCatching { withContext(Dispatchers.IO) { records.save(file, position, length) } }
