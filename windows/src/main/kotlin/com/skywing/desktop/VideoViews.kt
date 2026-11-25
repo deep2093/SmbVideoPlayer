@@ -446,6 +446,28 @@ internal fun cardKeyShortcut(key: Key, alt: Boolean, shift: Boolean): String? = 
 internal fun isBackShortcut(key: Key, alt: Boolean, ctrl: Boolean, shift: Boolean): Boolean =
     !ctrl && !shift && ((key == Key.Escape && !alt) || (key == Key.DirectionLeft && alt))
 
+/**
+ * Esc and Alt+← call [goBack] (spec 5.10). Alt+← always goes back, before what has focus sees it (a text field would take
+ * it as a cursor key); Esc only when what has focus did not use it (a search with text clears it first, [escClears]).
+ * A back from the keyboard calls [onKeyboardBack], so the card focus lands on shows its ring; the mouse back button
+ * does not come through here.
+ */
+internal fun Modifier.backKeys(goBack: () -> Boolean, onKeyboardBack: () -> Unit): Modifier {
+    fun back(event: KeyEvent): Boolean =
+        event.type == KeyEventType.KeyDown && isBackShortcut(event.key, event.isAltPressed, event.isCtrlPressed, event.isShiftPressed) &&
+            goBack().also { if (it) onKeyboardBack() }
+    return onPreviewKeyEvent { it.isAltPressed && back(it) }.onKeyEvent { !it.isAltPressed && back(it) }
+}
+
+/** Esc in a search field with [text] clears it and keeps the focus there; in an empty one Esc goes on to [backKeys]. */
+internal fun Modifier.escClears(text: String, clear: () -> Unit): Modifier = onPreviewKeyEvent { event ->
+    val plain = !event.isAltPressed && !event.isCtrlPressed && !event.isShiftPressed && !event.isMetaPressed
+    if (event.type == KeyEventType.KeyDown && event.key == Key.Escape && plain && text.isNotEmpty()) {
+        clear()
+        true
+    } else false
+}
+
 /** The total at the end of a list ("581 folders · 4,200 videos"). */
 @Composable
 internal fun ListTotal(text: String) {

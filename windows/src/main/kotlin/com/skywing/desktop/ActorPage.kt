@@ -499,7 +499,7 @@ private fun SortBar(hub: HubState, page: String, searchFocus: FocusRequester, ad
                 Text("Hide watched", color = theme.ink, style = MaterialTheme.typography.bodyMedium, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
             }
         }, trail = {
-            SkyField(hub.query, { hub.query = it }, "Search here", Modifier.width(220.dp).focusRequester(searchFocus), leading = SkyIcon.Search)
+            SkyField(hub.query, { hub.query = it }, "Search here", Modifier.width(220.dp).focusRequester(searchFocus).escClears(hub.query) { hub.query = "" }, leading = SkyIcon.Search)
             ViewButton(page, actors = false, videos = true)
             if (add != null) SkyButton(add.label, add.action, primary = false, icon = add.icon)
         })

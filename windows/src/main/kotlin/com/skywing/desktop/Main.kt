@@ -749,7 +749,9 @@ var openCount by remember { mutableStateOf(0) }
                                     { renameTarget = it },
                                     setWatched, marks,
                                     // new.json is written as it is called, so never on the screen thread.
-                                    onOpenedActor = { key -> playbackScope.launch(Dispatchers.IO) { runCatching { records.openedActor(key) } } })
+                                    onOpenedActor = { key -> playbackScope.launch(Dispatchers.IO) { runCatching { records.openedActor(key) } } },
+                                    // A back by Esc or Alt+← is keyboard use: the card focus lands on shows its ring (spec 5.4).
+                                    onKeyboardBack = { focusVisible.value = true })
                                 "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { files -> files.firstOrNull()?.let { playQueue(it, files, autoNext = true) } }, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it },
                                     onAddFolder = { go("Files") },
                                     onResumeQueue = { file, position, files, auto -> openVideo(file, files, position, autoNext = auto) },

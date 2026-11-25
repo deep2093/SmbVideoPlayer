@@ -18,6 +18,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performKeyInput
@@ -25,6 +26,7 @@ import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.withKeyDown
 import androidx.compose.ui.unit.dp
+import com.skywing.desktop.ui.adaptive.followFocusVisibility
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.CoroutineScope
@@ -240,6 +242,99 @@ class GridFocusTest {
         compose.onNodeWithText("Newest").requestFocus()
         focused().performKeyInput { pressKey(Key.Tab) }
         compose.onNodeWithText("Search actors").assertIsFocused()
+    }
+
+    /* ---------- Esc in a search, and the focus ring after a keyboard back ---------- */
+
+    /** An actor page inside the same back keys FoldersScreen puts around every page; [goBack] counts the backs. */
+    private fun actorPageWithBackKeys(f: Folders, goBack: () -> Boolean) {
+        val actors = listOf("ada", "bea").map { ActorRef(it, it.uppercase(), "vset:1:$it", "set:1|$it", emptyList()) }
+        compose.setContent {
+            Page {
+                Box(Modifier.size(1000.dp, 700.dp).backKeys(goBack, onKeyboardBack = {})) {
+                    ActorPage(actors[0], actors, f, onOpenActor = {}, onBack = {}, menuOf = { _, _, _ -> emptyList() })
+                }
+            }
+        }
+    }
+
+    @Test fun escInASearchWithTextClearsItAndStaysThere() {
+        val f = folders()
+        f.hub.query = "ab"
+        var backs = 0
+        actorPageWithBackKeys(f) { backs++; true }
+        compose.onNodeWithContentDescription("Search here").requestFocus()
+        focused().performKeyInput { pressKey(Key.Escape) }
+        compose.waitForIdle()
+        assertEquals("", f.hub.query)
+        compose.onNodeWithContentDescription("Search here").assertIsFocused()
+        assertEquals(0, backs)
+    }
+
+    @Test fun escInAnEmptySearchGoesBack() {
+        val f = folders()
+        var backs = 0
+        actorPageWithBackKeys(f) { backs++; true }
+        compose.onNodeWithContentDescription("Search here").requestFocus()
+        focused().performKeyInput { pressKey(Key.Escape) }
+        compose.waitForIdle()
+        assertEquals(1, backs)
+    }
+
+    @Test fun altLeftInASearchWithTextGoesBackAndKeepsTheText() {
+        val f = folders()
+        f.hub.query = "ab"
+        var backs = 0
+        actorPageWithBackKeys(f) { backs++; true }
+        compose.onNodeWithContentDescription("Search here").requestFocus()
+        focused().performKeyInput { withKeyDown(Key.AltLeft) { pressKey(Key.DirectionLeft) } }
+        compose.waitForIdle()
+        assertEquals(1, backs)
+        assertEquals("ab", f.hub.query)
+    }
+
+    /** The Folders search field takes the same Esc rule as the sort bar's (the screen itself is not drawn in tests). */
+    @Test fun anyFieldWithTheEscRuleClearsFirstThenGoesBack() {
+        var text by mutableStateOf("ab")
+        var backs = 0
+        compose.setContent {
+            Box(Modifier.backKeys({ backs++; true }, onKeyboardBack = {})) {
+                SkyField(text, { text = it }, "Search custom", Modifier.escClears(text) { text = "" })
+            }
+        }
+        compose.onNodeWithContentDescription("Search custom").requestFocus()
+        focused().performKeyInput { pressKey(Key.Escape) }
+        compose.waitForIdle()
+        assertEquals("" to 0, text to backs)
+        focused().performKeyInput { pressKey(Key.Escape) }
+        compose.waitForIdle()
+        assertEquals(1, backs)
+    }
+
+    @Test fun anEscThatGoesBackShowsTheFocusRing() {
+        val visible = mutableStateOf(false)
+        compose.setContent {
+            Box(Modifier.followFocusVisibility(visible).backKeys({ true }, onKeyboardBack = { visible.value = true })) {
+                SkyButton("Card", {})
+            }
+        }
+        compose.onNodeWithText("Card").requestFocus()
+        focused().performKeyInput { pressKey(Key.Escape) }
+        compose.waitForIdle()
+        assertTrue(visible.value)
+    }
+
+    @Test fun anEscWithNowhereToGoBackLeavesTheRingHidden() {
+        val visible = mutableStateOf(false)
+        compose.setContent {
+            Box(Modifier.followFocusVisibility(visible).backKeys({ false }, onKeyboardBack = { visible.value = true })) {
+                SkyButton("Card", {})
+            }
+        }
+        compose.onNodeWithText("Card").requestFocus()
+        focused().performKeyInput { pressKey(Key.Escape) }
+        compose.waitForIdle()
+        assertFalse(visible.value)
     }
 
     @Test fun theCardsPictureTakesThePictureModifier() {

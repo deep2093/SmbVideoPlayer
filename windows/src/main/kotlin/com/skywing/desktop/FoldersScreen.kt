@@ -26,13 +26,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.isAltPressed
-import androidx.compose.ui.input.key.isCtrlPressed
-import androidx.compose.ui.input.key.isShiftPressed
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import com.skywing.desktop.artwork.ArtworkKeys
 import com.skywing.desktop.artwork.ArtworkRepository
@@ -402,6 +395,8 @@ internal fun FoldersScreen(
     onSetWatched: (List<File>, Boolean) -> Unit,
     marks: LibraryMarks = LibraryMarks(),
     onOpenedActor: (String) -> Unit = {},
+    /** Esc or Alt+← went back: the keyboard is in use, so the card focus lands on shows its ring (spec 5.4). */
+    onKeyboardBack: () -> Unit = {},
 ) {
     val prefs = organizer.data.prefs
     val tabs = prefs.tabs
@@ -442,11 +437,8 @@ internal fun FoldersScreen(
         hub.tickAfterMove = null
     }
 
-    // Esc and Alt+← go back as the mouse back button does (spec 5.10), unless what has focus used the key first.
-    val backKeys = Modifier.onKeyEvent { event ->
-        event.type == KeyEventType.KeyDown && isBackShortcut(event.key, event.isAltPressed, event.isCtrlPressed, event.isShiftPressed) &&
-            hub.navigateBack(organizer.data)
-    }
+    // Esc and Alt+← go back as the mouse back button does (spec 5.10); a search with text takes Esc first.
+    val backKeys = Modifier.backKeys({ hub.navigateBack(organizer.data) }, onKeyboardBack)
     Column(Modifier.fillMaxSize().then(backKeys), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (!inside) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -460,7 +452,10 @@ internal fun FoldersScreen(
                     },
                     Modifier.weight(1f),
                 )
-                SkyField(hub.query, { hub.query = it }, "Search " + prefs.tabName(hub.tab).lowercase(), Modifier.width(300.dp), leading = SkyIcon.Search)
+                SkyField(
+                    hub.query, { hub.query = it }, "Search " + prefs.tabName(hub.tab).lowercase(),
+                    Modifier.width(300.dp).escClears(hub.query) { hub.query = "" }, leading = SkyIcon.Search,
+                )
             }
             FolderTabsRow(f)
         }
