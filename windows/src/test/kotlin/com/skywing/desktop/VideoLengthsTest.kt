@@ -3,6 +3,7 @@ package com.skywing.desktop
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
+import org.junit.After
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -15,7 +16,12 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
 class VideoLengthsTest {
-    private val folder = Files.createTempDirectory("skywing-lengths").toFile().apply { deleteOnExit() }
+    private val folder = Files.createTempDirectory("skywing-lengths").toFile()
+    @After
+    fun cleanUp() {
+        folder.deleteRecursively()
+    }
+
     private val path = folder.toPath().resolve("lengths.json")
 
     private fun key(name: String, stamp: Long = 1L) = ThumbnailStore.keyOf("C:/clips/$name.mp4", stamp)
