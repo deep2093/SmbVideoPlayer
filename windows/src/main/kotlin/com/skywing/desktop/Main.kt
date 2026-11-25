@@ -684,6 +684,10 @@ var openCount by remember { mutableStateOf(0) }
             }
         }
     }
+    // Plain disk writes: off the screen thread, and a failed one never reaches the UI.
+    val setWatched: (List<File>, Boolean) -> Unit = { files, watched ->
+        playbackScope.launch(Dispatchers.IO) { files.forEach { runCatching { records.setWatched(it, watched) } } }
+    }
     val playOne: (File, List<File>) -> Unit = { file, files -> playQueue(file, files, autoNext = false) }
     val playerShown = selected == NOW_PLAYING
     val nowPlaying = currentFile?.let { NowPlaying(it.nameWithoutExtension, paused, if (duration > 0) (playbackTime / duration).toFloat() else 0f) }
@@ -731,11 +735,11 @@ var openCount by remember { mutableStateOf(0) }
                                     { files -> files.firstOrNull()?.let { playQueue(it, files, autoNext = true) } },
                                     { file, position, files, auto -> openVideo(file, files, position, autoNext = auto) },
                                     { renameTarget = it },
-                                    { files, watched ->
-                                        // Plain disk writes: off the screen thread, and a failed one never reaches the UI.
-                                        playbackScope.launch(Dispatchers.IO) { files.forEach { runCatching { records.setWatched(it, watched) } } }
-                                    }, marks)
-                                "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { files -> files.firstOrNull()?.let { playQueue(it, files, autoNext = true) } }, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it }) { go("Files") }
+                                    setWatched, marks)
+                                "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { files -> files.firstOrNull()?.let { playQueue(it, files, autoNext = true) } }, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it },
+                                    onAddFolder = { go("Files") },
+                                    onResumeQueue = { file, position, files, auto -> openVideo(file, files, position, autoNext = auto) },
+                                    onSetWatched = setWatched, marks = marks)
                                 "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
                                 else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,
                                     smoothingMode, smoothingStatus, ::selectSmoothing, { settingsBack.value = it }, onResetWindow) { go("Files") }

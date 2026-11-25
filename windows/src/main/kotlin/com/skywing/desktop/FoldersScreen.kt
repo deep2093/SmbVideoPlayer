@@ -132,50 +132,21 @@ private class Folders(
     fun coverAction(key: String, title: String, videos: List<WindowsMediaEntry>, video: WindowsMediaEntry? = null): MenuAction? =
         if (!artworkOn) null else MenuAction("Change cover", SkyIcon.Image) { dialogs.cover = CoverTarget(key, title, video, videos) }
 
-    /** Where a half-watched video stopped, or null. */
-    private fun resumeOf(entry: WindowsMediaEntry): Double? =
-        history[entry.path.lowercase(Locale.ROOT)]?.takeIf { it.duration > 0 && it.position > 0 && it.position < it.duration }?.position
-
     /** Clicking a video card or pressing Enter on it: a half-watched video goes on where it stopped. */
     fun open(entry: WindowsMediaEntry, queue: List<WindowsMediaEntry>) {
-        val at = resumeOf(entry)
+        val at = resumePosition(history, entry)
         if (at != null) onResume(entry.file, at, queue.map { it.file }, false) else onPlay(entry.file, queue.map { it.file })
     }
 
-    /** The options of a video card. */
-    fun videoMenu(entry: WindowsMediaEntry, queue: List<WindowsMediaEntry>, page: String): List<MenuAction> = videoMenu(
-        VideoMenuState(
-            resumeAt = resumeOf(entry),
-            watched = marks.isWatched(entry),
-            artworkOn = artworkOn,
-            // A step 1 call: the store doesn't say where a chosen picture came from; step 2's dialog does.
-            pictureHint = if (artwork?.row(ArtworkKeys.video(entry.path)) == null) "Automatic" else "Chosen",
-        ),
-        VideoMenuActions(
-            play = { open(entry, queue) },
-            playFromStart = { onPlay(entry.file, queue.map { it.file }) },
-            setWatched = { onSetWatched(listOf(entry.file), it) },
-            changePicture = { dialogs.cover = videoCoverTarget(entry) },
-            addToFolder = { dialogs.filing = false to listOf(entry.path) },
-            addToVirtual = { dialogs.filing = true to listOf(entry.path) },
-            rename = { onRename(entry.file) },
-            showInExplorer = { showInExplorer(entry.file, select = true) },
-            details = { showDetails(entry) },
-            select = { hub.toggleFolder(page, "file:" + entry.path) },
-        ),
+    /** The options of a video card (the same on every library page). */
+    fun videoMenu(entry: WindowsMediaEntry, queue: List<WindowsMediaEntry>, page: String): List<MenuAction> = libraryVideoMenu(
+        entry, queue, history, marks, artwork, artworkOn, onPlay, onResume, onSetWatched, onRename,
+        changePicture = { dialogs.cover = videoCoverTarget(entry) },
+        addToFolder = { dialogs.filing = false to listOf(entry.path) },
+        addToVirtual = { dialogs.filing = true to listOf(entry.path) },
+        details = { scope.launch { dialogs.info = entry.file.name to videoDetailsText(entry, marks.isWatched(entry)) } },
+        select = { hub.toggleFolder(page, "file:" + entry.path) },
     )
-
-    /** Details of a video; its length is read off the screen thread (the store loads its file on first use). */
-    private fun showDetails(entry: WindowsMediaEntry) {
-        scope.launch {
-            val length = withContext(Dispatchers.IO) {
-                runCatching { ThumbnailStore.lengths.get(ThumbnailStore.keyOf(entry.path, entry.modified)) }.getOrNull()
-            }
-            dialogs.info = entry.file.name to videoDetails(
-                listOf(entry.path, formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }, length, marks.isWatched(entry),
-            )
-        }
-    }
 
     fun videoTiles(list: List<WindowsMediaEntry>, page: String): List<VideoTile> = list.map { entry ->
         VideoTile(

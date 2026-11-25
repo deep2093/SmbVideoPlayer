@@ -123,4 +123,43 @@ class CardMenusTest {
         assertNull(cardKeyShortcut(Key.Enter, alt = false, shift = false))
         assertNull(cardKeyShortcut(Key.F10, alt = false, shift = false))
     }
+
+    @Test fun shiftClickReplacesTheTicks() {
+        assertEquals(
+            setOf("b", "c", "d"),
+            clickSelection(listOf("a", "b", "c", "d", "e"), setOf("a"), "b", "d", ctrl = false, shift = true),
+        )
+    }
+
+    @Test fun ctrlShiftClickAddsTheRange() {
+        assertEquals(
+            setOf("a", "b", "c", "d"),
+            clickSelection(listOf("a", "b", "c", "d", "e"), setOf("a"), "b", "d", ctrl = true, shift = true),
+        )
+    }
+
+    @Test fun shiftClickWithoutAnchorToggles() {
+        val keys = listOf("a", "b")
+        assertEquals(setOf("a"), clickSelection(keys, emptySet(), null, "a", ctrl = false, shift = true))
+        assertEquals(emptySet(), clickSelection(keys, setOf("a"), null, "a", ctrl = false, shift = true))
+    }
+
+    @Test fun everyPageBuildsItsVideoMenuFromOneFunction() {
+        val entry = WindowsMediaEntry("C:/clips/a.mkv", "s", "PC", "Clips", 1, 1)
+        val history = mapOf(entry.path.lowercase() to WindowsWatchRecord(entry.path, 754.0, 1000.0, 1))
+        val ran = mutableListOf<String>()
+        fun build(select: (() -> Unit)?) = libraryVideoMenu(
+            entry, listOf(entry), history, LibraryMarks(), null, true,
+            { _, _ -> ran += "play" }, { _, at, _, auto -> ran += "resume $at $auto" }, { _, w -> ran += "watched $w" }, {},
+            {}, {}, {}, {}, select,
+        )
+        val withSelect = build {}
+        assertEquals("Resume (12:34)", withSelect.first().label)
+        assertEquals("Select", withSelect.last().label)
+        assertTrue(build(null).none { it.label == "Select" })
+        withSelect.first().action()
+        withSelect.first { it.label == "Play from start" }.action()
+        withSelect.first { it.label == "Mark as watched" }.action()
+        assertEquals(listOf("resume 754.0 false", "play", "watched true"), ran)
+    }
 }

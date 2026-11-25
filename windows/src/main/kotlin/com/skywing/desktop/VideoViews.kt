@@ -126,7 +126,9 @@ internal fun TileGrid(
         val result = clickSelection(
             current.filter { pick(it) != null }.map { it.key }, current.filter(::ticked).map { it.key }.toSet(), anchor, tile.key, ctrl, shift,
         )
-        anchor = tile.key
+        // As in M3: a range click keeps the anchor; every other click moves it.
+        val keys = current.filter { pick(it) != null }.map { it.key }
+        if (!(shift && anchor in keys && tile.key in keys)) anchor = tile.key
         if (result != null) tickExactly(result)
         return result != null
     }
@@ -173,15 +175,7 @@ private fun TileView(
 ) {
     var menu by remember { mutableStateOf(false) }
     val window = LocalWindowInfo.current
-    // Keys on the focused card: its menu's shortcuts (F2, Alt+Enter), and Shift+F10 or the menu key for the menu.
-    fun cardKeys(items: List<MenuAction>) = Modifier.onPreviewKeyEvent { event ->
-        val shortcut = if (event.type == KeyEventType.KeyDown) cardKeyShortcut(event.key, event.isAltPressed, event.isShiftPressed) else null
-        when {
-            shortcut == null -> false
-            shortcut == MENU_KEY -> items.isNotEmpty().also { if (it) menu = true }
-            else -> shortcutAction(items, shortcut)?.let { it.action(); true } ?: false
-        }
-    }
+    fun cardKeys(items: List<MenuAction>) = Modifier.cardKeys(items) { menu = true }
     fun modified(): Boolean = onModifiedClick(tile, window.keyboardModifiers.isCtrlPressed, window.keyboardModifiers.isShiftPressed)
     when (tile) {
         is LabelTile -> SectionLabel(tile.title, Modifier.padding(top = 4.dp))
@@ -223,6 +217,16 @@ private fun TileView(
             )
             SkyMenu(menu, { menu = false }, tile.menu)
         }
+    }
+}
+
+/** Keys on a focused card: its menu's shortcuts (F2, Alt+Enter), and Shift+F10 or the menu key for [openMenu]. */
+internal fun Modifier.cardKeys(items: List<MenuAction>, openMenu: () -> Unit): Modifier = onPreviewKeyEvent { event ->
+    val shortcut = if (event.type == KeyEventType.KeyDown) cardKeyShortcut(event.key, event.isAltPressed, event.isShiftPressed) else null
+    when {
+        shortcut == null -> false
+        shortcut == MENU_KEY -> items.isNotEmpty().also { if (it) openMenu() }
+        else -> shortcutAction(items, shortcut)?.let { it.action(); true } ?: false
     }
 }
 
@@ -289,6 +293,8 @@ internal fun VideoGridView(
     /** A button under [emptyText], for the step that fills the grid. */
     emptyAction: MenuAction? = null,
     menu: (WindowsMediaEntry) -> List<MenuAction> = { emptyList() },
+    /** What a click or Enter does on a card that is not selecting; the default plays it with the page's queue. */
+    onOpen: ((WindowsMediaEntry) -> Unit)? = null,
 ) {
     KeepFirstItemAcrossColumns(state)
     val prefs = organizer.data.prefs
@@ -349,10 +355,11 @@ internal fun VideoGridView(
                         selected = if (selection.active) entry.path in selection.paths else null,
                         listMode = view.list,
                         aspect = view.videoAspect,
+                        modifier = Modifier.cardKeys(menu(entry)) { open = true },
                         onClick = {
                             if (modifiedClick(entry)) Unit
                             else if (selection.active) selection.toggle(entry.path)
-                            else onPlay(entry.file, entries.map { it.file })
+                            else onOpen?.invoke(entry) ?: onPlay(entry.file, entries.map { it.file })
                         },
                         onLongClick = {
                             // Hold or right click: the card's options, or picking while selecting.
@@ -438,6 +445,7 @@ internal fun SelectionBar(
     visible: List<WindowsMediaEntry>,
     organizer: Organizer,
     onPlay: (File, List<File>) -> Unit,
+    onSetWatched: (List<File>, Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val theme = LocalSkyTheme.current
@@ -454,6 +462,8 @@ internal fun SelectionBar(
         organizer.problem?.let { Text(it, color = theme.accent, style = MaterialTheme.typography.bodySmall) }
         SkyButton("Select all", { selection.paths = selection.paths + visible.map { it.path } }, primary = false)
         SkyButton("Play", { chosen.firstOrNull()?.let { onPlay(it.file, chosen.map { c -> c.file }) } }, enabled = chosen.isNotEmpty(), primary = false, icon = SkyIcon.Play)
+        SkyButton("Mark as watched", { onSetWatched(chosen.map { it.file }, true); selection.clear() }, enabled = chosen.isNotEmpty(), primary = false, icon = SkyIcon.Check)
+        SkyButton("Mark as unwatched", { onSetWatched(chosen.map { it.file }, false); selection.clear() }, enabled = chosen.isNotEmpty(), primary = false, icon = SkyIcon.Close)
         SkyButton("Add to virtual folder", { filing = true }, enabled = selection.paths.isNotEmpty(), primary = false, icon = SkyIcon.Grid)
         SkyButton("Add to folder", { filing = false }, enabled = selection.paths.isNotEmpty(), icon = SkyIcon.Folder)
     }

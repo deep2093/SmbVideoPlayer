@@ -15,11 +15,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val SORT_NAMES = listOf("Name", "Recently added", "File size")
@@ -46,6 +48,10 @@ internal fun VideosScreen(
     onRename: (File) -> Unit,
     /** Opens Files, where folders on this PC are added. */
     onAddFolder: () -> Unit,
+    /** Resumes with a queue and says whether it moves on by itself (the card menu's Resume). */
+    onResumeQueue: (file: File, position: Double, queue: List<File>, autoNext: Boolean) -> Unit = { file, position, _, _ -> onResume(file, position) },
+    onSetWatched: (List<File>, Boolean) -> Unit = { _, _ -> },
+    marks: LibraryMarks = LibraryMarks(),
 ) {
     val views = LocalLibraryViews.current
     // Starts with the last list shown, so the grid keeps its place when coming back from a video.
@@ -66,7 +72,10 @@ internal fun VideosScreen(
         }.also { hub.keepResult(VIDEOS_PAGE, it) }
     }
     val byPath = library.byPath
-    val artworkOn = LocalCovers.current?.artwork?.settings?.enabled == true
+    val artwork = LocalCovers.current?.artwork
+    val artworkOn = artwork?.settings?.enabled == true
+    val scope = rememberCoroutineScope()
+    var info by remember { mutableStateOf<Pair<String, String>?>(null) }
     var cover by remember { mutableStateOf<CoverTarget?>(null) }
     var filing by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     val continueItems = remember(history, byPath, hub.videoSource) {
@@ -77,7 +86,7 @@ internal fun VideosScreen(
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (selection.active) {
-            SelectionBar(selection, shown, organizer, onPlay)
+            SelectionBar(selection, shown, organizer, { _, files -> onPlayAll(files) }, onSetWatched)
         } else {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PageTitle(
@@ -134,16 +143,22 @@ internal fun VideosScreen(
             },
             emptyAction = if (thisPcEmpty) MenuAction("Add folder", SkyIcon.Add) { onAddFolder() } else null,
             menu = { entry ->
-                listOfNotNull(
-                    MenuAction("Play", SkyIcon.Play) { onPlay(entry.file, shown.map { it.file }) },
-                    MenuAction("Add to folder…", SkyIcon.Folder) { filing = false to entry.path },
-                    MenuAction("Add to virtual folder…", SkyIcon.Grid) { filing = true to entry.path },
-                    MenuAction("Rename video…", SkyIcon.Edit) { onRename(entry.file) },
-                    if (artworkOn) MenuAction("Change cover", SkyIcon.Image) { cover = videoCoverTarget(entry) } else null,
+                libraryVideoMenu(
+                    entry, shown, history, marks, artwork, artworkOn, onPlay, onResumeQueue, onSetWatched, onRename,
+                    changePicture = { cover = videoCoverTarget(entry) },
+                    addToFolder = { filing = false to entry.path },
+                    addToVirtual = { filing = true to entry.path },
+                    details = { scope.launch { info = entry.file.name to videoDetailsText(entry, marks.isWatched(entry)) } },
+                    select = { selection.toggle(entry.path) },
                 )
+            },
+            onOpen = { entry ->
+                val at = resumePosition(history, entry)
+                if (at != null) onResumeQueue(entry.file, at, shown.map { it.file }, false) else onPlay(entry.file, shown.map { it.file })
             },
         )
     }
+    info?.let { (title, text) -> InfoDialog(title, text) { info = null } }
     cover?.let { target -> ChangeCoverDialog(target) { cover = null } }
     filing?.let { (virtual, path) -> FileIntoFolderDialog(organizer, virtual, listOf(path), onDismiss = { filing = null }, onDone = {}) }
 }
