@@ -59,6 +59,33 @@ class NewVideosTest {
         assertTrue(videos.snapshot().isNew(key(b), clock))
     }
 
+    @Test fun renameSkipSurvivesAnUnrelatedAdd() {
+        val c = "C:\\Videos\\C.mkv"
+        val videos = store()
+        videos.renamePath(a, b)
+        videos.add(listOf(c))
+        videos.add(listOf(b))
+
+        assertTrue(videos.snapshot().isNew(key(c), clock))
+        assertFalse(videos.snapshot().isNew(key(b), clock))
+        // The skip is used up by the call that held b: a later arrival under that name counts.
+        videos.add(listOf(b))
+        assertTrue(videos.snapshot().isNew(key(b), clock))
+    }
+
+    @Test fun addOnAnUnreadableFileKeepsTheRenameSkip() {
+        val path = folder.resolve("new-videos.json")
+        Files.createDirectory(path)
+        val blocked = store(path)
+        blocked.renamePath(a, b)
+        blocked.add(listOf(b))
+        Files.delete(path)
+
+        // The file is readable now; the same store still skips b once.
+        blocked.add(listOf(b))
+        assertFalse(blocked.snapshot().isNew(key(b), clock))
+    }
+
     @Test fun renameMovesAnExistingEntry() {
         val videos = store()
         videos.add(listOf(a))

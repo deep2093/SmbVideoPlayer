@@ -57,12 +57,14 @@ internal class NewVideoStore(
     private val renamed = HashSet<String>()
 
     fun add(paths: List<String>): Unit = synchronized(lock) {
-        val skip = renamed.toSet()
-        renamed.clear()
         val marks = all() ?: return
         val at = now()
         val seen = marks.firstSeen.toMutableMap()
-        paths.map(::keyOf).filter { it !in skip && it !in seen }.forEach { seen[it] = at }
+        // Only the renamed paths this batch holds are dropped, and only they leave the memory.
+        val keys = paths.map(::keyOf)
+        val skip = keys.filterTo(HashSet()) { it in renamed }
+        renamed.removeAll(skip)
+        keys.filter { it !in skip && it !in seen }.forEach { seen[it] = at }
         if (seen.size != marks.firstSeen.size) write(NewMarks(seen, marks.opened))
     }
 
