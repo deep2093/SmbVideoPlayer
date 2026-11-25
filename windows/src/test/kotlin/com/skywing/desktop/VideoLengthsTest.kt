@@ -6,9 +6,13 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 
 class VideoLengthsTest {
     private val folder = Files.createTempDirectory("skywing-lengths").toFile().apply { deleteOnExit() }
@@ -83,15 +87,42 @@ class VideoLengthsTest {
         assertEquals(3, reads)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
-    fun catchUpReadsNothingWhileNotIdle() = runBlocking {
+    fun catchUpReadsNothingWhileNotIdle() = runTest {
         val store = VideoLengthStore(path)
         var reads = 0
-        val finished = withTimeoutOrNull(300) {
+        val job = launch {
             LengthCatchUp({ reads++; 1.0 }, store).run(listOf(File("C:/clips/a.mp4") to 1L)) { awaitCancellation() }
         }
-        assertNull(finished, "the run is still waiting for idle")
+        runCurrent()
+        advanceTimeBy(60_000)
         assertEquals(0, reads)
+        assertTrue(job.isActive, "the run is still waiting for idle")
+        job.cancel()
+    }
+
+    @Test
+    fun catchUpReadsNothingFromAnUnreadableFile() = runBlocking {
+        Files.writeString(path, """{"version":2,"entries":[]}""")
+        var reads = 0
+        var idles = 0
+        LengthCatchUp({ reads++; 1.0 }, VideoLengthStore(path)).run(listOf(File("C:/clips/a.mp4") to 1L)) { idles++ }
+        assertEquals(0, reads)
+        assertEquals(0, idles)
+    }
+
+    @Test
+    fun aFailedKeyIsNotReadAgainInTheNextRun() = runBlocking {
+        val store = VideoLengthStore(path)
+        val bad = (1..3).map { File("C:/clips/bad$it.mp4") to 1L }
+        val good = File("C:/clips/good.mp4") to 1L
+        val read = ArrayList<String>()
+        val catchUp = LengthCatchUp({ read += it.name; if (it.name.startsWith("bad")) null else 5.0 }, store)
+        catchUp.run(bad) { }
+        read.clear()
+        catchUp.run(bad + good) { }
+        assertEquals(listOf("good.mp4"), read)
     }
 
     @Test

@@ -140,10 +140,11 @@ private fun skyWingApplication(args: Array<String>, instance: SingleInstance.Own
                     // A start from now on opens its own window rather than handing its video to this closing one.
                     try {
                         withContext(Dispatchers.IO) {
+                            // First and on its own: it needs no player, and nothing below may stop it.
+                            runCatching { ThumbnailStore.lengths.flush() }
                             placement?.let { (screen, start) -> placementStore.save(screen, start) }
                             instance?.close()
                             embedded.close()
-                            runCatching { ThumbnailStore.lengths.flush() }
                         }
                     }
                     finally { exitApplication() }
@@ -515,8 +516,12 @@ var openCount by remember { mutableStateOf(0) }
                 lengthNoted = openCount
                 withContext(Dispatchers.IO) {
                     runCatching {
-                        ThumbnailStore.lengths.record(ThumbnailStore.keyOf(file.path, file.lastModified()), length)
-                        ThumbnailStore.lengths.flushIfDue()
+                        // A failed stat gives 0; that would store a key no scan ever asks for.
+                        val stamp = file.lastModified()
+                        if (stamp != 0L) {
+                            ThumbnailStore.lengths.record(ThumbnailStore.keyOf(file.path, stamp), length)
+                            ThumbnailStore.lengths.flushIfDue()
+                        }
                     }
                 }
             }

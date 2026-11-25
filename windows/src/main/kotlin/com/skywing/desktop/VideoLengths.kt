@@ -6,6 +6,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import java.io.File
 import java.nio.file.Path
+import kotlin.coroutines.cancellation.CancellationException
 
 /** The seconds a video lasts, as the tiles show them. */
 internal fun formatLength(seconds: Double): String = formatClock(seconds)
@@ -30,6 +31,9 @@ internal class VideoLengthStore(
     private var entries: MutableMap<String, Double>? = null
     private var dirty = false
     private var lastWrite = Long.MIN_VALUE
+
+    /** False when the file can't be read, so nothing can be learned or kept; there is no point reading videos then. */
+    internal val usable: Boolean get() = synchronized(lock) { entries() != null }
 
     fun get(key: String): Double? = synchronized(lock) { entries()?.get(key) }
 
@@ -104,25 +108,34 @@ internal class VideoLengthStore(
  * failures in a row stop the run (the drive is probably away). Only the files given are read; no folder is looked at.
  */
 internal class LengthCatchUp(private val read: suspend (File) -> Double?, private val store: VideoLengthStore) {
-    private val failed = HashSet<String>()
+    private val failed: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     suspend fun run(videos: List<Pair<File, Long>>, idle: suspend () -> Unit) {
-        var inARow = 0
-        for ((video, stamp) in videos) {
-            val key = ThumbnailStore.keyOf(video.path, stamp)
-            if (key in failed || store.get(key) != null) continue
-            idle()
-            val seconds = read(video)
-            if (seconds != null && seconds.isFinite() && seconds > 0) {
-                inARow = 0
-                store.record(key, seconds)
-                store.flushIfDue()
-            } else {
-                failed += key
-                if (++inARow >= MAX_FAILURES_IN_A_ROW) break
+        if (!store.usable) return
+        try {
+            var inARow = 0
+            for ((video, stamp) in videos) {
+                val key = ThumbnailStore.keyOf(video.path, stamp)
+                if (key in failed || store.get(key) != null) continue
+                idle()
+                val seconds = try {
+                    read(video)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Throwable) {
+                    null
+                }
+                if (seconds != null && seconds.isFinite() && seconds > 0) {
+                    inARow = 0
+                    runCatching { store.record(key, seconds); store.flushIfDue() }
+                } else {
+                    failed += key
+                    if (++inARow >= MAX_FAILURES_IN_A_ROW) break
+                }
             }
+        } finally {
+            runCatching { store.flush() }
         }
-        store.flush()
     }
 
     private companion object {

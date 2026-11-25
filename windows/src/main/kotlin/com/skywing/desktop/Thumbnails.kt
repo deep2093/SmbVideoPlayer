@@ -26,6 +26,9 @@ internal object ThumbnailStore {
     }
     /** The length of each video, learned as its picture is made and by [LengthCatchUp]. */
     val lengths = VideoLengthStore()
+    /** One for the session, so a video whose length could not be read is not tried again by every scan. */
+    private val lengthCatchUp = LengthCatchUp(
+        { video -> gate.withPermit { withContext(Dispatchers.IO) { ThumbnailExtractor.durationSeconds(video) } } }, lengths)
     private val failed = java.util.Collections.synchronizedSet(HashSet<String>())
     private val failureDetails = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val retryAfter = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -191,8 +194,7 @@ internal object ThumbnailStore {
             }
         }
         // The lengths the pictures did not give, read the same way: one file at a time, only when idle.
-        LengthCatchUp({ video -> gate.withPermit { withContext(Dispatchers.IO) { ThumbnailExtractor.durationSeconds(video) } } }, lengths)
-            .run(videos) { while (waiting.get() > 0 || playing) kotlinx.coroutines.delay(400) }
+        lengthCatchUp.run(videos) { while (waiting.get() > 0 || playing) kotlinx.coroutines.delay(400) }
     }
 
     private const val RETRY_DELAY_MS = 120_000L
