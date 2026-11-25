@@ -236,7 +236,7 @@ private class Folders(
     /** Hides actors of the Virtual folder [setId] and offers Undo. */
     fun hideActors(setId: String, identities: List<String>) {
         organizer.hideSubfolders(setId, identities)
-        dialogs.undo = UndoSpec("Hidden.") { identities.forEach { organizer.restoreSubfolder(setId, it) } }
+        dialogs.undo = UndoSpec("Hidden.") { organizer.restoreSubfolders(setId, identities) }
     }
 
     /** Asks, then takes the videos of actors out of the Custom folder [folder] (they are not hidden: they leave it). */

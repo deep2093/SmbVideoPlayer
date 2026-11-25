@@ -125,7 +125,7 @@ class ActorCardsTest {
     }
 
     @Test fun keysTellTheirKind() {
-        assertEquals(ACTOR, tileKindOf("group:tom cruise"))
+        assertEquals(ACTOR, tileKindOf("group:owen pike"))
         assertEquals(VIDEO, tileKindOf("file:C:\\a.mp4"))
         assertEquals(FOLDER, tileKindOf("set:1"))
         assertEquals(FOLDER, tileKindOf("direct:\\\\192.0.2.5\\share"))

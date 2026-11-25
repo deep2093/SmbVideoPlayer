@@ -121,12 +121,23 @@ class FolderOrganizerTest {
         val path = dir.resolve("folders.bin")
         val organizer = Organizer(FolderOrganizerStore(path))
         val id = organizer.createSet("People")!!
-        organizer.hideSubfolders(id, listOf("tom cruise", "brad pitt"))
-        organizer.restoreSubfolder(id, "tom cruise")
-        assertEquals(setOf("brad pitt"), organizer.data.sets.first { it.id == id }.hidden)
-        assertEquals(setOf("brad pitt"), Organizer(FolderOrganizerStore(path)).data.sets.first { it.id == id }.hidden)
+        organizer.hideSubfolders(id, listOf("owen pike", "sam rowe"))
+        organizer.restoreSubfolder(id, "owen pike")
+        assertEquals(setOf("sam rowe"), organizer.data.sets.first { it.id == id }.hidden)
+        assertEquals(setOf("sam rowe"), Organizer(FolderOrganizerStore(path)).data.sets.first { it.id == id }.hidden)
         organizer.restoreSubfolder(id, "someone else")
-        assertEquals(setOf("brad pitt"), organizer.data.sets.first { it.id == id }.hidden)
+        assertEquals(setOf("sam rowe"), organizer.data.sets.first { it.id == id }.hidden)
+    }
+
+    @Test fun restoreSubfoldersBringsBackSeveralInOneCall() {
+        val dir = temp.newFolder("skywing-restore-many").toPath()
+        val path = dir.resolve("folders.bin")
+        val organizer = Organizer(FolderOrganizerStore(path))
+        val id = organizer.createSet("People")!!
+        organizer.hideSubfolders(id, listOf("owen pike", "sam rowe", "ida lund"))
+        organizer.restoreSubfolders(id, listOf("owen pike", "ida lund"))
+        assertEquals(setOf("sam rowe"), organizer.data.sets.first { it.id == id }.hidden)
+        assertEquals(setOf("sam rowe"), Organizer(FolderOrganizerStore(path)).data.sets.first { it.id == id }.hidden)
     }
 
     @Test fun cardSizesStepWithinTheirRange() {
