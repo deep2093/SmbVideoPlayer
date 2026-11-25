@@ -43,16 +43,19 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
@@ -290,6 +293,39 @@ private val LIST_WIDTH = 260.dp
 private val HEADER_OPEN = 184.dp
 private val HEADER_SLIM = 60.dp
 
+/** Frames after going to another actor in which the page still takes back a focus that the switch took away. */
+private const val SWITCH_FRAMES = 10
+
+/**
+ * Whether something on an actor page has the focus, and whether going to another actor took it away ([ActorPage]).
+ * Noted while composing, so it is set before the switch reaches the screen and a control it turns off loses the focus.
+ */
+private class PageFocus {
+    /** Something on the page has the focus. */
+    var held = false
+
+    /** The page had the focus when it went to another actor, a few frames ago at most ([SWITCH_FRAMES]). */
+    var switching = false
+
+    /** Each new value gives the focus to the grid again (the refocus of [TileGrid]). */
+    val refocus = mutableIntStateOf(0)
+
+    private var shown: String? = null
+
+    fun showing(identity: String) {
+        if (identity == shown) return
+        switching = shown != null && held
+        shown = identity
+    }
+
+    fun changed(hasFocus: Boolean) {
+        held = hasFocus
+        if (hasFocus || !switching) return
+        switching = false
+        refocus.intValue++
+    }
+}
+
 /**
  * The page of [actor], one of [actors] (the actors of its folder). [onOpenActor] opens another by identity; [menuOf] is
  * the actor menu of an actor, true for this page's own actor (no Open there), with the list its Play all and Shuffle
@@ -345,10 +381,19 @@ internal fun ActorPage(
     val searchFocus = remember { FocusRequester() }
     // Where focus goes when the page opens with no card to take it.
     val backFocus = remember { FocusRequester() }
+    // Going to another actor can take the focus away: the › that had it turns off at the last actor, or a list row
+    // leaves with a rename. The page then gives it to the grid again, as when it opens (spec 5.10: focus is always
+    // visible). A control that keeps the focus (a › that stays on) keeps it.
+    val pageFocus = remember { PageFocus() }
+    pageFocus.showing(actor.identity)
+    LaunchedEffect(actor.identity) {
+        repeat(SWITCH_FRAMES) { withFrameNanos {} }
+        pageFocus.switching = false
+    }
     val grid = hub.grid(page)
     val studio = LocalLibraryViews.current.data.actorLayout == ActorLayout.STUDIO
 
-    BoxWithConstraints(Modifier.fillMaxSize().searchKey(searchFocus)) {
+    BoxWithConstraints(Modifier.fillMaxSize().searchKey(searchFocus).onFocusChanged { pageFocus.changed(it.hasFocus) }) {
         val showList = maxWidth >= LIST_FROM
         val showCards = maxWidth >= LIST_FROM
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -405,6 +450,7 @@ internal fun ActorPage(
                     // The card that had the focus went with the grid: the page takes it (spec 5.10: focus is always visible).
                     focusOnStart = true,
                     noCardFocus = backFocus,
+                    refocus = pageFocus.refocus.intValue,
                 )
             }
         }

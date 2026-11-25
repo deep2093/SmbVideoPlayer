@@ -391,6 +391,42 @@ class GridFocusTest {
         assertEquals(before, state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset)
     }
 
+    /** A narrow actor page (‹ › beside the name, no actor list) for [ids], each actor with one video; › opens the next. */
+    private fun narrowActorPage(ids: List<String>): List<ActorRef> {
+        val f = folders()
+        val actors = ids.map { id ->
+            val clip = WindowsMediaEntry("\\\\192.0.2.10\\videos\\$id clip.mkv", "s", "PC", "Videos", 1, 1)
+            ActorRef(id, id.uppercase(), "vset:1:$id", "set:1|$id", listOf(clip))
+        }
+        var shown by mutableStateOf(ids.first())
+        compose.setContent {
+            Page {
+                Box(Modifier.size(700.dp, 700.dp)) {
+                    ActorPage(actors.first { it.identity == shown }, actors, f, onOpenActor = { shown = it }, onBack = {}, menuOf = { _, _, _ -> emptyList() })
+                }
+            }
+        }
+        compose.waitForIdle()
+        return actors
+    }
+
+    @Test fun nextActorToTheLastOneLeavesTheFocusOnTheFirstVideoCard() {
+        // At the last actor › turns off and loses the focus; the page takes it again, as when it opens.
+        val actors = narrowActorPage(listOf("ada", "bea"))
+        compose.onNodeWithText("Next actor").requestFocus()
+        focused().performKeyInput { pressKey(Key.Enter) }
+        compose.waitForIdle()
+        assertEquals(actors[1].videos.first().title(), focusedText())
+    }
+
+    @Test fun nextActorThatStaysOnKeepsTheFocus() {
+        narrowActorPage(listOf("ada", "bea", "cid"))
+        compose.onNodeWithText("Next actor").requestFocus()
+        focused().performKeyInput { pressKey(Key.Enter) }
+        compose.waitForIdle()
+        compose.onNodeWithText("Next actor").assertIsFocused()
+    }
+
     @Test fun escInAGridPagesSearchClearsItFirstThenGoesBack() {
         val organizer = organizer()
         val id = organizer.createOwn("Mix")!!

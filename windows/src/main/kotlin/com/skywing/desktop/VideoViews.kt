@@ -268,6 +268,8 @@ internal fun TileGrid(
     focusOnStart: Boolean = false,
     /** Where that focus goes when the grid has no card to take it (the actor page's Back). */
     noCardFocus: FocusRequester? = null,
+    /** Each new value gives the focus to the first card in view again, as [focusOnStart] does (0: never). */
+    refocus: Int = 0,
 ) {
     KeepFirstItemAcrossColumns(state)
     val prefs = organizer.data.prefs
@@ -331,6 +333,11 @@ internal fun TileGrid(
         // Focus is never left nowhere: a key with no card (a merged or gone actor) lands on a card in view.
         if (index >= 0) land(index) else landInView()
         if (wanted != null) focused()
+    }
+    LaunchedEffect(refocus) {
+        if (refocus == 0) return@LaunchedEffect
+        withFrameNanos {}
+        landInView()
     }
     Box(
         modifier.fillMaxSize().ctrlWheel { views.step(page, it) }.viewKeys(page).boxSelect(state) { inside, additive, started ->
