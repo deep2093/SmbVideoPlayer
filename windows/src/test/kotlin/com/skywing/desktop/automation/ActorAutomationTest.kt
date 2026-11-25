@@ -37,22 +37,22 @@ class ActorAutomationTest {
             app.activate("Virtual folders", PlayerControls.TAB)
             app.activate(SET_NAME, PlayerControls.BUTTON, timeoutMs = 30_000)
             // Four clips, two names: exactly two actor cards.
-            app.find(AVA_CARD, PlayerControls.BUTTON, timeoutMs = 30_000)
-            app.find(MIRA_CARD, PlayerControls.BUTTON)
+            app.find(AVA, PlayerControls.BUTTON, timeoutMs = 30_000)
+            app.find(MIRA, PlayerControls.BUTTON)
 
             // Open the first actor: nothing is half watched, so the main button says Play newest.
-            app.activate(AVA_CARD, PlayerControls.BUTTON)
+            app.activate(AVA, PlayerControls.BUTTON)
             app.find("Play newest", PlayerControls.BUTTON)
             app.waitUntil("the opened page to have a focused control") { s -> s.nodes.any { it.isFocusedButton() } }
 
             // Esc goes back to the grid, and the card that was opened has focus.
             WindowShots.postEscape(app.mainWindow())
             app.waitUntil("$AVA's card to have focus after Esc") { s ->
-                s.nodes.filter { ControlQuery.matches(it, AVA_CARD, PlayerControls.BUTTON) }.let { it.size == 1 && "focused" in it.single().states }
+                s.nodes.filter { ControlQuery.matches(it, AVA, PlayerControls.BUTTON) }.let { it.size == 1 && "focused" in it.single().states }
             }
 
             // Open it again; the next-actor button shows the other actor.
-            app.activate(AVA_CARD, PlayerControls.BUTTON)
+            app.activate(AVA, PlayerControls.BUTTON)
             app.find("Play newest", PlayerControls.BUTTON)
             app.waitUntil("the Next actor button to be enabled") { s ->
                 ControlQuery.single(s.nodes, "Next actor", PlayerControls.BUTTON).enabled
@@ -114,9 +114,6 @@ class ActorAutomationTest {
         private const val AVA = "Ava Stone"
         private const val MIRA = "Mira Lake"
 
-        // A card with no picture yet is named by the first text in it, its initials (seen in the accessibility tree).
-        private const val AVA_CARD = "AS"
-        private const val MIRA_CARD = "ML"
         private val NOT_VIDEO_CARDS = setOf("Back", "Previous actor", "Next actor")
         private const val VK_APPS = 0x5D
         private const val SCAN_APPS = 0x5D

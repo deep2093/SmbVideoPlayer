@@ -14,6 +14,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
@@ -72,6 +73,14 @@ class AccessibilitySemanticsTest {
         compose.setContent { SkyIconButton(SkyIcon.Play, "Play", { clicks++ }) }
         compose.onNode(named("Play")).assert(role(Role.Button)).assert(noDescription).assertHasClickAction().performClick()
         assertEquals(1, clicks)
+    }
+
+    @Test fun anActorCardWithoutAPhotoIsNamedByTheActorNotTheInitials() {
+        compose.setContent {
+            FolderCard("Ava Stone", "2 videos", null, emptyList(), {}, actor = true, initials = actorInitials("Ava Stone"))
+        }
+        compose.onNode(role(Role.Button) and named("Ava Stone")).assertHasClickAction()
+        compose.onAllNodes(role(Role.Button) and named("AS")).assertCountEquals(0)
     }
 
     @Test fun iconButtonKeepsKeyboardFocusAndEnterActivation() {

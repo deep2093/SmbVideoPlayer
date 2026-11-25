@@ -14,6 +14,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -197,6 +198,8 @@ internal fun ActorPicture(coverKey: String?, initials: String, tall: Boolean, li
                 Text(
                     initials, color = theme.ink.copy(alpha = 0.8f), fontFamily = SerifNames, fontWeight = FontWeight.SemiBold,
                     fontSize = if (listMode) 22.sp else 40.sp, maxLines = 1,
+                    // Decorative: a screen reader names the card by the actor, never by these letters.
+                    modifier = Modifier.clearAndSetSemantics {},
                 )
             }
         }
