@@ -294,7 +294,20 @@ private fun LibraryPage(library: LibraryModel, organizer: Organizer, onOpenFiles
             color = theme.muted, style = MaterialTheme.typography.bodyMedium,
         )
     }
-    Row { SkyButton("Manage folders and shares", onOpenFiles, icon = SkyIcon.Folder) }
+    val views = LocalLibraryViews.current
+    var confirmReset by remember { mutableStateOf(false) }
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        SkyButton("Manage folders and shares", onOpenFiles, icon = SkyIcon.Folder)
+        SkyButton("Reset view settings", { confirmReset = true }, primary = false)
+    }
+    if (confirmReset) {
+        ConfirmDialog(
+            "Reset view settings?",
+            "Every folder, actor and page goes back to the standard view: landscape pictures, medium size, as a grid.",
+            "Reset",
+            { confirmReset = false },
+        ) { views.reset() }
+    }
 }
 
 /** A labelled on/off switch with a line of explanation, as on the Android settings pages. */
@@ -398,7 +411,10 @@ private fun LayoutPage(organizer: Organizer) {
         SkyChipBar(listOf("Auto", "2", "3", "4", "5"), if (prefs.columns in 2..5) prefs.columns - 1 else 0, { index ->
             organizer.updatePrefs { it.copy(columns = if (index == 0) 0 else index + 1) }
         })
-        SwitchRow("Show as list", "One folder or video per line, with a small picture.", prefs.listMode) { list ->
+        val views = LocalLibraryViews.current
+        // Shows the last choice made on any page's View menu; turning it on or off sets every page.
+        SwitchRow("Show as list", "One folder or video per line, with a small picture.", views.data.last.list) { list ->
+            views.setListEverywhere(list)
             organizer.updatePrefs { it.copy(listMode = list) }
         }
     }

@@ -96,6 +96,7 @@ private class Folders(
     val dialogs: FolderDialogs,
     val members: Memberships?,
     val artworkOn: Boolean,
+    val views: LibraryViews,
 ) {
     val data: OrganizerData get() = organizer.data
     val prefs: FolderPrefs get() = organizer.data.prefs
@@ -277,7 +278,7 @@ internal fun FoldersScreen(
             sets = data.sets.associate { it.id to FolderLogic.members(it.folders + it.directFolders, it.files + it.directFiles, library.all) },
         )
     }
-    val f = Folders(library, organizer, hub, history, onPlay, onPlayAll, onRename, roots, dialogs, members, LocalCovers.current?.artwork?.settings?.enabled == true)
+    val f = Folders(library, organizer, hub, history, onPlay, onPlayAll, onRename, roots, dialogs, members, LocalCovers.current?.artwork?.settings?.enabled == true, LocalLibraryViews.current)
 
     val inside = when (hub.tab) {
         0 -> hub.ownId != null || hub.matchId != null
@@ -371,12 +372,16 @@ private fun MenuTextButton(text: String, icon: SkyIcon, actions: List<MenuAction
     }
 }
 
-/** Grid or list, and the number of columns, the same menu entry on every page. */
-private fun layoutActions(f: Folders): List<MenuAction> = listOf(
-    MenuAction(if (f.prefs.listMode) "Show as grid" else "Show as list", if (f.prefs.listMode) SkyIcon.Grid else SkyIcon.Queue) {
-        f.organizer.updatePrefs { it.copy(listMode = !it.listMode) }
-    },
-)
+/** Grid or list, the same menu entry on every page; it changes every page, as the Settings switch does. */
+private fun layoutActions(f: Folders): List<MenuAction> {
+    val list = f.views.data.last.list
+    return listOf(
+        MenuAction(if (list) "Show as grid" else "Show as list", if (list) SkyIcon.Grid else SkyIcon.Queue) {
+            f.views.setListEverywhere(!list)
+            f.organizer.updatePrefs { it.copy(listMode = !list) }
+        },
+    )
+}
 
 private val SORTS = listOf("NAME" to "Name", "COUNT" to "Number of items", "DATE" to "Latest by date", "SIZE" to "Total size")
 
@@ -464,7 +469,7 @@ private fun CustomList(f: Folders) {
                     ),
                 )
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = allKeys.isNotEmpty())
-                GridControls(f.organizer, page)
+                ViewButton(page, actors = true, videos = false)
                 SkyMenuButton(
                     SkyIcon.MoreVert, "Folder options",
                     layoutActions(f) + listOfNotNull(
@@ -556,7 +561,7 @@ private fun MatchPage(f: Folders) {
             FolderHeader(folder.name, plural(all.size, "video"), { f.go { matchId = null } }) {
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = videos.isNotEmpty())
                 SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(220.dp), leading = SkyIcon.Search)
-                GridControls(f.organizer, page)
+                ViewButton(page, actors = false, videos = true)
                 SkyMenuButton(SkyIcon.MoreVert, "Folder options", layoutActions(f))
                 SkyButton("Play all", { f.play(videos) }, enabled = videos.isNotEmpty(), icon = SkyIcon.Play)
             }
@@ -727,7 +732,7 @@ private fun OwnPage(f: Folders) {
                 if (group != null) SkyButton("Add more files/folders", { f.chooseOwn(folder) }, primary = false, icon = SkyIcon.Add)
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
                 SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(200.dp), leading = SkyIcon.Search)
-                GridControls(f.organizer, page)
+                ViewButton(page, actors = true, videos = true)
                 SkyMenuButton(SkyIcon.MoreVert, "Folder options", layoutActions(f))
                 SkyButton("Play all", { f.play(if (group == null) everything else groupVideos) }, enabled = (if (group == null) everything else groupVideos).isNotEmpty(), icon = SkyIcon.Play)
             }
@@ -794,7 +799,7 @@ private fun VirtualList(f: Folders) {
             ListToolbar {
                 SkyButton("New virtual folder", { newSet() }, icon = SkyIcon.Add)
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = sets.isNotEmpty())
-                GridControls(f.organizer, page)
+                ViewButton(page, actors = true, videos = false)
                 SkyMenuButton(SkyIcon.MoreVert, "Folder options", layoutActions(f))
             }
         }
@@ -965,7 +970,7 @@ private fun SetPage(f: Folders) {
                 if (group != null && current != null) SkyButton("Add to this subfolder", { f.addToSetGroup(set, current.title) }, primary = false, icon = SkyIcon.Add)
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
                 SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(200.dp), leading = SkyIcon.Search)
-                GridControls(f.organizer, page)
+                ViewButton(page, actors = true, videos = true)
                 SkyMenuButton(SkyIcon.MoreVert, "Folder options", (if (group == null) sortActions(f) else emptyList()) + layoutActions(f))
                 val playList = if (group == null) videos else inside
                 SkyButton("Play all", { f.play(playList) }, enabled = playList.isNotEmpty(), icon = SkyIcon.Play)
@@ -1065,7 +1070,7 @@ private fun PhysicalFolderPage(f: Folders, path: String, onBack: () -> Unit, onO
             FolderHeader(name, subtitle, onBack) {
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
                 SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(220.dp), leading = SkyIcon.Search)
-                GridControls(f.organizer, page)
+                ViewButton(page, actors = true, videos = true)
                 SkyMenuButton(SkyIcon.MoreVert, "Folder options", layoutActions(f))
                 SkyButton("Play all", { f.play(videos) }, enabled = videos.isNotEmpty(), icon = SkyIcon.Play)
             }

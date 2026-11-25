@@ -316,6 +316,8 @@ var openCount by remember { mutableStateOf(0) }
     // While a video plays, thumbnails wait so they don't take the processor or disk from it (B24).
     LaunchedEffect(currentFile != null) { ThumbnailStore.playing = currentFile != null }
     val organizer = remember { Organizer(FolderOrganizerStore()) { WindowsCustomFolderStore().load() } }
+    // How each page shows its cards, kept on this PC; a first run starts from the old folder settings.
+    val libraryViews = remember { LibraryViews(LibraryViewStore(), organizer.data.prefs) }
     // Once folders.bin holds the custom folders, their old registry copy goes (B20). It can hold one value per video,
     // so it is removed off the screen thread.
     LaunchedEffect(Unit) {
@@ -689,7 +691,7 @@ var openCount by remember { mutableStateOf(0) }
 
     @OptIn(ExperimentalComposeUiApi::class)
     val takesDrop: (DragAndDropEvent) -> Boolean = { it.awtTransferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor) }
-    CompositionLocalProvider(LocalAdaptive provides adaptive, LocalFocusVisible provides focusVisible.value) {
+    CompositionLocalProvider(LocalAdaptive provides adaptive, LocalFocusVisible provides focusVisible.value, LocalLibraryViews provides libraryViews) {
         Box(Modifier.fillMaxSize().skyWallpaper(theme).followInputMode(inputMode).followFocusVisibility(focusVisible).dragAndDropTarget(shouldStartDragAndDrop = takesDrop, target = videoDrop)) {
             Row(Modifier.fillMaxSize()) {
                 // The rail by width (M3 design brief 5.2); the video's SwingPanel below keeps its one place in the tree.

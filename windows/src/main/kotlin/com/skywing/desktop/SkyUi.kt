@@ -543,13 +543,13 @@ internal fun FolderCard(
     onLongClick: (() -> Unit)? = null,
     listMode: Boolean = false,
     selected: Boolean? = null,
-    tall: Boolean = false,
+    aspect: Float = CardAspect.SCENE,
 ) {
     val theme = LocalSkyTheme.current
     val picture: @Composable (Modifier) -> Unit = { pictureModifier ->
         Box(pictureModifier) {
             if (coverVideos.isNotEmpty() || coverKey != null) {
-                FolderPicture(coverKey, coverVideos, tall, listMode, Modifier.fillMaxSize())
+                FolderPicture(coverKey, coverVideos, aspect < 1f, listMode, Modifier.fillMaxSize())
             } else {
                 Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(theme.card, theme.surface))), contentAlignment = Alignment.Center) {
                     SkyIconView(SkyIcon.Folder, theme.muted.copy(alpha = 0.6f), size = if (listMode) 26.dp else 40.dp)
@@ -558,7 +558,7 @@ internal fun FolderCard(
             if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
     }
-    CardFrame(modifier, selected, null, listMode, tall, onClick, onLongClick, picture) {
+    CardFrame(modifier, selected, null, listMode, aspect, onClick, onLongClick, picture) {
         Text(title, color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(detail, color = theme.muted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -575,12 +575,12 @@ internal fun VideoCard(
     onLongClick: (() -> Unit)? = null,
     detail: String? = null,
     listMode: Boolean = false,
-    tall: Boolean = false,
+    aspect: Float = CardAspect.SCENE,
 ) {
     val theme = LocalSkyTheme.current
     val picture: @Composable (Modifier) -> Unit = { pictureModifier ->
         Box(pictureModifier) {
-            VideoPicture(entry, tall, Modifier.fillMaxSize())
+            VideoPicture(entry, aspect < 1f, Modifier.fillMaxSize())
             if (progress != null && progress > 0f) {
                 Box(
                     Modifier.align(Alignment.BottomStart).fillMaxWidth(progress.coerceIn(0f, 1f)).height(3.dp)
@@ -591,7 +591,7 @@ internal fun VideoCard(
         }
     }
     val watched = progress?.takeIf { it > 0f }?.let { "${(it.coerceIn(0f, 1f) * 100).roundToInt()}% watched" }
-    CardFrame(modifier, selected, watched, listMode, tall, onClick, onLongClick, picture) {
+    CardFrame(modifier, selected, watched, listMode, aspect, onClick, onLongClick, picture) {
         Text(entry.title(), color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
             detail ?: listOf(formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }.joinToString("  ·  "),
@@ -601,7 +601,7 @@ internal fun VideoCard(
 }
 
 /**
- * The frame shared by folder and video cards: a 16:9 picture (3:4 when [tall]) over the text, or a row with a small
+ * The frame shared by folder and video cards: a picture of the given [aspect] (16:9, 3:4 or 2:3) over the text, or a row with a small
  * picture in list mode. Screen readers get a push button named by the first text, the title (M3 design brief 5.7), with
  * [watched] as its description and, only while cards are being selected, its [selected] state.
  */
@@ -611,7 +611,7 @@ private fun CardFrame(
     selected: Boolean?,
     watched: String?,
     listMode: Boolean,
-    tall: Boolean,
+    aspect: Float,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
     picture: @Composable (Modifier) -> Unit,
@@ -628,12 +628,12 @@ private fun CardFrame(
         }
     if (listMode) {
         Row(frame.padding(6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            picture(Modifier.width(if (tall) 72.dp else 128.dp).aspectRatio(if (tall) 3f / 4f else 16f / 9f).clip(RoundedCornerShape(10.dp)))
+            picture(Modifier.width(if (aspect < 1f) 72.dp else 128.dp).aspectRatio(aspect).clip(RoundedCornerShape(10.dp)))
             Column(Modifier.weight(1f)) { text() }
         }
     } else {
         Column(frame) {
-            picture(Modifier.fillMaxWidth().aspectRatio(if (tall) 3f / 4f else 16f / 9f))
+            picture(Modifier.fillMaxWidth().aspectRatio(aspect))
             Column(Modifier.padding(start = 10.dp, end = 8.dp, top = 7.dp, bottom = 9.dp)) { text() }
         }
     }

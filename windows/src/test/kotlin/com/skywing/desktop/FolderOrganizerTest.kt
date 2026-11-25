@@ -76,8 +76,7 @@ class FolderOrganizerTest {
         organizer.addDriveFolders(listOf("C:\\Videos\\Films", "C:\\Videos\\Films"), includeSubfolders = true)
         organizer.createCollection("Peter")
         organizer.assign(listOf("C:\\Videos\\Other\\Holiday with peter.mp4"), "Peter")
-        organizer.updatePrefs { it.copy(columns = 4, listMode = true, tabs = listOf(1, 0), tabNames = mapOf(1 to "Drive"), tallPages = setOf("custom")) }
-        organizer.stepCardSize(VIDEOS_PAGE, 1)
+        organizer.updatePrefs { it.copy(columns = 4, listMode = true, tabs = listOf(1, 0), tabNames = mapOf(1 to "Drive"), tallPages = setOf("custom"), videoCardSize = 210, folderCardSize = 170) }
         organizer.selectSort("SIZE")
         organizer.selectSort("SIZE")
 
@@ -91,10 +90,11 @@ class FolderOrganizerTest {
         assertEquals(1, again.data.match.count { it.sourcePath != null })
         assertEquals(listOf(1, 0), again.data.prefs.tabs)
         assertEquals("Drive", again.data.prefs.tabName(1))
-        // A grid size button gives way over a fixed column count.
-        assertEquals(0, again.data.prefs.columns)
+        // The old grid sizes and taller pages stay in the file, although the views no longer read them.
+        assertEquals(4, again.data.prefs.columns)
         assertEquals(210, again.data.prefs.videoCardSize)
-        assertTrue(again.data.prefs.isTall("custom"))
+        assertEquals(170, again.data.prefs.folderCardSize)
+        assertEquals(setOf("custom"), again.data.prefs.tallPages)
         assertTrue(again.data.prefs.descending)
         assertEquals("Peter", again.data.assignments["c:\\videos\\other\\holiday with peter.mp4"])
 

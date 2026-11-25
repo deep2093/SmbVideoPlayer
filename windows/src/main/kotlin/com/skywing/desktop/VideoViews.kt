@@ -46,49 +46,6 @@ import java.io.File
 /** The page of the Videos section, for its grid size and card shape. */
 internal const val VIDEOS_PAGE = "videos"
 
-/**
- * The grid columns: one row per item in list mode, a fixed number chosen in Settings, as many as the window calls for
- * while the cards keep their first size (M3 design brief 5.4), otherwise as many cards of the size picked with the grid
- * size buttons as fit.
- */
-internal fun FolderPrefs.cells(page: String, adaptive: Adaptive): GridCells = when {
-    listMode -> GridCells.Fixed(1)
-    columns in 2..5 -> GridCells.Fixed(columns)
-    CardSizes.of(cardSizeFor(page)) == CardSizes.NORMAL -> AutoColumns(adaptive)
-    else -> GridCells.Adaptive(CardSizes.of(cardSizeFor(page)).dp)
-}
-
-internal fun FolderPrefs.cardSizeFor(page: String): Int = if (page == VIDEOS_PAGE) videoCardSize else folderCardSize
-
-internal fun FolderPrefs.isTall(page: String): Boolean = page in tallPages
-
-/** Smaller (-1) or larger (+1) cards on [page]; a fixed column count from Settings gives way to the chosen size. */
-internal fun Organizer.stepCardSize(page: String, direction: Int) = updatePrefs { p ->
-    val next = CardSizes.step(p.cardSizeFor(page), direction)
-    if (page == VIDEOS_PAGE) p.copy(videoCardSize = next, columns = 0) else p.copy(folderCardSize = next, columns = 0)
-}
-
-internal fun Organizer.toggleTall(page: String) = updatePrefs { p ->
-    p.copy(tallPages = if (page in p.tallPages) p.tallPages - page else p.tallPages + page)
-}
-
-/** The grid size buttons and the card shape button, shown on the Videos page and on every Folders page. */
-@Composable
-internal fun GridControls(organizer: Organizer, page: String) {
-    val prefs = organizer.data.prefs
-    val size = CardSizes.of(prefs.cardSizeFor(page))
-    val tall = prefs.isTall(page)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        SkyIconButton(SkyIcon.ZoomOut, "Smaller cards (Ctrl + mouse wheel)", { organizer.stepCardSize(page, -1) }, enabled = !prefs.listMode && size > CardSizes.STEPS.first())
-        SkyIconButton(SkyIcon.ZoomIn, "Larger cards (Ctrl + mouse wheel)", { organizer.stepCardSize(page, 1) }, enabled = !prefs.listMode && size < CardSizes.STEPS.last())
-        SkyIconButton(
-            if (tall) SkyIcon.CropLandscape else SkyIcon.CropPortrait,
-            if (tall) "Show landscape cards" else "Show taller portrait cards",
-            { organizer.toggleTall(page) },
-        )
-    }
-}
-
 /** One card or line in a folder page grid. */
 internal sealed interface Tile {
     val key: String
@@ -144,7 +101,8 @@ internal fun TileGrid(
 ) {
     KeepFirstItemAcrossColumns(state)
     val prefs = organizer.data.prefs
-    val tall = prefs.isTall(page)
+    val views = LocalLibraryViews.current
+    val view = views.of(page)
     val current by rememberUpdatedState(tiles)
     var anchor by remember { mutableStateOf<String?>(null) }
     var boxBase by remember { mutableStateOf(emptySet<String>()) }
@@ -176,24 +134,24 @@ internal fun TileGrid(
         }
     }
     Box(
-        modifier.fillMaxSize().ctrlWheel { organizer.stepCardSize(page, it) }.boxSelect(state) { inside, additive, started ->
+        modifier.fillMaxSize().ctrlWheel { views.step(page, it) }.viewKeys(page).boxSelect(state) { inside, additive, started ->
             if (started) boxBase = if (additive) current.filter(::ticked).map { it.key }.toSet() else emptySet()
             tickExactly(boxBase + inside.map { it.toString() })
         },
     ) {
         LazyVerticalGrid(
-            columns = prefs.cells(page, LocalAdaptive.current),
+            columns = cells(view, prefs.columns, LocalAdaptive.current),
             state = state,
             modifier = Modifier.fillMaxSize().padding(end = 14.dp),
             contentPadding = PaddingValues(bottom = 28.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(if (prefs.listMode) 8.dp else 14.dp),
+            verticalArrangement = Arrangement.spacedBy(if (view.list) 8.dp else 14.dp),
         ) {
             if (tiles.isEmpty() && emptyText != null) {
                 item(span = { GridItemSpan(maxLineSpan) }) { EmptyNote(emptyText) }
             }
             items(tiles, key = { it.key }, span = { if (it is LabelTile) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { tile ->
-                TileView(tile, prefs.listMode, tall, history, onPlay, ::clicked)
+                TileView(tile, view, history, onPlay, ::clicked)
             }
             if (footer != null && tiles.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "total") { ListTotal(footer) }
@@ -210,8 +168,7 @@ internal fun TileGrid(
 @Composable
 private fun TileView(
     tile: Tile,
-    listMode: Boolean,
-    tall: Boolean,
+    view: PageView,
     history: Map<String, WindowsWatchRecord>,
     onPlay: (File, List<File>) -> Unit,
     /** Ctrl and Shift clicks tick cards as in Windows; returns true when the click was used for that. */
@@ -231,8 +188,8 @@ private fun TileView(
                     else if (tile.menu.isNotEmpty()) menu = true
                     else tile.onSelect?.invoke()
                 },
-                listMode = listMode,
-                tall = tall,
+                listMode = view.list,
+                aspect = view.folderAspect,
                 selected = tile.selected,
             )
             SkyMenu(menu, { menu = false }, tile.menu)
@@ -242,8 +199,8 @@ private fun TileView(
                 entry = tile.entry,
                 progress = watchedFraction(history, tile.entry),
                 selected = tile.selected,
-                listMode = listMode,
-                tall = tall,
+                listMode = view.list,
+                aspect = view.videoAspect,
                 onClick = {
                     if (!modified()) {
                         if (tile.selected != null) tile.onSelect?.invoke()
@@ -316,7 +273,8 @@ internal fun VideoGridView(
 ) {
     KeepFirstItemAcrossColumns(state)
     val prefs = organizer.data.prefs
-    val tall = prefs.isTall(VIDEOS_PAGE)
+    val views = LocalLibraryViews.current
+    val view = views.of(VIDEOS_PAGE)
     val shown by rememberUpdatedState(entries)
     val window = LocalWindowInfo.current
     var anchor by remember { mutableStateOf<String?>(null) }
@@ -345,19 +303,19 @@ internal fun VideoGridView(
         }
     }
     Box(
-        modifier.fillMaxSize().ctrlWheel { organizer.stepCardSize(VIDEOS_PAGE, it) }.boxSelect(state) { inside, additive, started ->
+        modifier.fillMaxSize().ctrlWheel { views.step(VIDEOS_PAGE, it) }.viewKeys(VIDEOS_PAGE).boxSelect(state) { inside, additive, started ->
             if (started) boxBase = if (additive) selection.paths else emptySet()
             val byKey = shown.associateBy { it.path.lowercase() }
             selection.set(boxBase + inside.mapNotNull { byKey[it.toString()]?.path })
         },
     ) {
         LazyVerticalGrid(
-            columns = prefs.cells(VIDEOS_PAGE, LocalAdaptive.current),
+            columns = cells(view, prefs.columns, LocalAdaptive.current),
             state = state,
             modifier = Modifier.fillMaxSize().padding(end = 14.dp),
             contentPadding = PaddingValues(bottom = 28.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(if (prefs.listMode) 8.dp else 14.dp),
+            verticalArrangement = Arrangement.spacedBy(if (view.list) 8.dp else 14.dp),
         ) {
             if (header != null) header()
             if (entries.isEmpty()) {
@@ -370,8 +328,8 @@ internal fun VideoGridView(
                         entry = entry,
                         progress = watchedFraction(history, entry),
                         selected = if (selection.active) entry.path in selection.paths else null,
-                        listMode = prefs.listMode,
-                        tall = tall,
+                        listMode = view.list,
+                        aspect = view.videoAspect,
                         onClick = {
                             if (modifiedClick(entry)) Unit
                             else if (selection.active) selection.toggle(entry.path)

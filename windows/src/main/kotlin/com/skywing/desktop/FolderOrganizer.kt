@@ -103,10 +103,16 @@ internal data class FolderPrefs(
 
 /** The grid sizes the - and + buttons step through, in dp of card width. */
 internal object CardSizes {
+    const val SMALL = 135
     const val NORMAL = 188
+    const val LARGE = 280
     val STEPS = listOf(88, 104, 120, 135, 150, 170, NORMAL, 210, 230, 255, 280, 310, 340, 380, 420, 470, 520, 580)
 
     fun of(saved: Int): Int = if (saved in STEPS) saved else NORMAL
+
+    /** The nearest of Small, Medium and Large to [size]; halfway between two goes to the smaller. */
+    fun named(size: Int): String =
+        listOf(SMALL to "Small", NORMAL to "Medium", LARGE to "Large").minBy { (width, _) -> kotlin.math.abs(width - size) }.second
 
     /** The next size in [direction] (-1 smaller, +1 larger), or the same at either end. */
     fun step(saved: Int, direction: Int): Int {

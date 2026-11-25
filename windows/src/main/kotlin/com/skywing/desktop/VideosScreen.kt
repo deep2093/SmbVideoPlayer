@@ -47,6 +47,7 @@ internal fun VideosScreen(
     /** Opens Files, where folders on this PC are added. */
     onAddFolder: () -> Unit,
 ) {
+    val views = LocalLibraryViews.current
     // Starts with the last list shown, so the grid keeps its place when coming back from a video.
     val shown by produceState(hub.lastResult<List<WindowsMediaEntry>>(VIDEOS_PAGE) ?: emptyList(), library.all, hub.videoSource, hub.videoSort, hub.videoQuery) {
         val source = hub.videoSource
@@ -91,7 +92,7 @@ internal fun VideosScreen(
                 SkyButton("Sort: " + SORT_NAMES[hub.videoSort.coerceIn(0, SORT_NAMES.lastIndex)], {
                     hub.videoSort = (hub.videoSort + 1) % SORT_NAMES.size
                 }, primary = false, icon = SkyIcon.Sort)
-                GridControls(organizer, VIDEOS_PAGE)
+                ViewButton(VIDEOS_PAGE, actors = false, videos = true)
                 SkyButton("Select", { selection.active = true }, primary = false, icon = SkyIcon.Check, enabled = shown.isNotEmpty())
                 SkyButton("Play all", {
                     if (shown.isNotEmpty()) onPlayAll(shown.map { e -> e.file })
@@ -109,8 +110,8 @@ internal fun VideosScreen(
                         entry = entry,
                         progress = (record.position / record.duration).toFloat().coerceIn(0f, 1f),
                         detail = formatClock(record.position) + " of " + formatClock(record.duration),
-                        listMode = organizer.data.prefs.listMode,
-                        tall = organizer.data.prefs.isTall(VIDEOS_PAGE),
+                        listMode = views.of(VIDEOS_PAGE).list,
+                        aspect = views.of(VIDEOS_PAGE).videoAspect,
                         onClick = { onResume(entry.file, record.position) },
                     )
                 }
