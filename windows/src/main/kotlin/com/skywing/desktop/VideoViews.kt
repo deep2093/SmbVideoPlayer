@@ -32,6 +32,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -75,6 +82,8 @@ internal data class VideoTile(
     val menu: List<MenuAction> = emptyList(),
     val selected: Boolean? = null,
     val onSelect: (() -> Unit)? = null,
+    /** What a click or Enter does when the card is not selecting; null plays the video with [queue]. */
+    val open: (() -> Unit)? = null,
 ) : Tile {
     override val title: String get() = entry.file.name
 }
@@ -114,24 +123,12 @@ internal fun TileGrid(
     }
     /** Ctrl+click ticks one card, Shift+click a range from the last card clicked; true when the click was used. */
     fun clicked(tile: Tile, ctrl: Boolean, shift: Boolean): Boolean {
-        val from = anchor?.let { key -> current.indexOfFirst { it.key == key } } ?: -1
-        val at = current.indexOf(tile)
-        return when {
-            shift && from >= 0 && at >= 0 -> {
-                val range = current.subList(minOf(from, at), maxOf(from, at) + 1).map { it.key }.toSet()
-                tickExactly((if (ctrl) current.filter(::ticked).map { it.key }.toSet() else emptySet()) + range)
-                true
-            }
-            ctrl || shift -> {
-                pick(tile)?.invoke()
-                anchor = tile.key
-                true
-            }
-            else -> {
-                anchor = tile.key
-                false
-            }
-        }
+        val result = clickSelection(
+            current.filter { pick(it) != null }.map { it.key }, current.filter(::ticked).map { it.key }.toSet(), anchor, tile.key, ctrl, shift,
+        )
+        anchor = tile.key
+        if (result != null) tickExactly(result)
+        return result != null
     }
     Box(
         modifier.fillMaxSize().ctrlWheel { views.step(page, it) }.viewKeys(page).boxSelect(state) { inside, additive, started ->
@@ -176,6 +173,15 @@ private fun TileView(
 ) {
     var menu by remember { mutableStateOf(false) }
     val window = LocalWindowInfo.current
+    // Keys on the focused card: its menu's shortcuts (F2, Alt+Enter), and Shift+F10 or the menu key for the menu.
+    fun cardKeys(items: List<MenuAction>) = Modifier.onPreviewKeyEvent { event ->
+        val shortcut = if (event.type == KeyEventType.KeyDown) cardKeyShortcut(event.key, event.isAltPressed, event.isShiftPressed) else null
+        when {
+            shortcut == null -> false
+            shortcut == MENU_KEY -> items.isNotEmpty().also { if (it) menu = true }
+            else -> shortcutAction(items, shortcut)?.let { it.action(); true } ?: false
+        }
+    }
     fun modified(): Boolean = onModifiedClick(tile, window.keyboardModifiers.isCtrlPressed, window.keyboardModifiers.isShiftPressed)
     when (tile) {
         is LabelTile -> SectionLabel(tile.title, Modifier.padding(top = 4.dp))
@@ -191,6 +197,7 @@ private fun TileView(
                 listMode = view.list,
                 aspect = view.folderAspect,
                 selected = tile.selected,
+                modifier = cardKeys(tile.menu),
             )
             SkyMenu(menu, { menu = false }, tile.menu)
         }
@@ -201,10 +208,11 @@ private fun TileView(
                 selected = tile.selected,
                 listMode = view.list,
                 aspect = view.videoAspect,
+                modifier = cardKeys(tile.menu),
                 onClick = {
                     if (!modified()) {
                         if (tile.selected != null) tile.onSelect?.invoke()
-                        else onPlay(tile.entry.file, tile.queue.map { it.file })
+                        else tile.open?.invoke() ?: onPlay(tile.entry.file, tile.queue.map { it.file })
                     }
                 },
                 onLongClick = {
@@ -216,6 +224,17 @@ private fun TileView(
             SkyMenu(menu, { menu = false }, tile.menu)
         }
     }
+}
+
+/** What [cardKeyShortcut] answers for Shift+F10 and the menu key: open the card's menu. */
+internal const val MENU_KEY = "Menu"
+
+/** The menu shortcut a key on a focused card stands for ("F2", "Alt+Enter", or [MENU_KEY]), or null. */
+internal fun cardKeyShortcut(key: Key, alt: Boolean, shift: Boolean): String? = when {
+    key == Key.Menu || (key == Key.F10 && shift) -> MENU_KEY
+    key == Key.F2 && !alt && !shift -> "F2"
+    (key == Key.Enter || key == Key.NumPadEnter) && alt -> "Alt+Enter"
+    else -> null
 }
 
 /** The total at the end of a list ("581 folders · 4,200 videos"). */

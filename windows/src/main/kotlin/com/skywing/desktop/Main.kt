@@ -364,7 +364,7 @@ var openCount by remember { mutableStateOf(0) }
     // What Back does inside Settings (one pane: back to the list); Settings chosen again does the same (B1).
     val settingsBack = remember { mutableStateOf<(() -> Boolean)?>(null) }
     // Read off the screen thread (B8). The pages keep the last history until the new one is read.
-    val history by produceState(emptyMap<String, WindowsWatchRecord>(), historyRevision) {
+    val history by produceState(emptyMap<String, WindowsWatchRecord>(), historyRevision, records.revision.value) {
         value = withContext(Dispatchers.IO) { historyStore.load().associateBy { it.path.lowercase() } }
     }
     // Watched and new marks, read off the screen thread like the history.
@@ -730,7 +730,11 @@ var openCount by remember { mutableStateOf(0) }
                                     playOne,
                                     { files -> files.firstOrNull()?.let { playQueue(it, files, autoNext = true) } },
                                     { file, position, files, auto -> openVideo(file, files, position, autoNext = auto) },
-                                    { renameTarget = it }, marks)
+                                    { renameTarget = it },
+                                    { files, watched ->
+                                        // Plain disk writes: off the screen thread, and a failed one never reaches the UI.
+                                        playbackScope.launch(Dispatchers.IO) { files.forEach { runCatching { records.setWatched(it, watched) } } }
+                                    }, marks)
                                 "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { files -> files.firstOrNull()?.let { playQueue(it, files, autoNext = true) } }, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it }) { go("Files") }
                                 "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
                                 else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,

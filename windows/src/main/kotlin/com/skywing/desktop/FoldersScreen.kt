@@ -19,14 +19,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.skywing.desktop.artwork.ArtworkKeys
+import com.skywing.desktop.artwork.ArtworkRepository
 import java.io.File
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /*
@@ -91,7 +95,12 @@ private class Folders(
     val history: Map<String, WindowsWatchRecord>,
     val onPlay: (File, List<File>) -> Unit,
     val onPlayAll: (List<File>) -> Unit,
+    val onResume: (file: File, position: Double, queue: List<File>, autoNext: Boolean) -> Unit,
     val onRename: (File) -> Unit,
+    val onSetWatched: (List<File>, Boolean) -> Unit,
+    val marks: LibraryMarks,
+    val scope: CoroutineScope,
+    val artwork: ArtworkRepository?,
     val roots: List<String>,
     val dialogs: FolderDialogs,
     val members: Memberships?,
@@ -123,23 +132,56 @@ private class Folders(
     fun coverAction(key: String, title: String, videos: List<WindowsMediaEntry>, video: WindowsMediaEntry? = null): MenuAction? =
         if (!artworkOn) null else MenuAction("Change cover", SkyIcon.Image) { dialogs.cover = CoverTarget(key, title, video, videos) }
 
+    /** Where a half-watched video stopped, or null. */
+    private fun resumeOf(entry: WindowsMediaEntry): Double? =
+        history[entry.path.lowercase(Locale.ROOT)]?.takeIf { it.duration > 0 && it.position > 0 && it.position < it.duration }?.position
+
+    /** Clicking a video card or pressing Enter on it: a half-watched video goes on where it stopped. */
+    fun open(entry: WindowsMediaEntry, queue: List<WindowsMediaEntry>) {
+        val at = resumeOf(entry)
+        if (at != null) onResume(entry.file, at, queue.map { it.file }, false) else onPlay(entry.file, queue.map { it.file })
+    }
+
     /** The options of a video card. */
-    fun videoMenu(entry: WindowsMediaEntry, queue: List<WindowsMediaEntry>, page: String): List<MenuAction> = listOfNotNull(
-        MenuAction("Play", SkyIcon.Play) { onPlay(entry.file, queue.map { it.file }) },
-        MenuAction("Select", SkyIcon.Check) { hub.toggleFolder(page, "file:" + entry.path) },
-        MenuAction("Add to folder…", SkyIcon.Folder) { dialogs.filing = false to listOf(entry.path) },
-        MenuAction("Add to virtual folder…", SkyIcon.Grid) { dialogs.filing = true to listOf(entry.path) },
-        MenuAction("Rename video…", SkyIcon.Edit) { onRename(entry.file) },
-        coverAction(ArtworkKeys.video(entry.path), entry.file.nameWithoutExtension, listOf(entry), entry),
-        MenuAction("Details", SkyIcon.Info) {
-            dialogs.info = entry.file.name to listOf(entry.path, formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }.joinToString("\n")
-        },
+    fun videoMenu(entry: WindowsMediaEntry, queue: List<WindowsMediaEntry>, page: String): List<MenuAction> = videoMenu(
+        VideoMenuState(
+            resumeAt = resumeOf(entry),
+            watched = marks.isWatched(entry),
+            artworkOn = artworkOn,
+            // A step 1 call: the store doesn't say where a chosen picture came from; step 2's dialog does.
+            pictureHint = if (artwork?.row(ArtworkKeys.video(entry.path)) == null) "Automatic" else "Chosen",
+        ),
+        VideoMenuActions(
+            play = { open(entry, queue) },
+            playFromStart = { onPlay(entry.file, queue.map { it.file }) },
+            setWatched = { onSetWatched(listOf(entry.file), it) },
+            changePicture = { dialogs.cover = videoCoverTarget(entry) },
+            addToFolder = { dialogs.filing = false to listOf(entry.path) },
+            addToVirtual = { dialogs.filing = true to listOf(entry.path) },
+            rename = { onRename(entry.file) },
+            showInExplorer = { showInExplorer(entry.file, select = true) },
+            details = { showDetails(entry) },
+            select = { hub.toggleFolder(page, "file:" + entry.path) },
+        ),
     )
+
+    /** Details of a video; its length is read off the screen thread (the store loads its file on first use). */
+    private fun showDetails(entry: WindowsMediaEntry) {
+        scope.launch {
+            val length = withContext(Dispatchers.IO) {
+                runCatching { ThumbnailStore.lengths.get(ThumbnailStore.keyOf(entry.path, entry.modified)) }.getOrNull()
+            }
+            dialogs.info = entry.file.name to videoDetails(
+                listOf(entry.path, formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }, length, marks.isWatched(entry),
+            )
+        }
+    }
 
     fun videoTiles(list: List<WindowsMediaEntry>, page: String): List<VideoTile> = list.map { entry ->
         VideoTile(
             "file:" + entry.path.lowercase(Locale.ROOT), entry, list, videoMenu(entry, list, page),
             hub.ticked(page, "file:" + entry.path), { hub.toggleFolder(page, "file:" + entry.path) },
+            open = { open(entry, list) },
         )
     }
 
@@ -148,6 +190,8 @@ private class Folders(
         MenuAction("Play", SkyIcon.Play) { play(videos()); hub.endFolderSelection() },
         MenuAction("Add to folder", SkyIcon.Folder) { dialogs.filing = false to videos().map { it.path } },
         MenuAction("Add to virtual folder", SkyIcon.Grid) { dialogs.filing = true to videos().map { it.path } },
+        MenuAction("Mark as watched", SkyIcon.Check) { onSetWatched(videos().map { it.file }, true); hub.endFolderSelection() },
+        MenuAction("Mark as unwatched", SkyIcon.Close) { onSetWatched(videos().map { it.file }, false); hub.endFolderSelection() },
     )
 
     fun ownTile(folder: OwnFolder, page: String?): FolderTile {
@@ -256,6 +300,7 @@ internal fun FoldersScreen(
     onPlayAll: (List<File>) -> Unit,
     onResume: (file: File, position: Double, queue: List<File>, autoNext: Boolean) -> Unit,
     onRename: (File) -> Unit,
+    onSetWatched: (List<File>, Boolean) -> Unit,
     marks: LibraryMarks = LibraryMarks(),
 ) {
     val prefs = organizer.data.prefs
@@ -278,7 +323,12 @@ internal fun FoldersScreen(
             sets = data.sets.associate { it.id to FolderLogic.members(it.folders + it.directFolders, it.files + it.directFiles, library.all) },
         )
     }
-    val f = Folders(library, organizer, hub, history, onPlay, onPlayAll, onRename, roots, dialogs, members, LocalCovers.current?.artwork?.settings?.enabled == true, LocalLibraryViews.current)
+    val scope = rememberCoroutineScope()
+    val artwork = LocalCovers.current?.artwork
+    val f = Folders(
+        library, organizer, hub, history, onPlay, onPlayAll, onResume, onRename, onSetWatched, marks, scope, artwork,
+        roots, dialogs, members, artwork?.settings?.enabled == true, LocalLibraryViews.current,
+    )
 
     val inside = when (hub.tab) {
         0 -> hub.ownId != null || hub.matchId != null

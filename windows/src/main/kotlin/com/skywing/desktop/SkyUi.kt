@@ -640,24 +640,51 @@ private fun CardFrame(
     }
 }
 
-/** One entry of a card's or a page's menu. */
-internal data class MenuAction(val label: String, val icon: SkyIcon? = null, val enabled: Boolean = true, val action: () -> Unit)
+/**
+ * One entry of a card's or a page's menu. [shortcut] (or else [hint]) shows on the right in the muted colour; a
+ * [dividerBefore] item starts a new group; an item with [children] opens them in place of the menu.
+ */
+internal data class MenuAction(
+    val label: String,
+    val icon: SkyIcon? = null,
+    val enabled: Boolean = true,
+    val shortcut: String? = null,
+    val hint: String? = null,
+    val dividerBefore: Boolean = false,
+    val children: List<MenuAction> = emptyList(),
+    val action: () -> Unit = {},
+)
 
 /** A small menu that opens where it is placed, in the theme's menu colour. */
 @Composable
 internal fun SkyMenu(expanded: Boolean, onDismiss: () -> Unit, actions: List<MenuAction>) {
     val theme = LocalSkyTheme.current
+    // The children of the item chosen last, shown in place of the menu with "‹ Back" first.
+    var inside by remember(expanded) { mutableStateOf<MenuAction?>(null) }
+    val parent = inside
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, modifier = Modifier.background(theme.menu)) {
-        actions.forEach { item ->
+        @Composable
+        fun row(item: MenuAction, onChoose: () -> Unit) {
+            if (item.dividerBefore) Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(theme.muted.copy(alpha = 0.3f)))
+            val side = item.shortcut ?: item.hint
             DropdownMenuItem(
                 text = { Text(item.label, color = if (item.enabled) theme.ink else theme.muted) },
                 leadingIcon = item.icon?.let { icon -> { SkyIconView(icon, if (item.enabled) theme.accent else theme.muted, size = 18.dp) } },
+                trailingIcon = side?.let { { Text(it, color = theme.muted, style = MaterialTheme.typography.labelMedium) } },
                 enabled = item.enabled,
-                onClick = {
+                onClick = onChoose,
+            )
+        }
+        if (parent != null) row(MenuAction("‹ Back")) { inside = null }
+        (parent?.children ?: actions).forEach { item ->
+            row(item) {
+                if (item.children.isNotEmpty()) {
+                    inside = item
+                } else {
                     onDismiss()
                     item.action()
-                },
-            )
+                }
+            }
         }
     }
 }
