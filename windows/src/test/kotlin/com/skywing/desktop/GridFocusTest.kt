@@ -14,16 +14,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.withKeyDown
@@ -425,6 +428,110 @@ class GridFocusTest {
         focused().performKeyInput { pressKey(Key.Enter) }
         compose.waitForIdle()
         compose.onNodeWithText("Next actor").assertIsFocused()
+    }
+
+    @Test fun clickingNextActorWhileAVideoCardHasTheFocusLeavesItOnTheNewFirstCard() {
+        // As the screen test and a mouse do it: the card keeps the focus while › is clicked, and goes with the grid.
+        val actors = narrowActorPage(listOf("ada", "bea"))
+        compose.onNodeWithText(actors[0].videos.first().title()).requestFocus()
+        compose.onNodeWithText("Next actor").performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitForIdle()
+        assertEquals(actors[1].videos.first().title(), focusedText())
+    }
+
+    /**
+     * ActorAutomationTest, step for step, on the real Folders screen of a Virtual folder: open an actor, Esc, open it
+     * again, then click › [frames] frames later (null: once everything is idle). Returns the focused card's name.
+     */
+    private fun actorFlowOnTheFoldersScreen(frames: Int?): String? {
+        val library = folder.resolve("Library").toFile().apply { mkdirs() }
+        FolderOrganizerStore(folder.resolve("folders.bin")).save(
+            OrganizerData(sets = listOf(VirtualSet(id = "test-set", name = "Mix", folders = listOf(library.absolutePath)))),
+        )
+        val organizer = organizer()
+        val model = LibraryModel(WindowsMediaIndex(folder.resolve("media-index.bin")))
+        model.all = listOf("Ada Moss - one.mp4", "Bea Lund - one.mp4", "Ada Moss - two.mkv", "Bea Lund - two.mkv").mapIndexed { i, name ->
+            WindowsMediaEntry(File(library, name).absolutePath, "local", "PC", "Library", 1, 1_000L + i)
+        }
+        val hub = HubState().apply { tab = 1; setId = "test-set" }
+        compose.setContent {
+            Page {
+                Box(Modifier.size(800.dp, 650.dp)) {
+                    FoldersScreen(model, organizer, hub, emptyMap(), { _, _ -> }, {}, { _, _, _, _ -> }, {}, { _, _ -> })
+                }
+            }
+        }
+        fun click(text: String) {
+            compose.waitUntil(5_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText(text).performSemanticsAction(SemanticsActions.OnClick)
+        }
+        click("Ada Moss")
+        compose.waitForIdle()
+        focused().performKeyInput { pressKey(Key.Escape) }
+        compose.waitForIdle()
+        if (frames == null) {
+            click("Ada Moss")
+            compose.waitForIdle()
+            click("Next actor")
+        } else {
+            compose.mainClock.autoAdvance = false
+            click("Ada Moss")
+            repeat(frames) { compose.mainClock.advanceTimeByFrame() }
+            click("Next actor")
+            compose.mainClock.autoAdvance = true
+        }
+        compose.waitForIdle()
+        return focusedText()
+    }
+
+    @Test fun theScreenTestsActorFlowKeepsTheFocusOnTheNextActorsFirstCard() {
+        assertEquals("Bea Lund - two", actorFlowOnTheFoldersScreen(null))
+    }
+
+    @Test fun theScreenTestsActorFlowWithTheClickDuringTheOpeningKeepsTheFocusOnTheNextActorsFirstCard() {
+        assertEquals("Bea Lund - two", actorFlowOnTheFoldersScreen(3))
+    }
+
+    /** A narrow page of one actor whose videos [videos] can change while it shows. */
+    private fun changingActorPage(videos: () -> List<WindowsMediaEntry>) {
+        val f = folders()
+        compose.setContent {
+            Page {
+                Box(Modifier.size(700.dp, 700.dp)) {
+                    val actor = ActorRef("ada", "ADA", "vset:1:ada", "set:1|ada", videos())
+                    ActorPage(actor, listOf(actor), f, onOpenActor = {}, onBack = {}, menuOf = { _, _, _ -> emptyList() })
+                }
+            }
+        }
+        compose.waitForIdle()
+    }
+
+    private fun clip(name: String, modified: Long) = WindowsMediaEntry("\\\\192.0.2.10\\videos\\$name.mkv", "s", "PC", "Videos", 1, modified)
+
+    @Test fun aFocusedCardThatLeavesTheGridLateLeavesTheFocusOnACardInView() {
+        // However late the focused card goes (here its video leaves the actor a second later), the focus comes back.
+        val one = clip("ada one", 1)
+        val two = clip("ada two", 2)
+        var videos by mutableStateOf(listOf(one, two))
+        changingActorPage { videos }
+        assertEquals("ada two", focusedText())
+        compose.mainClock.advanceTimeBy(1_000)
+        videos = listOf(one)
+        compose.waitForIdle()
+        assertEquals("ada one", focusedText())
+    }
+
+    @Test fun focusThatMovedOnPurposeStaysWhenACardLeaves() {
+        // The search field has the focus (as when typing filters the cards): a card that goes takes nothing with it.
+        val one = clip("ada one", 1)
+        val two = clip("ada two", 2)
+        var videos by mutableStateOf(listOf(one, two))
+        changingActorPage { videos }
+        compose.onNodeWithContentDescription("Search here").requestFocus()
+        compose.waitForIdle()
+        videos = listOf(one)
+        compose.waitForIdle()
+        compose.onNodeWithContentDescription("Search here").assertIsFocused()
     }
 
     @Test fun escInAGridPagesSearchClearsItFirstThenGoesBack() {

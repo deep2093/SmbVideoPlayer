@@ -64,6 +64,7 @@ internal fun ActorStudioHeader(
     previous: ActorRef?,
     next: ActorRef?,
     onOpenActor: (String) -> Unit,
+    comeback: FocusComeback,
 ) {
     val theme = LocalSkyTheme.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -82,10 +83,7 @@ internal fun ActorStudioHeader(
                         actor.title, color = theme.ink, fontFamily = SerifNames, fontWeight = FontWeight.SemiBold,
                         fontSize = 30.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                     )
-                    if (arrows) {
-                        SkyIconButton(SkyIcon.ChevronLeft, "Previous actor", { previous?.let { onOpenActor(it.identity) } }, enabled = previous != null)
-                        SkyIconButton(SkyIcon.ChevronRight, "Next actor", { next?.let { onOpenActor(it.identity) } }, enabled = next != null)
-                    }
+                    if (arrows) ActorArrows(previous, next, onOpenActor, comeback)
                 }
                 Text(line, color = theme.muted, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

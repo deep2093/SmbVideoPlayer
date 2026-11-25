@@ -29,7 +29,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -37,6 +39,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.KeyEvent
@@ -168,6 +171,43 @@ private class TypeAhead {
 /** Whether a grid still has to take the focus it takes when it first shows (the focusOnStart of [TileGrid]). */
 private class StartFocus(var pending: Boolean)
 
+/**
+ * The control of a page that has the keyboard focus, so the page can give the focus back when that control goes while
+ * it has it: its card or row is no longer shown, or it turns off (spec 5.10: focus is always visible). However late
+ * that happens, it is seen while the page is composed without the control, before the control gives the focus up.
+ * Focus that moves on purpose (Tab, a field, a menu, a dialog) leaves the control first, so it is left alone.
+ */
+internal class FocusComeback {
+    private var focused: Any? = null
+    private var gone = false
+
+    /** Each new value gives the focus to the first card in view of the page's grid ([TileGrid]). */
+    val refocus = mutableIntStateOf(0)
+
+    /** The focus of the control [key], from its onFocusChanged. */
+    fun focus(key: Any, hasFocus: Boolean) {
+        if (hasFocus) focused = key else if (focused == key) focused = null
+    }
+
+    /** While composing: the focused control goes when [goes] is true of its key. */
+    fun goneIf(goes: (Any) -> Boolean) {
+        val key = focused ?: return
+        if (!goes(key)) return
+        focused = null
+        gone = true
+    }
+
+    /** Once that composition is applied (a SideEffect): the grid takes the focus if the control went. */
+    fun applied() {
+        if (!gone) return
+        gone = false
+        refocus.intValue++
+    }
+}
+
+/** A grid card's key, as [FocusComeback] knows it. */
+private data class CardFocus(val key: String)
+
 /** How many frames a card that is coming into view is waited for before focus is given up. */
 private const val FOCUS_TRIES = 5
 
@@ -268,8 +308,11 @@ internal fun TileGrid(
     focusOnStart: Boolean = false,
     /** Where that focus goes when the grid has no card to take it (the actor page's Back). */
     noCardFocus: FocusRequester? = null,
-    /** Each new value gives the focus to the first card in view again, as [focusOnStart] does (0: never). */
-    refocus: Int = 0,
+    /**
+     * The page's focused control: when it goes with the focus (a focused card that leaves the grid, or another control of
+     * the page), the focus comes to the first card in view, as with [focusOnStart].
+     */
+    comeback: FocusComeback? = null,
 ) {
     KeepFirstItemAcrossColumns(state)
     val prefs = organizer.data.prefs
@@ -334,8 +377,12 @@ internal fun TileGrid(
         if (index >= 0) land(index) else landInView()
         if (wanted != null) focused()
     }
+    comeback?.goneIf { key -> key is CardFocus && tiles.none { it.key == key.key } }
+    SideEffect { comeback?.applied() }
+    val refocus = comeback?.refocus?.intValue ?: 0
     LaunchedEffect(refocus) {
         if (refocus == 0) return@LaunchedEffect
+        // Once the grid has laid out the cards it shows now.
         withFrameNanos {}
         landInView()
     }
@@ -371,7 +418,8 @@ internal fun TileGrid(
                     requesters[tile.key] = requester
                     onDispose { if (requesters[tile.key] === requester) requesters.remove(tile.key) }
                 }
-                TileView(tile, view, history, onPlay, ::clicked, Modifier.focusRequester(requester))
+                val card = Modifier.focusRequester(requester)
+                TileView(tile, view, history, onPlay, ::clicked, if (comeback == null) card else card.onFocusChanged { comeback.focus(CardFocus(tile.key), it.hasFocus) })
             }
             if (footer != null && tiles.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "total") { ListTotal(footer) }

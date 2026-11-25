@@ -39,16 +39,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -293,38 +292,11 @@ private val LIST_WIDTH = 260.dp
 private val HEADER_OPEN = 184.dp
 private val HEADER_SLIM = 60.dp
 
-/** Frames after going to another actor in which the page still takes back a focus that the switch took away. */
-private const val SWITCH_FRAMES = 10
+/** The previous and next actor buttons, as the page's [FocusComeback] knows them. */
+private enum class ActorArrow { PREVIOUS, NEXT }
 
-/**
- * Whether something on an actor page has the focus, and whether going to another actor took it away ([ActorPage]).
- * Noted while composing, so it is set before the switch reaches the screen and a control it turns off loses the focus.
- */
-private class PageFocus {
-    /** Something on the page has the focus. */
-    var held = false
-
-    /** The page had the focus when it went to another actor, a few frames ago at most ([SWITCH_FRAMES]). */
-    var switching = false
-
-    /** Each new value gives the focus to the grid again (the refocus of [TileGrid]). */
-    val refocus = mutableIntStateOf(0)
-
-    private var shown: String? = null
-
-    fun showing(identity: String) {
-        if (identity == shown) return
-        switching = shown != null && held
-        shown = identity
-    }
-
-    fun changed(hasFocus: Boolean) {
-        held = hasFocus
-        if (hasFocus || !switching) return
-        switching = false
-        refocus.intValue++
-    }
-}
+/** An actor list row, as the page's [FocusComeback] knows it. */
+private data class ActorRowFocus(val identity: String)
 
 /**
  * The page of [actor], one of [actors] (the actors of its folder). [onOpenActor] opens another by identity; [menuOf] is
@@ -381,25 +353,25 @@ internal fun ActorPage(
     val searchFocus = remember { FocusRequester() }
     // Where focus goes when the page opens with no card to take it.
     val backFocus = remember { FocusRequester() }
-    // Going to another actor can take the focus away: the › that had it turns off at the last actor, or a list row
-    // leaves with a rename. The page then gives it to the grid again, as when it opens (spec 5.10: focus is always
-    // visible). A control that keeps the focus (a › that stays on) keeps it.
-    val pageFocus = remember { PageFocus() }
-    pageFocus.showing(actor.identity)
-    LaunchedEffect(actor.identity) {
-        repeat(SWITCH_FRAMES) { withFrameNanos {} }
-        pageFocus.switching = false
-    }
+    // The focused control can go: its card leaves the grid (another actor, a video gone), the › turns off at the last
+    // actor, a list row leaves with a rename. The grid then takes the focus, as when the page opens (spec 5.10: focus is
+    // always visible). A control that stays (a › that stays on) keeps it.
+    val comeback = remember { FocusComeback() }
     val grid = hub.grid(page)
     val studio = LocalLibraryViews.current.data.actorLayout == ActorLayout.STUDIO
 
-    BoxWithConstraints(Modifier.fillMaxSize().searchKey(searchFocus).onFocusChanged { pageFocus.changed(it.hasFocus) }) {
+    BoxWithConstraints(Modifier.fillMaxSize().searchKey(searchFocus)) {
         val showList = maxWidth >= LIST_FROM
         val showCards = maxWidth >= LIST_FROM
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            if (showList) ActorList(alphabetical, actor, shown, onOpenActor, menuOf, Modifier.width(LIST_WIDTH).fillMaxHeight())
+            if (showList) ActorList(alphabetical, actor, shown, onOpenActor, menuOf, comeback, Modifier.width(LIST_WIDTH).fillMaxHeight())
             Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 val (previous, next) = if (showList) null to null else neighbours(alphabetical, actor.identity)
+                comeback.goneIf { key ->
+                    (key == ActorArrow.PREVIOUS && previous == null) || (key == ActorArrow.NEXT && next == null) ||
+                        (key is ActorRowFocus && (!showList || alphabetical.none { it.identity == key.identity }))
+                }
+                SideEffect { comeback.applied() }
                 if (studio) ActorStudioHeader(
                     actor = actor,
                     line = actorLine(actor.videos.size, info.watched.size, info.new.size),
@@ -419,6 +391,7 @@ internal fun ActorPage(
                     previous = previous,
                     next = next,
                     onOpenActor = onOpenActor,
+                    comeback = comeback,
                 ) else ActorHeader(
                     actor = actor,
                     line = actorLine(actor.videos.size, info.watched.size, info.new.size),
@@ -437,6 +410,7 @@ internal fun ActorPage(
                     previous = previous,
                     next = next,
                     onOpenActor = onOpenActor,
+                    comeback = comeback,
                 )
                 if (hub.folderPage == page) VideoSelectionBar(f, page, shown) else SortBar(hub, page, searchFocus, add)
                 TileGrid(
@@ -450,11 +424,24 @@ internal fun ActorPage(
                     // The card that had the focus went with the grid: the page takes it (spec 5.10: focus is always visible).
                     focusOnStart = true,
                     noCardFocus = backFocus,
-                    refocus = pageFocus.refocus.intValue,
+                    comeback = comeback,
                 )
             }
         }
     }
+}
+
+/** The previous and next actor buttons beside the name (no actor list); each tells [comeback] when it has the focus. */
+@Composable
+internal fun ActorArrows(previous: ActorRef?, next: ActorRef?, onOpenActor: (String) -> Unit, comeback: FocusComeback) {
+    SkyIconButton(
+        SkyIcon.ChevronLeft, "Previous actor", { previous?.let { onOpenActor(it.identity) } },
+        Modifier.onFocusChanged { comeback.focus(ActorArrow.PREVIOUS, it.hasFocus) }, enabled = previous != null,
+    )
+    SkyIconButton(
+        SkyIcon.ChevronRight, "Next actor", { next?.let { onOpenActor(it.identity) } },
+        Modifier.onFocusChanged { comeback.focus(ActorArrow.NEXT, it.hasFocus) }, enabled = next != null,
+    )
 }
 
 /**
@@ -480,6 +467,7 @@ private fun ActorHeader(
     previous: ActorRef?,
     next: ActorRef?,
     onOpenActor: (String) -> Unit,
+    comeback: FocusComeback,
 ) {
     val theme = LocalSkyTheme.current
     val range = with(LocalDensity.current) { (HEADER_OPEN - HEADER_SLIM).roundToPx() }
@@ -504,10 +492,7 @@ private fun ActorHeader(
                     actor.title, color = theme.ink, fontFamily = SerifNames, fontWeight = FontWeight.SemiBold,
                     fontSize = lerp(30.sp, 19.sp, fold), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                 )
-                if (arrows) {
-                    SkyIconButton(SkyIcon.ChevronLeft, "Previous actor", { previous?.let { onOpenActor(it.identity) } }, enabled = previous != null)
-                    SkyIconButton(SkyIcon.ChevronRight, "Next actor", { next?.let { onOpenActor(it.identity) } }, enabled = next != null)
-                }
+                if (arrows) ActorArrows(previous, next, onOpenActor, comeback)
             }
             if (open) {
                 Column(Modifier.graphicsLayer { alpha = 1f - fold * 2f }, verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -572,6 +557,7 @@ private fun ActorList(
     currentPlay: List<WindowsMediaEntry>,
     onOpenActor: (String) -> Unit,
     menuOf: (ActorRef, Boolean, List<WindowsMediaEntry>) -> List<MenuAction>,
+    comeback: FocusComeback,
     modifier: Modifier,
 ) {
     val theme = LocalSkyTheme.current
@@ -617,7 +603,8 @@ private fun ActorList(
                     if (shown.isEmpty()) item { EmptyNote("No actors found.") }
                     items(shown, key = { it.identity }) { ref ->
                         val here = ref.identity == current.identity
-                        ActorRow(ref, here, { onOpenActor(ref.identity) }) { menuOf(ref, here, if (here) currentPlay else ref.videos) }
+                        val focus = Modifier.onFocusChanged { comeback.focus(ActorRowFocus(ref.identity), it.hasFocus) }
+                        ActorRow(ref, here, { onOpenActor(ref.identity) }, focus) { menuOf(ref, here, if (here) currentPlay else ref.videos) }
                     }
                 }
                 ListScrollbar(state, Modifier.align(Alignment.CenterEnd))
@@ -628,12 +615,12 @@ private fun ActorList(
 
 /** One row of the actor list: a small photo (or the initials), the name and the video count. */
 @Composable
-private fun ActorRow(ref: ActorRef, here: Boolean, onOpen: () -> Unit, menu: () -> List<MenuAction>) {
+private fun ActorRow(ref: ActorRef, here: Boolean, onOpen: () -> Unit, focus: Modifier, menu: () -> List<MenuAction>) {
     val theme = LocalSkyTheme.current
     var open by remember { mutableStateOf(false) }
     Box {
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(SkyRadius.control))
+            focus.fillMaxWidth().clip(RoundedCornerShape(SkyRadius.control))
                 .background(if (here) theme.colors.accentSubtle else Color.Transparent)
                 .cardKeys(menu) { open = true }
                 .skyClickable(onOpen, onLongClick = { open = true }, role = Role.Button)
