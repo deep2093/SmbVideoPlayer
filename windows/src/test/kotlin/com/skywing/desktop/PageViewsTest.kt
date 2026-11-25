@@ -138,6 +138,28 @@ class PageViewsTest {
     }
 
     @Test
+    fun everySizeChangeTellsTheApp() {
+        val views = views()
+        var calls = 0
+        views.onSizeChange = { calls++ }
+        views.step("a", 1)
+        views.step("a", -1)
+        views.medium("a")
+        views.setSize("a", CardSizes.LARGE)
+        assertEquals(4, calls)
+        views.change("a") { it.copy(list = true, actorPortrait = true, videoPoster = true) }
+        views.setListEverywhere(false)
+        assertEquals(4, calls)
+    }
+
+    @Test
+    fun autoColumnsOnlyResetsTheColumns() {
+        val prefs = FolderPrefs(columns = 4, listMode = true, folderCardSize = 150)
+        assertEquals(prefs.copy(columns = 0), prefs.autoColumns())
+        assertEquals(FolderPrefs(), FolderPrefs().autoColumns())
+    }
+
+    @Test
     fun sizeNames() {
         assertEquals("Small", CardSizes.named(135))
         assertEquals("Medium", CardSizes.named(188))

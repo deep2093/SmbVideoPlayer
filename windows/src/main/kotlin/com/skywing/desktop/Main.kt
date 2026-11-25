@@ -317,7 +317,12 @@ var openCount by remember { mutableStateOf(0) }
     LaunchedEffect(currentFile != null) { ThumbnailStore.playing = currentFile != null }
     val organizer = remember { Organizer(FolderOrganizerStore()) { WindowsCustomFolderStore().load() } }
     // How each page shows its cards, kept on this PC; a first run starts from the old folder settings.
-    val libraryViews = remember { LibraryViews(LibraryViewStore(), organizer.data.prefs) }
+    val libraryViews = remember {
+        LibraryViews(LibraryViewStore(), organizer.data.prefs).apply {
+            // A fixed column count from Settings gives way to a chosen size, as it always has.
+            onSizeChange = { if (organizer.data.prefs.columns != 0) organizer.updatePrefs { it.autoColumns() } }
+        }
+    }
     // Once folders.bin holds the custom folders, their old registry copy goes (B20). It can hold one value per video,
     // so it is removed off the screen thread.
     LaunchedEffect(Unit) {

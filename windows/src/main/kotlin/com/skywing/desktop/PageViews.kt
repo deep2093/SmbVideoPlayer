@@ -138,10 +138,15 @@ internal class LibraryViews(private val store: LibraryViewStore, seed: FolderPre
         commit(data.copy(last = next, pages = data.pages + (page to next)))
     }
 
-    /** Smaller (-1) or larger (+1) cards on [page]. */
-    fun step(page: String, direction: Int) = change(page) { it.copy(size = CardSizes.step(it.size, direction)) }
+    /** Called after every size change, so the app can let a fixed column count from Settings give way to the size. */
+    var onSizeChange: () -> Unit = {}
 
-    fun medium(page: String) = change(page) { it.copy(size = CardSizes.NORMAL) }
+    /** Smaller (-1) or larger (+1) cards on [page]. */
+    fun step(page: String, direction: Int) = change(page) { it.copy(size = CardSizes.step(it.size, direction)) }.also { onSizeChange() }
+
+    fun medium(page: String) = setSize(page, CardSizes.NORMAL)
+
+    fun setSize(page: String, size: Int) = change(page) { it.copy(size = size) }.also { onSizeChange() }
 
     fun setListEverywhere(list: Boolean) =
         commit(data.copy(last = data.last.copy(list = list), pages = data.pages.mapValues { it.value.copy(list = list) }))
@@ -169,6 +174,9 @@ internal class LibraryViews(private val store: LibraryViewStore, seed: FolderPre
         val writer = Executors.newSingleThreadExecutor { task -> Thread(task, "skywing-views-writer").apply { isDaemon = true } }
     }
 }
+
+/** These prefs with the column count back on Auto, so a chosen card size shows. */
+internal fun FolderPrefs.autoColumns(): FolderPrefs = if (columns == 0) this else copy(columns = 0)
 
 /** The views of the app. With none provided (a bare test) they are kept in memory only. */
 internal val LocalLibraryViews = staticCompositionLocalOf { LibraryViews(LibraryViewStore(null), FolderPrefs()) }
@@ -221,9 +229,9 @@ internal fun ViewButton(page: String, actors: Boolean, videos: Boolean) {
             add(item("Scene (16:9)", !view.videoPoster) { it.copy(videoPoster = false) })
             add(item("Poster (2:3)", view.videoPoster) { it.copy(videoPoster = true) })
         }
-        add(item("Small", size == "Small") { it.copy(size = CardSizes.SMALL) })
-        add(item("Medium", size == "Medium") { it.copy(size = CardSizes.NORMAL) })
-        add(item("Large", size == "Large") { it.copy(size = CardSizes.LARGE) })
+        add(MenuAction("Small", if (size == "Small") SkyIcon.Check else null) { views.setSize(page, CardSizes.SMALL) })
+        add(MenuAction("Medium", if (size == "Medium") SkyIcon.Check else null) { views.setSize(page, CardSizes.NORMAL) })
+        add(MenuAction("Large", if (size == "Large") SkyIcon.Check else null) { views.setSize(page, CardSizes.LARGE) })
         add(item("Grid", !view.list) { it.copy(list = false) })
         add(item("List", view.list) { it.copy(list = true) })
     }
