@@ -589,10 +589,12 @@ internal fun FolderCard(
     /** An accent dot at the top left: the actor has new videos. */
     dot: Boolean = false,
     initials: String? = null,
+    /** Goes on the picture, before its size: the actor card's photo move into the actor page ([movingPhoto]). */
+    pictureModifier: Modifier = Modifier,
 ) {
     val theme = LocalSkyTheme.current
-    val picture: @Composable (Modifier) -> Unit = { pictureModifier ->
-        Box(pictureModifier) {
+    val picture: @Composable (Modifier) -> Unit = { frame ->
+        Box(pictureModifier.then(frame)) {
             if (actor) {
                 ActorPicture(coverKey, initials ?: "#", aspect < 1f, listMode, Modifier.fillMaxSize())
             } else if (coverVideos.isNotEmpty() || coverKey != null) {

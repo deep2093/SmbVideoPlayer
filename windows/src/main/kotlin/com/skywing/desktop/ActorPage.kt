@@ -1,6 +1,18 @@
 package com.skywing.desktop
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +37,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -188,8 +202,62 @@ internal fun neighbours(actors: List<ActorRef>, identity: String): Pair<ActorRef
 internal fun followRename(current: String, renamed: String?, identities: Collection<String>): String? =
     renamed?.takeIf { it != current && it !in identities }
 
-/** The key the photo moves under between the actor card and this page's header (Task 11 hangs the move on it). */
+/** The key the photo moves under between the actor card and this page's header. */
 internal fun actorPhotoKey(pageKey: String) = "actor-photo:$pageKey"
+
+/** How long the photo takes to move between the actor card and the page header (spec 5.4). */
+private const val PHOTO_MOVE_MS = 300
+
+/** Where the photo moves: given inside [ActorSwitch] while Windows animations are on, otherwise null. */
+@OptIn(ExperimentalSharedTransitionApi::class)
+internal class PhotoMove(val shared: SharedTransitionScope, val visibility: AnimatedVisibilityScope)
+
+internal val LocalPhotoMove = compositionLocalOf<PhotoMove?> { null }
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+private val PHOTO_BOUNDS = BoundsTransform { _, _ -> tween(PHOTO_MOVE_MS) }
+
+/** The photo under [key] ([actorPhotoKey]) moves between the actor card and the page header; nothing without [LocalPhotoMove]. */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+internal fun Modifier.movingPhoto(key: String): Modifier {
+    val move = LocalPhotoMove.current ?: return this
+    return with(move.shared) { this@movingPhoto.sharedElement(rememberSharedContentState(key), move.visibility, boundsTransform = PHOTO_BOUNDS) }
+}
+
+/**
+ * Switches between a folder's grid ([group] null) and the page of the actor [group] (spec 5.4). Between the grid and a
+ * page the photo moves and the pages cross-fade in 0.3 s; from one actor to another, and with Windows animations off
+ * ([animate] false: no photo move either), the switch is at once. A page shown again (coming back from a video) is
+ * simply there. [content] is told what it shows and whether it is the one coming in: only that one takes a focus key,
+ * so the one going out cannot clear it first.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+internal fun ActorSwitch(group: String?, animate: Boolean = SkyMotion.animations, content: @Composable (shown: String?, entering: Boolean) -> Unit) {
+    SharedTransitionLayout(Modifier.fillMaxSize()) {
+        AnimatedContent(
+            group,
+            Modifier.fillMaxSize(),
+            transitionSpec = {
+                if (animate && (initialState == null) != (targetState == null)) {
+                    fadeIn(tween(PHOTO_MOVE_MS)) togetherWith fadeOut(tween(PHOTO_MOVE_MS)) using null
+                } else {
+                    fadeIn(snap()) togetherWith fadeOut(snap()) using null
+                }
+            },
+            label = "actor page",
+            // One actor's page and the next are the same page with another actor: its state stays and nothing moves.
+            contentKey = { it != null },
+        ) { shown ->
+            val shared = this@SharedTransitionLayout
+            val move = remember(animate) { if (animate) PhotoMove(shared, this) else null }
+            CompositionLocalProvider(LocalPhotoMove provides move) {
+                content(shown, transition.targetState == EnterExitState.Visible)
+            }
+        }
+    }
+}
 
 /** What the page shows of each of its videos, by lower-case path: lengths when known, watched and new. */
 internal class ActorMarks(val lengths: Map<String, Double>, val watched: Set<String>, val new: Set<String>) {
@@ -226,7 +294,7 @@ private val HEADER_SLIM = 60.dp
  * The page of [actor], one of [actors] (the actors of its folder). [onOpenActor] opens another by identity; [menuOf] is
  * the actor menu of an actor, true for this page's own actor (no Open there), with the list its Play all and Shuffle
  * play; it is built only when a menu opens or a key arrives. [add] is the folder kind's "add more" button, at the end of
- * the sort bar.
+ * the sort bar. [focusKey] is the video card to give the keyboard focus to (coming back from playing it).
  */
 @Composable
 internal fun ActorPage(
@@ -237,6 +305,7 @@ internal fun ActorPage(
     onBack: () -> Unit,
     menuOf: (ActorRef, Boolean, List<WindowsMediaEntry>) -> List<MenuAction>,
     add: MenuAction? = null,
+    focusKey: String? = null,
 ) {
     val hub = f.hub
     val page = actor.pageKey
@@ -327,6 +396,8 @@ internal fun ActorPage(
                     emptyAction = if (query.isNotEmpty()) MenuAction("Clear search", SkyIcon.Close) { hub.query = "" } else null,
                     footer = videosText(shown.size),
                     letters = sort == VideoSort.NAME,
+                    focusKey = focusKey,
+                    onFocused = { hub.focusTile = null },
                 )
             }
         }
@@ -368,7 +439,7 @@ private fun ActorHeader(
     ) {
         SkyIconButton(SkyIcon.Back, "Back", onBack)
         Box(
-            Modifier.height(lerp(HEADER_OPEN - 16.dp, HEADER_SLIM - 12.dp, fold)).aspectRatio(3f / 4f)
+            Modifier.movingPhoto(actorPhotoKey(actor.pageKey)).height(lerp(HEADER_OPEN - 16.dp, HEADER_SLIM - 12.dp, fold)).aspectRatio(3f / 4f)
                 .clip(RoundedCornerShape(SkyRadius.card)).testTag(actorPhotoKey(actor.pageKey)),
         ) {
             ActorPicture(actor.photoKey, actorInitials(actor.title), tall = true, listMode = !open)
@@ -419,17 +490,20 @@ internal fun LazyMenuButton(description: String, items: () -> List<MenuAction>) 
 @Composable
 private fun SortBar(hub: HubState, page: String, searchFocus: FocusRequester, add: MenuAction?) {
     val theme = LocalSkyTheme.current
-    HeaderLine(Modifier.heightIn(min = 48.dp), gap = 12.dp, lead = {
-        SkyChipBar(SORTS.map { it.second }, SORTS.indexOfFirst { it.first == hub.actorSort }, { hub.actorSort = SORTS[it].first })
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            SkySwitch(hub.hideWatched, { hub.hideWatched = it }, "Hide watched")
-            Text("Hide watched", color = theme.ink, style = MaterialTheme.typography.bodyMedium, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
-        }
-    }, trail = {
-        SkyField(hub.query, { hub.query = it }, "Search here", Modifier.width(220.dp).focusRequester(searchFocus), leading = SkyIcon.Search)
-        ViewButton(page, actors = false, videos = true)
-        if (add != null) SkyButton(add.label, add.action, primary = false, icon = add.icon)
-    })
+    // One Tab stop (spec 5.10): Tab goes on to the grid; the arrows move along the bar.
+    OneTabStop {
+        HeaderLine(Modifier.heightIn(min = 48.dp), gap = 12.dp, lead = {
+            SkyChipBar(SORTS.map { it.second }, SORTS.indexOfFirst { it.first == hub.actorSort }, { hub.actorSort = SORTS[it].first })
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SkySwitch(hub.hideWatched, { hub.hideWatched = it }, "Hide watched")
+                Text("Hide watched", color = theme.ink, style = MaterialTheme.typography.bodyMedium, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
+            }
+        }, trail = {
+            SkyField(hub.query, { hub.query = it }, "Search here", Modifier.width(220.dp).focusRequester(searchFocus), leading = SkyIcon.Search)
+            ViewButton(page, actors = false, videos = true)
+            if (add != null) SkyButton(add.label, add.action, primary = false, icon = add.icon)
+        })
+    }
 }
 
 /**
@@ -453,44 +527,47 @@ private fun ActorList(
     val field = remember { FocusRequester() }
     val start = remember { actors.indexOfFirst { it.identity == current.identity }.coerceAtLeast(0) }
     val state = rememberLazyListState(initialFirstVisibleItemIndex = (start - 3).coerceAtLeast(0))
-    Column(modifier.skyPanel().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(start = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Actors", color = theme.ink, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-            SkyIconButton(SkyIcon.Search, "Search actors", {
-                if (searching) query = ""
-                searching = !searching
-            }, box = 36.dp, glyph = 18.dp)
-        }
-        if (searching) {
-            SkyField(
-                query, { query = it }, "Search actors",
-                Modifier.fillMaxWidth().focusRequester(field).onPreviewKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    when (event.key) {
-                        Key.Enter, Key.NumPadEnter -> {
-                            shown.firstOrNull()?.let { onOpenActor(it.identity) }
-                            true
-                        }
-                        Key.Escape -> {
-                            if (query.isNotEmpty()) query = "" else searching = false
-                            true
-                        }
-                        else -> false
-                    }
-                },
-                leading = SkyIcon.Search,
-            )
-            LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
-        }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            LazyColumn(state = state, modifier = Modifier.fillMaxSize().padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                if (shown.isEmpty()) item { EmptyNote("No actors found.") }
-                items(shown, key = { it.identity }) { ref ->
-                    val here = ref.identity == current.identity
-                    ActorRow(ref, here, { onOpenActor(ref.identity) }) { menuOf(ref, here, if (here) currentPlay else ref.videos) }
-                }
+    // One Tab stop (spec 5.10): Tab goes on past the list; the arrows move between its rows.
+    OneTabStop(modifier) {
+        Column(Modifier.fillMaxSize().skyPanel().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).padding(start = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Actors", color = theme.ink, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                SkyIconButton(SkyIcon.Search, "Search actors", {
+                    if (searching) query = ""
+                    searching = !searching
+                }, box = 36.dp, glyph = 18.dp)
             }
-            ListScrollbar(state, Modifier.align(Alignment.CenterEnd))
+            if (searching) {
+                SkyField(
+                    query, { query = it }, "Search actors",
+                    Modifier.fillMaxWidth().focusRequester(field).onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.Enter, Key.NumPadEnter -> {
+                                shown.firstOrNull()?.let { onOpenActor(it.identity) }
+                                true
+                            }
+                            Key.Escape -> {
+                                if (query.isNotEmpty()) query = "" else searching = false
+                                true
+                            }
+                            else -> false
+                        }
+                    },
+                    leading = SkyIcon.Search,
+                )
+                LaunchedEffect(Unit) { runCatching { field.requestFocus() } }
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(state = state, modifier = Modifier.fillMaxSize().padding(end = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (shown.isEmpty()) item { EmptyNote("No actors found.") }
+                    items(shown, key = { it.identity }) { ref ->
+                        val here = ref.identity == current.identity
+                        ActorRow(ref, here, { onOpenActor(ref.identity) }) { menuOf(ref, here, if (here) currentPlay else ref.videos) }
+                    }
+                }
+                ListScrollbar(state, Modifier.align(Alignment.CenterEnd))
+            }
         }
     }
 }

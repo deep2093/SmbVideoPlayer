@@ -27,18 +27,28 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.utf16CodePoint
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -49,6 +59,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import java.io.File
+import java.util.Locale
+import kotlinx.coroutines.launch
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusTarget
+import androidx.compose.ui.platform.LocalFocusManager
 
 /** The page of the Videos section, for its grid size and card shape. */
 internal const val VIDEOS_PAGE = "videos"
@@ -79,6 +96,8 @@ internal data class FolderTile(
     val actor: Boolean = false,
     val dot: Boolean = false,
     val initials: String? = null,
+    /** The key the picture moves under into the actor page's header ([actorPhotoKey]); null where it does not move. */
+    val photoKey: String? = null,
 ) : Tile
 
 /** A video card; clicking plays it with [queue]. */
@@ -104,6 +123,115 @@ internal data class VideoBadges(val length: Double? = null, val watched: Boolean
 /** A heading across the whole grid ("Folders", "Videos"). */
 internal data class LabelTile(override val key: String, override val title: String) : Tile
 
+/** The tile key of an actor's card, for [HubState.focusTile]. */
+internal fun actorFocusKey(identity: String): String = "group:" + identity
+
+/** The tile key of a video's card, for [HubState.focusTile]. */
+internal fun videoFocusKey(file: File): String = "file:" + file.path.lowercase(Locale.ROOT)
+
+/** Whether the card at [index] needs a scroll to be seen: it is not among the [visible] ones (spec 5.5). */
+internal fun scrollNeeded(index: Int, visible: List<Int>): Boolean = index !in visible
+
+/** The first of [titles] that starts with [typed], ignoring case; null when none does or nothing was typed. */
+internal fun typeToJump(titles: List<String>, typed: String): Int? =
+    if (typed.isEmpty()) null else titles.indexOfFirst { it.startsWith(typed, ignoreCase = true) }.takeIf { it >= 0 }
+
+/** How long type-to-jump keeps what was typed: after a second without a key it starts again. */
+internal const val TYPE_RESET_MS = 1000L
+
+/** What type-to-jump looks for once [char] is typed at [now], when [typed] was last typed to at [lastAt]. */
+internal fun typedText(typed: String, lastAt: Long, char: Char, now: Long): String =
+    if (now - lastAt > TYPE_RESET_MS) char.toString() else typed + char
+
+private val LETTER_KEYS = listOf(
+    Key.A, Key.B, Key.C, Key.D, Key.E, Key.F, Key.G, Key.H, Key.I, Key.J, Key.K, Key.L, Key.M,
+    Key.N, Key.O, Key.P, Key.Q, Key.R, Key.S, Key.T, Key.U, Key.V, Key.W, Key.X, Key.Y, Key.Z,
+)
+private val DIGIT_KEYS = listOf(Key.Zero, Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six, Key.Seven, Key.Eight, Key.Nine)
+
+/** The letter or digit a key types, for type-to-jump; null for any other key, and with Ctrl, Alt or the Windows key held. */
+private fun typedChar(event: KeyEvent): Char? {
+    if (event.type != KeyEventType.KeyDown || event.isCtrlPressed || event.isAltPressed || event.isMetaPressed) return null
+    val code = event.utf16CodePoint
+    if (code in 1..0xFFFE && Character.isLetterOrDigit(code)) return code.toChar()
+    LETTER_KEYS.indexOf(event.key).takeIf { it >= 0 }?.let { return 'a' + it }
+    DIGIT_KEYS.indexOf(event.key).takeIf { it >= 0 }?.let { return '0' + it }
+    return null
+}
+
+/** What type-to-jump has typed so far on one grid, and when. */
+private class TypeAhead {
+    var text = ""
+    var at = 0L
+}
+
+/** How many frames a card that is coming into view is waited for before focus is given up. */
+private const val FOCUS_TRIES = 5
+
+/** Where an arrow key moves the focus (spec 5.10: arrows move between cards); null for other keys and with a modifier held. */
+private fun arrowDirection(event: KeyEvent): FocusDirection? {
+    if (event.type != KeyEventType.KeyDown || event.isCtrlPressed || event.isAltPressed || event.isShiftPressed || event.isMetaPressed) return null
+    return when (event.key) {
+        Key.DirectionUp -> FocusDirection.Up
+        Key.DirectionDown -> FocusDirection.Down
+        Key.DirectionLeft -> FocusDirection.Left
+        Key.DirectionRight -> FocusDirection.Right
+        else -> null
+    }
+}
+
+/**
+ * The two places focus passes through for a moment when Tab leaves a one-Tab-stop area: [before] its content for
+ * Shift+Tab, [after] it for Tab. Only the one in use can take focus, and only while Tab leaves.
+ */
+private class TabExits {
+    val before = FocusRequester()
+    val after = FocusRequester()
+    var open = 0
+
+    /** Moves the focus out of the area, backwards with [back]; false when the exit is not there yet. */
+    fun leave(back: Boolean, focus: FocusManager): Boolean {
+        open = if (back) -1 else 1
+        try {
+            if (runCatching { (if (back) before else after).requestFocus() }.isFailure) return false
+            // Nothing past the area (it is all there is): come back into it.
+            if (!focus.moveFocus(if (back) FocusDirection.Previous else FocusDirection.Next)) {
+                focus.moveFocus(if (back) FocusDirection.Next else FocusDirection.Previous)
+            }
+            return true
+        } finally {
+            open = 0
+        }
+    }
+}
+
+@Composable
+private fun TabExit(requester: FocusRequester, open: () -> Boolean) {
+    Box(Modifier.focusRequester(requester).focusProperties { canFocus = open() }.focusTarget())
+}
+
+/** Tab and Shift+Tab leave the area at once through [exits]; the arrows move to the nearest control that way. */
+private fun Modifier.oneTabStop(exits: TabExits, focus: FocusManager): Modifier =
+    onPreviewKeyEvent { event ->
+        event.type == KeyEventType.KeyDown && event.key == Key.Tab && !event.isCtrlPressed && !event.isAltPressed &&
+            exits.leave(event.isShiftPressed, focus)
+    }.onKeyEvent { event -> arrowDirection(event)?.let { focus.moveFocus(it) } ?: false }
+
+/**
+ * [content] as one Tab stop (spec 5.10: the grid, the actor list and the sort bar are one Tab stop each): Tab and
+ * Shift+Tab leave it at once, and the arrows move between the controls in it. Keys a control uses itself (a text
+ * field's arrows) stay with it.
+ */
+@Composable
+internal fun OneTabStop(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val exits = remember { TabExits() }
+    Box(modifier.oneTabStop(exits, LocalFocusManager.current)) {
+        TabExit(exits.before) { exits.open < 0 }
+        content()
+        TabExit(exits.after) { exits.open > 0 }
+    }
+}
+
 /**
  * The grid every folder page uses: folders and videos scroll top to bottom together, with the scroll bar (and its
  * letter bubble when [letters] is on) at the right edge and the total at the end.
@@ -124,6 +252,12 @@ internal fun TileGrid(
     letters: Boolean = true,
     /** The letters are for the actor cards only, and only when they fill more than about two screens. */
     lettersOnlyForActors: Boolean = false,
+    /**
+     * The key of the card to give the keyboard focus to ([HubState.focusTile]). It scrolls only when that card is out of
+     * view; [onFocused] is called once it is done, and also when no card has that key (focus then stays where it is).
+     */
+    focusKey: String? = null,
+    onFocused: () -> Unit = {},
 ) {
     KeepFirstItemAcrossColumns(state)
     val prefs = organizer.data.prefs
@@ -149,12 +283,45 @@ internal fun TileGrid(
         if (result != null) tickExactly(result)
         return result != null
     }
+    // The cards on screen, by key, so focus can be given to one of them.
+    val requesters = remember { HashMap<String, FocusRequester>() }
+    val scope = rememberCoroutineScope()
+    val focused by rememberUpdatedState(onFocused)
+    val ahead = remember { TypeAhead() }
+    val exits = remember { TabExits() }
+    val focusManager = LocalFocusManager.current
+    /** Gives the keyboard focus to the card at [index], scrolling first only when it is out of view. */
+    suspend fun land(index: Int) {
+        if (scrollNeeded(index, state.layoutInfo.visibleItemsInfo.map { it.index })) state.scrollToItem(index)
+        repeat(FOCUS_TRIES) {
+            val requester = current.getOrNull(index)?.let { requesters[it.key] }
+            if (requester != null && runCatching { requester.requestFocus() }.isSuccess) return
+            withFrameNanos {}
+        }
+    }
+    LaunchedEffect(focusKey) {
+        val wanted = focusKey ?: return@LaunchedEffect
+        // Once the grid has laid out the cards it shows now, so it is known which are on screen.
+        withFrameNanos {}
+        val index = current.indexOfFirst { it.key == wanted }
+        if (index >= 0) land(index)
+        focused()
+    }
     Box(
         modifier.fillMaxSize().ctrlWheel { views.step(page, it) }.viewKeys(page).boxSelect(state) { inside, additive, started ->
             if (started) boxBase = if (additive) current.filter(::ticked).map { it.key }.toSet() else emptySet()
             tickExactly(boxBase + inside.map { it.toString() })
-        },
+        }.onKeyEvent { event ->
+            // Typing a name jumps to the first card it starts (spec 5.10); a pause of a second starts the name again.
+            val char = typedChar(event) ?: return@onKeyEvent false
+            val now = System.currentTimeMillis()
+            ahead.text = typedText(ahead.text, ahead.at, char, now)
+            ahead.at = now
+            typeToJump(current.map { if (it is LabelTile) "" else it.title }, ahead.text)?.let { index -> scope.launch { land(index) } }
+            true
+        }.oneTabStop(exits, focusManager),
     ) {
+        TabExit(exits.before) { exits.open < 0 }
         LazyVerticalGrid(
             columns = cells(view, prefs.columns, LocalAdaptive.current),
             state = state,
@@ -167,7 +334,12 @@ internal fun TileGrid(
                 item(span = { GridItemSpan(maxLineSpan) }) { EmptyNote(emptyText, action = emptyAction) }
             }
             items(tiles, key = { it.key }, span = { if (it is LabelTile) GridItemSpan(maxLineSpan) else GridItemSpan(1) }) { tile ->
-                TileView(tile, view, history, onPlay, ::clicked)
+                val requester = remember { FocusRequester() }
+                DisposableEffect(tile.key) {
+                    requesters[tile.key] = requester
+                    onDispose { if (requesters[tile.key] === requester) requesters.remove(tile.key) }
+                }
+                TileView(tile, view, history, onPlay, ::clicked, Modifier.focusRequester(requester))
             }
             if (footer != null && tiles.isNotEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }, key = "total") { ListTotal(footer) }
@@ -182,6 +354,7 @@ internal fun TileGrid(
                     ?.title?.let(FolderLogic::sectionLetter)
             }) else null,
         )
+        TabExit(exits.after) { exits.open > 0 }
     }
 }
 
@@ -193,10 +366,12 @@ private fun TileView(
     onPlay: (File, List<File>) -> Unit,
     /** Ctrl and Shift clicks tick cards as in Windows; returns true when the click was used for that. */
     onModifiedClick: (Tile, Boolean, Boolean) -> Boolean,
+    /** Lets the grid give the card the keyboard focus. */
+    focus: Modifier,
 ) {
     var menu by remember { mutableStateOf(false) }
     val window = LocalWindowInfo.current
-    fun cardKeys(items: () -> List<MenuAction>) = Modifier.cardKeys(items) { menu = true }
+    fun cardKeys(items: () -> List<MenuAction>) = focus.cardKeys(items) { menu = true }
     fun modified(): Boolean = onModifiedClick(tile, window.keyboardModifiers.isCtrlPressed, window.keyboardModifiers.isShiftPressed)
     when (tile) {
         is LabelTile -> SectionLabel(tile.title, Modifier.padding(top = 4.dp))
@@ -216,6 +391,7 @@ private fun TileView(
                 actor = tile.actor,
                 dot = tile.dot,
                 initials = tile.initials,
+                pictureModifier = tile.photoKey?.let { Modifier.movingPhoto(it) } ?: Modifier,
             )
             SkyMenu(menu, { menu = false }, if (menu) tile.menu() else emptyList())
         }
@@ -265,6 +441,10 @@ internal fun cardKeyShortcut(key: Key, alt: Boolean, shift: Boolean): String? = 
     (key == Key.Enter || key == Key.NumPadEnter) && alt -> "Alt+Enter"
     else -> null
 }
+
+/** Esc or Alt+← (spec 5.10): back, as the mouse back button. */
+internal fun isBackShortcut(key: Key, alt: Boolean, ctrl: Boolean, shift: Boolean): Boolean =
+    !ctrl && !shift && ((key == Key.Escape && !alt) || (key == Key.DirectionLeft && alt))
 
 /** The total at the end of a list ("581 folders · 4,200 videos"). */
 @Composable

@@ -67,7 +67,7 @@ internal fun ActorStudioHeader(
             SkyIconButton(SkyIcon.Back, "Back", onBack)
             // The same key as the Header layout's photo, so the move from the actor card finds it in either layout.
             Box(
-                Modifier.height(STUDIO_PHOTO).aspectRatio(3f / 4f)
+                Modifier.movingPhoto(actorPhotoKey(actor.pageKey)).height(STUDIO_PHOTO).aspectRatio(3f / 4f)
                     .clip(RoundedCornerShape(SkyRadius.card)).testTag(actorPhotoKey(actor.pageKey)),
             ) {
                 ActorPicture(actor.photoKey, actorInitials(actor.title), tall = true, listMode = false)

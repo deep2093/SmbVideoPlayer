@@ -105,6 +105,12 @@ internal class HubState {
     /** The actor page's own actor was renamed (old identity to new): once the old one is gone, the page goes to the new one. */
     var renamedActor: Pair<String, String>? = null
 
+    /**
+     * The card to give the keyboard focus to (its tile key): the actor's card after going back from an actor page, or the
+     * video's card after coming back from playing it. The grid that shows that card focuses it, then clears this.
+     */
+    var focusTile by mutableStateOf<String?>(null)
+
     /** Folder cards ticked on the page named [folderPage]; empty when not selecting folders. */
     var folderPage by mutableStateOf<String?>(null)
     var folderKeys by mutableStateOf(emptySet<String>())
@@ -157,14 +163,14 @@ internal class HubState {
             query = ""
             return true
         }
-        if (ownGroup != null) { ownGroup = null; query = ""; return true }
+        if (ownGroup != null) { focusTile = actorFocusKey(ownGroup!!); ownGroup = null; query = ""; return true }
         if (ownId != null) {
             ownId = data.own.firstOrNull { it.id == ownId }?.parentId
             query = ""
             return true
         }
         if (matchId != null) { matchId = null; query = ""; return true }
-        if (setGroup != null) { setGroup = null; query = ""; return true }
+        if (setGroup != null) { focusTile = actorFocusKey(setGroup!!); setGroup = null; query = ""; return true }
         if (setId != null) {
             setId = data.sets.firstOrNull { it.id == setId }?.parentId
             query = ""

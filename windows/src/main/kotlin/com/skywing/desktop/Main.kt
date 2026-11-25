@@ -381,6 +381,8 @@ var openCount by remember { mutableStateOf(0) }
         if (selected == "Now Playing") {
             embedded.pause()
             if (fullscreen) onFullscreenChange(false)
+            // Back in Folders, focus lands on the card of the video that was playing (spec 5.5).
+            if (section == "Folders") currentFile?.let { hub.focusTile = videoFocusKey(it) }
         } else previous = selected
         selected = section
         selection.clear()
@@ -467,7 +469,11 @@ var openCount by remember { mutableStateOf(0) }
             historyRevision++
         }
         if (fullscreen) onFullscreenChange(false)
-        if (selected == "Now Playing") selected = previous
+        if (selected == "Now Playing") {
+            // Back in Folders, focus lands on the card of the video that played (spec 5.5).
+            if (previous == "Folders") hub.focusTile = videoFocusKey(file)
+            selected = previous
+        }
     }
     fun openQueueAt(index: Int) {
         val files = queue
