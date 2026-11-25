@@ -41,6 +41,7 @@ internal fun VideosScreen(
     selection: SelectionState,
     history: Map<String, WindowsWatchRecord>,
     onPlay: (File, List<File>) -> Unit,
+    onPlayAll: (List<File>) -> Unit,
     onResume: (File, Double) -> Unit,
     onRename: (File) -> Unit,
     /** Opens Files, where folders on this PC are added. */
@@ -93,7 +94,7 @@ internal fun VideosScreen(
                 GridControls(organizer, VIDEOS_PAGE)
                 SkyButton("Select", { selection.active = true }, primary = false, icon = SkyIcon.Check, enabled = shown.isNotEmpty())
                 SkyButton("Play all", {
-                    shown.firstOrNull()?.let { onPlay(it.file, shown.map { e -> e.file }) }
+                    if (shown.isNotEmpty()) onPlayAll(shown.map { e -> e.file })
                 }, enabled = shown.isNotEmpty(), icon = SkyIcon.Play)
             }
         }

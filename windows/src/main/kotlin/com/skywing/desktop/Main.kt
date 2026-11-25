@@ -87,6 +87,7 @@ import com.skywing.desktop.artwork.PortraitLookup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.system.exitProcess
@@ -241,6 +242,7 @@ private fun SkyWingDesktopShell(
     var queue by remember { mutableStateOf<List<File>>(emptyList()) }
     var queueIndex by remember { mutableStateOf(-1) }
 var queueAutoNext by remember { mutableStateOf(false) }
+var openCount by remember { mutableStateOf(0) }
     val historyStore = remember { WindowsPlaybackHistoryStore() }
     val records = remember { PlaybackRecords(historyStore, WindowsWatchedStore(), NewVideoStore()) }
     var historyRevision by remember { mutableStateOf(0) }
@@ -413,6 +415,7 @@ var queueAutoNext by remember { mutableStateOf(false) }
             val previousDuration = embedded.playbackDuration() ?: 0.0
             playbackScope.launch(Dispatchers.IO) { runCatching { records.save(earlier, previousPosition, previousDuration) } }
         }
+        openCount++
         val safeQueue = queuedFiles.ifEmpty { listOf(file) }
         val selectedIndex = safeQueue.indexOfFirst { it.absolutePath.equals(file.absolutePath, ignoreCase = true) }
         queue = if (selectedIndex >= 0) safeQueue else listOf(file)
@@ -517,20 +520,31 @@ var queueAutoNext by remember { mutableStateOf(false) }
 
     // A video that played to its end: write it as watched, then go on when this queue moves on by itself. Read off the
     // screen thread; a failed read counts as not ended, and a failed save never stops the next video.
-    LaunchedEffect(currentFile, closing) {
+    LaunchedEffect(currentFile, openCount, closing) {
         val file = currentFile ?: return@LaunchedEffect
         if (closing) return@LaunchedEffect
+        val opened = openCount
         while (true) {
             delay(750)
             val reading = withContext(Dispatchers.IO) {
                 runCatching { if (embedded.ended()) embedded.reading() else null }.getOrNull()
             } ?: continue
+            // What this video's queue looked like when it ended; the save below may suspend while the user moves on.
+            val index = queueIndex
+            val size = queue.size
+            val auto = queueAutoNext
             val length = reading.duration
             if (length != null && length.isFinite() && length > 0) {
-                runCatching { withContext(Dispatchers.IO) { records.save(file, length, length) } }
+                withContext(Dispatchers.IO) { runCatching { records.save(file, length, length) } }
                     .onSuccess { historyRevision++ }
             }
-            QueueAdvance.next(queueIndex, queue.size, queueAutoNext)?.let(::openQueueAt)
+            if (!isActive) return@LaunchedEffect
+            QueueAdvance.afterEnd(
+                index, size, auto,
+                sameOpen = openCount == opened,
+                sameFile = currentFile == file,
+                onPlayerPage = selected == NOW_PLAYING,
+            )?.let(::openQueueAt)
             return@LaunchedEffect
         }
     }
@@ -692,7 +706,7 @@ var queueAutoNext by remember { mutableStateOf(false) }
                                     { files -> files.firstOrNull()?.let { playQueue(it, files, autoNext = true) } },
                                     { file, position, files, auto -> openVideo(file, files, position, autoNext = auto) },
                                     { renameTarget = it }, marks)
-                                "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it }) { go("Files") }
+                                "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { files -> files.firstOrNull()?.let { playQueue(it, files, autoNext = true) } }, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it }) { go("Files") }
                                 "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
                                 else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,
                                     smoothingMode, smoothingStatus, ::selectSmoothing, { settingsBack.value = it }, onResetWindow) { go("Files") }
