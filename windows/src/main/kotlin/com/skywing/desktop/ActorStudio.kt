@@ -20,6 +20,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +58,8 @@ internal fun ActorStudioHeader(
     onShuffle: () -> Unit,
     menu: () -> List<MenuAction>,
     onBack: () -> Unit,
+    /** Takes the focus when the page opens with no card to take it. */
+    backFocus: FocusRequester,
     arrows: Boolean,
     previous: ActorRef?,
     next: ActorRef?,
@@ -64,7 +68,7 @@ internal fun ActorStudioHeader(
     val theme = LocalSkyTheme.current
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            SkyIconButton(SkyIcon.Back, "Back", onBack)
+            SkyIconButton(SkyIcon.Back, "Back", onBack, Modifier.focusRequester(backFocus))
             // The same key as the Header layout's photo, so the move from the actor card finds it in either layout.
             Box(
                 Modifier.movingPhoto(actorPhotoKey(actor.pageKey)).height(STUDIO_PHOTO).aspectRatio(3f / 4f)

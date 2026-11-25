@@ -14,6 +14,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.isFocused
@@ -140,17 +142,24 @@ class GridFocusTest {
         assertEquals(1, cleared)
     }
 
-    @Test fun aKeyWithNoCardIsClearedAndFocusStays() {
+    /** The title of the card that has focus (its first text), or null when nothing has. */
+    private fun focusedText(): String? =
+        compose.onAllNodes(isFocused()).fetchSemanticsNodes().firstOrNull()?.config?.getOrNull(SemanticsProperties.Text)?.firstOrNull()?.text
+
+    @Test fun aKeyWithNoCardIsClearedAndFocusGoesToACardInViewWithoutAScroll() {
+        // A merged or gone actor, or a video whose card is not on this page: focus is never left nowhere.
         var key by mutableStateOf<String?>(null)
         var cleared = 0
-        val tiles = numbered(40)
+        val state = LazyGridState(firstVisibleItemIndex = 40, firstVisibleItemScrollOffset = 25)
         compose.setContent {
-            Page { TileGrid(tiles, remember { LazyGridState() }, organizer(), "own:1", emptyMap(), { _, _ -> }, focusKey = key, onFocused = { cleared++ }) }
+            Page { TileGrid(numbered(300), state, organizer(), "own:1", emptyMap(), { _, _ -> }, focusKey = key, onFocused = { cleared++ }) }
         }
-        compose.onNodeWithText("Folder 001").requestFocus()
+        compose.waitForIdle()
+        val before = state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset
         key = "group:gone"
         compose.waitForIdle()
-        compose.onNodeWithText("Folder 001").assertIsFocused()
+        assertTrue(focusedText().orEmpty().startsWith("Folder"), "focus: ${focusedText()}")
+        assertEquals(before, state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset)
         assertEquals(1, cleared)
     }
 
@@ -335,6 +344,89 @@ class GridFocusTest {
         focused().performKeyInput { pressKey(Key.Escape) }
         compose.waitForIdle()
         assertFalse(visible.value)
+    }
+
+    /* ---------- A new actor page takes focus; every search clears on Esc first; Esc in a menu ---------- */
+
+    @Test fun anActorPageThatOpensFromTheGridTakesFocusAndEscGoesBack() {
+        // Opening the page disposes the focused card; without a new focus Esc and Alt+Left would reach nothing.
+        val f = folders()
+        val actors = listOf("ada", "bea").map { ActorRef(it, it.uppercase(), "vset:1:$it", "set:1|$it", emptyList()) }
+        var group by mutableStateOf<String?>(null)
+        var backs = 0
+        compose.setContent {
+            Page {
+                Box(Modifier.size(1000.dp, 700.dp).backKeys({ backs++; group = null; true }, onKeyboardBack = {})) {
+                    ActorSwitch(group) { shown, _ ->
+                        if (shown == null) {
+                            TileGrid(numbered(6), remember { LazyGridState() }, f.organizer, "set:1", emptyMap(), { _, _ -> }, Modifier.fillMaxSize())
+                        } else {
+                            ActorPage(actors.first { it.identity == shown }, actors, f, onOpenActor = {}, onBack = {}, menuOf = { _, _, _ -> emptyList() })
+                        }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("Folder 000").requestFocus()
+        compose.runOnIdle { group = "ada" }
+        compose.waitForIdle()
+        assertTrue(compose.onAllNodes(isFocused()).fetchSemanticsNodes().isNotEmpty(), "nothing has focus on the new page")
+        // The actor has no videos, so focus is on the header's Back.
+        compose.onNodeWithText("Back").assertIsFocused()
+        focused().performKeyInput { pressKey(Key.Escape) }
+        compose.waitForIdle()
+        assertEquals(1, backs)
+    }
+
+    @Test fun aGridThatTakesFocusOnStartFocusesTheFirstCardInViewWithoutAScroll() {
+        // An actor page's grid: its first card fully in view, never one the scroll would have to bring in.
+        val state = LazyGridState(firstVisibleItemIndex = 40, firstVisibleItemScrollOffset = 25)
+        compose.setContent {
+            Page { TileGrid(numbered(300), state, organizer(), "own:1", emptyMap(), { _, _ -> }, focusOnStart = true) }
+        }
+        compose.waitForIdle()
+        val before = state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset
+        val fullyInView = state.layoutInfo.visibleItemsInfo.first { it.offset.y >= state.layoutInfo.viewportStartOffset }.index
+        assertEquals("Folder %03d".format(fullyInView), focusedText())
+        assertEquals(before, state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset)
+    }
+
+    @Test fun escInAGridPagesSearchClearsItFirstThenGoesBack() {
+        val organizer = organizer()
+        val id = organizer.createOwn("Mix")!!
+        val hub = HubState().apply { ownId = id; query = "ab" }
+        val library = LibraryModel(WindowsMediaIndex(folder.resolve("media-index.bin")))
+        compose.setContent {
+            Page { FoldersScreen(library, organizer, hub, emptyMap(), { _, _ -> }, {}, { _, _, _, _ -> }, {}, { _, _ -> }) }
+        }
+        compose.onNodeWithContentDescription("Search here").requestFocus()
+        focused().performKeyInput { pressKey(Key.Escape) }
+        compose.waitForIdle()
+        assertEquals("" to id, hub.query to hub.ownId)
+        compose.onNodeWithContentDescription("Search here").assertIsFocused()
+        focused().performKeyInput { pressKey(Key.Escape) }
+        compose.waitForIdle()
+        assertNull(hub.ownId)
+    }
+
+    @Test fun escInACardMenuClosesTheMenuAndDoesNotGoBack() {
+        var backs = 0
+        val tile = FolderTile("dir:1", "Folder one", "", null, emptyList(), onOpen = {}, menu = { listOf(MenuAction("Open here", SkyIcon.Folder) {}) })
+        compose.setContent {
+            Page {
+                Box(Modifier.backKeys({ backs++; true }, onKeyboardBack = {})) {
+                    TileGrid(listOf(tile), remember { LazyGridState() }, organizer(), "own:1", emptyMap(), { _, _ -> }, Modifier.fillMaxSize())
+                }
+            }
+        }
+        compose.onNodeWithText("Folder one").requestFocus()
+        focused().performKeyInput { pressKey(Key.Menu) }
+        compose.waitForIdle()
+        compose.onNodeWithText("Open here").assertExists()
+        compose.onNodeWithText("Open here").performKeyInput { pressKey(Key.Escape) }
+        compose.waitForIdle()
+        compose.onNodeWithText("Open here").assertDoesNotExist()
+        assertEquals(0, backs)
     }
 
     @Test fun theCardsPictureTakesThePictureModifier() {

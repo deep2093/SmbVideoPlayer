@@ -343,6 +343,8 @@ internal fun ActorPage(
     }
     val resumeLabel = (resume as? ResumeChoice.Resume)?.let { "Resume · " + timeLeftText(it.left) } ?: "Play newest"
     val searchFocus = remember { FocusRequester() }
+    // Where focus goes when the page opens with no card to take it.
+    val backFocus = remember { FocusRequester() }
     val grid = hub.grid(page)
     val studio = LocalLibraryViews.current.data.actorLayout == ActorLayout.STUDIO
 
@@ -367,6 +369,7 @@ internal fun ActorPage(
                     onShuffle = { f.play(shown.shuffled()) },
                     menu = { menuOf(actor, true, shown) },
                     onBack = onBack,
+                    backFocus = backFocus,
                     arrows = !showList,
                     previous = previous,
                     next = next,
@@ -384,6 +387,7 @@ internal fun ActorPage(
                     // Exactly the actor menu (spec 5.6); its Play all and Shuffle play the grid's list, the same as the buttons.
                     menu = { menuOf(actor, true, shown) },
                     onBack = onBack,
+                    backFocus = backFocus,
                     arrows = !showList,
                     previous = previous,
                     next = next,
@@ -398,6 +402,9 @@ internal fun ActorPage(
                     letters = sort == VideoSort.NAME,
                     focusKey = focusKey,
                     onFocused = { hub.focusTile = null },
+                    // The card that had the focus went with the grid: the page takes it (spec 5.10: focus is always visible).
+                    focusOnStart = true,
+                    noCardFocus = backFocus,
                 )
             }
         }
@@ -422,6 +429,7 @@ private fun ActorHeader(
     onShuffle: () -> Unit,
     menu: () -> List<MenuAction>,
     onBack: () -> Unit,
+    backFocus: FocusRequester,
     arrows: Boolean,
     previous: ActorRef?,
     next: ActorRef?,
@@ -437,7 +445,7 @@ private fun ActorHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        SkyIconButton(SkyIcon.Back, "Back", onBack)
+        SkyIconButton(SkyIcon.Back, "Back", onBack, Modifier.focusRequester(backFocus))
         Box(
             Modifier.movingPhoto(actorPhotoKey(actor.pageKey)).height(lerp(HEADER_OPEN - 16.dp, HEADER_SLIM - 12.dp, fold)).aspectRatio(3f / 4f)
                 .clip(RoundedCornerShape(SkyRadius.card)).testTag(actorPhotoKey(actor.pageKey)),
@@ -499,7 +507,7 @@ private fun SortBar(hub: HubState, page: String, searchFocus: FocusRequester, ad
                 Text("Hide watched", color = theme.ink, style = MaterialTheme.typography.bodyMedium, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
             }
         }, trail = {
-            SkyField(hub.query, { hub.query = it }, "Search here", Modifier.width(220.dp).focusRequester(searchFocus).escClears(hub.query) { hub.query = "" }, leading = SkyIcon.Search)
+            FolderSearchField(hub, "Search here", Modifier.width(220.dp).focusRequester(searchFocus))
             ViewButton(page, actors = false, videos = true)
             if (add != null) SkyButton(add.label, add.action, primary = false, icon = add.icon)
         })

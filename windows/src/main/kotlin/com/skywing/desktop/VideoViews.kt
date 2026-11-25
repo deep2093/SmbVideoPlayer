@@ -165,6 +165,9 @@ private class TypeAhead {
     var at = 0L
 }
 
+/** Whether a grid still has to take the focus it takes when it first shows (the focusOnStart of [TileGrid]). */
+private class StartFocus(var pending: Boolean)
+
 /** How many frames a card that is coming into view is waited for before focus is given up. */
 private const val FOCUS_TRIES = 5
 
@@ -258,6 +261,13 @@ internal fun TileGrid(
      */
     focusKey: String? = null,
     onFocused: () -> Unit = {},
+    /**
+     * The grid takes the focus when it first shows (an actor page that opens: the card that had it is gone), on its first
+     * card fully in view, without a scroll. A [focusKey] with no card falls back the same way.
+     */
+    focusOnStart: Boolean = false,
+    /** Where that focus goes when the grid has no card to take it (the actor page's Back). */
+    noCardFocus: FocusRequester? = null,
 ) {
     KeepFirstItemAcrossColumns(state)
     val prefs = organizer.data.prefs
@@ -299,13 +309,28 @@ internal fun TileGrid(
             withFrameNanos {}
         }
     }
+    /** Gives the focus to the first card fully in view, without a scroll; to [noCardFocus] when there is no card. */
+    suspend fun landInView() {
+        repeat(FOCUS_TRIES) {
+            val info = state.layoutInfo
+            val cards = info.visibleItemsInfo.filter { item -> current.getOrNull(item.index).let { it != null && it !is LabelTile } }
+            val card = (cards.firstOrNull { it.offset.y >= info.viewportStartOffset } ?: cards.firstOrNull())?.let { current[it.index] }
+            val requester = if (card != null) requesters[card.key] else noCardFocus.takeIf { current.none { it !is LabelTile } }
+            if (requester != null && runCatching { requester.requestFocus() }.isSuccess) return
+            withFrameNanos {}
+        }
+    }
+    val start = remember { StartFocus(focusOnStart) }
     LaunchedEffect(focusKey) {
-        val wanted = focusKey ?: return@LaunchedEffect
+        val wanted = focusKey
+        if (wanted == null && !start.pending) return@LaunchedEffect
+        start.pending = false
         // Once the grid has laid out the cards it shows now, so it is known which are on screen.
         withFrameNanos {}
-        val index = current.indexOfFirst { it.key == wanted }
-        if (index >= 0) land(index)
-        focused()
+        val index = if (wanted == null) -1 else current.indexOfFirst { it.key == wanted }
+        // Focus is never left nowhere: a key with no card (a merged or gone actor) lands on a card in view.
+        if (index >= 0) land(index) else landInView()
+        if (wanted != null) focused()
     }
     Box(
         modifier.fillMaxSize().ctrlWheel { views.step(page, it) }.viewKeys(page).boxSelect(state) { inside, additive, started ->
@@ -457,6 +482,15 @@ internal fun Modifier.backKeys(goBack: () -> Boolean, onKeyboardBack: () -> Unit
         event.type == KeyEventType.KeyDown && isBackShortcut(event.key, event.isAltPressed, event.isCtrlPressed, event.isShiftPressed) &&
             goBack().also { if (it) onKeyboardBack() }
     return onPreviewKeyEvent { it.isAltPressed && back(it) }.onKeyEvent { !it.isAltPressed && back(it) }
+}
+
+/**
+ * The search of a Folders page or an actor page ([HubState.query]). Every search under the Folders back keys uses it, so
+ * Esc clears what is typed before a second Esc goes back ([escClears]).
+ */
+@Composable
+internal fun FolderSearchField(hub: HubState, placeholder: String, modifier: Modifier = Modifier) {
+    SkyField(hub.query, { hub.query = it }, placeholder, modifier.escClears(hub.query) { hub.query = "" }, leading = SkyIcon.Search)
 }
 
 /** Esc in a search field with [text] clears it and keeps the focus there; in an empty one Esc goes on to [backKeys]. */

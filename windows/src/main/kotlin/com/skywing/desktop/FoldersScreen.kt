@@ -452,10 +452,7 @@ internal fun FoldersScreen(
                     },
                     Modifier.weight(1f),
                 )
-                SkyField(
-                    hub.query, { hub.query = it }, "Search " + prefs.tabName(hub.tab).lowercase(),
-                    Modifier.width(300.dp).escClears(hub.query) { hub.query = "" }, leading = SkyIcon.Search,
-                )
+                FolderSearchField(hub, "Search " + prefs.tabName(hub.tab).lowercase(), Modifier.width(300.dp))
             }
             FolderTabsRow(f)
         }
@@ -723,7 +720,7 @@ private fun MatchPage(f: Folders) {
         } else {
             FolderHeader(folder.name, plural(all.size, "video"), { f.go { matchId = null } }) {
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = videos.isNotEmpty())
-                SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(220.dp), leading = SkyIcon.Search)
+                FolderSearchField(f.hub, "Search here", Modifier.width(220.dp))
                 ViewButton(page, actors = false, videos = true)
                 SkyMenuButton(SkyIcon.MoreVert, "Folder options", layoutActions(f))
                 SkyButton("Play all", { f.play(videos) }, enabled = videos.isNotEmpty(), icon = SkyIcon.Play)
@@ -917,7 +914,7 @@ private fun OwnPage(f: Folders) {
                         )
                     }
                     SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
-                    SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(200.dp).focusRequester(searchFocus), leading = SkyIcon.Search)
+                    FolderSearchField(f.hub, "Search here", Modifier.width(200.dp).focusRequester(searchFocus))
                     ViewButton(page, actors = true, videos = true)
                     SkyMenuButton(SkyIcon.MoreVert, "Folder options", (if (folder.grouped) sortActions(f) else emptyList()) + layoutActions(f))
                     SkyButton("Play all", { f.play(everything) }, enabled = everything.isNotEmpty(), icon = SkyIcon.Play)
@@ -1182,7 +1179,7 @@ private fun SetPage(f: Folders) {
                         SkyButton("Show hidden actors (${set.hidden.size})", { f.organizer.restoreSubfolders(set.id) }, primary = false, icon = SkyIcon.Refresh)
                     }
                     SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
-                    SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(200.dp).focusRequester(searchFocus), leading = SkyIcon.Search)
+                    FolderSearchField(f.hub, "Search here", Modifier.width(200.dp).focusRequester(searchFocus))
                     ViewButton(page, actors = true, videos = true)
                     SkyMenuButton(SkyIcon.MoreVert, "Folder options", sortActions(f) + layoutActions(f))
                     SkyButton("Play all", { f.play(videos) }, enabled = videos.isNotEmpty(), icon = SkyIcon.Play)
@@ -1285,7 +1282,7 @@ private fun PhysicalFolderPage(f: Folders, path: String, onBack: () -> Unit, onO
             val subtitle = "${plural(content?.first?.size ?: 0, "folder")} · ${plural(everything.size, "video")}"
             FolderHeader(name, subtitle, onBack) {
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
-                SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(220.dp), leading = SkyIcon.Search)
+                FolderSearchField(f.hub, "Search here", Modifier.width(220.dp))
                 ViewButton(page, actors = true, videos = true)
                 SkyMenuButton(SkyIcon.MoreVert, "Folder options", layoutActions(f))
                 SkyButton("Play all", { f.play(videos) }, enabled = videos.isNotEmpty(), icon = SkyIcon.Play)
