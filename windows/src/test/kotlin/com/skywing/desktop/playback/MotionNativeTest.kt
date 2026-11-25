@@ -257,11 +257,29 @@ class MotionNativeTest {
             // Three output frames in a row: every second one is made between two source frames, and none repeats.
             assertTrue(command(listOf("set", "pause", "yes")))
             waitFor("Playback did not pause") { get("pause") == "yes" && get("seeking") == "no" }
+            // time-pos moves when mpv queues a frame; the video output takes it a moment later on its own thread, and a
+            // software screenshot reads the output's current frame. A shot equal to the one before is taken again after
+            // a pause, so only a frame that really repeats fails, and the log says when the first shot was early.
+            var last: ByteArray? = null
             val shots = (0..2).map { k ->
                 val before = assertNotNull(get("time-pos")?.toDoubleOrNull())
                 assertTrue(command(listOf("frame-step")))
                 waitFor("A frame step showed no later frame") { (get("time-pos")?.toDoubleOrNull() ?: before) > before }
-                File(folder, "frame-$k.png").also { assertTrue(command(listOf("screenshot-to-file", it.path, "video")), "screenshot") }
+                val file = File(folder, "frame-$k.png")
+                fun shoot(): ByteArray {
+                    assertTrue(command(listOf("screenshot-to-file", file.path, "video")), "screenshot")
+                    return file.readBytes()
+                }
+                var bytes = shoot()
+                val previous = last
+                if (previous != null && previous.contentEquals(bytes)) {
+                    Thread.sleep(250)
+                    bytes = shoot()
+                    println("frame-$k: the first shot showed the frame before; taken again 250 ms later: " +
+                        if (previous.contentEquals(bytes)) "still the same" else "a new picture")
+                }
+                last = bytes
+                file
             }
             shots.zipWithNext().forEach { (a, b) ->
                 assertFalse(a.readBytes().contentEquals(b.readBytes()), "${a.name} and ${b.name} are the same picture")
