@@ -515,9 +515,12 @@ internal fun Modifier.cardKeys(items: () -> List<MenuAction>, openMenu: () -> Un
 /** What [cardKeyShortcut] answers for Shift+F10 and the menu key: open the card's menu. */
 internal const val MENU_KEY = "Menu"
 
+/** The Windows menu key (VK_APPS) as AWT reports it. Compose's own Key.Menu is a placeholder no desktop key event carries. */
+private val WINDOWS_MENU_KEY = Key(java.awt.event.KeyEvent.VK_CONTEXT_MENU)
+
 /** The menu shortcut a key on a focused card stands for ("F2", "Alt+Enter", or [MENU_KEY]), or null. */
 internal fun cardKeyShortcut(key: Key, alt: Boolean, shift: Boolean): String? = when {
-    key == Key.Menu || (key == Key.F10 && shift) -> MENU_KEY
+    key == WINDOWS_MENU_KEY || (key == Key.F10 && shift) -> MENU_KEY
     key == Key.F2 && !alt && !shift -> "F2"
     (key == Key.Enter || key == Key.NumPadEnter) && alt -> "Alt+Enter"
     else -> null

@@ -119,7 +119,7 @@ class CardMenusTest {
         assertEquals("F2", cardKeyShortcut(Key.F2, alt = false, shift = false))
         assertEquals("Alt+Enter", cardKeyShortcut(Key.Enter, alt = true, shift = false))
         assertEquals(MENU_KEY, cardKeyShortcut(Key.F10, alt = false, shift = true))
-        assertEquals(MENU_KEY, cardKeyShortcut(Key.Menu, alt = false, shift = false))
+        assertEquals(MENU_KEY, cardKeyShortcut(Key(java.awt.event.KeyEvent.VK_CONTEXT_MENU), alt = false, shift = false))
         assertNull(cardKeyShortcut(Key.Enter, alt = false, shift = false))
         assertNull(cardKeyShortcut(Key.F10, alt = false, shift = false))
     }

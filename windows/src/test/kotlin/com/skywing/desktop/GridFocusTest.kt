@@ -590,7 +590,7 @@ class GridFocusTest {
             }
         }
         compose.onNodeWithText("Folder one").requestFocus()
-        focused().performKeyInput { pressKey(Key.Menu) }
+        focused().performKeyInput { pressKey(Key(java.awt.event.KeyEvent.VK_CONTEXT_MENU)) }
         compose.waitForIdle()
         compose.onNodeWithText("Open here").assertExists()
         compose.onNodeWithText("Open here").performKeyInput { pressKey(Key.Escape) }
