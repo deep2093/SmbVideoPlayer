@@ -240,6 +240,7 @@ private fun SkyWingDesktopShell(
     var currentFile by remember { mutableStateOf<File?>(null) }
     var queue by remember { mutableStateOf<List<File>>(emptyList()) }
     var queueIndex by remember { mutableStateOf(-1) }
+var queueAutoNext by remember { mutableStateOf(false) }
     val historyStore = remember { WindowsPlaybackHistoryStore() }
     val records = remember { PlaybackRecords(historyStore, WindowsWatchedStore(), NewVideoStore()) }
     var historyRevision by remember { mutableStateOf(0) }
@@ -398,7 +399,8 @@ private fun SkyWingDesktopShell(
         onDispose { Toolkit.getDefaultToolkit().removeAWTEventListener(listener) }
     }
 
-    fun openVideo(file: File, queuedFiles: List<File> = listOf(file), resumePosition: Double? = null) {
+    fun openVideo(file: File, queuedFiles: List<File> = listOf(file), resumePosition: Double? = null,
+        autoNext: Boolean? = null) {
         if (closing) return
         if (!file.isFile) {
             message = "File not available: " + file.name
@@ -415,6 +417,7 @@ private fun SkyWingDesktopShell(
         val selectedIndex = safeQueue.indexOfFirst { it.absolutePath.equals(file.absolutePath, ignoreCase = true) }
         queue = if (selectedIndex >= 0) safeQueue else listOf(file)
         queueIndex = if (selectedIndex >= 0) selectedIndex else 0
+        if (autoNext != null) queueAutoNext = autoNext
         if (selected != "Now Playing") previous = selected
         selected = "Now Playing"
         selection.clear()
@@ -444,6 +447,7 @@ private fun SkyWingDesktopShell(
         currentFile = null
         queue = emptyList()
         queueIndex = -1
+        queueAutoNext = false
         message = ""
         playbackScope.launch(Dispatchers.IO) {
             runCatching { records.save(file, position, length) }
@@ -454,7 +458,7 @@ private fun SkyWingDesktopShell(
     }
     fun openQueueAt(index: Int) {
         val files = queue
-        files.getOrNull(index)?.let { openVideo(it, files) }
+        files.getOrNull(index)?.let { openVideo(it, files, autoNext = null) }
     }
     val latestOpenVideo by rememberUpdatedState<(File) -> Unit>({ file -> openVideo(file) })
     // Compose puts its own drop target on the window content, so drops there come through Compose (B37). The video
@@ -508,6 +512,26 @@ private fun SkyWingDesktopShell(
                     saves.saved(now, position)
                     historyRevision++
                 }
+        }
+    }
+
+    // A video that played to its end: write it as watched, then go on when this queue moves on by itself. Read off the
+    // screen thread; a failed read counts as not ended, and a failed save never stops the next video.
+    LaunchedEffect(currentFile, closing) {
+        val file = currentFile ?: return@LaunchedEffect
+        if (closing) return@LaunchedEffect
+        while (true) {
+            delay(750)
+            val reading = withContext(Dispatchers.IO) {
+                runCatching { if (embedded.ended()) embedded.reading() else null }.getOrNull()
+            } ?: continue
+            val length = reading.duration
+            if (length != null && length.isFinite() && length > 0) {
+                runCatching { withContext(Dispatchers.IO) { records.save(file, length, length) } }
+                    .onSuccess { historyRevision++ }
+            }
+            QueueAdvance.next(queueIndex, queue.size, queueAutoNext)?.let(::openQueueAt)
+            return@LaunchedEffect
         }
     }
 
@@ -607,9 +631,9 @@ private fun SkyWingDesktopShell(
     }
 
     // A video on a network drive whose address stopped answering is tried again through the drive's other addresses.
-    val playOne: (File, List<File>) -> Unit = { file, files ->
+    fun playQueue(file: File, files: List<File>, autoNext: Boolean) {
         if (ShareHosts.hostOf(file.path) == null) {
-            openVideo(file, files)
+            openVideo(file, files, autoNext = autoNext)
         } else {
             playbackScope.launch {
                 val again = withContext(Dispatchers.IO) {
@@ -617,10 +641,11 @@ private fun SkyWingDesktopShell(
                     else ShareHosts.hostOf(ShareHosts.canonical(file.path))?.let { ShareHosts.resolve(it) } != null
                 }
                 fun reach(f: File) = if (again) File(ShareHosts.reachable(ShareHosts.canonical(f.path))) else f
-                openVideo(reach(file), files.map(::reach))
+                openVideo(reach(file), files.map(::reach), autoNext = autoNext)
             }
         }
     }
+    val playOne: (File, List<File>) -> Unit = { file, files -> playQueue(file, files, autoNext = false) }
     val playerShown = selected == NOW_PLAYING
     val nowPlaying = currentFile?.let { NowPlaying(it.nameWithoutExtension, paused, if (duration > 0) (playbackTime / duration).toFloat() else 0f) }
     // One answer for every screen (M3 item 3): the window's width, read again once a resize settles, and the last input.
@@ -662,7 +687,11 @@ private fun SkyWingDesktopShell(
                             CompositionLocalProvider(LocalCovers provides covers) { when (selected) {
                                 "Home" -> HomeScreen(library, hub, history, playOne, { file, position -> openVideo(file, listOf(file), position) },
                                     { go("Videos") }) { go("Files") }
-                                "Folders" -> FoldersScreen(library, organizer, hub, history, playOne, { renameTarget = it }, marks)
+                                "Folders" -> FoldersScreen(library, organizer, hub, history,
+                                    playOne,
+                                    { files -> files.firstOrNull()?.let { playQueue(it, files, autoNext = true) } },
+                                    { file, position, files, auto -> openVideo(file, files, position, autoNext = auto) },
+                                    { renameTarget = it }, marks)
                                 "Videos" -> VideosScreen(library, organizer, hub, selection, history, playOne, { file, position -> openVideo(file, listOf(file), position) }, { renameTarget = it }) { go("Files") }
                                 "Files" -> FilesScreen(library, playOne, { renameTarget = it }) { filesBack.value = it }
                                 else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,

@@ -90,6 +90,7 @@ private class Folders(
     val hub: HubState,
     val history: Map<String, WindowsWatchRecord>,
     val onPlay: (File, List<File>) -> Unit,
+    val onPlayAll: (List<File>) -> Unit,
     val onRename: (File) -> Unit,
     val roots: List<String>,
     val dialogs: FolderDialogs,
@@ -103,7 +104,7 @@ private class Folders(
     fun matches(name: String) = query.isEmpty() || name.contains(query, ignoreCase = true)
 
     fun play(list: List<WindowsMediaEntry>) {
-        list.firstOrNull()?.let { onPlay(it.file, list.map { e -> e.file }) }
+        if (list.isNotEmpty()) onPlayAll(list.map { it.file })
     }
 
     /** Moves somewhere else on the Folders page; the search box starts empty there. */
@@ -251,6 +252,8 @@ internal fun FoldersScreen(
     hub: HubState,
     history: Map<String, WindowsWatchRecord>,
     onPlay: (File, List<File>) -> Unit,
+    onPlayAll: (List<File>) -> Unit,
+    onResume: (file: File, position: Double, queue: List<File>, autoNext: Boolean) -> Unit,
     onRename: (File) -> Unit,
     marks: LibraryMarks = LibraryMarks(),
 ) {
@@ -274,7 +277,7 @@ internal fun FoldersScreen(
             sets = data.sets.associate { it.id to FolderLogic.members(it.folders + it.directFolders, it.files + it.directFiles, library.all) },
         )
     }
-    val f = Folders(library, organizer, hub, history, onPlay, onRename, roots, dialogs, members, LocalCovers.current?.artwork?.settings?.enabled == true)
+    val f = Folders(library, organizer, hub, history, onPlay, onPlayAll, onRename, roots, dialogs, members, LocalCovers.current?.artwork?.settings?.enabled == true)
 
     val inside = when (hub.tab) {
         0 -> hub.ownId != null || hub.matchId != null
