@@ -142,6 +142,7 @@ private fun skyWingApplication(args: Array<String>, instance: SingleInstance.Own
                         withContext(Dispatchers.IO) {
                             // First and on its own: it needs no player, and nothing below may stop it.
                             runCatching { ThumbnailStore.lengths.flush() }
+                            runCatching { LibraryViews.flushAll() }
                             placement?.let { (screen, start) -> placementStore.save(screen, start) }
                             instance?.close()
                             embedded.close()

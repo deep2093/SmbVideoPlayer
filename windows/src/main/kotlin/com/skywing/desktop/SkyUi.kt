@@ -38,6 +38,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -769,14 +770,18 @@ internal fun ColumnScrollbar(state: ScrollState, modifier: Modifier = Modifier) 
 }
 
 /** Ctrl + mouse wheel over a grid: [onStep] gets +1 (wheel up, larger cards) or -1. The grid does not scroll meanwhile. */
-internal fun Modifier.ctrlWheel(onStep: (Int) -> Unit): Modifier = pointerInput(Unit) {
-    awaitPointerEventScope {
-        while (true) {
-            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-            if (event.type != PointerEventType.Scroll || !event.keyboardModifiers.isCtrlPressed) continue
-            val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
-            if (dy != 0f) onStep(if (dy < 0f) 1 else -1)
-            event.changes.forEach { it.consume() }
+internal fun Modifier.ctrlWheel(onStep: (Int) -> Unit): Modifier = composed {
+    // The handler outlives recompositions, so it must call the latest lambda, not the first one's page.
+    val latest by rememberUpdatedState(onStep)
+    pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                if (event.type != PointerEventType.Scroll || !event.keyboardModifiers.isCtrlPressed) continue
+                val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
+                if (dy != 0f) latest(if (dy < 0f) 1 else -1)
+                event.changes.forEach { it.consume() }
+            }
         }
     }
 }

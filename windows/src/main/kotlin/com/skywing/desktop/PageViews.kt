@@ -83,7 +83,8 @@ internal class LibraryViewStore(path: Path? = libraryFile("views.json")) {
     private fun seeded(seed: FolderPrefs): ViewsData {
         val last = PageView(size = CardSizes.of(seed.folderCardSize), list = seed.listMode)
         val pages = LinkedHashMap<String, PageView>()
-        if (seed.videoCardSize != 0) pages[VIDEOS_PAGE] = last.copy(size = CardSizes.of(seed.videoCardSize))
+        // The Videos page kept its own size (0 meant Medium), so it does not move to the folders' size.
+        pages[VIDEOS_PAGE] = last.copy(size = CardSizes.of(seed.videoCardSize))
         seed.tallPages.forEach { page -> pages[page] = (pages[page] ?: last).copy(actorPortrait = true, videoPoster = true) }
         return ViewsData(last = last, pages = pages)
     }
@@ -142,11 +143,21 @@ internal class LibraryViews(private val store: LibraryViewStore, seed: FolderPre
     var onSizeChange: () -> Unit = {}
 
     /** Smaller (-1) or larger (+1) cards on [page]. */
-    fun step(page: String, direction: Int) = change(page) { it.copy(size = CardSizes.step(it.size, direction)) }.also { onSizeChange() }
+    fun step(page: String, direction: Int) = setSize(page, CardSizes.step(of(page).size, direction))
 
     fun medium(page: String) = setSize(page, CardSizes.NORMAL)
 
-    fun setSize(page: String, size: Int) = change(page) { it.copy(size = size) }.also { onSizeChange() }
+    /** Sets the size; [onSizeChange] is told only when the size really changed, and a failing hook is ignored. */
+    fun setSize(page: String, size: Int) {
+        val before = of(page).size
+        change(page) { it.copy(size = size) }
+        if (of(page).size != before) {
+            try {
+                onSizeChange()
+            } catch (_: Exception) {
+            }
+        }
+    }
 
     fun setListEverywhere(list: Boolean) =
         commit(data.copy(last = data.last.copy(list = list), pages = data.pages.mapValues { it.value.copy(list = list) }))
@@ -158,20 +169,28 @@ internal class LibraryViews(private val store: LibraryViewStore, seed: FolderPre
     fun reset() = commit(ViewsData())
 
     /** Waits until every change so far is saved (for tests). */
-    fun flush() {
-        runCatching { writer.submit {}.get(10, TimeUnit.SECONDS) }
-    }
+    fun flush() = flushAll()
 
     private fun commit(next: ViewsData) {
         data = next
         try {
-            writer.execute { runCatching { store.save(next) } }
+            writer.execute {
+                try {
+                    store.save(next)
+                } catch (_: Exception) {
+                }
+            }
         } catch (_: RejectedExecutionException) {
         }
     }
 
-    private companion object {
-        val writer = Executors.newSingleThreadExecutor { task -> Thread(task, "skywing-views-writer").apply { isDaemon = true } }
+    companion object {
+        /** Waits until every save so far, of any instance, is written: on close, and in tests. */
+        fun flushAll() {
+            runCatching { writer.submit {}.get(10, TimeUnit.SECONDS) }
+        }
+
+        private val writer = Executors.newSingleThreadExecutor { task -> Thread(task, "skywing-views-writer").apply { isDaemon = true } }
     }
 }
 

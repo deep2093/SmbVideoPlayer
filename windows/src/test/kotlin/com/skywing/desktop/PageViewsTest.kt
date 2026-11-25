@@ -68,9 +68,9 @@ class PageViewsTest {
     }
 
     @Test
-    fun seedLeavesVideosPageAloneWithoutAnOldSize() {
+    fun seedOfDefaultPrefsIsTheDefaultViews() {
         val data = LibraryViewStore(file()).load(FolderPrefs())
-        assertEquals(ViewsData(), data)
+        assertEquals(ViewsData(pages = mapOf(VIDEOS_PAGE to PageView())), data)
     }
 
     @Test
@@ -125,16 +125,67 @@ class PageViewsTest {
     }
 
     @Test
-    fun aSaveThatFailsKeepsTheChoice() {
-        // The file's place is a folder, so every write fails.
+    fun aFileThatCannotBeReadKeepsDefaultsAndWritesNothing() {
+        // A folder in the file's place can't be read as a file, so it counts as locked.
         val folder = Files.createTempDirectory("skywing-views-test").also { folders.add(it) }
         val path = folder.resolve("views.json")
         Files.createDirectory(path)
         Files.writeString(path.resolve("x"), "x")
-        val views = LibraryViews(LibraryViewStore(path), FolderPrefs())
+        val views = views(FolderPrefs(listMode = true), path)
+        assertEquals(ViewsData(), views.data)
         views.change("a") { it.copy(list = true) }
         views.flush()
-        assertTrue(views.of("a").list)
+        assertTrue(Files.isDirectory(path))
+        assertEquals(listOf("x"), Files.list(path).use { list -> list.map { it.fileName.toString() }.toList() })
+        assertEquals(setOf("views.json"), Files.list(folder).use { list -> list.map { it.fileName.toString() }.toList().toSet() })
+    }
+
+    @Test
+    fun aSaveThatFailsKeepsTheChoice() {
+        val folder = Files.createTempDirectory("skywing-views-test").also { folders.add(it) }
+        val path = folder.resolve("views.json")
+        val views = views(path = path)
+        // The file is read as missing; now its place is taken by a folder that isn't empty, so the move fails.
+        Files.createDirectory(path)
+        Files.writeString(path.resolve("x"), "x")
+        views.change("a") { it.copy(list = true, size = CardSizes.LARGE) }
+        views.flush()
+        assertEquals(PageView(list = true, size = CardSizes.LARGE), views.of("a"))
+        assertTrue(Files.isDirectory(path))
+    }
+
+    @Test
+    fun aSizeChangeThatChangesNothingDoesNotTellTheApp() {
+        val views = views()
+        var calls = 0
+        views.onSizeChange = { calls++ }
+        views.setSize("a", CardSizes.NORMAL)
+        views.setSize("a", CardSizes.STEPS.last())
+        assertEquals(1, calls)
+        views.setSize("a", CardSizes.STEPS.last())
+        views.step("a", 1)
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun aFailingSizeHookDoesNotBreakTheChange() {
+        val views = views()
+        views.onSizeChange = { error("hook") }
+        views.setSize("a", CardSizes.LARGE)
+        assertEquals(CardSizes.LARGE, views.of("a").size)
+        views.step("a", -1)
+        assertEquals(255, views.of("a").size)
+    }
+
+    @Test
+    fun videosPageKeepsItsOwnSizeWhenSeeded() {
+        for (tall in listOf(emptySet(), setOf(VIDEOS_PAGE))) {
+            val data = LibraryViewStore(file()).load(FolderPrefs(folderCardSize = 150, videoCardSize = 0, tallPages = tall))
+            val videos = data.pages.getValue(VIDEOS_PAGE)
+            assertEquals(CardSizes.NORMAL, videos.size)
+            assertEquals(tall.isNotEmpty(), videos.actorPortrait && videos.videoPoster)
+            assertEquals(150, data.last.size)
+        }
     }
 
     @Test
@@ -146,10 +197,11 @@ class PageViewsTest {
         views.step("a", -1)
         views.medium("a")
         views.setSize("a", CardSizes.LARGE)
-        assertEquals(4, calls)
+        // Medium was already the size after the step back, so it is not a change.
+        assertEquals(3, calls)
         views.change("a") { it.copy(list = true, actorPortrait = true, videoPoster = true) }
         views.setListEverywhere(false)
-        assertEquals(4, calls)
+        assertEquals(3, calls)
     }
 
     @Test
