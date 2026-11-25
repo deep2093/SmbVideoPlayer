@@ -297,7 +297,7 @@ internal class WindowsPlaybackHistoryStore(
     /** The videos to show in Continue watching, newest first. */
     fun load(): List<WindowsWatchRecord> = synchronized(lock) {
         (all() ?: emptyList())
-            .filter { it.path.isNotBlank() && it.position > 0 && it.duration > 0 && it.position < it.duration - 30 }
+            .filter { it.path.isNotBlank() && it.position > 0 && it.duration > 0 && it.position < it.duration - FINISHED_TAIL_SECONDS }
             .sortedByDescending { it.updated }
     }
 
@@ -308,7 +308,7 @@ internal class WindowsPlaybackHistoryStore(
         // Kept under the drive's main address, so Continue watching finds it whichever address played it.
         val path = ShareHosts.canonical(file.absolutePath)
         val current = load().filterNot { it.path.equals(path, ignoreCase = true) }
-        val next = if (position < duration - 30 && position > 5) {
+        val next = if (position < duration - FINISHED_TAIL_SECONDS && position > 5) {
             listOf(WindowsWatchRecord(path, position, duration, System.currentTimeMillis())) + current
         } else current
         write(next.take(MAX_RECORDS))

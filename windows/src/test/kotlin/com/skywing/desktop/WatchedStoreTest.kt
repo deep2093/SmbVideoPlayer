@@ -40,7 +40,7 @@ class WatchedStoreTest {
     @Test fun renameMovesTheMark() {
         val watched = store()
         watched.mark(video("Old.mkv"))
-        watched.renamePath(key("Old.mkv"), key("New.mkv"))
+        watched.renamePath(video("Old.mkv").absolutePath, video("New.mkv").absolutePath)
 
         val loaded = store().load()
         assertFalse(key("Old.mkv") in loaded)
@@ -67,6 +67,9 @@ class WatchedStoreTest {
         assertFalse(finishedAt(969.9, 1000.0))
         assertFalse(finishedAt(10.0, 0.0))
         assertFalse(finishedAt(Double.NaN, 1000.0))
+        // The rule is the last 30 seconds, whatever the length.
+        assertTrue(finishedAt(7170.0, 7200.0))
+        assertFalse(finishedAt(7169.9, 7200.0))
     }
 
     @Test fun historyForgetRemovesTheResumeRecord() {
@@ -75,5 +78,17 @@ class WatchedStoreTest {
         history.forget(video("Clip.mkv"))
 
         assertTrue(history.load().isEmpty())
+    }
+
+    @Test fun fileOfAnotherVersionOrShapeIsNeverOverwritten() {
+        val path = folder.resolve("watched.json")
+        val text = """{"version":2,"watched":"x"}"""
+        Files.writeString(path, text)
+        val watched = WindowsWatchedStore(path)
+
+        watched.mark(video("Clip.mkv"))
+
+        assertEquals(text, Files.readString(path))
+        assertTrue(watched.load().isEmpty())
     }
 }

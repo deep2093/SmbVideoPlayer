@@ -6,11 +6,11 @@ import java.io.File
 import java.nio.file.Path
 import java.util.Locale
 
-/** A video counts as watched to the end once playback reaches this share of its length. */
-private const val FINISHED_SHARE = 0.97
+/** The last seconds of a video: the resume list drops a video inside them, and they count as watched to the end. */
+internal const val FINISHED_TAIL_SECONDS = 30.0
 
 internal fun finishedAt(position: Double, duration: Double): Boolean =
-    position.isFinite() && duration.isFinite() && duration > 0 && position / duration >= FINISHED_SHARE
+    position.isFinite() && duration.isFinite() && duration > 0 && position >= duration - FINISHED_TAIL_SECONDS
 
 /**
  * The videos watched to the end, kept on this PC in watched.json as `{"version":1,"watched":[{"path","at"}]}`.
@@ -37,9 +37,9 @@ internal class WindowsWatchedStore(path: Path = libraryFile("watched.json")) {
 
     fun renamePath(old: String, new: String): Unit = synchronized(lock) {
         val marks = all() ?: return
-        val from = old.lowercase(Locale.ROOT)
+        val from = keyOf(old)
         if (marks.none { it.first == from }) return
-        val to = new.lowercase(Locale.ROOT)
+        val to = keyOf(new)
         val at = marks.first { it.first == from }.second
         write(marks.filterNot { it.first == from || it.first == to } + (to to at))
     }
@@ -49,7 +49,12 @@ internal class WindowsWatchedStore(path: Path = libraryFile("watched.json")) {
     /** Every mark as path to time, or null when the file can't be read now. */
     private fun all(): List<Pair<String, Long>>? = when (val read = file.read()) {
         is JsonFile.Read.Found -> runCatching {
-            read.root.getAsJsonArray("watched").mapNotNull { element ->
+            // A file of another version or shape is left alone, like one that can't be read.
+            val version = read.root.get("version")
+            if (version != null && runCatching { version.asInt }.getOrNull() != 1) return null
+            val watched = read.root.get("watched")
+            if (watched == null || !watched.isJsonArray) return null
+            watched.asJsonArray.mapNotNull { element ->
                 runCatching {
                     val mark = element.asJsonObject
                     mark.get("path").asString.takeIf { it.isNotBlank() }?.let { it to mark.get("at").asLong }
