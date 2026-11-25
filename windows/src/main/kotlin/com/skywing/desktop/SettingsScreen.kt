@@ -418,6 +418,16 @@ private fun LayoutPage(organizer: Organizer) {
             organizer.updatePrefs { it.copy(listMode = list) }
         }
     }
+    val layouts = listOf(ActorLayout.HEADER to "Header", ActorLayout.STUDIO to "Studio")
+    Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Actor page layout", color = theme.ink, style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Header folds into a slim bar as the videos scroll. Studio keeps a small header with Continue watching and Up next.",
+            color = theme.muted, style = MaterialTheme.typography.bodySmall,
+        )
+        val views = LocalLibraryViews.current
+        SkyChipBar(layouts.map { it.second }, layouts.indexOfFirst { it.first == views.data.actorLayout }, { views.setLayout(layouts[it].first) })
+    }
 }
 
 @Composable

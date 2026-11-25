@@ -133,7 +133,13 @@ internal fun actorPlayList(sorted: List<WindowsMediaEntry>, query: String, hideW
             !(hideWatched && video.path.lowercase(Locale.ROOT) in watched)
     }
 
-private fun videosText(n: Int) = if (n == 1) "1 video" else "$n videos"
+/** The video after [current] in [sorted]; the first one when [current] is null or not in the list; null after the last. */
+internal fun upNext(sorted: List<WindowsMediaEntry>, current: WindowsMediaEntry?): WindowsMediaEntry? {
+    val at = if (current == null) -1 else sorted.indexOfFirst { it.path == current.path }
+    return sorted.getOrNull(at + 1)
+}
+
+internal fun videosText(n: Int) = if (n == 1) "1 video" else "$n videos"
 
 /** "24 videos · 9 watched · 2 new", leaving out the parts that are 0. */
 internal fun actorLine(total: Int, watched: Int, new: Int): String = listOfNotNull(
@@ -269,14 +275,34 @@ internal fun ActorPage(
     val resumeLabel = (resume as? ResumeChoice.Resume)?.let { "Resume · " + timeLeftText(it.left) } ?: "Play newest"
     val searchFocus = remember { FocusRequester() }
     val grid = hub.grid(page)
+    val studio = LocalLibraryViews.current.data.actorLayout == ActorLayout.STUDIO
 
     BoxWithConstraints(Modifier.fillMaxSize().searchKey(searchFocus)) {
         val showList = maxWidth >= LIST_FROM
+        val showCards = maxWidth >= LIST_FROM
         Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             if (showList) ActorList(alphabetical, actor, shown, onOpenActor, menuOf, Modifier.width(LIST_WIDTH).fillMaxHeight())
             Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 val (previous, next) = if (showList) null to null else neighbours(alphabetical, actor.identity)
-                ActorHeader(
+                if (studio) ActorStudioHeader(
+                    actor = actor,
+                    line = actorLine(actor.videos.size, info.watched.size, info.new.size),
+                    resume = resume,
+                    resumeLabel = resumeLabel,
+                    upNext = upNext(shown, (resume as? ResumeChoice.Resume)?.entry),
+                    cards = showCards,
+                    canPlay = shown.isNotEmpty(),
+                    onResume = playResume,
+                    onPlayUpNext = { entry -> f.onResume(entry.file, 0.0, shown.map { it.file }, true) },
+                    onPlayAll = { f.play(shown) },
+                    onShuffle = { f.play(shown.shuffled()) },
+                    menu = { menuOf(actor, true, shown) },
+                    onBack = onBack,
+                    arrows = !showList,
+                    previous = previous,
+                    next = next,
+                    onOpenActor = onOpenActor,
+                ) else ActorHeader(
                     actor = actor,
                     line = actorLine(actor.videos.size, info.watched.size, info.new.size),
                     grid = grid,
@@ -381,7 +407,7 @@ private fun ActorHeader(
 
 /** A ⋯ button whose menu is built only when it opens. */
 @Composable
-private fun LazyMenuButton(description: String, items: () -> List<MenuAction>) {
+internal fun LazyMenuButton(description: String, items: () -> List<MenuAction>) {
     var open by remember { mutableStateOf(false) }
     Box {
         SkyIconButton(SkyIcon.MoreVert, description, { open = true })

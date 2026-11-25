@@ -45,6 +45,29 @@ class ActorPageTest {
         assertEquals(ResumeChoice.None, pickResume(emptyList(), emptyMap()))
     }
 
+    @Test fun upNextAfterCurrent() {
+        val a = video("C:\\Clips\\A.mp4")
+        val b = video("C:\\Clips\\B.mp4")
+        val c = video("C:\\Clips\\C.mp4")
+        assertEquals(b, upNext(listOf(a, b, c), a))
+        assertEquals(c, upNext(listOf(a, b, c), b))
+    }
+
+    @Test fun upNextFirstWhenNoCurrent() {
+        val a = video("C:\\Clips\\A.mp4")
+        val b = video("C:\\Clips\\B.mp4")
+        val gone = video("C:\\Clips\\Gone.mp4")
+        assertEquals(a, upNext(listOf(a, b), null))
+        assertEquals(a, upNext(listOf(a, b), gone))
+    }
+
+    @Test fun upNextNoneAfterLast() {
+        val a = video("C:\\Clips\\A.mp4")
+        val b = video("C:\\Clips\\B.mp4")
+        assertEquals(null, upNext(listOf(a, b), b))
+        assertEquals(null, upNext(emptyList(), null))
+    }
+
     @Test fun longestPutsUnknownLast() {
         val short = video("C:\\Clips\\Short.mp4")
         val unknown = video("C:\\Clips\\Unknown.mp4")
