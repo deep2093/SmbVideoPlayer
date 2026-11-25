@@ -314,6 +314,15 @@ internal class WindowsPlaybackHistoryStore(
         write(next.take(MAX_RECORDS))
     }
 
+    /** Drops this video's resume record. */
+    fun forget(file: File): Unit = synchronized(lock) {
+        if (all() == null) return
+        val path = ShareHosts.canonical(file.absolutePath)
+        val records = load()
+        if (records.any { it.path.equals(path, ignoreCase = true) })
+            write(records.filterNot { it.path.equals(path, ignoreCase = true) })
+    }
+
     fun renamePath(old: String, new: String): Unit = synchronized(lock) {
         if (all() == null) return
         val records = load()

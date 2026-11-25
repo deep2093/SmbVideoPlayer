@@ -1,0 +1,76 @@
+package com.skywing.desktop
+
+import com.google.gson.JsonArray
+import com.google.gson.JsonObject
+import java.io.File
+import java.nio.file.Path
+import java.util.Locale
+
+/** A video counts as watched to the end once playback reaches this share of its length. */
+private const val FINISHED_SHARE = 0.97
+
+internal fun finishedAt(position: Double, duration: Double): Boolean =
+    position.isFinite() && duration.isFinite() && duration > 0 && position / duration >= FINISHED_SHARE
+
+/**
+ * The videos watched to the end, kept on this PC in watched.json as `{"version":1,"watched":[{"path","at"}]}`.
+ * Paths are canonical (as the history keeps them) and lower-cased. A file that can't be read is never written over.
+ */
+internal class WindowsWatchedStore(path: Path = libraryFile("watched.json")) {
+    private val file = JsonFile(path)
+    private val lock = file.lock
+
+    /** The lower-cased canonical paths of the watched videos. */
+    fun load(): Set<String> = synchronized(lock) { (all() ?: emptyList()).map { it.first }.toSet() }
+
+    fun mark(file: File, at: Long = System.currentTimeMillis()): Unit = synchronized(lock) {
+        val marks = all() ?: return
+        val path = keyOf(file.absolutePath)
+        write(marks.filterNot { it.first == path } + (path to at))
+    }
+
+    fun unmark(file: File): Unit = synchronized(lock) {
+        val marks = all() ?: return
+        val path = keyOf(file.absolutePath)
+        if (marks.any { it.first == path }) write(marks.filterNot { it.first == path })
+    }
+
+    fun renamePath(old: String, new: String): Unit = synchronized(lock) {
+        val marks = all() ?: return
+        val from = old.lowercase(Locale.ROOT)
+        if (marks.none { it.first == from }) return
+        val to = new.lowercase(Locale.ROOT)
+        val at = marks.first { it.first == from }.second
+        write(marks.filterNot { it.first == from || it.first == to } + (to to at))
+    }
+
+    private fun keyOf(absolutePath: String) = ShareHosts.canonical(absolutePath).lowercase(Locale.ROOT)
+
+    /** Every mark as path to time, or null when the file can't be read now. */
+    private fun all(): List<Pair<String, Long>>? = when (val read = file.read()) {
+        is JsonFile.Read.Found -> runCatching {
+            read.root.getAsJsonArray("watched").mapNotNull { element ->
+                runCatching {
+                    val mark = element.asJsonObject
+                    mark.get("path").asString.takeIf { it.isNotBlank() }?.let { it to mark.get("at").asLong }
+                }.getOrNull()
+            }
+        }.getOrDefault(emptyList())
+        JsonFile.Read.Missing -> emptyList()
+        JsonFile.Read.Locked -> null
+    }
+
+    private fun write(marks: List<Pair<String, Long>>) {
+        val list = JsonArray()
+        marks.forEach { (path, at) ->
+            list.add(JsonObject().apply {
+                addProperty("path", path)
+                addProperty("at", at)
+            })
+        }
+        file.write(JsonObject().apply {
+            addProperty("version", 1)
+            add("watched", list)
+        })
+    }
+}
