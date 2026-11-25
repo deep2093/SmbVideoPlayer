@@ -27,8 +27,8 @@ class ActorAutomationTest {
 
     @Test
     fun actorPageOpensResumesAndReturns() {
-        val realBefore = realUserState()
-        val thumbnailFoldersBefore = thumbnailPlayerFolders()
+        val realBefore = AutomationIsolation.realUserState()
+        val thumbnailFoldersBefore = AutomationIsolation.thumbnailPlayerFolders()
         SkyWingTestApp.launch("actor-page") { root, dir -> seedVirtualFolder(root, dir) }.use { app ->
             // Narrower than 900 dp, so the actor list is hidden and the previous and next buttons show.
             WindowShots.setContentSizeDp(app.mainWindow(), 800, 650)
@@ -74,8 +74,8 @@ class ActorAutomationTest {
             app.close()
             assertEquals(true, app.exitedGracefully)
         }
-        assertEquals(emptySet(), thumbnailPlayerFolders() - thumbnailFoldersBefore, "thumbnail players' folders left in the temp folder")
-        assertEquals(realBefore, realUserState(), "the user's registry preferences and SkyWing data were not touched")
+        assertEquals(emptySet(), AutomationIsolation.thumbnailPlayerFolders() - thumbnailFoldersBefore, "thumbnail players' folders left in the temp folder")
+        assertEquals(realBefore, AutomationIsolation.realUserState(), "the user's registry preferences and SkyWing data were not touched")
     }
 
     private fun JabNode.isFocusedButton(): Boolean = roleName == PlayerControls.BUTTON && "focused" in states
@@ -91,24 +91,6 @@ class ActorAutomationTest {
         store.save(OrganizerData(sets = listOf(VirtualSet(id = "test-set", name = SET_NAME, folders = listOf(library.absolutePath)))))
     }
 
-    /** The image folders of SkyWing's thumbnail players in the temp folder the launched SkyWing uses (TMP, as Windows picks it). */
-    private fun thumbnailPlayerFolders(): Set<String> {
-        val temp = (System.getenv("TMP") ?: System.getenv("TEMP"))?.let(::File) ?: return emptySet()
-        return temp.listFiles { f -> f.isDirectory && THUMBNAIL_PLAYER_FOLDER.matches(f.name) }?.map { it.name }?.toSet().orEmpty()
-    }
-
-    /** The user's real SkyWing preferences (registry) and data folder, as text, to compare before and after. */
-    private fun realUserState(): String {
-        val process = ProcessBuilder("reg", "query", """HKCU\Software\JavaSoft\Prefs\com\skywing""", "/s").redirectErrorStream(true).start()
-        val registry = process.inputStream.bufferedReader().readText().trim()
-        process.waitFor()
-        // The test JVM's LOCALAPPDATA is redirected (build.gradle.kts); the real folder comes in a property.
-        val real = System.getProperty("skywing.test.realLocalAppData")?.takeIf { it.isNotBlank() } ?: System.getenv("LOCALAPPDATA").orEmpty()
-        val data = File(real, "SkyWing/library")
-        val files = data.listFiles()?.sortedBy { it.name }?.joinToString("\n") { "${it.name} ${it.length()} ${it.lastModified()}" } ?: "none"
-        return "$registry\n$files"
-    }
-
     companion object {
         private const val SET_NAME = "Test Collection"
         private const val AVA = "Ava Stone"
@@ -117,7 +99,6 @@ class ActorAutomationTest {
         private val NOT_VIDEO_CARDS = setOf("Back", "Previous actor", "Next actor")
         private const val VK_APPS = 0x5D
         private const val SCAN_APPS = 0x5D
-        private val THUMBNAIL_PLAYER_FOLDER = Regex("skywing-thumb[0-9]+")
         private lateinit var media: File
         private lateinit var clipA: File
         private lateinit var clipB: File
