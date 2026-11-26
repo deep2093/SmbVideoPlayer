@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import java.nio.file.Files
 import org.junit.Rule
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -16,6 +17,10 @@ class SettingsLibraryPageTest {
     @get:Rule val compose = createComposeRule()
 
     private val folder = Files.createTempDirectory("skywing-settingslibrary")
+
+    @AfterTest fun cleanUp() {
+        folder.toFile().deleteRecursively()
+    }
 
     @Test fun theActorPageLayoutChipsAreOnTheLibraryPageAndSetTheLayout() {
         val views = LibraryViews(LibraryViewStore(null), FolderPrefs())
