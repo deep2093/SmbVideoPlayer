@@ -15,8 +15,9 @@ import kotlin.math.ceil
  * Keeps the main window at least 640 × 480 dp at any Windows scaling (plan 6.8 rule 5). Java gives Windows its
  * minimum in raw screen pixels (JDK-8221452), so at 150 % the window could be dragged to about 415 × 314 dp. The
  * window's own minimum-size message (WM_GETMINMAXINFO, the one change M3 brief 5.6 rule 7 allows) is answered here
- * instead: Java answers first, then the minimum is raised to 640 × 480 dp at the window's scale. Nothing here moves
- * or sizes the window; any failure leaves Java's answer as it was.
+ * instead: Java answers first, then the minimum is raised to 640 × 480 dp at the window's scale. Windows asks only
+ * while a window is being sized, so the window is sized once, to its own size, when the hook goes in; nothing else here
+ * moves or sizes it. Any failure leaves Java's answer as it was.
  */
 internal object WindowMinimum {
     private interface User32 : StdCallLibrary {
@@ -28,6 +29,9 @@ internal object WindowMinimum {
         fun GetWindowRect(hwnd: Pointer, rect: Pointer): Boolean
         fun MonitorFromWindow(hwnd: Pointer, flags: Int): Pointer?
         fun GetMonitorInfoW(monitor: Pointer, info: Pointer): Boolean
+        fun IsZoomed(hwnd: Pointer): Boolean
+        fun IsIconic(hwnd: Pointer): Boolean
+        fun SetWindowPos(hwnd: Pointer, insertAfter: Pointer?, x: Int, y: Int, width: Int, height: Int, flags: Int): Boolean
     }
 
     private interface Dwm : StdCallLibrary {
@@ -39,6 +43,9 @@ internal object WindowMinimum {
     private const val WM_NCDESTROY = 0x0082
     private const val MONITOR_DEFAULTTONEAREST = 2
     private const val DWMWA_EXTENDED_FRAME_BOUNDS = 9
+    private const val SWP_NOMOVE = 0x0002
+    private const val SWP_NOZORDER = 0x0004
+    private const val SWP_NOACTIVATE = 0x0010
 
     private val windows = System.getProperty("os.name").orEmpty().startsWith("Windows")
     private val user32: User32? by lazy { if (windows) runCatching { Native.load("user32", User32::class.java) }.getOrNull() else null }
@@ -80,7 +87,24 @@ internal object WindowMinimum {
             return false
         }
         previous[key] = replaced
+        applyNow(api, hwnd)
         return true
+    }
+
+    /**
+     * Sizes a normal window to its own outer size, so Windows asks for the new minimum and a window that opened below
+     * it (a size saved before this fix, or Small at 150 %) grows to it. Not while maximised or minimised.
+     */
+    private fun applyNow(api: User32, hwnd: Pointer) {
+        runCatching {
+            if (api.IsZoomed(hwnd) || api.IsIconic(hwnd)) return
+            Memory(16).use { rect ->
+                if (!api.GetWindowRect(hwnd, rect)) return
+                val width = rect.getInt(8) - rect.getInt(0)
+                val height = rect.getInt(12) - rect.getInt(4)
+                api.SetWindowPos(hwnd, null, 0, 0, width, height, SWP_NOMOVE or SWP_NOZORDER or SWP_NOACTIVATE)
+            }
+        }
     }
 
     /** True while [window]'s window procedure is hooked. */
