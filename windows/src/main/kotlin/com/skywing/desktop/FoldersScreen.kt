@@ -183,13 +183,13 @@ internal class Folders(
         go(leave)
     }
 
-    /** Selection actions that work on any ticked videos. */
+    /** Selection actions that work on any ticked videos, in the order of spec 5.6. */
     fun videoActions(videos: () -> List<WindowsMediaEntry>): List<MenuAction> = listOf(
         MenuAction("Play", SkyIcon.Play) { play(videos()); hub.endFolderSelection() },
-        MenuAction("Add to folder", SkyIcon.Folder) { dialogs.filing = false to videos().map { it.path } },
-        MenuAction("Add to virtual folder", SkyIcon.Grid) { dialogs.filing = true to videos().map { it.path } },
         MenuAction("Mark as watched", SkyIcon.Check) { onSetWatched(videos().map { it.file }, true); hub.endFolderSelection() },
         MenuAction("Mark as unwatched", SkyIcon.Close) { onSetWatched(videos().map { it.file }, false); hub.endFolderSelection() },
+        MenuAction("Add to folder", SkyIcon.Folder) { dialogs.filing = false to videos().map { it.path } },
+        MenuAction("Add to virtual folder", SkyIcon.Grid) { dialogs.filing = true to videos().map { it.path } },
     )
 
     /** What Rename says on an actor, instead of "folder". */

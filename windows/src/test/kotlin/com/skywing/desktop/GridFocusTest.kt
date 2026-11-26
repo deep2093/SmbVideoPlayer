@@ -14,10 +14,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.isFocused
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -759,6 +761,24 @@ class GridFocusTest {
         compose.waitForIdle()
         assertEquals(true, moves[true])
         assertEquals(false, moves[false])
+    }
+
+    /* ---------- The video selection bars (spec 5.6) ---------- */
+
+    private val videoBarOrder = listOf("Play", "Mark as watched", "Mark as unwatched", "Add to folder", "Add to virtual folder")
+
+    @Test fun theFolderPagesVideoBarFollowsTheSpecOrder() {
+        assertEquals(videoBarOrder, folders().videoActions { emptyList() }.map { it.label })
+        assertEquals(videoBarOrder + "Take out", selectionActionsFor(setOf(TileKind.VIDEO), custom = false))
+    }
+
+    @Test fun theVideosPagesSelectionBarFollowsTheSpecOrder() {
+        compose.setContent {
+            Page { Box(Modifier.size(1400.dp, 200.dp)) { SelectionBar(SelectionState(), emptyList(), organizer(), { _, _ -> }, { _, _ -> }) } }
+        }
+        val buttons = compose.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button)).fetchSemanticsNodes()
+            .mapNotNull { it.config.getOrNull(SemanticsProperties.Text)?.firstOrNull()?.text }
+        assertEquals(videoBarOrder, buttons.filter { it in videoBarOrder })
     }
 
     /* ---------- Helpers ---------- */

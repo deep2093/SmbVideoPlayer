@@ -140,7 +140,7 @@ internal fun sectioned(folders: List<Tile>, actors: List<Tile>, videos: List<Til
  */
 internal fun selectionActionsFor(kinds: Set<TileKind>, custom: Boolean): List<String> =
     if (kinds.isNotEmpty() && kinds.all { it == TileKind.ACTOR }) listOf("Play all", "Shuffle", if (custom) "Take out…" else "Hide")
-    else listOf("Play", "Add to folder", "Add to virtual folder", "Mark as watched", "Mark as unwatched", "Take out")
+    else listOf("Play", "Mark as watched", "Mark as unwatched", "Add to folder", "Add to virtual folder", "Take out")
 
 /** The total length of [videos], or null when one is not known yet (or there are none). */
 internal fun actorTotalLength(videos: List<WindowsMediaEntry>, lengthOf: (WindowsMediaEntry) -> Double?): Double? {

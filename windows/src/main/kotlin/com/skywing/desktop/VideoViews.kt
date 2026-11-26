@@ -786,8 +786,8 @@ internal fun SelectionBar(
         SkyButton("Play", { chosen.firstOrNull()?.let { onPlay(it.file, chosen.map { c -> c.file }) } }, enabled = chosen.isNotEmpty(), primary = false, icon = SkyIcon.Play)
         SkyButton("Mark as watched", { onSetWatched(chosen.map { it.file }, true); selection.clear() }, enabled = chosen.isNotEmpty(), primary = false, icon = SkyIcon.Check)
         SkyButton("Mark as unwatched", { onSetWatched(chosen.map { it.file }, false); selection.clear() }, enabled = chosen.isNotEmpty(), primary = false, icon = SkyIcon.Close)
-        SkyButton("Add to virtual folder", { filing = true }, enabled = selection.paths.isNotEmpty(), primary = false, icon = SkyIcon.Grid)
         SkyButton("Add to folder", { filing = false }, enabled = selection.paths.isNotEmpty(), icon = SkyIcon.Folder)
+        SkyButton("Add to virtual folder", { filing = true }, enabled = selection.paths.isNotEmpty(), primary = false, icon = SkyIcon.Grid)
     }
     filing?.let { virtual ->
         FileIntoFolderDialog(organizer, virtual, selection.paths, onDismiss = { filing = null }, onDone = { selection.clear() })
