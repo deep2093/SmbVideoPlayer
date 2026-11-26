@@ -173,8 +173,10 @@ class ActorPageTest {
         val actor = HubState().apply { tab = 1; setId = "virtual"; setGroup = "owen pike" }
         val header = ViewsData(actorLayout = ActorLayout.HEADER)
         assertEquals(RailShape(wide = false, pin = true), railShape(wideRail = true, folders = true, actor, header))
-        assertEquals(RailShape(wide = true, pin = true), railShape(wideRail = true, folders = true, actor, header.copy(keepMenuOpen = true)))
-        assertEquals(RailShape(wide = true, pin = false), railShape(wideRail = true, folders = true, actor, header.copy(actorLayout = ActorLayout.STUDIO)))
+        val kept = header.copy(keepMenuOpen = true)
+        assertEquals(RailShape(wide = true, pin = true), railShape(wideRail = true, folders = true, actor, kept))
+        val studio = header.copy(actorLayout = ActorLayout.STUDIO)
+        assertEquals(RailShape(wide = true, pin = false), railShape(wideRail = true, folders = true, actor, studio))
         assertEquals(RailShape(wide = true, pin = false), railShape(wideRail = true, folders = false, actor, header))
         assertEquals(RailShape(wide = false, pin = false), railShape(wideRail = false, folders = true, actor, header))
         // The actor page is on the other tab: an ordinary page, so the rail stays wide and shows no pin.

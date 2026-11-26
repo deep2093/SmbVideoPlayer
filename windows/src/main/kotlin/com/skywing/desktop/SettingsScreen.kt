@@ -417,7 +417,11 @@ private fun LayoutPage(organizer: Organizer) {
     }
     Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Grid columns", color = theme.ink, style = MaterialTheme.typography.titleMedium)
-        Text("Auto fits as many cards as the window allows. Each page's View menu sets the card shape.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
+        Text(
+            "Auto fits as many cards as the window allows. Each page's View menu sets the card shape.",
+            color = theme.muted,
+            style = MaterialTheme.typography.bodySmall,
+        )
         SkyChipBar(listOf("Auto", "2", "3", "4", "5"), if (prefs.columns in 2..5) prefs.columns - 1 else 0, { index ->
             organizer.updatePrefs { it.copy(columns = if (index == 0) 0 else index + 1) }
         })

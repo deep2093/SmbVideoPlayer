@@ -774,7 +774,9 @@ class GridFocusTest {
 
     @Test fun theVideosPagesSelectionBarFollowsTheSpecOrder() {
         compose.setContent {
-            Page { Box(Modifier.size(1400.dp, 200.dp)) { SelectionBar(SelectionState(), emptyList(), organizer(), { _, _ -> }, { _, _ -> }) } }
+            Page {
+                Box(Modifier.size(1400.dp, 200.dp)) { SelectionBar(SelectionState(), emptyList(), organizer(), { _, _ -> }, { _, _ -> }) }
+            }
         }
         val buttons = compose.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button)).fetchSemanticsNodes()
             .mapNotNull { it.config.getOrNull(SemanticsProperties.Text)?.firstOrNull()?.text }
