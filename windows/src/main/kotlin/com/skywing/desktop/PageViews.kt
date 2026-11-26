@@ -159,6 +159,21 @@ internal class LibraryViews(private val store: LibraryViewStore, seed: FolderPre
         }
     }
 
+    /**
+     * The size pages start at until their own View menu changes it (Settings › App layout › Picture size). Pages with
+     * their own view keep theirs. [onSizeChange] is told only when the size really changed.
+     */
+    fun setSizeForNewPages(size: Int) {
+        val before = data.last.size
+        commit(data.copy(last = data.last.copy(size = size)))
+        if (data.last.size != before) {
+            try {
+                onSizeChange()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     fun setListEverywhere(list: Boolean) =
         commit(data.copy(last = data.last.copy(list = list), pages = data.pages.mapValues { it.value.copy(list = list) }))
 

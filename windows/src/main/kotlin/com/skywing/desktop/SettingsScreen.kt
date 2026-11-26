@@ -392,9 +392,9 @@ internal fun FolderTabRow(
     }
 }
 
-/** Settings › App layout: which Folders tabs show and their order, the number of columns, and list or grid. */
+/** Settings › App layout: which Folders tabs show and their order, the number of columns, the picture size, and list or grid. */
 @Composable
-private fun LayoutPage(organizer: Organizer) {
+internal fun LayoutPage(organizer: Organizer) {
     val theme = LocalSkyTheme.current
     val prefs = organizer.data.prefs
     Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -426,6 +426,18 @@ private fun LayoutPage(organizer: Organizer) {
             organizer.updatePrefs { it.copy(columns = if (index == 0) 0 else index + 1) }
         })
         val views = LocalLibraryViews.current
+        Text("Picture size", color = theme.ink, style = MaterialTheme.typography.titleMedium)
+        Text(
+            "New pages start at this size. Each page's View menu can change its own.",
+            color = theme.muted,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        val sizes = listOf(CardSizes.SMALL, CardSizes.NORMAL, CardSizes.LARGE)
+        val sizeNames = listOf("Small", "Medium", "Large")
+        // Shows the size new pages start at: the last size picked anywhere, so a page's View menu moves it too.
+        SkyChipBar(sizeNames, sizeNames.indexOf(CardSizes.named(views.data.last.size)).coerceAtLeast(0), { index ->
+            views.setSizeForNewPages(sizes[index])
+        })
         // Shows the last choice made on any page's View menu; turning it on or off sets every page.
         SwitchRow("Show as list", "One folder or video per line, with a small picture.", views.data.last.list) { list ->
             views.setListEverywhere(list)

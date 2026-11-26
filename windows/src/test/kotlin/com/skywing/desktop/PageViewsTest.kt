@@ -168,6 +168,20 @@ class PageViewsTest {
     }
 
     @Test
+    fun theSizeForNewPagesLeavesPagesWithTheirOwnViewAlone() {
+        val views = views()
+        views.setSize("own", CardSizes.SMALL)
+        var calls = 0
+        views.onSizeChange = { calls++ }
+        views.setSizeForNewPages(CardSizes.LARGE)
+        assertEquals(CardSizes.LARGE, views.of("never-set").size)
+        assertEquals(CardSizes.SMALL, views.of("own").size)
+        assertEquals(1, calls)
+        views.setSizeForNewPages(CardSizes.LARGE)
+        assertEquals(1, calls)
+    }
+
+    @Test
     fun aFailingSizeHookDoesNotBreakTheChange() {
         val views = views()
         views.onSizeChange = { error("hook") }
