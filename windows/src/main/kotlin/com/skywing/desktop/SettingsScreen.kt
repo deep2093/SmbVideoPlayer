@@ -347,8 +347,8 @@ private fun GroupingPage(organizer: Organizer) {
     val theme = LocalSkyTheme.current
     val prefs = organizer.data.prefs
     Text(
-        "How names in your file names become folders. With all three on, \"Tom Cruise, Nicole Kidman - Movie\" goes into Tom Cruise and Nicole Kidman, " +
-            "and \"Tom Cruise movie\" into Tom Cruise. Videos you filed by hand keep their folder.",
+        "How names in your file names become folders. With all three on, \"Ava Stone, Mira Lake - Movie\" goes into Ava Stone and Mira Lake, " +
+            "and \"Ava Stone movie\" into Ava Stone. Videos you filed by hand keep their folder.",
         color = theme.muted, style = MaterialTheme.typography.bodySmall,
     )
     listOf(

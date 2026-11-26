@@ -16,18 +16,18 @@ class FolderOrganizerTest {
         WindowsMediaEntry(path, "PC", "PC", "This PC", size, modified)
 
     private val library = listOf(
-        entry("C:\\Videos\\Films\\Tom Cruise, Nicole Kidman - Eyes.mp4", size = 10, modified = 5),
-        entry("C:\\Videos\\Films\\Tom Cruise - Top Gun.mkv", size = 20, modified = 9),
-        entry("C:\\Videos\\Films\\Old\\Brad Pitt movie part 2.mp4", size = 5, modified = 1),
+        entry("C:\\Videos\\Films\\Ava Stone, Mira Lake - Eyes.mp4", size = 10, modified = 5),
+        entry("C:\\Videos\\Films\\Ava Stone - Night Run.mkv", size = 20, modified = 9),
+        entry("C:\\Videos\\Films\\Old\\Leo Marsh movie part 2.mp4", size = 5, modified = 1),
         entry("C:\\Videos\\Other\\Peter - holiday.mp4"),
         entry("C:\\Videos\\Other\\Holiday with peter.mp4"),
     )
 
     @Test fun namesFollowTheThreeSwitches() {
-        assertEquals(listOf("Tom Cruise", "Nicole Kidman"), WindowsVirtualNames.of("Tom Cruise, Nicole Kidman - Eyes.mp4"))
-        assertEquals(listOf("Brad Pitt"), WindowsVirtualNames.of("Brad Pitt movie part 2.mp4"))
-        assertEquals(listOf("Tom Cruise, Nicole Kidman"), WindowsVirtualNames.of("Tom Cruise, Nicole Kidman - Eyes.mp4", GroupingSwitches(splitAtCommas = false)))
-        assertEquals(listOf("Brad Pitt Movie"), WindowsVirtualNames.of("Brad Pitt movie part 2.mp4", GroupingSwitches(firstTwoWords = false)))
+        assertEquals(listOf("Ava Stone", "Mira Lake"), WindowsVirtualNames.of("Ava Stone, Mira Lake - Eyes.mp4"))
+        assertEquals(listOf("Leo Marsh"), WindowsVirtualNames.of("Leo Marsh movie part 2.mp4"))
+        assertEquals(listOf("Ava Stone, Mira Lake"), WindowsVirtualNames.of("Ava Stone, Mira Lake - Eyes.mp4", GroupingSwitches(splitAtCommas = false)))
+        assertEquals(listOf("Leo Marsh Movie"), WindowsVirtualNames.of("Leo Marsh movie part 2.mp4", GroupingSwitches(firstTwoWords = false)))
     }
 
     @Test fun membersIncludeFolderContentsAndSingleFiles() {
@@ -46,19 +46,19 @@ class FolderOrganizerTest {
         val set = VirtualSet("s", "Movies", folders = listOf("C:\\Videos\\Films"))
         val videos = FolderLogic.members(set.folders, set.files, library)
         val groups = FolderLogic.buildGroups(set, videos, GroupingSwitches(), emptyMap())
-        assertEquals(setOf("tom cruise", "nicole kidman", "brad pitt"), groups.map { it.identity }.toSet())
-        assertEquals(2, groups.first { it.identity == "tom cruise" }.videos.size)
+        assertEquals(setOf("ava stone", "mira lake", "leo marsh"), groups.map { it.identity }.toSet())
+        assertEquals(2, groups.first { it.identity == "ava stone" }.videos.size)
 
-        val renamed = set.copy(renames = mapOf("nicole kidman" to "Tom Cruise"), hidden = setOf("brad pitt"))
+        val renamed = set.copy(renames = mapOf("mira lake" to "Ava Stone"), hidden = setOf("leo marsh"))
         val joined = FolderLogic.buildGroups(renamed, videos, GroupingSwitches(), emptyMap())
-        assertEquals(listOf("tom cruise"), joined.map { it.identity })
+        assertEquals(listOf("ava stone"), joined.map { it.identity })
 
         val filed = FolderLogic.buildGroups(set, videos, GroupingSwitches(), mapOf(library[2].path.lowercase() to "Favourites"))
         assertTrue(filed.any { it.identity == "favourites" })
-        assertFalse(filed.any { it.identity == "brad pitt" })
+        assertFalse(filed.any { it.identity == "leo marsh" })
 
         val bySize = FolderLogic.sorted(groups, "SIZE", descending = true)
-        assertEquals("tom cruise", bySize.first().identity)
+        assertEquals("ava stone", bySize.first().identity)
     }
 
     @Test fun organizerSavesAndLoadsEverything() {
@@ -68,11 +68,11 @@ class FolderOrganizerTest {
         assertEquals(listOf("Old"), organizer.data.own.map { it.name })
 
         val id = organizer.createOwn("Mine")!!
-        organizer.setOwnMembers(id, listOf("C:\\Videos\\Films"), listOf("C:\\Videos\\Films\\Tom Cruise - Top Gun.mkv", "C:\\Videos\\Other\\Peter - holiday.mp4"))
+        organizer.setOwnMembers(id, listOf("C:\\Videos\\Films"), listOf("C:\\Videos\\Films\\Ava Stone - Night Run.mkv", "C:\\Videos\\Other\\Peter - holiday.mp4"))
         val setId = organizer.createSet("Movies")!!
         organizer.setSetMembers(setId, listOf("C:\\Videos\\Films"), emptyList())
         organizer.setDirectSetMembers(setId, listOf("\\\\server\\share\\films"), listOf(library[3].path))
-        organizer.renameSubfolder(setId, "nicole kidman", "nicole")
+        organizer.renameSubfolder(setId, "mira lake", "mira")
         organizer.addDriveFolders(listOf("C:\\Videos\\Films", "C:\\Videos\\Films"), includeSubfolders = true)
         organizer.createCollection("Peter")
         organizer.assign(listOf("C:\\Videos\\Other\\Holiday with peter.mp4"), "Peter")
@@ -84,7 +84,7 @@ class FolderOrganizerTest {
         val own = again.data.own.first { it.id == id }
         // A file inside a chosen folder is not kept twice.
         assertEquals(listOf("C:\\Videos\\Other\\Peter - holiday.mp4"), own.files)
-        assertEquals(mapOf("nicole kidman" to "Nicole"), again.data.sets.first().renames)
+        assertEquals(mapOf("mira lake" to "Mira"), again.data.sets.first().renames)
         assertEquals(listOf("\\\\server\\share\\films"), again.data.sets.first().directFolders)
         assertEquals(listOf(library[3].path), again.data.sets.first().directFiles)
         assertEquals(1, again.data.match.count { it.sourcePath != null })
