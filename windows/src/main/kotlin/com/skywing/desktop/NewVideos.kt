@@ -8,7 +8,8 @@ import java.util.Locale
 /** How long a video that arrived stays marked new. */
 internal const val NEW_FOR_MS = 7 * 24 * 3600 * 1000L
 
-private fun keyOf(path: String) = ShareHosts.canonical(path).lowercase(Locale.ROOT)
+/** The key the watched and new marks keep a video under: its canonical path, lower-cased. */
+internal fun markKey(path: String) = ShareHosts.canonical(path).lowercase(Locale.ROOT)
 
 internal object NewVideos {
     /**
@@ -18,10 +19,10 @@ internal object NewVideos {
     fun arrivals(before: List<WindowsMediaEntry>, after: List<WindowsMediaEntry>): List<String> {
         if (before.isEmpty()) return emptyList()
         val knownSources = before.mapTo(HashSet()) { it.sourceId }
-        val known = before.mapTo(HashSet()) { keyOf(it.path) }
+        val known = before.mapTo(HashSet()) { markKey(it.path) }
         return after.asSequence()
             .filter { it.sourceId in knownSources }
-            .map { keyOf(it.path) }
+            .map { markKey(it.path) }
             .filter { it !in known }
             .distinct()
             .toList()
@@ -62,7 +63,7 @@ internal class NewVideoStore(
         val at = now()
         val seen = marks.firstSeen.toMutableMap()
         // Only the renamed paths this batch holds are dropped, and only they leave the memory.
-        val keys = paths.map(::keyOf)
+        val keys = paths.map(::markKey)
         val skip = keys.filterTo(HashSet()) { it in renamed }
         renamed.removeAll(skip)
         keys.filter { it !in skip && it !in seen }.forEach { seen[it] = at }
@@ -71,7 +72,7 @@ internal class NewVideoStore(
 
     fun played(path: String): Unit = synchronized(lock) {
         val marks = all() ?: return
-        val key = keyOf(path)
+        val key = markKey(path)
         if (key in marks.firstSeen) write(NewMarks(marks.firstSeen - key, marks.opened))
     }
 
@@ -81,10 +82,10 @@ internal class NewVideoStore(
     }
 
     fun renamePath(old: String, new: String): Unit = synchronized(lock) {
-        val to = keyOf(new)
+        val to = markKey(new)
         renamed.add(to)
         val marks = all() ?: return
-        val from = keyOf(old)
+        val from = markKey(old)
         val at = marks.firstSeen[from] ?: return
         write(NewMarks(marks.firstSeen - from + (to to at), marks.opened))
     }

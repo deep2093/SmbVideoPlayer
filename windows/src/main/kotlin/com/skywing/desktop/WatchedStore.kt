@@ -4,7 +4,6 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import java.io.File
 import java.nio.file.Path
-import java.util.Locale
 
 /** The last seconds of a video: the resume list drops a video inside them, and they count as watched to the end. */
 internal const val FINISHED_TAIL_SECONDS = 30.0
@@ -28,7 +27,7 @@ internal class WindowsWatchedStore(path: Path = libraryFile("watched.json")) {
     /** Marks every one of [files] watched at [at], with one read and one write of the file. */
     fun mark(files: Collection<File>, at: Long = System.currentTimeMillis()): Unit = synchronized(lock) {
         val marks = all() ?: return
-        val paths = files.mapTo(LinkedHashSet()) { keyOf(it.absolutePath) }
+        val paths = files.mapTo(LinkedHashSet()) { markKey(it.absolutePath) }
         write(marks.filterNot { it.first in paths } + paths.map { it to at })
     }
 
@@ -37,20 +36,18 @@ internal class WindowsWatchedStore(path: Path = libraryFile("watched.json")) {
     /** Takes the marks of [files] off, with one read and at most one write of the file. */
     fun unmark(files: Collection<File>): Unit = synchronized(lock) {
         val marks = all() ?: return
-        val paths = files.mapTo(HashSet()) { keyOf(it.absolutePath) }
+        val paths = files.mapTo(HashSet()) { markKey(it.absolutePath) }
         if (marks.any { it.first in paths }) write(marks.filterNot { it.first in paths })
     }
 
     fun renamePath(old: String, new: String): Unit = synchronized(lock) {
         val marks = all() ?: return
-        val from = keyOf(old)
+        val from = markKey(old)
         if (marks.none { it.first == from }) return
-        val to = keyOf(new)
+        val to = markKey(new)
         val at = marks.first { it.first == from }.second
         write(marks.filterNot { it.first == from || it.first == to } + (to to at))
     }
-
-    private fun keyOf(absolutePath: String) = ShareHosts.canonical(absolutePath).lowercase(Locale.ROOT)
 
     /** Every mark as path to time, or null when the file can't be read now. */
     private fun all(): List<Pair<String, Long>>? = when (val read = file.read()) {

@@ -3,7 +3,6 @@ package com.skywing.desktop
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableIntStateOf
 import java.io.File
-import java.util.Locale
 
 /**
  * The three things playing a video changes: the resume list, the watched marks and the new marks. Every write raises
@@ -77,5 +76,3 @@ internal data class LibraryMarks(
     /** How many of [videos] are new and arrived after the actor page [key] was last opened. */
     fun newSince(key: String, videos: Collection<WindowsMediaEntry>, now: Long) = news.newSince(key, videos.map { markKey(it.path) }, now)
 }
-
-private fun markKey(path: String) = ShareHosts.canonical(path).lowercase(Locale.ROOT)
