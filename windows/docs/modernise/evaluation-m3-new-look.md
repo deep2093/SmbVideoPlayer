@@ -33,6 +33,8 @@ Clean.
 - Breaks: error prevention.
 - Change: Windows is given the minimum in pixels for the window's current scaling through the window's own minimum-size
   message, the one change brief 5.6 rule 7 allows.
+- Built: `794d05c` ([plan](../../../docs/superpowers/plans/2026-11-26-window-minimum-size.md)). Made as small as it
+  goes, the window now stops at 640 by 480 dp.
 
 **Two check boxes on Settings › App layout had no name for screen readers.**
 - What happens: the runner's audit found the Folders-tab boxes reading as "check box" and nothing more.

@@ -75,8 +75,9 @@ $rules = @(
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(playback/(PlaybackLog|ScreenState|DisplayPaths|DisplayChanges)\.kt|Bench\.kt)$|windows/tools/bench\.ps1$'
        Tests = @("$pkg.playback.PlaybackLogTest", "$pkg.playback.ScreenStateTest", "$pkg.BenchOptionsTest", "$pkg.playback.SmoothingTest") }
     @{ Area = 'Full screen / window chrome'; Escalate = $true
-       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(BorderlessFullscreen|FullscreenChrome|PlayerChrome|WindowChrome)\.kt$'
-       Tests = @("$pkg.FullscreenWindowTest", "$pkg.PlayerChromeTest", "$pkg.automation.FullscreenAutomationTest") }
+       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(BorderlessFullscreen|FullscreenChrome|PlayerChrome|WindowChrome|WindowMinimum)\.kt$'
+       Tests = @("$pkg.FullscreenWindowTest", "$pkg.PlayerChromeTest", "$pkg.automation.FullscreenAutomationTest",
+                 "$pkg.WindowMinimumTest", "$pkg.WindowMinimumHookTest", "$pkg.automation.WindowMinimumAutomationTest") }
     @{ Area = 'App shell (Main.kt)'; Escalate = $true
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(Main|SingleInstance)\.kt$'
        Tests = @("$pkg.FullscreenWindowTest", "$pkg.PlayerChromeTest", "$pkg.HubBackNavigationTest", "$pkg.SingleInstanceTest", "$pkg.playback.EmbeddedPlaybackNativeTest",
