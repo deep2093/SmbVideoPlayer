@@ -18,6 +18,7 @@ import java.awt.Window
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.withContext
@@ -255,10 +256,23 @@ internal class WindowPlacementSaver(val store: WindowPlacementStore, start: Wind
     }
 }
 
-/** Saves the placement 500 ms after a move or resize, and keeps the window at least 640 × 480 dp (rule 5). */
+/**
+ * Saves the placement 500 ms after a move or resize, and keeps the window at least 640 × 480 dp (rule 5) at any
+ * Windows scaling: Java's own minimum is in raw pixels, so [WindowMinimum] answers Windows' minimum-size question.
+ */
 @OptIn(FlowPreview::class)
 @Composable
 internal fun RememberWindowPlacement(window: Window, state: WindowState, saver: WindowPlacementSaver) {
+    // The window has its native handle only once it is displayable.
+    LaunchedEffect(window) {
+        repeat(20) {
+            if (window.isDisplayable) {
+                WindowMinimum.install(window)
+                return@LaunchedEffect
+            }
+            delay(100)
+        }
+    }
     LaunchedEffect(window, state, saver) {
         saver.window = window
         window.minimumSize = Dimension(WindowSizing.MIN_WIDTH.toInt(), WindowSizing.MIN_HEIGHT.toInt())
