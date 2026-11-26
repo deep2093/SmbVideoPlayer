@@ -706,10 +706,12 @@ internal fun FolderHeader(
     subtitle: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Gives the focus to Back, where it goes when the page has no card to take it. */
+    backFocus: FocusRequester? = null,
     actions: @Composable () -> Unit = {},
 ) {
     HeaderLine(modifier.heightIn(min = 56.dp), leadMin = 200.dp, gap = 10.dp, lead = {
-        SkyIconButton(SkyIcon.Back, "Back", onBack)
+        SkyIconButton(SkyIcon.Back, "Back", onBack, if (backFocus != null) Modifier.focusRequester(backFocus) else Modifier)
         PageTitle(title, subtitle, Modifier.weight(1f))
     }, trail = actions)
 }

@@ -308,6 +308,9 @@ private enum class ActorArrow { PREVIOUS, NEXT }
 /** An actor list row, as the page's [FocusComeback] knows it. */
 private data class ActorRowFocus(val identity: String)
 
+/** The page's selection bar, as [FocusComeback] knows it: it goes when the selection ends. */
+private object SelectionBarFocus
+
 /**
  * The page of [actor], one of [actors] (the actors of its folder). [onOpenActor] opens another by identity; [menuOf] is
  * the actor menu of an actor, true for this page's own actor (no Open there), with the list its Play all and Shuffle
@@ -381,7 +384,8 @@ internal fun ActorPage(
                 val (previous, next) = if (showList) null to null else neighbours(alphabetical, actor.identity)
                 comeback.goneIf { key ->
                     (key == ActorArrow.PREVIOUS && previous == null) || (key == ActorArrow.NEXT && next == null) ||
-                        (key is ActorRowFocus && (!showList || alphabetical.none { it.identity == key.identity }))
+                        (key is ActorRowFocus && (!showList || alphabetical.none { it.identity == key.identity })) ||
+                        (key == SelectionBarFocus && hub.folderPage != page)
                 }
                 SideEffect { comeback.applied() }
                 if (studio) ActorStudioHeader(
@@ -424,7 +428,11 @@ internal fun ActorPage(
                     onOpenActor = onOpenActor,
                     comeback = comeback,
                 )
-                if (hub.folderPage == page) VideoSelectionBar(f, page, shown) else SortBar(hub, page, searchFocus, add)
+                if (hub.folderPage == page) {
+                    Box(Modifier.onFocusChanged { comeback.focus(SelectionBarFocus, it.hasFocus) }) { VideoSelectionBar(f, page, shown) }
+                } else {
+                    SortBar(hub, page, searchFocus, add)
+                }
                 TileGrid(
                     f.videoTiles(shown, page) { info.badges(it) }, grid, f.organizer, page, f.history, f.onPlay, Modifier.weight(1f),
                     emptyText = "Nothing matches.",
@@ -578,6 +586,8 @@ private fun ActorList(
     var query by remember { mutableStateOf("") }
     val shown = remember(actors, query) { filterActors(actors, query) }
     val field = remember { FocusRequester() }
+    // Closing the search takes its field away, so the focus goes to the search button first (spec 5.10).
+    val searchButton = remember { FocusRequester() }
     val start = remember { actors.indexOfFirst { it.identity == current.identity }.coerceAtLeast(0) }
     val state = rememberLazyListState(initialFirstVisibleItemIndex = (start - 3).coerceAtLeast(0))
     // One Tab stop (spec 5.10): Tab goes on past the list; the arrows move between its rows.
@@ -588,7 +598,7 @@ private fun ActorList(
                 SkyIconButton(SkyIcon.Search, "Search actors", {
                     if (searching) query = ""
                     searching = !searching
-                }, box = 36.dp, glyph = 18.dp)
+                }, Modifier.focusRequester(searchButton), box = 36.dp, glyph = 18.dp)
             }
             if (searching) {
                 SkyField(
@@ -601,7 +611,12 @@ private fun ActorList(
                                 true
                             }
                             Key.Escape -> {
-                                if (query.isNotEmpty()) query = "" else searching = false
+                                if (query.isNotEmpty()) {
+                                    query = ""
+                                } else {
+                                    runCatching { searchButton.requestFocus() }
+                                    searching = false
+                                }
                                 true
                             }
                             else -> false

@@ -10,6 +10,7 @@ import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -91,6 +92,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyListState
@@ -630,14 +632,20 @@ internal const val UNDO_NOTICE_MS = 6000L
 
 /**
  * A short notice with an Undo button ("Hidden." then Undo), shown over the bottom of a page for 6 s, then [onGone] is
- * called. It never takes focus: the grid keeps it, and Undo is reached with Tab. With Windows animations off it appears
- * at once and is simply removed; otherwise it fades in. Screen readers are told the text when it appears.
+ * called. The count waits while Undo has the focus or the pointer is over the notice, and starts again once they leave.
+ * It never takes focus: the grid keeps it, and Undo is reached with Tab. With Windows animations off it appears at
+ * once and is simply removed; otherwise it fades in. Screen readers are told the text when it appears.
  */
 @Composable
 internal fun UndoNotice(text: String, onUndo: () -> Unit, onGone: () -> Unit, modifier: Modifier = Modifier) {
     val theme = LocalSkyTheme.current
     val gone by rememberUpdatedState(onGone)
-    LaunchedEffect(text) {
+    val pointer = remember { MutableInteractionSource() }
+    val hovered by pointer.collectIsHoveredAsState()
+    var focused by remember { mutableStateOf(false) }
+    val held = hovered || focused
+    LaunchedEffect(text, held) {
+        if (held) return@LaunchedEffect
         delay(UNDO_NOTICE_MS)
         gone()
     }
@@ -645,7 +653,8 @@ internal fun UndoNotice(text: String, onUndo: () -> Unit, onGone: () -> Unit, mo
     LaunchedEffect(Unit) { shown = true }
     val alpha by animateFloatAsState(if (shown) 1f else 0f, SkyMotion.fast())
     Row(
-        modifier.graphicsLayer { this.alpha = alpha }.skyPanel(RoundedCornerShape(50), theme.menu).padding(start = 18.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        modifier.graphicsLayer { this.alpha = alpha }.hoverable(pointer).onFocusChanged { focused = it.hasFocus }
+            .skyPanel(RoundedCornerShape(50), theme.menu).padding(start = 18.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {

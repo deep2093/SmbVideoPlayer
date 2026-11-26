@@ -27,6 +27,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.withKeyDown
@@ -597,6 +598,109 @@ class GridFocusTest {
         compose.onNodeWithText("Open here").performKeyInput { pressKey(Key.Escape) }
         compose.waitForIdle()
         compose.onNodeWithText("Open here").assertDoesNotExist()
+        assertEquals(0, backs)
+        compose.onNodeWithText("Folder one").assertIsFocused()
+    }
+
+    /* ---------- Focus after a card or control goes (spec 5.10: focus is always visible) ---------- */
+
+    /** Opens the menu of the focused card with the menu key and runs [item] with Enter. */
+    private fun chooseByKeys(card: String, item: String) {
+        compose.onNodeWithText(card).requestFocus()
+        focused().performKeyInput { pressKey(Key(java.awt.event.KeyEvent.VK_CONTEXT_MENU)) }
+        compose.waitForIdle()
+        // The menu is a popup with its own focus, so its item takes the key directly.
+        compose.onNodeWithText(item).requestFocus()
+        compose.onNodeWithText(item).performKeyInput { pressKey(Key.Enter) }
+        compose.waitForIdle()
+    }
+
+    @Test fun hideThenUndoByKeysKeepsTheFocusOnACard() {
+        showVirtualFolder()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Ada Moss").fetchSemanticsNodes().isNotEmpty() }
+        chooseByKeys("Ada Moss", "Hide from Mix")
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Ada Moss").fetchSemanticsNodes().isEmpty() }
+        compose.waitForIdle()
+        assertEquals("Bea Lund", focusedText(), "after Hide the focus is on the card in view")
+        compose.onNodeWithText("Undo").requestFocus()
+        focused().performKeyInput { pressKey(Key.Enter) }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Ada Moss").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        val after = focusedText()
+        assertTrue(after == "Ada Moss" || after == "Bea Lund", "after Undo the focus is on a card, not on " + after)
+    }
+
+    @Test fun theUndoNoticeStaysWhileUndoHasTheFocus() {
+        showVirtualFolder()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Ada Moss").fetchSemanticsNodes().isNotEmpty() }
+        chooseByKeys("Ada Moss", "Hide from Mix")
+        compose.onNodeWithText("Undo").requestFocus()
+        compose.mainClock.advanceTimeBy(UNDO_NOTICE_MS + 1_000)
+        compose.waitForIdle()
+        compose.onNodeWithText("Undo").assertIsFocused()
+    }
+
+    @Test fun hidingTheLastActorLeavesTheFocusOnTheBackButton() {
+        showVirtualFolder()
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Ada Moss").fetchSemanticsNodes().isNotEmpty() }
+        chooseByKeys("Ada Moss", "Hide from Mix")
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Ada Moss").fetchSemanticsNodes().isEmpty() }
+        chooseByKeys("Bea Lund", "Hide from Mix")
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Bea Lund").fetchSemanticsNodes().isEmpty() }
+        compose.waitForIdle()
+        compose.onNodeWithText("Back").assertIsFocused()
+    }
+
+    /** Opens Ada's actor page on the Virtual folder screen and runs [item] of its Actor options menu with Enter. */
+    private fun chooseOnAdasPage(item: String) {
+        showVirtualFolder()
+        click("Ada Moss")
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Actor options").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        compose.onNodeWithText("Actor options").performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitForIdle()
+        compose.onNodeWithText(item).requestFocus()
+        compose.onNodeWithText(item).performKeyInput { pressKey(Key.Enter) }
+        compose.waitForIdle()
+    }
+
+    @Test fun hideOnAnActorsPageLeavesTheFocusOnACardOfTheGrid() {
+        chooseOnAdasPage("Hide from Mix")
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Bea Lund").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        assertEquals("Bea Lund", focusedText())
+    }
+
+    @Test fun selectOnAnActorsPageLeavesTheFocusOnItsTickedCard() {
+        chooseOnAdasPage("Select")
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Bea Lund").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        assertEquals("Ada Moss", focusedText())
+    }
+
+    @Test fun endingASelectionOnAnActorsPageLeavesTheFocusOnAVideoCard() {
+        showVirtualFolder()
+        click("Ada Moss")
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("Ada Moss - two").fetchSemanticsNodes().isNotEmpty() }
+        compose.waitForIdle()
+        chooseByKeys("Ada Moss - two", "Select")
+        compose.onNodeWithText("Stop selecting").requestFocus()
+        focused().performKeyInput { pressKey(Key.Enter) }
+        compose.waitForIdle()
+        val after = focusedText()
+        assertTrue(after == "Ada Moss - two" || after == "Ada Moss - one", "the focus is on a video card, not on " + after)
+    }
+
+    @Test fun theSecondEscInTheActorListSearchLeavesTheFocusOnTheSearchButton() {
+        var backs = 0
+        actorPageWithBackKeys(folders()) { backs++; true }
+        compose.onNodeWithText("Search actors").performSemanticsAction(SemanticsActions.OnClick)
+        compose.waitForIdle()
+        focused().performTextInput("a")
+        focused().performKeyInput { pressKey(Key.Escape) }
+        focused().performKeyInput { pressKey(Key.Escape) }
+        compose.waitForIdle()
+        compose.onNodeWithText("Search actors").assertIsFocused()
         assertEquals(0, backs)
     }
 

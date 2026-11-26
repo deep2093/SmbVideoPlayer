@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -22,6 +23,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -171,9 +173,13 @@ internal class Folders(
         hub.focusTile = null
     }
 
-    /** Leaves an actor page with [leave] and ticks the card [key] on the grid [gridPage] there (Select on an actor page). */
+    /**
+     * Leaves an actor page with [leave] and ticks the card [key] on the grid [gridPage] there (Select on an actor page).
+     * The card takes the focus, which went with the page.
+     */
     fun tickOnGrid(gridPage: String, key: String, leave: HubState.() -> Unit) {
         hub.tickAfterMove = gridPage to key
+        hub.focusTile = key
         go(leave)
     }
 
@@ -264,15 +270,29 @@ internal class Folders(
         return worked ?: groups().map { ActorEntry(it, ActorInfo(plural(it.videos.size, "video"), false)) }
     }
 
-    /** Hides actors of the Virtual folder [setId] and offers Undo. */
+    /**
+     * Hides actors of the Virtual folder [setId] and offers Undo. The focus goes to the hidden card's place (a card in view
+     * once it is gone), and Undo gives it back to the card it brings back (spec 5.10).
+     */
     fun hideActors(setId: String, identities: List<String>) {
+        val focus = identities.firstOrNull()?.let(::actorFocusKey)
+        hub.focusTile = focus
         organizer.hideSubfolders(setId, identities)
-        dialogs.undo = UndoSpec("Hidden.") { organizer.restoreSubfolders(setId, identities) }
+        dialogs.undo = UndoSpec("Hidden.") {
+            hub.focusTile = focus
+            organizer.restoreSubfolders(setId, identities)
+        }
     }
 
-    /** Asks, then takes the videos of actors out of the Custom folder [folder] (they are not hidden: they leave it). */
-    fun takeActorsOut(folder: OwnFolder, title: String, paths: List<String>) {
-        dialogs.confirm = ConfirmSpec("Take out $title?", takeOutText(folder), "Take out") { organizer.takeOutOfOwn(folder.id, emptyList(), paths) }
+    /**
+     * Asks, then takes the videos of the actor [identity] out of the Custom folder [folder] (they are not hidden: they
+     * leave it). The focus then goes to a card in view in its place.
+     */
+    fun takeActorsOut(folder: OwnFolder, identity: String, title: String, paths: List<String>) {
+        dialogs.confirm = ConfirmSpec("Take out $title?", takeOutText(folder), "Take out") {
+            hub.focusTile = actorFocusKey(identity)
+            organizer.takeOutOfOwn(folder.id, emptyList(), paths)
+        }
     }
 
     fun takeOutText(folder: OwnFolder) = "They are taken out of ${folder.name} only. Files on your disk are not touched."
@@ -790,9 +810,12 @@ private fun OwnPage(f: Folders) {
     val actors = f.actorEntries("actors:own:" + folder.id, "own:" + folder.id, groups, sort, descending) {
         FolderLogic.sorted(groups.map { (identity, members) -> VirtualGroup(identity, FolderLogic.groupTitle(identity), members) }, sort, descending)
     }
-    // A name group that disappears (its videos were taken out) returns to the folder.
+    // A name group that disappears (its videos were taken out) returns to the folder; the focus goes to its place there.
     LaunchedEffect(content != null, group, groups.containsKey(group ?: "")) {
-        if (content != null && group != null && !groups.containsKey(group)) f.hub.ownGroup = null
+        if (content != null && group != null && !groups.containsKey(group)) {
+            f.hub.focusTile = actorFocusKey(group)
+            f.hub.ownGroup = null
+        }
     }
     // The grid, or an actor's page with the photo moving between them (spec 5.4).
     ActorSwitch(group) { shown, entering ->
@@ -816,7 +839,7 @@ private fun OwnPage(f: Folders) {
                         ref.title, ref.videos, ref.photoKey, folder.name, ActorRemoval.TAKE_OUT, here,
                         onOpen = { f.go { ownGroup = ref.identity } },
                         rename = null,
-                        remove = { f.takeActorsOut(folder, ref.title, ref.videos.map { it.path }) },
+                        remove = { f.takeActorsOut(folder, ref.identity, ref.title, ref.videos.map { it.path }) },
                         playList = playList,
                     ) { f.tickOnGrid(container, "group:" + ref.identity) { ownGroup = null } }
                 },
@@ -827,6 +850,9 @@ private fun OwnPage(f: Folders) {
             return@ActorSwitch
         }
         val searchFocus = remember { FocusRequester() }
+        // A focused card that leaves (taken out, a name group gone) gives the focus to a card in view, else to Back.
+        val comeback = remember { FocusComeback() }
+        val backFocus = remember { FocusRequester() }
 
         val childTiles = children.filter { f.matches(it.name) }.map { f.ownTile(it, null) }
         val dirTiles = folder.folders.filter { f.matches(leafOf(it)) }.map { path ->
@@ -854,7 +880,7 @@ private fun OwnPage(f: Folders) {
                     entry, page, ArtworkKeys.virtualFolder(identity), folder.name, ActorRemoval.TAKE_OUT,
                     onOpen = { f.go { ownGroup = identity } },
                     rename = null,
-                    remove = { f.takeActorsOut(folder, entry.group.title, entry.group.videos.map { it.path }) },
+                    remove = { f.takeActorsOut(folder, identity, entry.group.title, entry.group.videos.map { it.path }) },
                 )
             }
         } else {
@@ -896,7 +922,7 @@ private fun OwnPage(f: Folders) {
             } else {
                 val folderCount = children.size + folder.folders.size + (if (folder.grouped) groups.size else 0)
                 val subtitle = "${plural(folderCount, "folder")} · ${plural(everything.size, "video")}"
-                FolderHeader(folder.name, subtitle, { f.go { ownId = folder.parentId; ownGroup = null } }) {
+                FolderHeader(folder.name, subtitle, { f.go { ownId = folder.parentId; ownGroup = null } }, backFocus = backFocus) {
                     SkyIconButton(SkyIcon.Edit, "Rename ${folder.name}", {
                         f.dialogs.naming = NameSpec("Rename folder", folder.name, "Only the name in this app changes.", "Rename") { f.organizer.renameOwn(folder.id, it) }
                     })
@@ -922,6 +948,7 @@ private fun OwnPage(f: Folders) {
                 }
             }
             if (folder.isEmpty && children.isEmpty()) {
+                NoGridFocus(f, comeback, backFocus, entering)
                 EmptyAction("Nothing here yet", "Choose folders and videos for this folder.", "Choose folders and files") { f.chooseOwn(folder) }
             } else {
                 TileGrid(
@@ -932,9 +959,31 @@ private fun OwnPage(f: Folders) {
                     lettersOnlyForActors = folder.grouped,
                     focusKey = if (entering) f.hub.focusTile else null,
                     onFocused = f::focusTaken,
+                    noCardFocus = backFocus,
+                    comeback = comeback,
                 )
             }
         }
+    }
+}
+
+/**
+ * Where the grid would be, while an empty folder's message shows instead: a focused card went with the grid, or a card
+ * to focus ([HubState.focusTile]) has no grid to land in, so the focus goes to Back (spec 5.10: focus is always visible).
+ */
+@Composable
+private fun NoGridFocus(f: Folders, comeback: FocusComeback, backFocus: FocusRequester, entering: Boolean) {
+    comeback.goneIf { true }
+    SideEffect { comeback.applied() }
+    // Only a card that goes from now on counts, not one that went while the grid still showed.
+    val start = remember { comeback.refocus.intValue }
+    val refocus = comeback.refocus.intValue
+    val wanted = if (entering) f.hub.focusTile else null
+    LaunchedEffect(refocus, wanted) {
+        if (refocus == start && wanted == null) return@LaunchedEffect
+        withFrameNanos {}
+        runCatching { backFocus.requestFocus() }
+        if (wanted != null) f.focusTaken()
     }
 }
 
@@ -1057,6 +1106,8 @@ private fun SetPage(f: Folders) {
         if (groups != null && group != null && current == null) {
             val renamed = f.hub.renamedActor?.takeIf { (from, to) -> from == group && groups.any { it.identity == to } }
             f.hub.renamedActor = null
+            // Gone, not renamed: the focus, which went with the page, goes to its place on the grid.
+            if (renamed == null) f.hub.focusTile = actorFocusKey(group)
             f.hub.setGroup = renamed?.second
         }
     }
@@ -1099,6 +1150,9 @@ private fun SetPage(f: Folders) {
             return@ActorSwitch
         }
         val searchFocus = remember { FocusRequester() }
+        // A focused card that leaves (hidden, renamed, gone in a scan) gives the focus to a card in view, else to Back.
+        val comeback = remember { FocusComeback() }
+        val backFocus = remember { FocusRequester() }
 
         val tiles: List<Tile> = sectioned(
             children.filter { f.matches(it.name) }.map { f.setTile(it, null) } +
@@ -1120,7 +1174,7 @@ private fun SetPage(f: Folders) {
                 f.actorTile(
                     entry, page, ArtworkKeys.virtualSub(set.id, identity), set.name, ActorRemoval.HIDE,
                     onOpen = { f.go { setGroup = identity } },
-                    rename = { f.organizer.renameSubfolder(set.id, identity, it) },
+                    rename = { name -> f.organizer.renameSubfolder(set.id, identity, name)?.let { f.hub.focusTile = actorFocusKey(it) } },
                     remove = { f.hideActors(set.id, listOf(identity)) },
                 )
             },
@@ -1165,7 +1219,7 @@ private fun SetPage(f: Folders) {
                 )
             } else {
                 val subtitle = "${plural(children.size + directFolders.size + (groups?.size ?: 0), "folder")} · ${plural(videos.size, "video")}"
-                FolderHeader(set.name, subtitle, { f.go { setId = set.parentId; setGroup = null } }) {
+                FolderHeader(set.name, subtitle, { f.go { setId = set.parentId; setGroup = null } }, backFocus = backFocus) {
                     SkyIconButton(SkyIcon.Edit, "Rename ${set.name}", {
                         f.dialogs.naming = NameSpec("Rename virtual folder", set.name, "Only the name in this app changes.", "Rename") { f.organizer.renameSet(set.id, it) }
                     })
@@ -1188,14 +1242,18 @@ private fun SetPage(f: Folders) {
                 }
             }
             when {
-                set.isEmpty && children.isEmpty() ->
+                set.isEmpty && children.isEmpty() -> {
+                    NoGridFocus(f, comeback, backFocus, entering)
                     EmptyAction("Nothing here yet", "Choose the folders and videos this virtual folder reads.", "Choose folders and files") { f.chooseSet(set) }
-                !set.isEmpty && groups != null && direct != null && groups.isEmpty() && children.isEmpty() && directFolders.isEmpty() && directSingles.isEmpty() && f.members != null ->
+                }
+                !set.isEmpty && groups != null && direct != null && groups.isEmpty() && children.isEmpty() && directFolders.isEmpty() && directSingles.isEmpty() && f.members != null -> {
+                    NoGridFocus(f, comeback, backFocus, entering)
                     EmptyAction(
                         "No videos found yet",
                         "Subfolders appear once the chosen folders are in your library. Scan them again in Files if something is missing.",
                         "Choose folders and files",
                     ) { f.chooseSet(set) }
+                }
                 else -> TileGrid(
                     tiles, f.hub.grid(page), f.organizer, page, f.history, f.onPlay, Modifier.weight(1f),
                     emptyText = if (groups == null) "Loading…" else "Nothing matches.",
@@ -1204,6 +1262,8 @@ private fun SetPage(f: Folders) {
                     lettersOnlyForActors = true,
                     focusKey = if (entering) f.hub.focusTile else null,
                     onFocused = f::focusTaken,
+                    noCardFocus = backFocus,
+                    comeback = comeback,
                 )
             }
         }
