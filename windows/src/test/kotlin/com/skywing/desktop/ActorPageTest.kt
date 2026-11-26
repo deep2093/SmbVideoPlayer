@@ -141,6 +141,7 @@ class ActorPageTest {
     @Test fun onActorPageFlag() {
         val hub = HubState()
         assertFalse(hub.onActorPage)
+        hub.tab = 1
         hub.setId = "virtual"
         assertFalse(hub.onActorPage)
         hub.setGroup = "owen pike"
@@ -152,6 +153,33 @@ class ActorPageTest {
         own.ownId = "custom"
         own.ownGroup = "mara vale"
         assertTrue(own.onActorPage)
+        // A self-filling folder shows in place of the own folder (FoldersScreen's tab 0 order).
+        own.matchId = "match"
+        assertFalse(own.onActorPage)
+    }
+
+    @Test fun onActorPageLooksOnlyAtTheTabOnScreen() {
+        // An actor page left open on Virtual, then the Custom tab is shown.
+        val hub = HubState().apply { tab = 1; setId = "virtual"; setGroup = "owen pike" }
+        hub.tab = 0
+        assertFalse(hub.onActorPage)
+        // And the other way round.
+        val own = HubState().apply { ownId = "custom"; ownGroup = "mara vale" }
+        own.tab = 1
+        assertFalse(own.onActorPage)
+    }
+
+    @Test fun theRailFoldsOnlyOnAnActorPageOfTheHeaderLayout() {
+        val actor = HubState().apply { tab = 1; setId = "virtual"; setGroup = "owen pike" }
+        val header = ViewsData(actorLayout = ActorLayout.HEADER)
+        assertEquals(RailShape(wide = false, pin = true), railShape(wideRail = true, folders = true, actor, header))
+        assertEquals(RailShape(wide = true, pin = true), railShape(wideRail = true, folders = true, actor, header.copy(keepMenuOpen = true)))
+        assertEquals(RailShape(wide = true, pin = false), railShape(wideRail = true, folders = true, actor, header.copy(actorLayout = ActorLayout.STUDIO)))
+        assertEquals(RailShape(wide = true, pin = false), railShape(wideRail = true, folders = false, actor, header))
+        assertEquals(RailShape(wide = false, pin = false), railShape(wideRail = false, folders = true, actor, header))
+        // The actor page is on the other tab: an ordinary page, so the rail stays wide and shows no pin.
+        actor.tab = 0
+        assertEquals(RailShape(wide = true, pin = false), railShape(wideRail = true, folders = true, actor, header))
     }
 
     @Test fun photoKeyIsNamedByThePage() {

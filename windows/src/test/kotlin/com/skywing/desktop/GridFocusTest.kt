@@ -110,6 +110,7 @@ class GridFocusTest {
 
     @Test fun backFromAnActorPageFocusesItsCard() {
         val hub = HubState()
+        hub.tab = 1
         hub.setId = "set"
         hub.setGroup = "performer"
         assertTrue(hub.navigateBack(OrganizerData()))

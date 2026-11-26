@@ -158,6 +158,18 @@ internal fun NavRail(
     }
 }
 
+/** The rail's width ([wide], else folded to its icons) and whether it shows the Keep menu open [pin]. */
+internal data class RailShape(val wide: Boolean, val pin: Boolean)
+
+/**
+ * An actor page in the Header layout folds the wide rail to its icons, unless Keep menu open is on, and shows the pin
+ * (spec 5.3). [folders] is true while the Folders page is shown.
+ */
+internal fun railShape(wideRail: Boolean, folders: Boolean, hub: HubState, views: ViewsData): RailShape {
+    val actorHeader = folders && hub.onActorPage && views.actorLayout == ActorLayout.HEADER
+    return RailShape(wide = wideRail && !(actorHeader && !views.keepMenuOpen), pin = wideRail && actorHeader)
+}
+
 /**
  * The pin at the bottom of the rail on an actor page (spec 5.3): on, the rail keeps its 240 dp there; off, it folds to
  * its 72 dp icons to give the videos room. [wide] is the rail's width now; the choice is kept with the views.
