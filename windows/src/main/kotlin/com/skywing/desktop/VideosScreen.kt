@@ -85,9 +85,8 @@ internal fun VideosScreen(
                 )
                 SkyField(hub.videoQuery, { hub.videoQuery = it }, "Search videos", Modifier.width(260.dp), leading = SkyIcon.Search)
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SkyChipBar(SOURCE_NAMES, hub.videoSource, { hub.videoSource = it })
-                Row(Modifier.weight(1f)) {}
+            // In a narrow window the actions go under the chips ([HeaderLine]), so Play all is never cut.
+            HeaderLine(lead = { SkyChipBar(SOURCE_NAMES, hub.videoSource, { hub.videoSource = it }) }) {
                 SkyButton("Sort: " + SORT_NAMES[hub.videoSort.coerceIn(0, SORT_NAMES.lastIndex)], {
                     hub.videoSort = (hub.videoSort + 1) % SORT_NAMES.size
                 }, primary = false, icon = SkyIcon.Sort)

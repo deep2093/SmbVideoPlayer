@@ -159,6 +159,32 @@ internal class SkyWingTestApp private constructor(
         Win32.postText(window, text)
     }
 
+    /**
+     * Opens one Settings category in either layout. From 900 dp (M3) the categories are page tabs beside the page and
+     * the open one is selected; narrower, they are buttons and the page opens with a "Back to Settings" button.
+     */
+    fun openSettingsPage(page: String) {
+        activate("Settings", "page tab")
+        waitUntil("the Settings categories") { s -> s.nodes.any { ControlQuery.matches(it, page, "page tab") || ControlQuery.matches(it, page, "push button") } }
+        if (!isAbsent(page, "page tab")) {
+            activate(page, "page tab")
+            waitUntil("$page to be selected") { s -> ControlQuery.single(s.nodes, page, "page tab").selected }
+        } else {
+            activate(page, "push button")
+            find("Back to Settings", "push button")
+        }
+    }
+
+    /** Returns to the Settings categories: the Back button in one pane; in two panes the list never left. */
+    fun backToSettingsList() {
+        if (!isAbsent("Back to Settings", "push button")) {
+            activate("Back to Settings", "push button")
+            find("Appearance", "push button")
+        } else {
+            find("Appearance", "page tab")
+        }
+    }
+
     /** Polls the screen until [condition] holds. */
     fun waitUntil(what: String, timeoutMs: Long = UI_TIMEOUT_MS, condition: (Screen) -> Boolean) {
         retryQuery(what, timeoutMs) { screen -> if (!condition(screen)) throw AssertionError("Still waiting for $what") }

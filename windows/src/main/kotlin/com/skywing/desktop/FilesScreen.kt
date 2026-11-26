@@ -63,7 +63,7 @@ private fun StatusLine(text: String) {
 private fun SourceRow(icon: SkyIcon, title: String, detail: String? = null, trailing: @Composable () -> Unit = {}) {
     val theme = LocalSkyTheme.current
     Row(
-        Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -342,7 +342,7 @@ private fun NetworkSources(library: LibraryModel, onPlay: (File, List<File>) -> 
             LazyColumn(Modifier.fillMaxSize().padding(end = 14.dp), state = listState, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
                 items(listing.entries, key = { it.file.absolutePath }) { entry ->
                     Row(
-                        Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(14.dp))
+                        Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(14.dp))
                             .skyClickable({
                                 if (loading) return@skyClickable
                                 if (entry.directory) load(share, entry.file.toPath())

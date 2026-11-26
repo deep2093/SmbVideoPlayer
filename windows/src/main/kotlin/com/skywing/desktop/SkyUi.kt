@@ -45,18 +45,35 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.semantics.selected
+import com.skywing.desktop.ui.adaptive.LocalFocusVisible
+import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
@@ -76,6 +93,11 @@ import androidx.compose.ui.input.pointer.areAnyPressed
 import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.layout.heightIn
+import com.skywing.desktop.ui.adaptive.LocalAdaptive
+import com.skywing.desktop.ui.theme.SkyMotion
+import com.skywing.desktop.ui.theme.SkyRadius
 import java.io.File
 import java.util.Locale
 
@@ -129,6 +151,7 @@ internal fun Modifier.skyClickable(
     onLongClick: (() -> Unit)? = null,
     enabled: Boolean = true,
     role: Role? = null,
+    ringShape: Shape = RoundedCornerShape(SkyRadius.control),
 ): Modifier =
     this.pointerHoverIcon(PointerIcon.Hand)
         .then(
@@ -150,7 +173,29 @@ internal fun Modifier.skyClickable(
                 }
             },
         )
+        .focusRing(ringShape)
         .combinedClickable(enabled = enabled, role = role, onLongClick = onLongClick, onClick = onClick)
+
+/**
+ * The keyboard focus ring (M3 design brief 5.7, A6): 2 dp in the theme's focus colour while the control below it has
+ * focus and the keyboard is in use ([LocalFocusVisible]). It is drawn just inside the edge, over the content, so a
+ * control that clips its corners (cards, icon buttons) keeps it.
+ */
+internal fun Modifier.focusRing(shape: Shape = RoundedCornerShape(SkyRadius.control)): Modifier = composed {
+    var focused by remember { mutableStateOf(false) }
+    val visible = LocalFocusVisible.current
+    val colour = LocalSkyTheme.current.colors.focus
+    onFocusChanged { focused = it.isFocused }.drawWithContent {
+        drawContent()
+        if (focused && visible) {
+            val inset = 1.dp.toPx()
+            translate(inset, inset) {
+                val outline = shape.createOutline(Size(size.width - 2 * inset, size.height - 2 * inset), layoutDirection, this)
+                drawOutline(outline, colour, style = Stroke(2.dp.toPx()))
+            }
+        }
+    }
+}
 
 internal fun formatSize(bytes: Long): String {
     if (bytes <= 0) return ""
@@ -174,6 +219,10 @@ internal fun formatClock(seconds: Double): String {
 
 internal fun WindowsMediaEntry.title(): String = file.nameWithoutExtension
 
+/**
+ * A button (plan 6.3): Accent (the page's main action), Standard (a control-coloured fill with the 1 px edge) or
+ * Subtle (no fill). Radius 8; at least as tall as the input mode's smallest target.
+ */
 @Composable
 internal fun SkyButton(
     text: String,
@@ -182,26 +231,31 @@ internal fun SkyButton(
     enabled: Boolean = true,
     primary: Boolean = true,
     icon: SkyIcon? = null,
+    subtle: Boolean = false,
 ) {
     val theme = LocalSkyTheme.current
-    val shape = RoundedCornerShape(50)
+    val c = theme.colors
+    val shape = RoundedCornerShape(SkyRadius.control)
+    val accent = primary && !subtle
     val container = when {
-        !enabled -> theme.ink.copy(alpha = 0.08f)
-        primary -> theme.accent
-        else -> Color.Transparent
+        subtle -> Color.Transparent
+        !enabled -> c.control.copy(alpha = 0.5f)
+        accent -> c.accent
+        else -> c.control
     }
     val content = when {
-        !enabled -> theme.muted.copy(alpha = 0.5f)
-        primary -> theme.onAccent
-        else -> theme.ink
+        !enabled -> c.textDisabled
+        accent -> c.onAccent
+        else -> c.text
     }
     Row(
         modifier
+            .heightIn(min = LocalAdaptive.current.minTarget)
             .clip(shape)
             .background(container)
-            .then(if (primary) Modifier else Modifier.border(1.dp, theme.ink.copy(alpha = 0.25f), shape))
+            .then(if (accent || subtle) Modifier else Modifier.border(1.dp, c.stroke, shape))
             .skyClickable(onClick, enabled = enabled, role = Role.Button)
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -210,7 +264,7 @@ internal fun SkyButton(
     }
 }
 
-/** A rounded filter or tab chip with a lens behind it when selected (like the Android navigation bar). */
+/** One choice of a segmented control (plan 6.3, SkySegmented): the selected one has the accent at 16 % and accent text. */
 @Composable
 internal fun SkyChip(
     text: String,
@@ -219,37 +273,48 @@ internal fun SkyChip(
     modifier: Modifier = Modifier,
     icon: SkyIcon? = null,
     onLongClick: (() -> Unit)? = null,
+    /** What screen readers hear, when it says more than [text] (a short tab label). */
+    name: String? = null,
 ) {
     val theme = LocalSkyTheme.current
-    val lens by animateColorAsState(
-        when {
-            !selected -> Color.Transparent
-            theme.light -> theme.accent.copy(alpha = 0.16f)
-            else -> Color.White.copy(alpha = 0.18f)
-        },
-        animationSpec = tween(200),
-    )
-    val ink = if (selected) theme.accent else theme.ink.copy(alpha = if (theme.light) 0.78f else 0.88f)
+    val lens by animateColorAsState(if (selected) theme.colors.accentSubtle else Color.Transparent, animationSpec = SkyMotion.fast())
+    val ink = if (selected) theme.accent else theme.ink
     Row(
-        modifier.clip(RoundedCornerShape(50)).background(lens)
+        modifier.heightIn(min = LocalAdaptive.current.minTarget - 8.dp).clip(RoundedCornerShape(6.dp)).background(lens)
             .skyClickable(onClick, onLongClick, role = Role.Tab).semantics { this.selected = selected }
-            .padding(horizontal = 16.dp, vertical = 9.dp),
+            .then(if (name != null && name != text) Modifier.accessibleName(name) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (icon != null) SkyIconView(icon, ink, size = 18.dp)
-        Text(text, color = ink, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        Text(
+            text, color = ink, style = MaterialTheme.typography.labelLarge, maxLines = 1,
+            modifier = if (name != null && name != text) Modifier.clearAndSetSemantics {} else Modifier,
+        )
     }
 }
 
-/** A glass capsule holding a row of chips. */
+/** A segmented control (plan 6.3): choices side by side in one control-coloured frame, one of them selected. */
+@Composable
+internal fun SkySegmented(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) =
+    SkyChipBar(labels, selected, onSelect, modifier)
+
+/** The row of choices of [SkySegmented]. */
 @Composable
 internal fun SkyChipBar(labels: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.skyGlass(RoundedCornerShape(50)).padding(5.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+    val c = LocalSkyTheme.current.colors
+    val shape = RoundedCornerShape(SkyRadius.control)
+    Row(
+        modifier.clip(shape).background(c.control.copy(alpha = 0.6f)).border(1.dp, c.stroke, shape).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         labels.forEachIndexed { index, label -> SkyChip(label, index == selected, { onSelect(index) }) }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun SkyIconButton(
     icon: SkyIcon,
@@ -264,17 +329,34 @@ internal fun SkyIconButton(
 ) {
     val theme = LocalSkyTheme.current
     val color = (tint ?: theme.ink).let { if (enabled) it else it.copy(alpha = 0.35f) }
-    Box(
-        modifier
-            .size(box)
-            .clip(CircleShape)
-            .then(if (outlined) Modifier.border(2.dp, color, CircleShape) else Modifier)
-            .skyClickable(onClick, enabled = enabled, role = Role.Button)
-            .accessibleName(description),
-        contentAlignment = Alignment.Center,
-    ) {
-        SkyIconView(icon, color, size = glyph)
+    val shape = if (outlined) CircleShape else RoundedCornerShape(SkyRadius.control)
+    // The tooltip says what an icon-only button does (plan 6.3); the accessible name stays on the button.
+    TooltipArea(tooltip = { SkyTooltip(description) }, delayMillis = 600) {
+        Box(
+            modifier
+                .size(box)
+                .clip(shape)
+                .then(if (outlined) Modifier.border(2.dp, color, CircleShape) else Modifier)
+                .skyClickable(onClick, enabled = enabled, role = Role.Button, ringShape = shape)
+                .accessibleName(description),
+            contentAlignment = Alignment.Center,
+        ) {
+            SkyIconView(icon, color, size = glyph)
+        }
     }
+}
+
+/** A tooltip: layer 3, radius 8, Caption text. */
+@Composable
+internal fun SkyTooltip(text: String) {
+    val c = LocalSkyTheme.current.colors
+    val shape = RoundedCornerShape(SkyRadius.control)
+    Text(
+        text,
+        color = c.text,
+        style = MaterialTheme.typography.bodySmall,
+        modifier = Modifier.clip(shape).background(c.layer3).border(1.dp, c.stroke, shape).padding(horizontal = 8.dp, vertical = 4.dp),
+    )
 }
 
 @Composable
@@ -295,17 +377,17 @@ internal fun SkyField(
         modifier = modifier.semantics { contentDescription = placeholder },
         singleLine = true,
         visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-        shape = RoundedCornerShape(50),
+        shape = RoundedCornerShape(SkyRadius.control),
         placeholder = { Text(placeholder, color = theme.muted, maxLines = 1) },
         leadingIcon = if (leading != null) ({ SkyIconView(leading, theme.muted) }) else null,
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = theme.ink,
             unfocusedTextColor = theme.ink,
             cursorColor = theme.accent,
-            focusedContainerColor = theme.panelTint(),
-            unfocusedContainerColor = theme.panelTint(),
+            focusedContainerColor = theme.card,
+            unfocusedContainerColor = theme.card,
             focusedBorderColor = theme.accent,
-            unfocusedBorderColor = theme.ink.copy(alpha = 0.22f),
+            unfocusedBorderColor = theme.ink.copy(alpha = 0.30f),
             focusedLabelColor = theme.accent,
             unfocusedLabelColor = theme.muted,
         ),
@@ -319,6 +401,76 @@ internal fun PageTitle(title: String, subtitle: String? = null, modifier: Modifi
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, color = theme.ink, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (!subtitle.isNullOrBlank()) Text(subtitle, color = theme.muted, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * A page header's line (M3 design brief 5.6: Compact always fits, from the 640 dp minimum window): [lead], then the
+ * [trail] actions at the end. When the line can't hold [lead] at [leadMin] (or, with no [leadMin], at its own width)
+ * and every action at its own width, the actions go under [lead] instead, at the end, wrapping onto further lines if
+ * they must. No action is ever squeezed.
+ */
+@Composable
+internal fun HeaderLine(
+    modifier: Modifier = Modifier,
+    leadMin: Dp? = null,
+    gap: Dp = 8.dp,
+    lead: @Composable RowScope.() -> Unit,
+    trail: @Composable () -> Unit,
+) {
+    Layout(
+        contents = listOf(
+            { Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(gap)) { lead() } },
+            trail,
+        ),
+        modifier = modifier.fillMaxWidth(),
+    ) { (leadParts, trailParts), constraints ->
+        val gapPx = gap.roundToPx()
+        val lineGap = 8.dp.roundToPx()
+        val actions = trailParts.map { it.measure(Constraints(maxWidth = constraints.maxWidth)) }
+        // A part with no width (a closed menu's anchor) takes no room and no gap.
+        fun widthOf(parts: List<Placeable>): Int {
+            val seen = parts.filter { it.width > 0 }
+            return seen.sumOf { it.width } + gapPx * (seen.size - 1).coerceAtLeast(0)
+        }
+        val actionsWidth = widthOf(actions)
+        val leadPart = leadParts.single()
+        val leadNeed = leadMin?.roundToPx() ?: leadPart.maxIntrinsicWidth(constraints.maxHeight)
+        val width = if (constraints.hasBoundedWidth) constraints.maxWidth else leadNeed + gapPx + actionsWidth
+        val oneLine = actionsWidth == 0 || leadNeed + gapPx + actionsWidth <= width
+        val leadPlaced = leadPart.measure(Constraints(maxWidth = if (oneLine && actionsWidth > 0) width - gapPx - actionsWidth else width))
+
+        if (oneLine) {
+            val height = maxOf(constraints.minHeight, leadPlaced.height, actions.maxOfOrNull { it.height } ?: 0)
+            layout(width, height) {
+                leadPlaced.placeRelative(0, (height - leadPlaced.height) / 2)
+                var x = width - actionsWidth
+                actions.forEach { p ->
+                    p.placeRelative(x, (height - p.height) / 2)
+                    if (p.width > 0) x += p.width + gapPx
+                }
+            }
+        } else {
+            val lines = mutableListOf(mutableListOf<Placeable>())
+            actions.forEach { p ->
+                val line = lines.last()
+                if (p.width > 0 && line.any { it.width > 0 } && widthOf(line) + gapPx + p.width > width) lines += mutableListOf(p) else line += p
+            }
+            val lineHeights = lines.map { line -> line.maxOfOrNull { it.height } ?: 0 }
+            val height = maxOf(constraints.minHeight, leadPlaced.height + lineHeights.sumOf { it + lineGap })
+            layout(width, height) {
+                leadPlaced.placeRelative(0, 0)
+                var y = leadPlaced.height + lineGap
+                lines.forEachIndexed { index, line ->
+                    var x = width - widthOf(line)
+                    line.forEach { p ->
+                        p.placeRelative(x, y + (lineHeights[index] - p.height) / 2)
+                        if (p.width > 0) x += p.width + gapPx
+                    }
+                    y += lineHeights[index] + lineGap
+                }
+            }
+        }
     }
 }
 
@@ -406,7 +558,7 @@ internal fun FolderCard(
             if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
     }
-    CardFrame(modifier, selected == true, listMode, tall, onClick, onLongClick, picture) {
+    CardFrame(modifier, selected, null, listMode, tall, onClick, onLongClick, picture) {
         Text(title, color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(detail, color = theme.muted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -438,7 +590,8 @@ internal fun VideoCard(
             if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
     }
-    CardFrame(modifier, selected == true, listMode, tall, onClick, onLongClick, picture) {
+    val watched = progress?.takeIf { it > 0f }?.let { "${(it.coerceIn(0f, 1f) * 100).roundToInt()}% watched" }
+    CardFrame(modifier, selected, watched, listMode, tall, onClick, onLongClick, picture) {
         Text(entry.title(), color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
             detail ?: listOf(formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }.joinToString("  ·  "),
@@ -449,12 +602,14 @@ internal fun VideoCard(
 
 /**
  * The frame shared by folder and video cards: a 16:9 picture (3:4 when [tall]) over the text, or a row with a small
- * picture in list mode.
+ * picture in list mode. Screen readers get a push button named by the first text, the title (M3 design brief 5.7), with
+ * [watched] as its description and, only while cards are being selected, its [selected] state.
  */
 @Composable
 private fun CardFrame(
     modifier: Modifier,
-    highlighted: Boolean,
+    selected: Boolean?,
+    watched: String?,
     listMode: Boolean,
     tall: Boolean,
     onClick: () -> Unit,
@@ -463,9 +618,14 @@ private fun CardFrame(
     text: @Composable () -> Unit,
 ) {
     val theme = LocalSkyTheme.current
-    val frame = modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-        .background(if (highlighted) theme.accent.copy(alpha = 0.22f) else theme.surface)
-        .skyClickable(onClick, onLongClick)
+    val shape = RoundedCornerShape(SkyRadius.card)
+    val frame = modifier.fillMaxWidth().clip(shape)
+        .background(if (selected == true) theme.accent.copy(alpha = 0.22f) else theme.surface)
+        .skyClickable(onClick, onLongClick, role = Role.Button, ringShape = shape)
+        .semantics {
+            if (selected != null) this.selected = selected
+            if (watched != null) contentDescription = watched
+        }
     if (listMode) {
         Row(frame.padding(6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             picture(Modifier.width(if (tall) 72.dp else 128.dp).aspectRatio(if (tall) 3f / 4f else 16f / 9f).clip(RoundedCornerShape(10.dp)))

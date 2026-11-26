@@ -213,6 +213,14 @@ class AccessibilitySemanticsTest {
         assertEquals(true, checked)
     }
 
+    // The M3 runner's audit: Settings › App layout had two check boxes a screen reader could not name.
+    @Test fun folderTabCheckboxIsDescribedByItsTab() {
+        var ticked: Boolean? = null
+        compose.setContent { FolderTabRow("Library", on = false, canTurnOff = true, canMoveEarlier = false, canMoveLater = false, onTick = { ticked = it }, onEarlier = {}, onLater = {}) }
+        compose.onNode(isToggleable() and described("Library")).assert(role(Role.Checkbox)).performClick()
+        assertEquals(true, ticked)
+    }
+
     @Test fun settingsRowsAndThemesExposeRoles() {
         compose.setContent {
             androidx.compose.foundation.layout.Column {
@@ -231,6 +239,31 @@ class AccessibilitySemanticsTest {
             compose.onNode(slider(name)).assertRangeInfoEquals(ProgressBarRangeInfo(value, 0f..1f))
             assertEquals(1, compose.onAllNodes(slider(name)).fetchSemanticsNodes().size)
         }
+    }
+
+    // M3 item 9 (M3 design brief 5.7): a card is a push button named by its title, with what is watched and its selection.
+    @Test fun videoCardsAreButtonsNamedByTitleWithTheWatchedShareAndSelection() {
+        val entry = WindowsMediaEntry(java.io.File(System.getProperty("java.io.tmpdir"), "Sky card test.mp4").path, "s", "local", "Videos", 1_000, 0)
+        compose.setContent { VideoCard(entry, {}, progress = 0.42f, selected = true) }
+        compose.onNode(named("Sky card test")).assert(role(Role.Button)).assertHasClickAction().assertIsSelected()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.ContentDescription, listOf("42% watched")))
+    }
+
+    @Test fun cardsOutsideSelectionSayNothingAboutSelection() {
+        compose.setContent { FolderCard("Holidays", "12 videos", null, emptyList(), {}) }
+        compose.onNode(named("Holidays")).assert(role(Role.Button)).assertHasClickAction()
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.Selected)).assert(noDescription)
+    }
+
+    @Test fun settingsCategoriesInTwoPanesAreTabsWithTheOpenOneSelected() {
+        compose.setContent {
+            androidx.compose.foundation.layout.Column {
+                SettingsListEntry(SkyIcon.Settings, "Appearance", selected = true) {}
+                SettingsListEntry(SkyIcon.Settings, "Playback", selected = false) {}
+            }
+        }
+        compose.onNodeWithText("Appearance").assert(role(Role.Tab)).assertIsSelected()
+        compose.onNodeWithText("Playback").assert(role(Role.Tab)).assertIsNotSelected()
     }
 
     @androidx.compose.runtime.Composable

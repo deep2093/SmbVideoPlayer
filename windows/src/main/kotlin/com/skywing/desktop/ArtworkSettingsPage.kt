@@ -59,7 +59,7 @@ internal fun ArtworkPage(library: LibraryModel, organizer: Organizer, portraits:
 
     @Composable
     fun Card(title: String, content: @Composable () -> Unit) {
-        Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, color = theme.ink, style = MaterialTheme.typography.titleMedium)
             content()
         }
@@ -321,7 +321,7 @@ private fun ThumbnailsCard(library: LibraryModel, onMessage: (String) -> Unit) {
             delay(3_000)
         }
     }
-    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Thumbnails", color = theme.ink, style = MaterialTheme.typography.titleMedium)
         val s = stats
         if (s == null) {

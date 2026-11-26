@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
+import com.skywing.desktop.ui.adaptive.Adaptive
+import com.skywing.desktop.ui.adaptive.AutoColumns
+import com.skywing.desktop.ui.adaptive.LocalAdaptive
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -24,6 +27,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +36,7 @@ import androidx.compose.ui.input.pointer.isCtrlPressed
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -42,12 +47,14 @@ import java.io.File
 internal const val VIDEOS_PAGE = "videos"
 
 /**
- * The grid columns: one row per item in list mode, a fixed number chosen in Settings, otherwise as many cards of
- * the size picked with the grid size buttons as fit.
+ * The grid columns: one row per item in list mode, a fixed number chosen in Settings, as many as the window calls for
+ * while the cards keep their first size (M3 design brief 5.4), otherwise as many cards of the size picked with the grid
+ * size buttons as fit.
  */
-internal fun FolderPrefs.cells(page: String): GridCells = when {
+internal fun FolderPrefs.cells(page: String, adaptive: Adaptive): GridCells = when {
     listMode -> GridCells.Fixed(1)
     columns in 2..5 -> GridCells.Fixed(columns)
+    CardSizes.of(cardSizeFor(page)) == CardSizes.NORMAL -> AutoColumns(adaptive)
     else -> GridCells.Adaptive(CardSizes.of(cardSizeFor(page)).dp)
 }
 
@@ -135,6 +142,7 @@ internal fun TileGrid(
     footer: String? = null,
     letters: Boolean = true,
 ) {
+    KeepFirstItemAcrossColumns(state)
     val prefs = organizer.data.prefs
     val tall = prefs.isTall(page)
     val current by rememberUpdatedState(tiles)
@@ -174,7 +182,7 @@ internal fun TileGrid(
         },
     ) {
         LazyVerticalGrid(
-            columns = prefs.cells(page),
+            columns = prefs.cells(page, LocalAdaptive.current),
             state = state,
             modifier = Modifier.fillMaxSize().padding(end = 14.dp),
             contentPadding = PaddingValues(bottom = 28.dp),
@@ -266,6 +274,30 @@ internal fun ListTotal(text: String) {
     )
 }
 
+/**
+ * Keeps the video the person was looking at on the first line when the window's width changes the number of columns
+ * (M3 design brief 5.4). On its own a grid keeps the start of the first line, which moves back by up to a line at
+ * each change, so a few resizes drift the view away. The item stays the anchor while it is on the first line, and
+ * the grid scrolls back to it after each change; scrolling past it makes the new first item the anchor.
+ */
+@Composable
+internal fun KeepFirstItemAcrossColumns(state: LazyGridState) {
+    LaunchedEffect(state) {
+        var columns = 0
+        var items = 0
+        var anchor = -1
+        snapshotFlow { Triple(state.layoutInfo.maxSpan, state.layoutInfo.totalItemsCount, state.firstVisibleItemIndex) }
+            .collect { (span, count, first) ->
+                val reflowed = columns != 0 && span != columns && count == items && anchor >= 0
+                columns = span
+                items = count
+                // Applied at the next measure: this can run while the grid is being measured.
+                if (reflowed) state.requestScrollToItem(anchor)
+                else if (anchor !in first until first + span) anchor = first
+            }
+    }
+}
+
 /** A grid of video cards (the Videos page) with optional rows above it and the scroll bar at the right edge. */
 @Composable
 internal fun VideoGridView(
@@ -282,6 +314,7 @@ internal fun VideoGridView(
     emptyAction: MenuAction? = null,
     menu: (WindowsMediaEntry) -> List<MenuAction> = { emptyList() },
 ) {
+    KeepFirstItemAcrossColumns(state)
     val prefs = organizer.data.prefs
     val tall = prefs.isTall(VIDEOS_PAGE)
     val shown by rememberUpdatedState(entries)
@@ -319,7 +352,7 @@ internal fun VideoGridView(
         },
     ) {
         LazyVerticalGrid(
-            columns = prefs.cells(VIDEOS_PAGE),
+            columns = prefs.cells(VIDEOS_PAGE, LocalAdaptive.current),
             state = state,
             modifier = Modifier.fillMaxSize().padding(end = 14.dp),
             contentPadding = PaddingValues(bottom = 28.dp),
@@ -359,7 +392,10 @@ internal fun VideoGridView(
     }
 }
 
-/** The line at the top of an opened folder: back arrow, name, how many videos, and its actions. */
+/**
+ * The line at the top of an opened folder: back arrow, name, how many videos, and its actions. In a narrow window the
+ * actions go under the name ([HeaderLine]).
+ */
 @Composable
 internal fun FolderHeader(
     title: String,
@@ -368,11 +404,10 @@ internal fun FolderHeader(
     modifier: Modifier = Modifier,
     actions: @Composable () -> Unit = {},
 ) {
-    Row(modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    HeaderLine(modifier.heightIn(min = 56.dp), leadMin = 200.dp, gap = 10.dp, lead = {
         SkyIconButton(SkyIcon.Back, "Back", onBack)
         PageTitle(title, subtitle, Modifier.weight(1f))
-        actions()
-    }
+    }, trail = actions)
 }
 
 /**
@@ -392,7 +427,7 @@ internal fun FolderSelectionBar(
     val theme = LocalSkyTheme.current
     var asking by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).skyGlass(RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 6.dp),
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).skyPanel(RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -432,7 +467,7 @@ internal fun SelectionBar(
     val chosen = visible.filter { it.path in selection.paths }
     var filing by remember { mutableStateOf<Boolean?>(null) }
     Row(
-        modifier.fillMaxWidth().skyGlass(RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 6.dp),
+        modifier.fillMaxWidth().skyPanel(RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {

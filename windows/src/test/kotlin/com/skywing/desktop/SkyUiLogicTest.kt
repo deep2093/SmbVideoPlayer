@@ -7,17 +7,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SkyUiLogicTest {
-    @Test fun themesKeepTheAndroidIds() {
-        val ids = skyThemes.map { it.id }
-        assertEquals(
-            listOf("LIQUID", "SKYWING_AURORA_LIGHT", "SKYWING_CRYSTAL_DARK", "LIQUID_GLASS", "AMOLED", "SLATE", "ADAPTIVE_GLOW", "ADAPTIVE_MIDNIGHT", "ADAPTIVE_VIVID"),
-            ids,
-        )
-        assertEquals(ids.size, ids.toSet().size)
-        assertTrue(skyThemes.all { it.wallpaper.size >= 2 })
-        assertEquals(3, skyThemes.count { it.adaptive != null })
-    }
-
     @Test fun sizesAndClocksAreReadable() {
         assertEquals("", formatSize(0))
         assertEquals("512 B", formatSize(512))

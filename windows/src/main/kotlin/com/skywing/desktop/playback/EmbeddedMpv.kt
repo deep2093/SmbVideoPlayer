@@ -34,7 +34,12 @@ class EmbeddedMpv(
         fun mpv_get_property_string(ctx: Pointer, name: String): Pointer?
         fun mpv_free(data: Pointer)
         fun mpv_terminate_destroy(ctx: Pointer)
+        fun mpv_create_client(ctx: Pointer, name: String): Pointer?
+        fun mpv_destroy(ctx: Pointer)
     }
+
+    /** Called on the input thread of mpv for each left click or tap on the video window, which AWT never sees (M3 item 10). */
+    @Volatile var onVideoClick: (() -> Unit)? = null
 
     @Volatile private var api: Api? = null
     @Volatile private var instance: Pointer? = null
@@ -207,6 +212,7 @@ class EmbeddedMpv(
                 throw failure
             }
             native.mpv_request_log_messages(context, "v")
+            listenForClicks(native, context)
             api = native
             instance = context
             surface = hwnd
@@ -254,6 +260,39 @@ class EmbeddedMpv(
             read.unlock()
         }
     }
+
+    /**
+     * Binds a left click on the video to a message that a second client handle receives on a thread of its own, which
+     * only waits on that handle. The shutdown of mpv (in [close]) wakes it; it then destroys the handle, which
+     * mpv_terminate_destroy waits for.
+     */
+    private fun listenForClicks(native: Api, context: Pointer) {
+        if (native.mpv_command(context, arrayOf("keybind", "MBTN_LEFT", "script-message $VIDEO_CLICK", null)) < 0) return
+        val client = native.mpv_create_client(context, "skywing-input") ?: return
+        Thread({
+            try {
+                while (true) {
+                    val event = native.mpv_wait_event(client, -1.0)
+                    when (event.getInt(0)) {
+                        1 -> return@Thread // MPV_EVENT_SHUTDOWN
+                        16 -> if (clientMessage(event) == VIDEO_CLICK) runCatching { onVideoClick?.invoke() }
+                    }
+                }
+            } finally {
+                native.mpv_destroy(client)
+            }
+        }, "skywing-mpv-input").apply { isDaemon = true; start() }
+    }
+
+    /** The first argument of an mpv_event_client_message; x64 layout. */
+    private fun clientMessage(event: Pointer): String? {
+        val message = event.getPointer(16) ?: return null
+        if (message.getInt(0) < 1) return null
+        return message.getPointer(8)?.getPointer(0)?.getString(0, "UTF-8")
+    }
+
+    /** Tests only: a left click on the video, as the window of mpv reports one. */
+    internal fun clickVideoForTest(): Boolean = command("mouse", "10", "10", "0", "single")
 
     // This measures only how quickly mpv accepts the load request, not first-frame time.
     var lastLoadCommandMillis: Long = -1
@@ -952,3 +991,6 @@ private data class GpuSignature(
     val choice: GpuChoice,
     val windowsPreference: WindowsGpuPreference,
 )
+
+/** The message a left click on the video sends (M3 item 10). */
+private const val VIDEO_CLICK = "skywing-video-click"

@@ -5,6 +5,12 @@ import com.skywing.desktop.playback.SmoothingMode
 import com.skywing.desktop.playback.SmoothingStatus
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.Color
+import com.skywing.desktop.ui.adaptive.LocalAdaptive
+import com.skywing.desktop.ui.theme.SkyRadius
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
@@ -47,8 +53,20 @@ import androidx.compose.ui.unit.dp
 
 private class SettingsPage(val title: String, val subtitle: String, val icon: SkyIcon)
 
+/** Which Settings page is open, and what Back does to it (M3 design brief 5.6). */
+internal class SettingsNavigation {
+    var open by mutableStateOf<String?>(null)
+
+    /** Back inside Settings: closes the open page when the list is hidden; true when it did, false to leave it to the shell. */
+    fun back(listShown: Boolean): Boolean {
+        if (listShown || open == null) return false
+        open = null
+        return true
+    }
+}
+
 private val PAGES = listOf(
-    SettingsPage("Appearance", "Glass theme", SkyIcon.Palette),
+    SettingsPage("Appearance", "Theme and colours", SkyIcon.Palette),
     SettingsPage("Library", "Sources and what is indexed", SkyIcon.VideoLibrary),
     SettingsPage("Sync & scanning", "Automatic rescan and library scan", SkyIcon.Refresh),
     SettingsPage("Auto grouping", "How file names become folders", SkyIcon.Grid),
@@ -59,8 +77,9 @@ private val PAGES = listOf(
 )
 
 /**
- * Settings as a short list of categories; each opens as its own page that slides in with a back arrow,
- * the same as Settings on Android.
+ * Settings (M3 design brief 5.6, decision O1). From 900 dp the category list stays at the left and the chosen page
+ * shows beside it. Narrower, the list is a page of its own and each category slides in with a back arrow; Back,
+ * Esc, the mouse back button and Settings again return to the list through [onBackHandler].
  */
 @Composable
 internal fun SettingsScreen(
@@ -73,9 +92,62 @@ internal fun SettingsScreen(
     smoothingMode: SmoothingMode,
     smoothingStatus: SmoothingStatus,
     onSmoothingMode: (SmoothingMode) -> Unit,
+    /** Receives what Back does here: closes the open page when the list is hidden, and says whether it did. */
+    onBackHandler: ((() -> Boolean)?) -> Unit = {},
+    /** "Reset window size" in Appearance. */
+    onResetWindow: () -> Unit = {},
     onOpenFiles: () -> Unit,
 ) {
-    var open by remember { mutableStateOf<String?>(null) }
+    val adaptive = LocalAdaptive.current
+    val twoPanes = adaptive.settingsTwoPanes
+    val nav = remember { SettingsNavigation() }
+    var open by nav::open
+    val listShown by rememberUpdatedState(twoPanes)
+    DisposableEffect(nav) {
+        onBackHandler { nav.back(listShown) }
+        onDispose { onBackHandler(null) }
+    }
+    val pageContent: @Composable (String) -> Unit = { page ->
+        val scroll = rememberScrollState()
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().padding(end = 14.dp).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                when (page) {
+                    "Appearance" -> AppearancePage(current, onTheme, onResetWindow)
+                    "Library" -> LibraryPage(library, organizer, onOpenFiles)
+                    "Auto grouping" -> GroupingPage(organizer)
+                    "App layout" -> LayoutPage(organizer)
+                    "Artwork" -> ArtworkPage(library, organizer, portraits)
+                    "Sync & scanning" -> SyncPage(library, sync)
+                    "Playback" -> PlaybackPage(smoothingMode, smoothingStatus, onSmoothingMode)
+                    else -> AboutPage()
+                }
+            }
+            ColumnScrollbar(scroll, Modifier.align(Alignment.CenterEnd))
+        }
+    }
+    if (twoPanes) {
+        val shown = open ?: PAGES.first().title
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(adaptive.pagePadding)) {
+            val scroll = rememberScrollState()
+            Column(
+                Modifier.width(adaptive.settingsListWidth).fillMaxHeight().verticalScroll(scroll),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                PageTitle("Settings", modifier = Modifier.padding(bottom = 12.dp))
+                PAGES.forEach { entry ->
+                    SettingsListEntry(entry.icon, entry.title, entry.title == shown) { open = entry.title }
+                }
+            }
+            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                PageTitle(shown)
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    // A page's own state (its scroll) starts again when another category is chosen.
+                    androidx.compose.runtime.key(shown) { pageContent(shown) }
+                }
+            }
+        }
+        return
+    }
     AnimatedContent(
         targetState = open,
         modifier = Modifier.fillMaxSize(),
@@ -104,24 +176,26 @@ internal fun SettingsScreen(
                     SkyIconButton(SkyIcon.Back, "Back to Settings", { open = null })
                     PageTitle(page)
                 }
-                val scroll = rememberScrollState()
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    Column(Modifier.fillMaxSize().padding(end = 14.dp).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        when (page) {
-                            "Appearance" -> AppearancePage(current, onTheme)
-                            "Library" -> LibraryPage(library, organizer, onOpenFiles)
-                            "Auto grouping" -> GroupingPage(organizer)
-                            "App layout" -> LayoutPage(organizer)
-                            "Artwork" -> ArtworkPage(library, organizer, portraits)
-                            "Sync & scanning" -> SyncPage(library, sync)
-                            "Playback" -> PlaybackPage(smoothingMode, smoothingStatus, onSmoothingMode)
-                            else -> AboutPage()
-                        }
-                    }
-                    ColumnScrollbar(scroll, Modifier.align(Alignment.CenterEnd))
-                }
+                Box(Modifier.weight(1f).fillMaxWidth()) { pageContent(page) }
             }
         }
+    }
+}
+
+/** One category in the two-pane list: a tab with its icon and name, the open one selected, with the accent at 16 %. */
+@Composable
+internal fun SettingsListEntry(icon: SkyIcon, title: String, selected: Boolean, onClick: () -> Unit) {
+    val c = LocalSkyTheme.current.colors
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = LocalAdaptive.current.rowHeight).clip(RoundedCornerShape(SkyRadius.control))
+            .background(if (selected) c.accentSubtle else Color.Transparent)
+            .skyClickable(onClick, role = Role.Tab).semantics { this.selected = selected }
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SkyIconView(icon, if (selected) c.accent else c.textSecondary, size = 20.dp)
+        Text(title, color = c.text, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
     }
 }
 
@@ -129,7 +203,7 @@ internal fun SettingsScreen(
 internal fun SettingsRow(icon: SkyIcon, title: String, subtitle: String, onClick: () -> Unit) {
     val theme = LocalSkyTheme.current
     Row(
-        Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).skyClickable(onClick, role = Role.Button)
+        Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).skyClickable(onClick, role = Role.Button)
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -144,12 +218,12 @@ internal fun SettingsRow(icon: SkyIcon, title: String, subtitle: String, onClick
 }
 
 @Composable
-private fun AppearancePage(current: SkyTheme, onTheme: (SkyTheme) -> Unit) {
+private fun AppearancePage(current: SkyTheme, onTheme: (SkyTheme) -> Unit, onResetWindow: () -> Unit) {
     val theme = LocalSkyTheme.current
     Text("Theme", color = theme.ink, style = MaterialTheme.typography.titleMedium)
     Text(
-        "The same themes as the Android app. Aurora is vivid, Crystal is calm, AMOLED black and Midnight blue are solid, " +
-            "and the Adaptive themes take their colours from the covers on screen.",
+        "Dark, Light, Midnight and OLED black are plain colours. Adaptive is Dark with its accent and a soft tint taken " +
+            "from the covers on screen.",
         color = theme.muted, style = MaterialTheme.typography.bodySmall,
     )
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -159,6 +233,19 @@ private fun AppearancePage(current: SkyTheme, onTheme: (SkyTheme) -> Unit) {
             }
         }
     }
+    // Plan 6.8 rule 6.
+    Text("Window at start", color = theme.ink, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 10.dp))
+    Text(
+        "Remember last opens SkyWing as you left it, on the same screen. Small, Medium and Large take 60, 75 and 90 % of the screen.",
+        color = theme.muted, style = MaterialTheme.typography.bodySmall,
+    )
+    val store = remember { WindowPlacementStore() }
+    var mode by remember { mutableStateOf(store.mode()) }
+    SkySegmented(StartMode.entries.map { it.label }, StartMode.entries.indexOf(mode), { index ->
+        mode = StartMode.entries[index]
+        store.setMode(mode)
+    })
+    SkyButton("Reset window size", onResetWindow, primary = false)
 }
 
 @Composable
@@ -176,7 +263,7 @@ internal fun ThemeChoice(option: SkyTheme, selected: Boolean, onClick: () -> Uni
                 .padding(12.dp),
         ) {
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.width(44.dp).fillMaxHeight().clip(RoundedCornerShape(12.dp)).background(option.panelTint()))
+                Box(Modifier.width(44.dp).fillMaxHeight().clip(RoundedCornerShape(12.dp)).background(option.surface))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.width(90.dp).height(12.dp).clip(RoundedCornerShape(50)).background(option.accent))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -198,7 +285,7 @@ private fun LibraryPage(library: LibraryModel, organizer: Organizer, onOpenFiles
     val theme = LocalSkyTheme.current
     val pc = library.all.count { it.sourceType == "PC" }
     val network = library.all.count { it.sourceType == "SMB" }
-    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("${library.all.size} videos in your library", color = theme.ink, style = MaterialTheme.typography.titleMedium)
         Text("$pc on this PC  ·  $network on network shares", color = theme.muted, style = MaterialTheme.typography.bodyMedium)
         val data = organizer.data
@@ -245,7 +332,7 @@ private fun GroupingPage(organizer: Organizer) {
         Triple("Virtual folders", prefs.virtualRules) { rules: GroupingSwitches -> organizer.updatePrefs { it.copy(virtualRules = rules) } },
         Triple("Custom folders", prefs.customRules) { rules: GroupingSwitches -> organizer.updatePrefs { it.copy(customRules = rules) } },
     ).forEach { (title, rules, save) ->
-        Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, color = theme.ink, style = MaterialTheme.typography.titleMedium)
             SwitchRow("Stop at the first hyphen", "Only the text before the first \"-\" names the folder.", rules.stopAtHyphen) { save(rules.copy(stopAtHyphen = it)) }
             SwitchRow("Split at commas", "Each name before the hyphen gets its own folder; the video is listed in each.", rules.splitAtCommas) { save(rules.copy(splitAtCommas = it)) }
@@ -254,35 +341,58 @@ private fun GroupingPage(organizer: Organizer) {
     }
 }
 
+/** One Folders tab on Settings › App layout: shown or not, and moved earlier or later. */
+@Composable
+internal fun FolderTabRow(
+    name: String,
+    on: Boolean,
+    canTurnOff: Boolean,
+    canMoveEarlier: Boolean,
+    canMoveLater: Boolean,
+    onTick: (Boolean) -> Unit,
+    onEarlier: () -> Unit,
+    onLater: () -> Unit,
+) {
+    val theme = LocalSkyTheme.current
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Checkbox(
+            checked = on,
+            enabled = !on || canTurnOff,
+            onCheckedChange = onTick,
+            // Named like the folder picker's boxes, so a screen reader says which tab it shows.
+            modifier = Modifier.accessibleDescription(name),
+            colors = CheckboxDefaults.colors(checkedColor = theme.accent, checkmarkColor = theme.onAccent, uncheckedColor = theme.muted),
+        )
+        Text(name, color = if (on) theme.ink else theme.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        SkyButton("Earlier", onEarlier, enabled = canMoveEarlier, primary = false)
+        SkyButton("Later", onLater, enabled = canMoveLater, primary = false)
+    }
+}
+
 /** Settings › App layout: which Folders tabs show and their order, the number of columns, and list or grid. */
 @Composable
 private fun LayoutPage(organizer: Organizer) {
     val theme = LocalSkyTheme.current
     val prefs = organizer.data.prefs
-    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Folders tabs", color = theme.ink, style = MaterialTheme.typography.titleMedium)
         Text("Choose which tabs Folders shows and their order. At least one stays on. Hold a tab to rename it.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
         FolderTabs.arranged(prefs.tabs).forEach { tab ->
             val on = tab in prefs.tabs
             val at = prefs.tabs.indexOf(tab)
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Checkbox(
-                    checked = on,
-                    enabled = !on || prefs.tabs.size > 1,
-                    onCheckedChange = { tick -> organizer.updatePrefs { it.copy(tabs = if (tick) it.tabs + tab else it.tabs - tab) } },
-                    colors = CheckboxDefaults.colors(checkedColor = theme.accent, checkmarkColor = theme.onAccent, uncheckedColor = theme.muted),
-                )
-                Text(prefs.tabName(tab), color = if (on) theme.ink else theme.muted, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                SkyButton("Earlier", {
-                    organizer.updatePrefs { it.copy(tabs = it.tabs.toMutableList().apply { add(at - 1, removeAt(at)) }) }
-                }, enabled = on && at > 0, primary = false)
-                SkyButton("Later", {
-                    organizer.updatePrefs { it.copy(tabs = it.tabs.toMutableList().apply { add(at + 1, removeAt(at)) }) }
-                }, enabled = on && at in 0 until prefs.tabs.lastIndex, primary = false)
-            }
+            FolderTabRow(
+                name = prefs.tabName(tab),
+                on = on,
+                canTurnOff = prefs.tabs.size > 1,
+                canMoveEarlier = on && at > 0,
+                canMoveLater = on && at in 0 until prefs.tabs.lastIndex,
+                onTick = { tick -> organizer.updatePrefs { it.copy(tabs = if (tick) it.tabs + tab else it.tabs - tab) } },
+                onEarlier = { organizer.updatePrefs { it.copy(tabs = it.tabs.toMutableList().apply { add(at - 1, removeAt(at)) }) } },
+                onLater = { organizer.updatePrefs { it.copy(tabs = it.tabs.toMutableList().apply { add(at + 1, removeAt(at)) }) } },
+            )
         }
     }
-    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Grid columns", color = theme.ink, style = MaterialTheme.typography.titleMedium)
         Text("Auto fits as many cards as the window allows. Cards keep a 16:9 shape.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
         SkyChipBar(listOf("Auto", "2", "3", "4", "5"), if (prefs.columns in 2..5) prefs.columns - 1 else 0, { index ->
@@ -309,7 +419,7 @@ private fun PlaybackPage(mode: SmoothingMode, status: SmoothingStatus, onMode: (
         "F" to "Full screen",
         "Esc" to "Leave full screen",
     )
-    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         shortcuts.forEach { (keys, what) ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(keys, color = theme.accent, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(150.dp))
@@ -349,7 +459,7 @@ private fun AboutPage() {
 private fun SyncPage(library: LibraryModel, sync: LibrarySync) {
     val theme = LocalSkyTheme.current
     var showProblems by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Automatic sync", color = theme.ink, style = MaterialTheme.typography.titleMedium)
         SwitchRow(
             "Rescan automatically",
@@ -362,7 +472,7 @@ private fun SyncPage(library: LibraryModel, sync: LibrarySync) {
             color = theme.muted, style = MaterialTheme.typography.bodySmall,
         )
     }
-    Column(Modifier.fillMaxWidth().skyGlass(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Library scan", color = theme.ink, style = MaterialTheme.typography.titleMedium)
         val pc = library.all.count { it.sourceType == "PC" }
         val shares = library.all.filter { it.sourceType == "SMB" }

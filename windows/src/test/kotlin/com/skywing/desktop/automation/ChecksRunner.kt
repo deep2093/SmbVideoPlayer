@@ -140,6 +140,10 @@ internal enum class Verdict(val word: String) {
     LOOK("Look at it"),
     /** The device wasn't left alone, so the check says nothing about SkyWing. Run it again. */
     NOT_MEASURED("Not measured"),
+    /** The M3 runner: numbers with no limit of their own, for the before and after images side by side. */
+    MEASURED("Measured"),
+    /** The M3 runner: the build before M3 is shown for comparison, not judged by M3's rules. */
+    BEFORE("Before M3: shown, not judged"),
 }
 
 internal data class CheckResult(val check: Check, val verdict: Verdict, val summary: String, val details: List<String> = emptyList())

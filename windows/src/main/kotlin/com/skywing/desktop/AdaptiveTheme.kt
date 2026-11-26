@@ -181,7 +181,7 @@ internal fun rememberShownTheme(theme: SkyTheme): SkyTheme {
             fromHsv((c[0] / 30f).roundToInt() * 30f, c[1], c[2])
         }
     }
-    return remember(theme, accent) { theme.copy(accent = accent) }
+    return remember(theme, accent) { theme.withAccent(accent) }
 }
 
 /**
