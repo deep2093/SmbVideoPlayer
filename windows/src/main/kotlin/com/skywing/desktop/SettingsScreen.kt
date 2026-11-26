@@ -280,8 +280,9 @@ internal fun ThemeChoice(option: SkyTheme, selected: Boolean, onClick: () -> Uni
     }
 }
 
+/** Settings › Library: what the library holds, the actor page layout, and the buttons for shares and view settings. */
 @Composable
-private fun LibraryPage(library: LibraryModel, organizer: Organizer, onOpenFiles: () -> Unit) {
+internal fun LibraryPage(library: LibraryModel, organizer: Organizer, onOpenFiles: () -> Unit) {
     val theme = LocalSkyTheme.current
     val pc = library.all.count { it.sourceType == "PC" }
     val network = library.all.count { it.sourceType == "SMB" }
@@ -295,6 +296,15 @@ private fun LibraryPage(library: LibraryModel, organizer: Organizer, onOpenFiles
         )
     }
     val views = LocalLibraryViews.current
+    val layouts = listOf(ActorLayout.HEADER to "Header", ActorLayout.STUDIO to "Studio")
+    Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Actor page layout", color = theme.ink, style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Header folds into a slim bar as the videos scroll. Studio keeps a small header with Continue watching and Up next.",
+            color = theme.muted, style = MaterialTheme.typography.bodySmall,
+        )
+        SkyChipBar(layouts.map { it.second }, layouts.indexOfFirst { it.first == views.data.actorLayout }, { views.setLayout(layouts[it].first) })
+    }
     var confirmReset by remember { mutableStateOf(false) }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         SkyButton("Manage folders and shares", onOpenFiles, icon = SkyIcon.Folder)
@@ -407,7 +417,7 @@ private fun LayoutPage(organizer: Organizer) {
     }
     Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Grid columns", color = theme.ink, style = MaterialTheme.typography.titleMedium)
-        Text("Auto fits as many cards as the window allows. Cards keep a 16:9 shape.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
+        Text("Auto fits as many cards as the window allows. Each page's View menu sets the card shape.", color = theme.muted, style = MaterialTheme.typography.bodySmall)
         SkyChipBar(listOf("Auto", "2", "3", "4", "5"), if (prefs.columns in 2..5) prefs.columns - 1 else 0, { index ->
             organizer.updatePrefs { it.copy(columns = if (index == 0) 0 else index + 1) }
         })
@@ -417,16 +427,6 @@ private fun LayoutPage(organizer: Organizer) {
             views.setListEverywhere(list)
             organizer.updatePrefs { it.copy(listMode = list) }
         }
-    }
-    val layouts = listOf(ActorLayout.HEADER to "Header", ActorLayout.STUDIO to "Studio")
-    Column(Modifier.fillMaxWidth().skyPanel(RoundedCornerShape(20.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Actor page layout", color = theme.ink, style = MaterialTheme.typography.titleMedium)
-        Text(
-            "Header folds into a slim bar as the videos scroll. Studio keeps a small header with Continue watching and Up next.",
-            color = theme.muted, style = MaterialTheme.typography.bodySmall,
-        )
-        val views = LocalLibraryViews.current
-        SkyChipBar(layouts.map { it.second }, layouts.indexOfFirst { it.first == views.data.actorLayout }, { views.setLayout(layouts[it].first) })
     }
 }
 
