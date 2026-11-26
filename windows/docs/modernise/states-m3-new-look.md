@@ -24,7 +24,7 @@
 
 | Scenario | What the design does now | Change | Severity |
 |---|---|---|---|
-| The window is dragged to its smallest at 125 % scaling or more | Java sets the 640 by 480 minimum in pixels (JDK-8221452), so at 150 % it reaches about 427 by 320 dp and the top tabs and toolbars overflow | The window's own minimum-size message gives Windows 640 by 480 dp times the scale | Major |
+| The window is dragged to its smallest at 125 % scaling or more | Java sets the 640 by 480 minimum in pixels (JDK-8221452), so at 150 % it reaches about 427 by 320 dp and the top tabs and toolbars overflow | The window's own minimum-size message gives Windows 640 by 480 dp times the scale. Built: `794d05c` ([plan](../../../docs/superpowers/plans/2026-11-26-window-minimum-size.md)) | Major |
 
 ## Open Questions
 

@@ -12,7 +12,8 @@
   built for, because Java sets the minimum in pixels (JDK-8221452). Fails 1.4.10 Reflow at that size. Change: the
   window's minimum-size message gives Windows 640 by 480 dp times the current scale (960 by 720 px at 150 %), updated
   when the window moves to a screen with another scale. Test: the runner's `window` check drags the window to its
-  smallest at 150 % and finds it at least 960 by 720 px.
+  smallest at 150 % and finds it at least 960 by 720 px. Built: `794d05c`
+  ([plan](../../../docs/superpowers/plans/2026-11-26-window-minimum-size.md)).
 - **Low.** A card title cut by an ellipsis has no tooltip, so a mouse user can't read it in full; screen readers do get
   the full title. Meets WCAG; falls short of the brief's states table. Change: a cut title shows in full in a tooltip
   after 600 ms, the icon buttons' delay. Test: hovering a card whose title is cut shows the full title after 600 ms.
