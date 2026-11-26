@@ -45,7 +45,7 @@ class NewVideosTest {
         val marks = store().snapshot()
         assertTrue(marks.isNew(key(b), clock))
         assertFalse(marks.isNew(key(a), clock))
-        assertEquals(1, marks.newCount(listOf(key(a), key(b)), clock))
+        assertEquals(1, marks.newSince("actor", listOf(key(a), key(b)), clock))
     }
 
     @Test fun renamedVideoIsNotNew() {

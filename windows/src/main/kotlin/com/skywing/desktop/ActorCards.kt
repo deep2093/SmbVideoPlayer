@@ -55,8 +55,11 @@ internal fun actorDetail(videos: Int, new: Int, watched: Int): String = count(vi
 internal data class ActorInfo(val detail: String, val dot: Boolean)
 
 /** The line and dot of an actor with [videos]. [key] is the actor's page key, which "last opened" is kept under. */
-internal fun actorInfo(key: String, videos: List<WindowsMediaEntry>, marks: LibraryMarks, now: Long): ActorInfo =
-    ActorInfo(actorDetail(videos.size, marks.newCount(videos, now), videos.count(marks::isWatched)), marks.dot(key, videos, now))
+internal fun actorInfo(key: String, videos: List<WindowsMediaEntry>, marks: LibraryMarks, now: Long): ActorInfo {
+    // "N new" and the dot follow one rule (spec 5.8): only videos that arrived since the page was last opened.
+    val new = marks.newSince(key, videos, now)
+    return ActorInfo(actorDetail(videos.size, new, videos.count(marks::isWatched)), dot = new > 0)
+}
 
 /** One actor in a grid: its videos and what it shows. */
 internal class ActorEntry(val group: VirtualGroup, val info: ActorInfo)

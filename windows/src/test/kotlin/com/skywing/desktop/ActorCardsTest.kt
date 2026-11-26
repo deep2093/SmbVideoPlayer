@@ -78,9 +78,13 @@ class ActorCardsTest {
             news = NewMarks(firstSeen = mapOf("c:\\clips\\a.mp4" to now - 1000), opened = emptyMap()),
         )
         assertEquals(ActorInfo("2 videos · 1 new", dot = true), actorInfo("set:1|x", listOf(fresh, old), marks, now))
-        // Once the actor page was opened after the video arrived, the dot goes but "1 new" stays.
+        // Once the actor page was opened after the video arrived, the dot and "1 new" both go (spec 5.8).
         val opened = marks.copy(news = marks.news.copy(opened = mapOf("set:1|x" to now)))
-        assertEquals(ActorInfo("2 videos · 1 new", dot = false), actorInfo("set:1|x", listOf(fresh, old), opened, now))
+        assertEquals(ActorInfo("2 videos · 1 watched", dot = false), actorInfo("set:1|x", listOf(fresh, old), opened, now))
+        // A video that arrives after that visit brings both back, and counts alone.
+        val later = video("C:\\Clips\\c.mp4")
+        val again = opened.copy(news = opened.news.copy(firstSeen = opened.news.firstSeen + ("c:\\clips\\c.mp4" to now + 10)))
+        assertEquals(ActorInfo("3 videos · 1 new", dot = true), actorInfo("set:1|x", listOf(fresh, old, later), again, now + 20))
         assertEquals(ActorInfo("1 video · 1 watched", dot = false), actorInfo("set:1|x", listOf(old), marks, now))
     }
 

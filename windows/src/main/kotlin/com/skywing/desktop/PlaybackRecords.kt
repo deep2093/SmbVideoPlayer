@@ -70,11 +70,8 @@ internal data class LibraryMarks(
 
     fun isNew(e: WindowsMediaEntry, now: Long) = news.isNew(markKey(e.path), now)
 
-    /** How many of [videos] are new. */
-    fun newCount(videos: Collection<WindowsMediaEntry>, now: Long) = news.newCount(videos.map { markKey(it.path) }, now)
-
-    /** True when a new video of [videos] arrived after the actor page [key] was last opened. */
-    fun dot(key: String, videos: Collection<WindowsMediaEntry>, now: Long) = news.dot(key, videos.map { markKey(it.path) }, now)
+    /** How many of [videos] are new and arrived after the actor page [key] was last opened. */
+    fun newSince(key: String, videos: Collection<WindowsMediaEntry>, now: Long) = news.newSince(key, videos.map { markKey(it.path) }, now)
 }
 
 private fun markKey(path: String) = ShareHosts.canonical(path).lowercase(Locale.ROOT)

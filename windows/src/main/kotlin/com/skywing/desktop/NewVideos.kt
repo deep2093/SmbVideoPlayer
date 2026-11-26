@@ -32,13 +32,14 @@ internal object NewVideos {
 internal data class NewMarks(val firstSeen: Map<String, Long>, val opened: Map<String, Long>) {
     fun isNew(path: String, now: Long): Boolean = firstSeen[path]?.let { now - it <= NEW_FOR_MS } == true
 
-    fun newCount(paths: Collection<String>, now: Long): Int = paths.count { isNew(it, now) }
+    /** How many of [paths] are new and were first seen after the page [key] was last opened. */
+    fun newSince(key: String, paths: Collection<String>, now: Long): Int {
+        val openedAt = opened[key] ?: Long.MIN_VALUE
+        return paths.count { isNew(it, now) && firstSeen.getValue(it) > openedAt }
+    }
 
     /** True when one of [paths] is new and was first seen after the page [key] was last opened. */
-    fun dot(key: String, paths: Collection<String>, now: Long): Boolean {
-        val openedAt = opened[key] ?: Long.MIN_VALUE
-        return paths.any { isNew(it, now) && firstSeen.getValue(it) > openedAt }
-    }
+    fun dot(key: String, paths: Collection<String>, now: Long): Boolean = newSince(key, paths, now) > 0
 }
 
 /**
