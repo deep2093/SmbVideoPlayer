@@ -36,12 +36,16 @@ internal class PlaybackRecords(
         bump()
     }
 
-    fun setWatched(file: File, watched: Boolean) {
+    fun setWatched(file: File, watched: Boolean) = setWatched(listOf(file), watched)
+
+    /** Marks [files] watched or not: each store is read and written once, and the revision goes up once. */
+    fun setWatched(files: Collection<File>, watched: Boolean) {
+        if (files.isEmpty()) return
         if (watched) {
-            this.watched.mark(file)
+            this.watched.mark(files)
         } else {
-            this.watched.unmark(file)
-            history.forget(file)
+            this.watched.unmark(files)
+            history.forget(files)
         }
         bump()
     }

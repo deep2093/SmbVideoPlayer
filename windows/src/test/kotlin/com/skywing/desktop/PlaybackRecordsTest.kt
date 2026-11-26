@@ -102,6 +102,49 @@ class PlaybackRecordsTest {
         assertTrue(records.revision.value >= before + 2)
     }
 
+    /**
+     * Makes the next write of the store file [name] land in a file kept aside. A write puts a new temporary file in
+     * place each time, so the store is still that file only if it was written once.
+     */
+    private fun firstWriteOf(name: String): Path {
+        val kept = Files.createFile(folder.resolve("$name.first"))
+        Files.createLink(folder.resolve("$name.tmp"), kept)
+        return kept
+    }
+
+    private fun writtenOnce(kept: Path, name: String) = Files.isSameFile(kept, folder.resolve(name))
+
+    @Test fun markingManyVideosWritesTheStoreOnceAndRaisesTheRevisionOnce() {
+        val records = records()
+        val videos = (1..5).map { video("Clip $it.mkv") }
+        val watched = firstWriteOf("watched.json")
+        val before = records.revision.value
+
+        records.setWatched(videos, true)
+
+        assertEquals(videos.map { key(it.name) }.toSet(), records.watched.load())
+        assertTrue(writtenOnce(watched, "watched.json"), "watched.json is written once")
+        assertEquals(before + 1, records.revision.value)
+    }
+
+    @Test fun unmarkingManyVideosWritesEachStoreOnceAndRaisesTheRevisionOnce() {
+        val records = records()
+        val videos = (1..5).map { video("Clip $it.mkv") }
+        videos.forEach { records.save(it, 300.0, 1000.0) }
+        records.setWatched(videos, true)
+        val watched = firstWriteOf("watched.json")
+        val history = firstWriteOf("history.json")
+        val before = records.revision.value
+
+        records.setWatched(videos, false)
+
+        assertTrue(records.watched.load().isEmpty())
+        assertTrue(records.history.load().isEmpty())
+        assertTrue(writtenOnce(watched, "watched.json"), "watched.json is written once")
+        assertTrue(writtenOnce(history, "history.json"), "history.json is written once")
+        assertEquals(before + 1, records.revision.value)
+    }
+
     @Test fun libraryMarksUseTheStoreKeys() {
         val records = records()
         records.setWatched(video("Clip.mkv"), true)

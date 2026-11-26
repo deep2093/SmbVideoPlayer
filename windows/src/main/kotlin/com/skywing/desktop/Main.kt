@@ -692,7 +692,8 @@ var openCount by remember { mutableStateOf(0) }
     }
     // Plain disk writes: off the screen thread, and a failed one never reaches the UI.
     val setWatched: (List<File>, Boolean) -> Unit = { files, watched ->
-        playbackScope.launch(Dispatchers.IO) { files.forEach { runCatching { records.setWatched(it, watched) } } }
+        // The whole selection at once: one read and one write of each store, and one revision.
+        playbackScope.launch(Dispatchers.IO) { runCatching { records.setWatched(files, watched) } }
     }
     val playOne: (File, List<File>) -> Unit = { file, files -> playQueue(file, files, autoNext = false) }
     val playerShown = selected == NOW_PLAYING

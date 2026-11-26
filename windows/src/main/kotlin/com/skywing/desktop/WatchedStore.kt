@@ -23,16 +23,22 @@ internal class WindowsWatchedStore(path: Path = libraryFile("watched.json")) {
     /** The lower-cased canonical paths of the watched videos. */
     fun load(): Set<String> = synchronized(lock) { (all() ?: emptyList()).map { it.first }.toSet() }
 
-    fun mark(file: File, at: Long = System.currentTimeMillis()): Unit = synchronized(lock) {
+    fun mark(file: File, at: Long = System.currentTimeMillis()) = mark(listOf(file), at)
+
+    /** Marks every one of [files] watched at [at], with one read and one write of the file. */
+    fun mark(files: Collection<File>, at: Long = System.currentTimeMillis()): Unit = synchronized(lock) {
         val marks = all() ?: return
-        val path = keyOf(file.absolutePath)
-        write(marks.filterNot { it.first == path } + (path to at))
+        val paths = files.mapTo(LinkedHashSet()) { keyOf(it.absolutePath) }
+        write(marks.filterNot { it.first in paths } + paths.map { it to at })
     }
 
-    fun unmark(file: File): Unit = synchronized(lock) {
+    fun unmark(file: File) = unmark(listOf(file))
+
+    /** Takes the marks of [files] off, with one read and at most one write of the file. */
+    fun unmark(files: Collection<File>): Unit = synchronized(lock) {
         val marks = all() ?: return
-        val path = keyOf(file.absolutePath)
-        if (marks.any { it.first == path }) write(marks.filterNot { it.first == path })
+        val paths = files.mapTo(HashSet()) { keyOf(it.absolutePath) }
+        if (marks.any { it.first in paths }) write(marks.filterNot { it.first in paths })
     }
 
     fun renamePath(old: String, new: String): Unit = synchronized(lock) {

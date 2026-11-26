@@ -295,11 +295,11 @@ internal class WindowsPlaybackHistoryStore(
     private val lock = file.lock
 
     /** The videos to show in Continue watching, newest first. */
-    fun load(): List<WindowsWatchRecord> = synchronized(lock) {
-        (all() ?: emptyList())
-            .filter { it.path.isNotBlank() && it.position > 0 && it.duration > 0 && it.position < it.duration - FINISHED_TAIL_SECONDS }
-            .sortedByDescending { it.updated }
-    }
+    fun load(): List<WindowsWatchRecord> = synchronized(lock) { shown(all() ?: emptyList()) }
+
+    private fun shown(records: List<WindowsWatchRecord>) = records
+        .filter { it.path.isNotBlank() && it.position > 0 && it.duration > 0 && it.position < it.duration - FINISHED_TAIL_SECONDS }
+        .sortedByDescending { it.updated }
 
     fun saveProgress(file: File, position: Double, duration: Double): Unit = synchronized(lock) {
         if (!position.isFinite() || !duration.isFinite() || duration <= 0) return
@@ -315,12 +315,14 @@ internal class WindowsPlaybackHistoryStore(
     }
 
     /** Drops this video's resume record. */
-    fun forget(file: File): Unit = synchronized(lock) {
-        if (all() == null) return
-        val path = ShareHosts.canonical(file.absolutePath)
-        val records = load()
-        if (records.any { it.path.equals(path, ignoreCase = true) })
-            write(records.filterNot { it.path.equals(path, ignoreCase = true) })
+    fun forget(file: File) = forget(listOf(file))
+
+    /** Drops the resume records of [files], with one read and at most one write of the file. */
+    fun forget(files: Collection<File>): Unit = synchronized(lock) {
+        val records = shown(all() ?: return)
+        val paths = files.map { ShareHosts.canonical(it.absolutePath) }
+        fun gone(record: WindowsWatchRecord) = paths.any { record.path.equals(it, ignoreCase = true) }
+        if (records.any(::gone)) write(records.filterNot(::gone))
     }
 
     fun renamePath(old: String, new: String): Unit = synchronized(lock) {
