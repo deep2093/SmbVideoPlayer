@@ -14,10 +14,10 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isShiftPressed
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.skywing.desktop.artwork.ArtworkRepository
@@ -35,9 +35,12 @@ import kotlinx.coroutines.withContext
 
 private fun count(n: Int, one: String) = if (n == 1) "$n $one" else "$n ${one}s"
 
+/** The gaps between the words of a name. */
+private val WORD_GAP = Regex("\\s+")
+
 /** The first letters of the first two words that start with a letter, in capitals, or "#" when there are none. */
 internal fun actorInitials(name: String): String {
-    val letters = name.trim().split(Regex("\\s+")).mapNotNull { word ->
+    val letters = name.trim().split(WORD_GAP).mapNotNull { word ->
         val first = word.codePoints().findFirst()
         if (first.isPresent && Character.isLetter(first.asInt)) String(Character.toChars(first.asInt)).uppercase(Locale.ROOT) else null
     }
