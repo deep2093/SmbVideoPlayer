@@ -759,6 +759,8 @@ private fun SkyWingDesktopShell(
                                 else -> SettingsScreen(theme, onTheme, library, organizer, portraits, sync,
                                     smoothingMode, smoothingStatus, ::selectSmoothing, { settingsBack.value = it }, onResetWindow) { go("Files") }
                             } }
+                            // A change that couldn't be saved: shown here only, so never over the video.
+                            SaveNotice(SaveTrouble.app, Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp))
                         }
                     }
                     FullscreenChrome(awtWindow, fullscreen, playerShown && chromeVisible, bottom = false) {

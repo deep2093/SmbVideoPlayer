@@ -52,7 +52,7 @@ internal class NewVideoStore(
     path: Path = libraryFile("new-videos.json"),
     private val now: () -> Long = System::currentTimeMillis,
 ) {
-    private val file = JsonFile(path)
+    private val file = JsonFile(path, background = true)
     private val lock = file.lock
 
     /** Paths that were just renamed to: the next [add] drops them once, so a renamed video isn't an arrival. */

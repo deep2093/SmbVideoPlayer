@@ -20,7 +20,7 @@ internal class VideoLengthStore(
     path: Path = libraryFile("lengths.json"),
     private val now: () -> Long = System::currentTimeMillis,
 ) {
-    private val file = JsonFile(path)
+    private val file = JsonFile(path, background = true)
     private val lock = file.lock
     private val revisionState = mutableIntStateOf(0)
 
