@@ -84,17 +84,26 @@ $rules = @(
                  "$pkg.automation.PlaybackAutomationTest", "$pkg.automation.FullscreenAutomationTest") }
     @{ Area = 'Accessibility / shared UI'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(SkyUi|SkyTheme|AdaptiveTheme|SkyIcons|GridSelection)\.kt$'
-       Tests = @("$pkg.AccessibilitySemanticsTest", "$pkg.SkyUiLogicTest", "$pkg.AccessBridgeTreeTest", "$pkg.automation.SkyWingAutomationTest") }
+       Tests = @("$pkg.AccessibilitySemanticsTest", "$pkg.SkyUiLogicTest", "$pkg.AccessBridgeTreeTest", "$pkg.automation.SkyWingAutomationTest",
+                 "$pkg.GridFocusTest", "$pkg.ActorPageTest", "$pkg.ActorCardsTest", "$pkg.CardMenusTest", "$pkg.PageViewsTest", "$pkg.CtrlWheelPageTest",
+                 "$pkg.automation.ActorAutomationTest") }
     @{ Area = 'Library'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(LibraryModel|LibrarySync|LocalFolderLibrary|VideoFiles|WindowsLibraryData|VideosScreen|VideoViews|FoldersScreen|FolderOrganizer|FolderPickers|Thumbnails|ThumbnailWork|PowerSource|Covers|VideoRename|ChangeCoverDialog)\.kt$'
        Tests = @("$pkg.FolderOrganizerTest", "$pkg.WindowsMediaIndexScaleTest", "$pkg.WindowsMediaIndexSafetyTest", "$pkg.VideoScanTest", "$pkg.HubBackNavigationTest",
-                 "$pkg.ThumbnailWorkTest", "$pkg.playback.ThumbnailExtractorNativeTest", "$pkg.automation.LibraryAutomationTest", "$pkg.automation.SkyWingAutomationTest") }
+                 "$pkg.ThumbnailWorkTest", "$pkg.playback.ThumbnailExtractorNativeTest", "$pkg.automation.LibraryAutomationTest", "$pkg.automation.SkyWingAutomationTest",
+                 "$pkg.GridFocusTest", "$pkg.ActorPageTest", "$pkg.ActorCardsTest", "$pkg.CardMenusTest", "$pkg.PageViewsTest", "$pkg.CtrlWheelPageTest",
+                 "$pkg.VideoLengthsTest", "$pkg.PlaybackRecordsTest", "$pkg.automation.ActorAutomationTest") }
+    @{ Area = 'Actor pages'; Escalate = $false
+       Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(ActorPage|ActorCards|ActorStudio|CardMenus|PageViews|WatchedStore|NewVideos|PlaybackRecords|VideoLengths|QueueAdvance|ExplorerShow)\.kt$'
+       Tests = @("$pkg.GridFocusTest", "$pkg.ActorPageTest", "$pkg.ActorCardsTest", "$pkg.CardMenusTest", "$pkg.PageViewsTest", "$pkg.CtrlWheelPageTest",
+                 "$pkg.VideoLengthsTest", "$pkg.WatchedStoreTest", "$pkg.NewVideosTest", "$pkg.PlaybackRecordsTest", "$pkg.QueueAdvanceTest",
+                 "$pkg.automation.ActorAutomationTest") }
     @{ Area = 'SMB / network shares'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(ShareHosts|WindowsShareBrowser|WindowsShareProfileStore|FilesScreen)\.kt$'
        Tests = @("$pkg.WindowsShareBrowserTest", "$pkg.PortSettingsTest", "$pkg.automation.NetworkAndStabilityAutomationTest") }
     @{ Area = 'Settings'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(SettingsScreen|ArtworkSettingsPage)\.kt$'
-       Tests = @("$pkg.HubBackNavigationTest", "$pkg.automation.SkyWingAutomationTest", "$pkg.automation.LibraryAutomationTest") }
+       Tests = @("$pkg.HubBackNavigationTest", "$pkg.SettingsLibraryPageTest", "$pkg.automation.SkyWingAutomationTest", "$pkg.automation.LibraryAutomationTest") }
     @{ Area = 'Artwork / matching'; Escalate = $false
        Pattern = 'windows/src/main/kotlin/com/skywing/desktop/(artwork/.*|matching/.*|EmbeddedGoogleImages)\.kt$'
        Tests = @("$pkg.ArtworkTest", "$pkg.matching.PerformerMatcherTest") }

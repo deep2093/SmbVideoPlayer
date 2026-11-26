@@ -124,7 +124,7 @@ internal object WindowSizing {
  * Where the window was, per screen, and the "Window at start" choice, in `window.json` beside the library (rule 2).
  * A file another program holds is left alone.
  */
-internal class WindowPlacementStore(private val file: JsonFile = JsonFile(libraryFile("window.json"))) {
+internal class WindowPlacementStore(private val file: JsonFile = JsonFile(libraryFile("window.json"), background = true)) {
     fun load(): SavedWindow {
         val root = (file.read() as? JsonFile.Read.Found)?.root ?: return SavedWindow(null, emptyMap())
         val screens = root.get(SCREENS) as? JsonObject

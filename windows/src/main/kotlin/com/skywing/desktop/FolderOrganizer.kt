@@ -103,10 +103,16 @@ internal data class FolderPrefs(
 
 /** The grid sizes the - and + buttons step through, in dp of card width. */
 internal object CardSizes {
+    const val SMALL = 135
     const val NORMAL = 188
+    const val LARGE = 280
     val STEPS = listOf(88, 104, 120, 135, 150, 170, NORMAL, 210, 230, 255, 280, 310, 340, 380, 420, 470, 520, 580)
 
     fun of(saved: Int): Int = if (saved in STEPS) saved else NORMAL
+
+    /** The nearest of Small, Medium and Large to [size]; halfway between two goes to the smaller. */
+    fun named(size: Int): String =
+        listOf(SMALL to "Small", NORMAL to "Medium", LARGE to "Large").minBy { (width, _) -> kotlin.math.abs(width - size) }.second
 
     /** The next size in [direction] (-1 smaller, +1 larger), or the same at either end. */
     fun step(saved: Int, direction: Int): Int {
@@ -616,10 +622,13 @@ internal class Organizer(private val store: FolderOrganizerStore, legacy: () -> 
         ) }
     }
 
-    /** Only the name in the app changes. Giving it the name of another subfolder joins the two. */
-    fun renameSubfolder(setId: String, identity: String, name: String) {
-        val clean = named(name)?.let(WindowsVirtualNames::display) ?: return
-        edit { d ->
+    /**
+     * Only the name in the app changes. Giving it the name of another subfolder joins the two. Returns the subfolder's
+     * identity under its new name, or null when nothing was saved.
+     */
+    fun renameSubfolder(setId: String, identity: String, name: String): String? {
+        val clean = named(name)?.let(WindowsVirtualNames::display) ?: return null
+        val saved = edit { d ->
             d.copy(sets = d.sets.map { set ->
                 if (set.id != setId) set else {
                     // A folder already renamed keeps its original name as the key, so rename every entry that points at it.
@@ -630,10 +639,20 @@ internal class Organizer(private val store: FolderOrganizerStore, legacy: () -> 
                 }
             })
         }
+        return if (saved) WindowsVirtualNames.identity(clean) else null
     }
 
     fun hideSubfolders(setId: String, identities: Collection<String>) {
         edit { d -> d.copy(sets = d.sets.map { if (it.id == setId) it.copy(hidden = it.hidden + identities) else it }) }
+    }
+
+    /** Brings back one hidden subfolder (the Undo of Hide); the others stay hidden. */
+    fun restoreSubfolder(setId: String, identity: String) = restoreSubfolders(setId, listOf(identity))
+
+    /** Brings back several hidden subfolders in one save; the others stay hidden. */
+    fun restoreSubfolders(setId: String, identities: Collection<String>) {
+        val back = identities.toSet()
+        edit { d -> d.copy(sets = d.sets.map { if (it.id == setId) it.copy(hidden = it.hidden - back) else it }) }
     }
 
     fun restoreSubfolders(setId: String) {

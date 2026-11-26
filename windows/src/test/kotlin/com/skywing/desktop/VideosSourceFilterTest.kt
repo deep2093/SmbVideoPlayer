@@ -64,7 +64,7 @@ class VideosSourceFilterTest {
         val organizer = Organizer(FolderOrganizerStore(folder.resolve("folders.bin")))
         val history = watched.associate { (path, position) -> path.lowercase() to WindowsWatchRecord(path, position, 600.0, updated = 1) }
         compose.setContent {
-            VideosScreen(library, organizer, hub, SelectionState(), history, { _, _ -> }, { _, _ -> }, {}, onAddFolder = onAddFolder)
+            VideosScreen(library, organizer, hub, SelectionState(), history, { _, _ -> }, { }, { _, _ -> }, {}, onAddFolder = onAddFolder)
         }
     }
 

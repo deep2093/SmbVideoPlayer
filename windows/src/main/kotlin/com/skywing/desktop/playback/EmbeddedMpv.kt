@@ -936,6 +936,8 @@ class EmbeddedMpv(
     @Synchronized
     fun reading(): Reading = Reading(numberProperty("time-pos"), numberProperty("duration"), flagProperty("pause"), flagProperty("mute"))
 
+    /** True once the file has played to its end; mpv keeps the last frame (keep-open) and sets eof-reached. */
+    fun ended(): Boolean = flagProperty("eof-reached") == true
     fun isPaused(): Boolean? = flagProperty("pause")
     fun isMuted(): Boolean? = flagProperty("mute")
     fun playbackPosition(): Double? = numberProperty("time-pos")

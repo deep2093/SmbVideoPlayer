@@ -1,6 +1,7 @@
 package com.skywing.desktop
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -9,9 +10,11 @@ import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
@@ -37,14 +40,21 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.delay
+import com.skywing.desktop.ui.theme.SerifNames
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -82,6 +92,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyListState
@@ -527,6 +538,37 @@ internal fun SelectionMark(selected: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
+/** A video picture's marks: "New" and a tick when watched at the top left, the length at the bottom right. */
+@Composable
+private fun BoxScope.VideoBadgeMarks(badges: VideoBadges, small: Boolean) {
+    val theme = LocalSkyTheme.current
+    val edge = if (small) 4.dp else 8.dp
+    Row(
+        Modifier.align(Alignment.TopStart).padding(edge).clearAndSetSemantics {},
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (badges.new) {
+            Text(
+                "New", color = theme.onAccent, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(theme.accent).padding(horizontal = 6.dp, vertical = 1.dp),
+            )
+        }
+        if (badges.watched) {
+            Box(Modifier.size(if (small) 18.dp else 22.dp).clip(CircleShape).background(theme.accent), contentAlignment = Alignment.Center) {
+                SkyIconView(SkyIcon.Check, theme.onAccent, size = if (small) 12.dp else 15.dp)
+            }
+        }
+    }
+    badges.length?.takeIf { it > 0 }?.let { length ->
+        Text(
+            formatClock(length), color = Color.White, fontSize = 11.sp, lineHeight = 14.sp,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = edge, bottom = edge).clearAndSetSemantics {}
+                .clip(RoundedCornerShape(4.dp)).background(Color.Black.copy(alpha = 0.65f)).padding(horizontal = 5.dp, vertical = 1.dp),
+        )
+    }
+}
+
 /**
  * One folder card, the same for Custom, Virtual and drive folders: the cover (chosen in Change cover, a portrait, or
  * made from its videos), the name and a short detail line. Clicking opens it; holding (or a right click) opens its options.
@@ -543,24 +585,81 @@ internal fun FolderCard(
     onLongClick: (() -> Unit)? = null,
     listMode: Boolean = false,
     selected: Boolean? = null,
-    tall: Boolean = false,
+    aspect: Float = CardAspect.SCENE,
+    /** An actor: a photo or [initials] on a tinted tile (never a video collage), and the name in a serif font. */
+    actor: Boolean = false,
+    /** An accent dot at the top left: the actor has new videos. */
+    dot: Boolean = false,
+    initials: String? = null,
+    /** Goes on the picture, before its size: the actor card's photo move into the actor page ([movingPhoto]). */
+    pictureModifier: Modifier = Modifier,
 ) {
     val theme = LocalSkyTheme.current
-    val picture: @Composable (Modifier) -> Unit = { pictureModifier ->
-        Box(pictureModifier) {
-            if (coverVideos.isNotEmpty() || coverKey != null) {
-                FolderPicture(coverKey, coverVideos, tall, listMode, Modifier.fillMaxSize())
+    val picture: @Composable (Modifier) -> Unit = { frame ->
+        Box(pictureModifier.then(frame)) {
+            if (actor) {
+                ActorPicture(coverKey, initials ?: "#", aspect < 1f, listMode, Modifier.fillMaxSize())
+            } else if (coverVideos.isNotEmpty() || coverKey != null) {
+                FolderPicture(coverKey, coverVideos, aspect < 1f, listMode, Modifier.fillMaxSize())
             } else {
                 Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(theme.card, theme.surface))), contentAlignment = Alignment.Center) {
                     SkyIconView(SkyIcon.Folder, theme.muted.copy(alpha = 0.6f), size = if (listMode) 26.dp else 40.dp)
                 }
             }
+            if (dot) {
+                Box(
+                    Modifier.align(Alignment.TopStart).padding(if (listMode) 4.dp else 8.dp).size(10.dp).clip(CircleShape)
+                        .background(theme.accent).border(1.5.dp, Color.White.copy(alpha = 0.9f), CircleShape),
+                )
+            }
             if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
     }
-    CardFrame(modifier, selected, null, listMode, tall, onClick, onLongClick, picture) {
-        Text(title, color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    // Screen readers hear the name, then ", new videos" (the title's own text is replaced, as on a tab).
+    val named = if (dot) modifier.accessibleName("$title, new videos") else modifier
+    CardFrame(named, selected, null, listMode, aspect, onClick, onLongClick, picture) {
+        Text(
+            title, color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            fontFamily = if (actor) SerifNames else null,
+            modifier = if (dot) Modifier.clearAndSetSemantics {} else Modifier,
+        )
         Text(detail, color = theme.muted, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** How long an [UndoNotice] stays. */
+internal const val UNDO_NOTICE_MS = 6000L
+
+/**
+ * A short notice with an Undo button ("Hidden." then Undo), shown over the bottom of a page for 6 s, then [onGone] is
+ * called. The count waits while Undo has the focus or the pointer is over the notice, and starts again once they leave.
+ * It never takes focus: the grid keeps it, and Undo is reached with Tab. With Windows animations off it appears at
+ * once and is simply removed; otherwise it fades in. Screen readers are told the text when it appears.
+ */
+@Composable
+internal fun UndoNotice(text: String, onUndo: () -> Unit, onGone: () -> Unit, modifier: Modifier = Modifier) {
+    val theme = LocalSkyTheme.current
+    val gone by rememberUpdatedState(onGone)
+    val pointer = remember { MutableInteractionSource() }
+    val hovered by pointer.collectIsHoveredAsState()
+    var focused by remember { mutableStateOf(false) }
+    val held = hovered || focused
+    LaunchedEffect(text, held) {
+        if (held) return@LaunchedEffect
+        delay(UNDO_NOTICE_MS)
+        gone()
+    }
+    var shown by remember { mutableStateOf(!SkyMotion.animations) }
+    LaunchedEffect(Unit) { shown = true }
+    val alpha by animateFloatAsState(if (shown) 1f else 0f, SkyMotion.fast())
+    Row(
+        modifier.graphicsLayer { this.alpha = alpha }.hoverable(pointer).onFocusChanged { focused = it.hasFocus }
+            .skyPanel(RoundedCornerShape(50), theme.menu).padding(start = 18.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(text, color = theme.ink, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+        SkyButton("Undo", onUndo, primary = false)
     }
 }
 
@@ -575,12 +674,15 @@ internal fun VideoCard(
     onLongClick: (() -> Unit)? = null,
     detail: String? = null,
     listMode: Boolean = false,
-    tall: Boolean = false,
+    aspect: Float = CardAspect.SCENE,
+    /** The length, watched tick and "New" tag on the picture; null shows none. */
+    badges: VideoBadges? = null,
 ) {
     val theme = LocalSkyTheme.current
     val picture: @Composable (Modifier) -> Unit = { pictureModifier ->
         Box(pictureModifier) {
-            VideoPicture(entry, tall, Modifier.fillMaxSize())
+            VideoPicture(entry, aspect < 1f, Modifier.fillMaxSize())
+            if (badges != null) VideoBadgeMarks(badges, listMode)
             if (progress != null && progress > 0f) {
                 Box(
                     Modifier.align(Alignment.BottomStart).fillMaxWidth(progress.coerceIn(0f, 1f)).height(3.dp)
@@ -590,8 +692,14 @@ internal fun VideoCard(
             if (selected != null) SelectionMark(selected, Modifier.align(Alignment.TopEnd).padding(if (listMode) 4.dp else 8.dp))
         }
     }
-    val watched = progress?.takeIf { it > 0f }?.let { "${(it.coerceIn(0f, 1f) * 100).roundToInt()}% watched" }
-    CardFrame(modifier, selected, watched, listMode, tall, onClick, onLongClick, picture) {
+    val percent = progress?.takeIf { it > 0f }?.let { "${(it.coerceIn(0f, 1f) * 100).roundToInt()}% watched" }
+    // The marks are drawn without words of their own, so the card's name stays its title; they join its description.
+    val watched = if (badges == null) percent else listOfNotNull(
+        if (badges.new) "New" else null,
+        if (badges.watched) "Watched" else percent,
+        badges.length?.takeIf { it > 0 }?.let { "Length " + formatClock(it) },
+    ).joinToString(", ").ifEmpty { null }
+    CardFrame(modifier, selected, watched, listMode, aspect, onClick, onLongClick, picture) {
         Text(entry.title(), color = theme.ink, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
             detail ?: listOf(formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }.joinToString("  ·  "),
@@ -601,7 +709,7 @@ internal fun VideoCard(
 }
 
 /**
- * The frame shared by folder and video cards: a 16:9 picture (3:4 when [tall]) over the text, or a row with a small
+ * The frame shared by folder and video cards: a picture of the given [aspect] (16:9, 3:4 or 2:3) over the text, or a row with a small
  * picture in list mode. Screen readers get a push button named by the first text, the title (M3 design brief 5.7), with
  * [watched] as its description and, only while cards are being selected, its [selected] state.
  */
@@ -611,7 +719,7 @@ private fun CardFrame(
     selected: Boolean?,
     watched: String?,
     listMode: Boolean,
-    tall: Boolean,
+    aspect: Float,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
     picture: @Composable (Modifier) -> Unit,
@@ -628,35 +736,62 @@ private fun CardFrame(
         }
     if (listMode) {
         Row(frame.padding(6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            picture(Modifier.width(if (tall) 72.dp else 128.dp).aspectRatio(if (tall) 3f / 4f else 16f / 9f).clip(RoundedCornerShape(10.dp)))
+            picture(Modifier.width(if (aspect < 1f) 72.dp else 128.dp).aspectRatio(aspect).clip(RoundedCornerShape(10.dp)))
             Column(Modifier.weight(1f)) { text() }
         }
     } else {
         Column(frame) {
-            picture(Modifier.fillMaxWidth().aspectRatio(if (tall) 3f / 4f else 16f / 9f))
+            picture(Modifier.fillMaxWidth().aspectRatio(aspect))
             Column(Modifier.padding(start = 10.dp, end = 8.dp, top = 7.dp, bottom = 9.dp)) { text() }
         }
     }
 }
 
-/** One entry of a card's or a page's menu. */
-internal data class MenuAction(val label: String, val icon: SkyIcon? = null, val enabled: Boolean = true, val action: () -> Unit)
+/**
+ * One entry of a card's or a page's menu. [shortcut] (or else [hint]) shows on the right in the muted colour; a
+ * [dividerBefore] item starts a new group; an item with [children] opens them in place of the menu.
+ */
+internal data class MenuAction(
+    val label: String,
+    val icon: SkyIcon? = null,
+    val enabled: Boolean = true,
+    val shortcut: String? = null,
+    val hint: String? = null,
+    val dividerBefore: Boolean = false,
+    val children: List<MenuAction> = emptyList(),
+    val action: () -> Unit = {},
+)
 
 /** A small menu that opens where it is placed, in the theme's menu colour. */
 @Composable
 internal fun SkyMenu(expanded: Boolean, onDismiss: () -> Unit, actions: List<MenuAction>) {
     val theme = LocalSkyTheme.current
+    // The children of the item chosen last, shown in place of the menu with "‹ Back" first.
+    var inside by remember(expanded) { mutableStateOf<MenuAction?>(null) }
+    val parent = inside
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, modifier = Modifier.background(theme.menu)) {
-        actions.forEach { item ->
+        @Composable
+        fun row(item: MenuAction, onChoose: () -> Unit) {
+            if (item.dividerBefore) Box(Modifier.fillMaxWidth().padding(vertical = 4.dp).height(1.dp).background(theme.muted.copy(alpha = 0.3f)))
+            val side = item.shortcut ?: item.hint
             DropdownMenuItem(
                 text = { Text(item.label, color = if (item.enabled) theme.ink else theme.muted) },
                 leadingIcon = item.icon?.let { icon -> { SkyIconView(icon, if (item.enabled) theme.accent else theme.muted, size = 18.dp) } },
+                trailingIcon = side?.let { { Text(it, color = theme.muted, style = MaterialTheme.typography.labelMedium) } },
                 enabled = item.enabled,
-                onClick = {
+                onClick = onChoose,
+            )
+        }
+        if (parent != null) row(MenuAction("‹ Back")) { inside = null }
+        (parent?.children ?: actions).forEach { item ->
+            row(item) {
+                if (item.children.isNotEmpty()) {
+                    inside = item
+                } else {
                     onDismiss()
                     item.action()
-                },
-            )
+                }
+            }
         }
     }
 }
@@ -769,14 +904,18 @@ internal fun ColumnScrollbar(state: ScrollState, modifier: Modifier = Modifier) 
 }
 
 /** Ctrl + mouse wheel over a grid: [onStep] gets +1 (wheel up, larger cards) or -1. The grid does not scroll meanwhile. */
-internal fun Modifier.ctrlWheel(onStep: (Int) -> Unit): Modifier = pointerInput(Unit) {
-    awaitPointerEventScope {
-        while (true) {
-            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-            if (event.type != PointerEventType.Scroll || !event.keyboardModifiers.isCtrlPressed) continue
-            val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
-            if (dy != 0f) onStep(if (dy < 0f) 1 else -1)
-            event.changes.forEach { it.consume() }
+internal fun Modifier.ctrlWheel(onStep: (Int) -> Unit): Modifier = composed {
+    // The handler outlives recompositions, so it must call the latest lambda, not the first one's page.
+    val latest by rememberUpdatedState(onStep)
+    pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                if (event.type != PointerEventType.Scroll || !event.keyboardModifiers.isCtrlPressed) continue
+                val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
+                if (dy != 0f) latest(if (dy < 0f) 1 else -1)
+                event.changes.forEach { it.consume() }
+            }
         }
     }
 }

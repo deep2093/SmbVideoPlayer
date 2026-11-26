@@ -92,6 +92,29 @@ internal class HubState {
     var setId by mutableStateOf<String?>(null)
     var setGroup by mutableStateOf<String?>(null)
 
+    // The actor page: how its videos are sorted and whether watched ones are hidden, the same on every actor.
+    var actorSort by mutableStateOf(VideoSort.NEWEST)
+    var hideWatched by mutableStateOf(false)
+
+    /**
+     * True on an actor's own page in the tab on screen: a Custom folder's name group on tab 0, a Virtual folder's name
+     * subfolder on the others, and not a drive folder in it. The other tab's place does not count.
+     */
+    val onActorPage: Boolean get() = drivePath == null &&
+        if (tab == 0) matchId == null && ownId != null && ownGroup != null else setId != null && setGroup != null
+
+    /** A card to tick ([page] to key) once the next move has ended any selection: Select on an actor page ticks it on the grid. */
+    var tickAfterMove: Pair<String, String>? = null
+
+    /** The actor page's own actor was renamed (old identity to new): once the old one is gone, the page goes to the new one. */
+    var renamedActor: Pair<String, String>? = null
+
+    /**
+     * The card to give the keyboard focus to (its tile key): the actor's card after going back from an actor page, or the
+     * video's card after coming back from playing it. The grid that shows that card focuses it, then clears this.
+     */
+    var focusTile by mutableStateOf<String?>(null)
+
     /** Folder cards ticked on the page named [folderPage]; empty when not selecting folders. */
     var folderPage by mutableStateOf<String?>(null)
     var folderKeys by mutableStateOf(emptySet<String>())
@@ -132,32 +155,45 @@ internal class HubState {
         folderKeys = emptySet()
     }
 
-    /** The same parent navigation as the Back arrows on Custom and Virtual folder pages. */
+    /**
+     * The same parent navigation as the Back arrows on Custom and Virtual folder pages, for the tab on screen only
+     * (FoldersScreen's order: tab 0 shows a self-filling folder, else an own folder; the others a Virtual folder).
+     */
     fun navigateBack(data: OrganizerData): Boolean {
         if (folderPage != null) { endFolderSelection(); return true }
-        if (drivePath != null) {
-            val current = drivePath!!
-            val parent = File(current).parent
-            val roots = data.own.firstOrNull { it.id == ownId }?.folders.orEmpty() +
-                data.sets.firstOrNull { it.id == setId }?.directFolders.orEmpty()
-            drivePath = if (parent == null || roots.any { it.equals(current, ignoreCase = true) }) null else parent
-            query = ""
-            return true
+        val moved = if (tab == 0) customBack(data) else virtualBack(data)
+        if (moved) query = ""
+        return moved
+    }
+
+    private fun customBack(data: OrganizerData): Boolean {
+        if (matchId != null) { matchId = null; return true }
+        val own = data.own.firstOrNull { it.id == ownId }
+        when {
+            ownId == null -> return false
+            drivePath != null -> driveBack(own?.folders.orEmpty())
+            ownGroup != null -> { focusTile = actorFocusKey(ownGroup!!); ownGroup = null }
+            else -> ownId = own?.parentId
         }
-        if (ownGroup != null) { ownGroup = null; query = ""; return true }
-        if (ownId != null) {
-            ownId = data.own.firstOrNull { it.id == ownId }?.parentId
-            query = ""
-            return true
+        return true
+    }
+
+    private fun virtualBack(data: OrganizerData): Boolean {
+        val set = data.sets.firstOrNull { it.id == setId }
+        when {
+            setId == null -> return false
+            drivePath != null -> driveBack(set?.directFolders.orEmpty())
+            setGroup != null -> { focusTile = actorFocusKey(setGroup!!); setGroup = null }
+            else -> setId = set?.parentId
         }
-        if (matchId != null) { matchId = null; query = ""; return true }
-        if (setGroup != null) { setGroup = null; query = ""; return true }
-        if (setId != null) {
-            setId = data.sets.firstOrNull { it.id == setId }?.parentId
-            query = ""
-            return true
-        }
-        return false
+        return true
+    }
+
+    /** A drive folder goes up one level, and closes at one of [roots] (the folders its page was opened from). */
+    private fun driveBack(roots: List<String>) {
+        val current = drivePath!!
+        val parent = File(current).parent
+        drivePath = if (parent == null || roots.any { it.equals(current, ignoreCase = true) }) null else parent
     }
 }
 

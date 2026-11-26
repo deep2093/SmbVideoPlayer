@@ -26,7 +26,7 @@ internal class VideoRenameService(
     private val library: LibraryModel,
     private val organizer: Organizer,
     private val artwork: ArtworkRepository,
-    private val history: WindowsPlaybackHistoryStore,
+    private val records: PlaybackRecords,
 ) {
     suspend fun rename(file: File, requestedBase: String): File = withContext(Dispatchers.IO) {
         val base = requestedBase.trim()
@@ -46,7 +46,7 @@ internal class VideoRenameService(
         library.store.renamePath(oldPath, newPath, destination)
         organizer.renameVideoPath(oldPath, newPath)
         artwork.renameVideoPath(oldPath, newPath)
-        history.renamePath(oldPath, newPath)
+        records.rename(oldPath, newPath)
         library.changed()
         destination
     }

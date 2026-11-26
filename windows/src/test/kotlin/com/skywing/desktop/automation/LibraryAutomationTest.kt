@@ -25,8 +25,8 @@ class LibraryAutomationTest {
 
     @Test
     fun scansAFolderSearchesCachesThumbnailsAndDropsRemovedFiles() {
-        val realBefore = realUserState()
-        val thumbnailFoldersBefore = thumbnailPlayerFolders()
+        val realBefore = AutomationIsolation.realUserState()
+        val thumbnailFoldersBefore = AutomationIsolation.thumbnailPlayerFolders()
         lateinit var library: File
         val first = SkyWingTestApp.launch("library") { root, dir -> library = seedLibrary(root, dir) }
         // The data stays for a relaunch; delete it whatever happens, even when a step fails.
@@ -52,7 +52,7 @@ class LibraryAutomationTest {
             }
             assertEquals(true, first.exitedGracefully)
             // SkyWing closed while its thumbnail players waited idle; their image folders go with it.
-            assertEquals(emptySet(), thumbnailPlayerFolders() - thumbnailFoldersBefore, "thumbnail players' folders left in the temp folder")
+            assertEquals(emptySet(), AutomationIsolation.thumbnailPlayerFolders() - thumbnailFoldersBefore, "thumbnail players' folders left in the temp folder")
             val cached = first.dataDir.resolve("LocalAppData/SkyWing/library/thumbs").toFile().jpegs()
 
             assertTrue(File(library, "clip-h264.mp4").delete(), "remove one video from the folder")
@@ -69,12 +69,12 @@ class LibraryAutomationTest {
         } finally {
             first.close()
         }
-        assertEquals(realBefore, realUserState(), "the user's registry preferences and SkyWing data were not touched")
+        assertEquals(realBefore, AutomationIsolation.realUserState(), "the user's registry preferences and SkyWing data were not touched")
     }
 
     @Test
     fun damagedSettingsAndADamagedLibraryIndexDoNotStopSkyWing() {
-        val realBefore = realUserState()
+        val realBefore = AutomationIsolation.realUserState()
         SkyWingTestApp.launch("damaged-settings") { root, dir ->
             seedLibrary(root, dir)
             root.node("com/skywing/desktop/playback").apply {
@@ -98,7 +98,7 @@ class LibraryAutomationTest {
             app.close()
             assertEquals(true, app.exitedGracefully)
         }
-        assertEquals(realBefore, realUserState(), "the user's registry preferences and SkyWing data were not touched")
+        assertEquals(realBefore, AutomationIsolation.realUserState(), "the user's registry preferences and SkyWing data were not touched")
     }
 
     private fun seedLibrary(root: Preferences, dir: Path): File {
@@ -110,28 +110,9 @@ class LibraryAutomationTest {
         return library
     }
 
-    /** The image folders of SkyWing's thumbnail players in the temp folder the launched SkyWing uses (TMP, as Windows picks it). */
-    private fun thumbnailPlayerFolders(): Set<String> {
-        val temp = (System.getenv("TMP") ?: System.getenv("TEMP"))?.let(::File) ?: return emptySet()
-        return temp.listFiles { f -> f.isDirectory && THUMBNAIL_PLAYER_FOLDER.matches(f.name) }?.map { it.name }?.toSet().orEmpty()
-    }
-
     private fun File.jpegs(): Set<String> = listFiles { f -> f.extension == "jpg" }?.map { it.name }?.toSet().orEmpty()
 
-    /** The user's real SkyWing preferences (registry) and data folder, as text, to compare before and after. */
-    private fun realUserState(): String {
-        val process = ProcessBuilder("reg", "query", """HKCU\Software\JavaSoft\Prefs\com\skywing""", "/s").redirectErrorStream(true).start()
-        val registry = process.inputStream.bufferedReader().readText().trim()
-        process.waitFor()
-        // The test JVM's LOCALAPPDATA is redirected (build.gradle.kts); the real folder comes in a property.
-        val real = System.getProperty("skywing.test.realLocalAppData")?.takeIf { it.isNotBlank() } ?: System.getenv("LOCALAPPDATA").orEmpty()
-        val data = File(real, "SkyWing/library")
-        val files = data.listFiles()?.sortedBy { it.name }?.joinToString("\n") { "${it.name} ${it.length()} ${it.lastModified()}" } ?: "none"
-        return "$registry\n$files"
-    }
-
     companion object {
-        private val THUMBNAIL_PLAYER_FOLDER = Regex("skywing-thumb[0-9]+")
         private lateinit var media: File
         private lateinit var mp4: File
         private lateinit var mkv: File

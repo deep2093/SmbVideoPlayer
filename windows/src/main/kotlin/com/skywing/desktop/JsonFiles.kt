@@ -32,9 +32,10 @@ internal fun Preferences.removeMoved() {
 
 /**
  * A small store kept as one JSON object in one file (B20). It is written whole to a temporary file that is then moved
- * over the old one, so a crash or a full disk leaves the last good file, never half of one.
+ * over the old one, so a crash or a full disk leaves the last good file, never half of one. A write that fails tells
+ * [trouble], which shows a short note (every time, or once per session for a [background] file), and still throws.
  */
-internal class JsonFile(val path: Path) {
+internal class JsonFile(val path: Path, private val background: Boolean = false, private val trouble: SaveTrouble = SaveTrouble.app) {
     /**
      * The lock every store on this file holds while it reads, moves or writes it. Two stores can open the same file at
      * once (the Folders page and the library scan both do at start); with a lock each, one could find no file while
@@ -73,13 +74,18 @@ internal class JsonFile(val path: Path) {
     }
 
     fun write(root: JsonObject) {
-        Files.createDirectories(path.parent)
-        val temporary = path.resolveSibling(path.fileName.toString() + ".tmp")
-        Files.writeString(temporary, root.toString())
         try {
-            Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-        } catch (_: Exception) {
-            Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING)
+            Files.createDirectories(path.parent)
+            val temporary = path.resolveSibling(path.fileName.toString() + ".tmp")
+            Files.writeString(temporary, root.toString())
+            try {
+                Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            } catch (_: Exception) {
+                Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING)
+            }
+        } catch (error: Exception) {
+            trouble.failed(background)
+            throw error
         }
     }
 

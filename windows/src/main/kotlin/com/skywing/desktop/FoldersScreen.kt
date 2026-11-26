@@ -15,18 +15,27 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import com.skywing.desktop.artwork.ArtworkKeys
+import com.skywing.desktop.artwork.ArtworkRepository
 import java.io.File
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /*
@@ -54,9 +63,9 @@ private fun <T> computed(hub: HubState, name: String, vararg keys: Any?, block: 
 
 /* ---------- Dialogs opened from menus, shown once at the page root ---------- */
 
-private data class ConfirmSpec(val title: String, val text: String, val label: String, val action: () -> Unit)
-private data class NameSpec(val title: String, val initial: String, val hint: String, val label: String, val action: (String) -> Unit)
-private data class PickerSpec(
+internal data class ConfirmSpec(val title: String, val text: String, val label: String, val action: () -> Unit)
+internal data class NameSpec(val title: String, val initial: String, val hint: String, val label: String, val action: (String) -> Unit)
+internal data class PickerSpec(
     val title: String,
     val explanation: String,
     val withFiles: Boolean,
@@ -67,7 +76,11 @@ private data class PickerSpec(
     val onDone: (List<String>, List<String>, Boolean) -> Unit,
 )
 
-private class FolderDialogs {
+/** The notice shown after Hide: [text], and what Undo does. */
+internal class UndoSpec(val text: String, val onUndo: () -> Unit)
+
+internal class FolderDialogs {
+    var undo by mutableStateOf<UndoSpec?>(null)
     var filing by mutableStateOf<Pair<Boolean, List<String>>?>(null)
     var info by mutableStateOf<Pair<String, String>?>(null)
     var confirm by mutableStateOf<ConfirmSpec?>(null)
@@ -77,24 +90,32 @@ private class FolderDialogs {
 }
 
 /** Videos shown by each Custom and Virtual folder, worked out together. */
-private class Memberships(
+internal class Memberships(
     val own: Map<String, List<WindowsMediaEntry>>,
     val match: Map<String, List<WindowsMediaEntry>>,
     val sets: Map<String, List<WindowsMediaEntry>>,
 )
 
-/** What every Folders page needs. */
-private class Folders(
+/** What every Folders page needs. [onOpenedActor] notes that an actor's page was opened (its new dot clears). */
+internal class Folders(
     val library: LibraryModel,
     val organizer: Organizer,
     val hub: HubState,
     val history: Map<String, WindowsWatchRecord>,
     val onPlay: (File, List<File>) -> Unit,
+    val onPlayAll: (List<File>) -> Unit,
+    val onResume: (file: File, position: Double, queue: List<File>, autoNext: Boolean) -> Unit,
     val onRename: (File) -> Unit,
+    val onSetWatched: (List<File>, Boolean) -> Unit,
+    val marks: LibraryMarks,
+    val scope: CoroutineScope,
+    val artwork: ArtworkRepository?,
     val roots: List<String>,
     val dialogs: FolderDialogs,
     val members: Memberships?,
     val artworkOn: Boolean,
+    val views: LibraryViews,
+    val onOpenedActor: (String) -> Unit = {},
 ) {
     val data: OrganizerData get() = organizer.data
     val prefs: FolderPrefs get() = organizer.data.prefs
@@ -103,7 +124,7 @@ private class Folders(
     fun matches(name: String) = query.isEmpty() || name.contains(query, ignoreCase = true)
 
     fun play(list: List<WindowsMediaEntry>) {
-        list.firstOrNull()?.let { onPlay(it.file, list.map { e -> e.file }) }
+        if (list.isNotEmpty()) onPlayAll(list.map { it.file })
     }
 
     /** Moves somewhere else on the Folders page; the search box starts empty there. */
@@ -121,32 +142,169 @@ private class Folders(
     fun coverAction(key: String, title: String, videos: List<WindowsMediaEntry>, video: WindowsMediaEntry? = null): MenuAction? =
         if (!artworkOn) null else MenuAction("Change cover", SkyIcon.Image) { dialogs.cover = CoverTarget(key, title, video, videos) }
 
-    /** The options of a video card. */
-    fun videoMenu(entry: WindowsMediaEntry, queue: List<WindowsMediaEntry>, page: String): List<MenuAction> = listOfNotNull(
-        MenuAction("Play", SkyIcon.Play) { onPlay(entry.file, queue.map { it.file }) },
-        MenuAction("Select", SkyIcon.Check) { hub.toggleFolder(page, "file:" + entry.path) },
-        MenuAction("Add to folder…", SkyIcon.Folder) { dialogs.filing = false to listOf(entry.path) },
-        MenuAction("Add to virtual folder…", SkyIcon.Grid) { dialogs.filing = true to listOf(entry.path) },
-        MenuAction("Rename video…", SkyIcon.Edit) { onRename(entry.file) },
-        coverAction(ArtworkKeys.video(entry.path), entry.file.nameWithoutExtension, listOf(entry), entry),
-        MenuAction("Details", SkyIcon.Info) {
-            dialogs.info = entry.file.name to listOf(entry.path, formatSize(entry.size), entry.sourceName).filter { it.isNotBlank() }.joinToString("\n")
-        },
+    /** Clicking a video card or pressing Enter on it: a half-watched video goes on where it stopped. */
+    fun open(entry: WindowsMediaEntry, queue: List<WindowsMediaEntry>) {
+        val at = resumePosition(history, entry)
+        if (at != null) onResume(entry.file, at, queue.map { it.file }, false) else onPlay(entry.file, queue.map { it.file })
+    }
+
+    /** The options of a video card (the same on every library page). */
+    fun videoMenu(entry: WindowsMediaEntry, queue: List<WindowsMediaEntry>, page: String): List<MenuAction> = libraryVideoMenu(
+        entry, queue, history, marks, artwork, artworkOn, onPlay, onResume, onSetWatched, onRename,
+        changePicture = { dialogs.cover = videoCoverTarget(entry) },
+        addToFolder = { dialogs.filing = false to listOf(entry.path) },
+        addToVirtual = { dialogs.filing = true to listOf(entry.path) },
+        details = { scope.launch { dialogs.info = entry.file.name to videoDetailsText(entry, marks.isWatched(entry)) } },
+        select = { hub.toggleFolder(page, "file:" + entry.path) },
     )
 
-    fun videoTiles(list: List<WindowsMediaEntry>, page: String): List<VideoTile> = list.map { entry ->
+    /** The video cards of [list]; [badges] adds the length, the watched tick and New (the actor page). */
+    fun videoTiles(list: List<WindowsMediaEntry>, page: String, badges: ((WindowsMediaEntry) -> VideoBadges)? = null): List<VideoTile> = list.map { entry ->
         VideoTile(
-            "file:" + entry.path.lowercase(Locale.ROOT), entry, list, videoMenu(entry, list, page),
+            "file:" + entry.path.lowercase(Locale.ROOT), entry, list, { videoMenu(entry, list, page) },
             hub.ticked(page, "file:" + entry.path), { hub.toggleFolder(page, "file:" + entry.path) },
+            open = { open(entry, list) },
+            badges = badges?.invoke(entry),
         )
     }
 
-    /** Selection actions that work on any ticked videos. */
+    /** The card focus comes back to ([HubState.focusTile]) was focused, or is not on the grid that showed: forget it. */
+    fun focusTaken() {
+        hub.focusTile = null
+    }
+
+    /**
+     * Leaves an actor page with [leave] and ticks the card [key] on the grid [gridPage] there (Select on an actor page).
+     * The card takes the focus, which went with the page.
+     */
+    fun tickOnGrid(gridPage: String, key: String, leave: HubState.() -> Unit) {
+        hub.tickAfterMove = gridPage to key
+        hub.focusTile = key
+        go(leave)
+    }
+
+    /** Selection actions that work on any ticked videos, in the order of spec 5.6. */
     fun videoActions(videos: () -> List<WindowsMediaEntry>): List<MenuAction> = listOf(
         MenuAction("Play", SkyIcon.Play) { play(videos()); hub.endFolderSelection() },
+        MenuAction("Mark as watched", SkyIcon.Check) { onSetWatched(videos().map { it.file }, true); hub.endFolderSelection() },
+        MenuAction("Mark as unwatched", SkyIcon.Close) { onSetWatched(videos().map { it.file }, false); hub.endFolderSelection() },
         MenuAction("Add to folder", SkyIcon.Folder) { dialogs.filing = false to videos().map { it.path } },
         MenuAction("Add to virtual folder", SkyIcon.Grid) { dialogs.filing = true to videos().map { it.path } },
     )
+
+    /** What Rename says on an actor, instead of "folder". */
+    private val actorRenameHint = "Only the name in SkyWing changes. Giving it the name of another actor joins the two. Your files keep their names."
+
+    /**
+     * One actor card of the page [page] ("set:<id>" or "own:<id>"). [containerName] is the folder it is in; [rename] is null
+     * where the group has no rename. The menu is built when it opens, never for every card on every composition.
+     */
+    fun actorTile(
+        entry: ActorEntry,
+        page: String,
+        coverKey: String,
+        containerName: String,
+        removal: ActorRemoval,
+        onOpen: () -> Unit,
+        rename: ((String) -> Unit)?,
+        remove: () -> Unit,
+    ): FolderTile {
+        val group = entry.group
+        val key = actorFocusKey(group.identity)
+        return FolderTile(
+            key, group.title, entry.info.detail, coverKey, emptyList(), onOpen,
+            menu = { actorMenuOf(group.title, group.videos, coverKey, containerName, removal, false, onOpen, rename, remove) { hub.toggleFolder(page, key) } },
+            selected = hub.ticked(page, key),
+            onSelect = { hub.toggleFolder(page, key) },
+            actor = true,
+            dot = entry.info.dot,
+            initials = actorInitials(group.title),
+            photoKey = actorPhotoKey(actorKey(page, group.identity)),
+        )
+    }
+
+    /**
+     * The actor menu (spec 5.6) of [title] with [videos], on a card or, with [onActorPage], on the actor's own page. Play
+     * all and Shuffle play [playList] (the actor page's grid list there); both are off when it is empty. Built when a menu
+     * opens or a key arrives, never for every card on every composition.
+     */
+    fun actorMenuOf(
+        title: String,
+        videos: List<WindowsMediaEntry>,
+        coverKey: String,
+        containerName: String,
+        removal: ActorRemoval,
+        onActorPage: Boolean,
+        onOpen: () -> Unit,
+        rename: ((String) -> Unit)?,
+        remove: () -> Unit,
+        playList: List<WindowsMediaEntry> = videos,
+        select: () -> Unit,
+    ): List<MenuAction> = actorMenu(
+        ActorMenuState(containerName, onActorPage, artworkOn, rename != null, actorFolders(videos), removal, canPlay = playList.isNotEmpty()),
+        ActorMenuActions(
+            open = onOpen,
+            playAll = { play(playList) },
+            shuffle = { play(playList.shuffled()) },
+            changePhoto = { dialogs.cover = CoverTarget(coverKey, title, null, videos) },
+            rename = { rename?.let { act -> dialogs.naming = NameSpec("Rename actor", title, actorRenameHint, "Rename", act) } },
+            showFolder = { showInExplorer(File(it), select = false) },
+            details = { scope.launch { dialogs.info = "Details" to actorDetailsText(title, videos, containerName) } },
+            select = select,
+            remove = remove,
+        ),
+    )
+
+    /**
+     * The actors of a grid with the lines they show, worked out off the screen thread. [source] is what [groups] is made
+     * from (it is compared by identity in practice, so a long list is not compared again on every composition).
+     */
+    @Composable
+    fun actorEntries(name: String, container: String, source: Any?, vararg keys: Any?, groups: () -> List<VirtualGroup>): List<ActorEntry> {
+        val current = marks
+        val worked = computed(hub, name, source, current, container, *keys) {
+            val now = System.currentTimeMillis()
+            groups().map { ActorEntry(it, actorInfo(actorKey(container, it.identity), it.videos, current, now)) }
+        }
+        // Until that is ready the cards show their counts only.
+        return worked ?: groups().map { ActorEntry(it, ActorInfo(plural(it.videos.size, "video"), false)) }
+    }
+
+    /**
+     * Hides actors of the Virtual folder [setId] and offers Undo. The focus goes to the hidden card's place (a card in view
+     * once it is gone), and Undo gives it back to the card it brings back (spec 5.10).
+     */
+    fun hideActors(setId: String, identities: List<String>) {
+        val focus = identities.firstOrNull()?.let(::actorFocusKey)
+        hub.focusTile = focus
+        organizer.hideSubfolders(setId, identities)
+        dialogs.undo = UndoSpec("Hidden.") {
+            hub.focusTile = focus
+            organizer.restoreSubfolders(setId, identities)
+        }
+    }
+
+    /**
+     * Asks, then takes the videos of the actor [identity] out of the Custom folder [folder] (they are not hidden: they
+     * leave it). The focus then goes to a card in view in its place.
+     */
+    fun takeActorsOut(folder: OwnFolder, identity: String, title: String, paths: List<String>) {
+        dialogs.confirm = ConfirmSpec("Take out $title?", takeOutText(folder), "Take out") {
+            hub.focusTile = actorFocusKey(identity)
+            organizer.takeOutOfOwn(folder.id, emptyList(), paths)
+        }
+    }
+
+    fun takeOutText(folder: OwnFolder) = "They are taken out of ${folder.name} only. Files on your disk are not touched."
+
+    /** The buttons of a selection bar for [names] ([selectionActionsFor]), without Take out, which the bar asks about. */
+    fun selectionButtons(names: List<String>, videos: () -> List<WindowsMediaEntry>, hide: () -> Unit): List<MenuAction> = (
+        listOf(
+            MenuAction("Play all", SkyIcon.Play) { play(videos()); hub.endFolderSelection() },
+            MenuAction("Shuffle", SkyIcon.Queue) { play(videos().shuffled()); hub.endFolderSelection() },
+            MenuAction("Hide", SkyIcon.Close, action = hide),
+        ) + videoActions(videos)
+        ).filter { it.label in names }
 
     fun ownTile(folder: OwnFolder, page: String?): FolderTile {
         val videos = members?.own?.get(folder.id).orEmpty()
@@ -157,7 +315,7 @@ private class Folders(
             coverKey = ArtworkKeys.ownFolder(folder.id),
             coverVideos = videos,
             onOpen = { if (folder.isEmpty) chooseOwn(folder) else go { ownId = folder.id; ownGroup = null; drivePath = null } },
-            menu = listOfNotNull(
+            menu = { listOfNotNull(
                 MenuAction("Open", SkyIcon.Folder) { go { ownId = folder.id; ownGroup = null; drivePath = null } },
                 page?.let { MenuAction("Select", SkyIcon.Check) { hub.toggleFolder(it, "own:" + folder.id) } },
                 MenuAction("Choose folders and files", SkyIcon.Edit) { chooseOwn(folder) },
@@ -171,7 +329,7 @@ private class Folders(
                         organizer.deleteOwn(folder.id)
                     }
                 },
-            ),
+            ) },
             selected = page?.let { hub.ticked(it, "own:" + folder.id) },
             onSelect = page?.let { { hub.toggleFolder(it, "own:" + folder.id) } },
         )
@@ -194,7 +352,7 @@ private class Folders(
             coverKey = ArtworkKeys.virtualSet(set.id),
             coverVideos = videos,
             onOpen = { if (set.isEmpty) chooseSet(set) else go { setId = set.id; setGroup = null } },
-            menu = listOfNotNull(
+            menu = { listOfNotNull(
                 MenuAction("Open", SkyIcon.Folder) { go { setId = set.id; setGroup = null } },
                 page?.let { MenuAction("Select", SkyIcon.Check) { hub.toggleFolder(it, "set:" + set.id) } },
                 MenuAction("Choose folders and files", SkyIcon.Edit) { chooseSet(set) },
@@ -210,7 +368,7 @@ private class Folders(
                         "Delete",
                     ) { organizer.deleteSet(set.id) }
                 },
-            ),
+            ) },
             selected = page?.let { hub.ticked(it, "set:" + set.id) },
             onSelect = page?.let { { hub.toggleFolder(it, "set:" + set.id) } },
         )
@@ -251,7 +409,14 @@ internal fun FoldersScreen(
     hub: HubState,
     history: Map<String, WindowsWatchRecord>,
     onPlay: (File, List<File>) -> Unit,
+    onPlayAll: (List<File>) -> Unit,
+    onResume: (file: File, position: Double, queue: List<File>, autoNext: Boolean) -> Unit,
     onRename: (File) -> Unit,
+    onSetWatched: (List<File>, Boolean) -> Unit,
+    marks: LibraryMarks = LibraryMarks(),
+    onOpenedActor: (String) -> Unit = {},
+    /** Esc or Alt+← went back: the keyboard is in use, so the card focus lands on shows its ring (spec 5.4). */
+    onKeyboardBack: () -> Unit = {},
 ) {
     val prefs = organizer.data.prefs
     val tabs = prefs.tabs
@@ -273,7 +438,12 @@ internal fun FoldersScreen(
             sets = data.sets.associate { it.id to FolderLogic.members(it.folders + it.directFolders, it.files + it.directFiles, library.all) },
         )
     }
-    val f = Folders(library, organizer, hub, history, onPlay, onRename, roots, dialogs, members, LocalCovers.current?.artwork?.settings?.enabled == true)
+    val scope = rememberCoroutineScope()
+    val artwork = LocalCovers.current?.artwork
+    val f = Folders(
+        library, organizer, hub, history, onPlay, onPlayAll, onResume, onRename, onSetWatched, marks, scope, artwork,
+        roots, dialogs, members, artwork?.settings?.enabled == true, LocalLibraryViews.current, onOpenedActor,
+    )
 
     val inside = when (hub.tab) {
         0 -> hub.ownId != null || hub.matchId != null
@@ -282,9 +452,14 @@ internal fun FoldersScreen(
     // Moving to another place ends a selection, like on Android.
     LaunchedEffect(hub.tab, hub.ownId, hub.ownGroup, hub.drivePath, hub.matchId, hub.setId, hub.setGroup) {
         hub.endFolderSelection()
+        // Select on an actor page: the actor's card is ticked on the grid it went back to.
+        hub.tickAfterMove?.let { (page, key) -> hub.toggleFolder(page, key) }
+        hub.tickAfterMove = null
     }
 
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // Esc and Alt+← go back as the mouse back button does (spec 5.10); a search with text takes Esc first.
+    val backKeys = Modifier.backKeys({ hub.navigateBack(organizer.data) }, onKeyboardBack)
+    Column(Modifier.fillMaxSize().then(backKeys), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (!inside) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 PageTitle(
@@ -297,7 +472,7 @@ internal fun FoldersScreen(
                     },
                     Modifier.weight(1f),
                 )
-                SkyField(hub.query, { hub.query = it }, "Search " + prefs.tabName(hub.tab).lowercase(), Modifier.width(300.dp), leading = SkyIcon.Search)
+                FolderSearchField(hub, "Search " + prefs.tabName(hub.tab).lowercase(), Modifier.width(300.dp))
             }
             FolderTabsRow(f)
         }
@@ -310,6 +485,16 @@ internal fun FoldersScreen(
                     else -> CustomList(f)
                 }
                 else -> if (hub.setId != null) SetPage(f) else VirtualList(f)
+            }
+            dialogs.undo?.let { spec ->
+                key(spec) {
+                    UndoNotice(
+                        spec.text,
+                        onUndo = { spec.onUndo(); dialogs.undo = null },
+                        onGone = { if (dialogs.undo === spec) dialogs.undo = null },
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp),
+                    )
+                }
             }
         }
     }
@@ -367,16 +552,18 @@ private fun MenuTextButton(text: String, icon: SkyIcon, actions: List<MenuAction
     }
 }
 
-/** Grid or list, and the number of columns, the same menu entry on every page. */
-private fun layoutActions(f: Folders): List<MenuAction> = listOf(
-    MenuAction(if (f.prefs.listMode) "Show as grid" else "Show as list", if (f.prefs.listMode) SkyIcon.Grid else SkyIcon.Queue) {
-        f.organizer.updatePrefs { it.copy(listMode = !it.listMode) }
-    },
-)
+/** Grid or list, the same menu entry on every page; it changes every page, as the Settings switch does. */
+private fun layoutActions(f: Folders): List<MenuAction> {
+    val list = f.views.data.last.list
+    return listOf(
+        MenuAction(if (list) "Show as grid" else "Show as list", if (list) SkyIcon.Grid else SkyIcon.Queue) {
+            f.views.setListEverywhere(!list)
+            f.organizer.updatePrefs { it.copy(listMode = !list) }
+        },
+    )
+}
 
-private val SORTS = listOf("NAME" to "Name", "COUNT" to "Number of items", "DATE" to "Latest by date", "SIZE" to "Total size")
-
-private fun sortActions(f: Folders): List<MenuAction> = SORTS.map { (sort, label) ->
+private fun sortActions(f: Folders): List<MenuAction> = ACTOR_SORTS.map { (sort, label) ->
     val mark = if (f.prefs.sort == sort) (if (f.prefs.descending) "  ↓" else "  ↑") else ""
     MenuAction(label + mark, SkyIcon.Sort) { f.organizer.selectSort(sort) }
 }
@@ -460,7 +647,7 @@ private fun CustomList(f: Folders) {
                     ),
                 )
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = allKeys.isNotEmpty())
-                GridControls(f.organizer, page)
+                ViewButton(page, actors = true, videos = false)
                 SkyMenuButton(
                     SkyIcon.MoreVert, "Folder options",
                     layoutActions(f) + listOfNotNull(
@@ -481,6 +668,8 @@ private fun CustomList(f: Folders) {
             emptyText = if (f.query.isNotEmpty()) "No custom folders found."
             else "Keep your favourite folders together. Use Add to make a folder with your own name, add folders from your drive, or collect videos by filename.",
             footer = plural(tiles.size, "folder"),
+            focusKey = f.hub.focusTile,
+            onFocused = f::focusTaken,
         )
     }
 }
@@ -495,7 +684,7 @@ private fun matchTile(f: Folders, folder: MatchFolder, page: String): FolderTile
         coverKey = ArtworkKeys.matchFolder(folder.id),
         coverVideos = videos,
         onOpen = { f.go { matchId = folder.id } },
-        menu = listOfNotNull(
+        menu = { listOfNotNull(
             MenuAction("Open", SkyIcon.Folder) { f.go { matchId = folder.id } },
             MenuAction("Play all", SkyIcon.Play, enabled = videos.isNotEmpty()) { f.play(videos) },
             MenuAction("Select", SkyIcon.Check) { f.hub.toggleFolder(page, key) },
@@ -528,7 +717,7 @@ private fun matchTile(f: Folders, folder: MatchFolder, page: String): FolderTile
                     "Remove",
                 ) { f.organizer.deleteMatch(folder.id) }
             },
-        ),
+        ) },
         selected = f.hub.ticked(page, key),
         onSelect = { f.hub.toggleFolder(page, key) },
     )
@@ -551,8 +740,8 @@ private fun MatchPage(f: Folders) {
         } else {
             FolderHeader(folder.name, plural(all.size, "video"), { f.go { matchId = null } }) {
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = videos.isNotEmpty())
-                SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(220.dp), leading = SkyIcon.Search)
-                GridControls(f.organizer, page)
+                FolderSearchField(f.hub, "Search here", Modifier.width(220.dp))
+                ViewButton(page, actors = false, videos = true)
                 SkyMenuButton(SkyIcon.MoreVert, "Folder options", layoutActions(f))
                 SkyButton("Play all", { f.play(videos) }, enabled = videos.isNotEmpty(), icon = SkyIcon.Play)
             }
@@ -561,13 +750,15 @@ private fun MatchPage(f: Folders) {
             f.videoTiles(videos, page), f.hub.grid(page), f.organizer, page, f.history, f.onPlay, Modifier.weight(1f),
             emptyText = if (f.members == null) "Loading…" else "No videos match yet.",
             footer = plural(videos.size, "video"),
+            focusKey = f.hub.focusTile,
+            onFocused = f::focusTaken,
         )
     }
 }
 
 /** The selection bar of a page that lists videos. */
 @Composable
-private fun VideoSelectionBar(f: Folders, page: String, videos: List<WindowsMediaEntry>, takeOut: MenuAction? = null) {
+internal fun VideoSelectionBar(f: Folders, page: String, videos: List<WindowsMediaEntry>, takeOut: MenuAction? = null) {
     val keys = f.hub.folderKeys
     FolderSelectionBar(
         count = keys.size,
@@ -611,13 +802,58 @@ private fun OwnPage(f: Folders) {
     val groups = content?.second.orEmpty()
     val dirVideos = content?.third.orEmpty()
     val group = f.hub.ownGroup
-    val page = "own:" + folder.id + (group?.let { "|$it" } ?: "")
+    val page = "own:" + folder.id
     val everything = f.members?.own?.get(folder.id).orEmpty()
+    // The name groups as actors, sorted like the Virtual folder's (a group is a VirtualGroup once it has a title).
+    val sort = f.prefs.sort
+    val descending = f.prefs.descending
+    val actors = f.actorEntries("actors:own:" + folder.id, "own:" + folder.id, groups, sort, descending) {
+        FolderLogic.sorted(groups.map { (identity, members) -> VirtualGroup(identity, FolderLogic.groupTitle(identity), members) }, sort, descending)
+    }
+    // A name group that disappears (its videos were taken out) returns to the folder; the focus goes to its place there.
+    LaunchedEffect(content != null, group, groups.containsKey(group ?: "")) {
+        if (content != null && group != null && !groups.containsKey(group)) {
+            f.hub.focusTile = actorFocusKey(group)
+            f.hub.ownGroup = null
+        }
+    }
+    // The grid, or an actor's page with the photo moving between them (spec 5.4).
+    ActorSwitch(group) { shown, entering ->
+        if (shown != null) {
+            // A name group is an actor's own page (spec 5.3); it waits until the groups are worked out.
+            val container = "own:" + folder.id
+            val refs = remember(groups, folder.id) {
+                groups.map { (identity, members) -> ActorRef(identity, FolderLogic.groupTitle(identity), ArtworkKeys.virtualFolder(identity), actorKey(container, identity), members) }
+            }
+            val actor = refs.firstOrNull { it.identity == shown }
+            if (actor == null) {
+                if (content == null) EmptyNote("Loading…")
+                return@ActorSwitch
+            }
+            ActorPage(
+                actor, refs, f,
+                onOpenActor = { identity -> f.go { ownGroup = identity } },
+                onBack = { f.hub.focusTile = actorFocusKey(actor.identity); f.go { ownGroup = null } },
+                menuOf = { ref, here, playList ->
+                    f.actorMenuOf(
+                        ref.title, ref.videos, ref.photoKey, folder.name, ActorRemoval.TAKE_OUT, here,
+                        onOpen = { f.go { ownGroup = ref.identity } },
+                        rename = null,
+                        remove = { f.takeActorsOut(folder, ref.identity, ref.title, ref.videos.map { it.path }) },
+                        playList = playList,
+                    ) { f.tickOnGrid(container, "group:" + ref.identity) { ownGroup = null } }
+                },
+                add = MenuAction("Add more files/folders", SkyIcon.Add) { f.chooseOwn(folder) },
+                focusKey = if (entering) f.hub.focusTile else null,
+                entering = entering,
+            )
+            return@ActorSwitch
+        }
+        val searchFocus = remember { FocusRequester() }
+        // A focused card that leaves (taken out, a name group gone) gives the focus to a card in view, else to Back.
+        val comeback = remember { FocusComeback() }
+        val backFocus = remember { FocusRequester() }
 
-    val tiles: List<Tile>
-    val groupVideos: List<WindowsMediaEntry>
-    if (group == null) {
-        groupVideos = emptyList()
         val childTiles = children.filter { f.matches(it.name) }.map { f.ownTile(it, null) }
         val dirTiles = folder.folders.filter { f.matches(leafOf(it)) }.map { path ->
             val videos = dirVideos[path].orEmpty()
@@ -625,83 +861,68 @@ private fun OwnPage(f: Folders) {
             FolderTile(
                 key, FolderLogic.originalLabel(leafOf(path)), plural(videos.size, "video"), driveCoverKey(path), videos,
                 onOpen = { f.go { drivePath = path } },
-                menu = listOfNotNull(
+                menu = { listOfNotNull(
                     MenuAction("Open", SkyIcon.Folder) { f.go { drivePath = path } },
                     MenuAction("Select", SkyIcon.Check) { f.hub.toggleFolder(page, key) },
                     MenuAction("Play all", SkyIcon.Play, enabled = videos.isNotEmpty()) { f.play(videos) },
                     MenuAction("Details", SkyIcon.Info) { f.dialogs.info = leafOf(path) to "$path\n${plural(videos.size, "video")}" },
                     f.coverAction(driveCoverKey(path), FolderLogic.originalLabel(leafOf(path)), videos),
                     MenuAction("Take out of this folder", SkyIcon.Close) { f.organizer.takeOutOfOwn(folder.id, listOf(path), emptyList()) },
-                ),
+                ) },
                 selected = f.hub.ticked(page, key),
                 onSelect = { f.hub.toggleFolder(page, key) },
             )
         }
         val rest: List<Tile> = if (folder.grouped) {
-            groups.entries.filter { f.matches(FolderLogic.groupTitle(it.key)) }.map { (identity, videos) ->
-                val key = "group:$identity"
-                FolderTile(
-                    key, FolderLogic.groupTitle(identity), plural(videos.size, "video"), ArtworkKeys.virtualFolder(identity), videos,
+            actors.filter { f.matches(it.group.title) }.map { entry ->
+                val identity = entry.group.identity
+                f.actorTile(
+                    entry, page, ArtworkKeys.virtualFolder(identity), folder.name, ActorRemoval.TAKE_OUT,
                     onOpen = { f.go { ownGroup = identity } },
-                    menu = listOfNotNull(
-                        MenuAction("Open", SkyIcon.Folder) { f.go { ownGroup = identity } },
-                        MenuAction("Select", SkyIcon.Check) { f.hub.toggleFolder(page, key) },
-                        MenuAction("Play all", SkyIcon.Play) { f.play(videos) },
-                        f.coverAction(ArtworkKeys.virtualFolder(identity), FolderLogic.groupTitle(identity), videos),
-                    ),
-                    selected = f.hub.ticked(page, key),
-                    onSelect = { f.hub.toggleFolder(page, key) },
+                    rename = null,
+                    remove = { f.takeActorsOut(folder, identity, entry.group.title, entry.group.videos.map { it.path }) },
                 )
             }
         } else {
             f.videoTiles(singles.filter { f.matches(it.file.name) }, page)
         }
-        tiles = childTiles + dirTiles + rest
-    } else {
-        groupVideos = groups[group].orEmpty().filter { f.matches(it.file.name) }
-        tiles = f.videoTiles(groupVideos, page)
-    }
-    // A name group that disappears (its videos were taken out) returns to the folder.
-    LaunchedEffect(content != null, group, groups.containsKey(group ?: "")) {
-        if (content != null && group != null && !groups.containsKey(group)) f.hub.ownGroup = null
-    }
+        val tiles: List<Tile> = childTiles + dirTiles + rest
 
-    fun pathsOf(keys: Set<String>): List<String> = keys.flatMap { key ->
-        when {
-            key.startsWith("group:") -> groups[key.removePrefix("group:")].orEmpty().map { it.path }
-            key.startsWith("file:") -> listOf(key.removePrefix("file:"))
-            else -> emptyList()
+        fun pathsOf(keys: Set<String>): List<String> = keys.flatMap { key ->
+            when {
+                key.startsWith("group:") -> groups[key.removePrefix("group:")].orEmpty().map { it.path }
+                key.startsWith("file:") -> listOf(key.removePrefix("file:"))
+                else -> emptyList()
+            }
         }
-    }
-    fun videosOf(keys: Set<String>): List<WindowsMediaEntry> =
-        (keys.filter { it.startsWith("dir:") }.flatMap { dirVideos[it.removePrefix("dir:")].orEmpty() } + f.byPaths(pathsOf(keys)))
-            .distinctBy { it.path.lowercase(Locale.ROOT) }
+        fun videosOf(keys: Set<String>): List<WindowsMediaEntry> =
+            (keys.filter { it.startsWith("dir:") }.flatMap { dirVideos[it.removePrefix("dir:")].orEmpty() } + f.byPaths(pathsOf(keys)))
+                .distinctBy { it.path.lowercase(Locale.ROOT) }
 
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (f.hub.folderPage == page) {
-            val keys = f.hub.folderKeys
-            val selectable = tiles.filter { (it as? FolderTile)?.onSelect != null || it is VideoTile }.map { if (it is VideoTile) "file:" + it.entry.path else it.key }
-            FolderSelectionBar(
-                count = keys.size,
-                total = selectable.size,
-                onClose = { f.hub.endFolderSelection() },
-                onSelectAll = { f.hub.folderPage = page; f.hub.folderKeys = selectable.toSet() },
-                actions = f.videoActions { videosOf(keys) },
-                confirm = MenuAction("Take out", SkyIcon.Close) {
-                    f.organizer.takeOutOfOwn(folder.id, keys.filter { it.startsWith("dir:") }.map { it.removePrefix("dir:") }, pathsOf(keys))
-                    f.hub.endFolderSelection()
-                },
-                confirmText = "They are taken out of ${folder.name} only. Files on your disk are not touched.",
-            )
-        } else {
-            val title = group?.let(FolderLogic::groupTitle) ?: folder.name
-            val folderCount = if (group == null) children.size + folder.folders.size + (if (folder.grouped) groups.size else 0) else 0
-            val subtitle = if (group == null) "${plural(folderCount, "folder")} · ${plural(everything.size, "video")}" else plural(groupVideos.size, "video")
-            FolderHeader(title, subtitle, {
-                if (group != null) f.go { ownGroup = null }
-                else f.go { ownId = folder.parentId; ownGroup = null }
-            }) {
-                if (group == null) {
+        Column(Modifier.fillMaxSize().searchKey(searchFocus), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (f.hub.folderPage == page) {
+                val keys = f.hub.folderKeys
+                val selectable = tiles.filter { (it as? FolderTile)?.onSelect != null || it is VideoTile }.map { if (it is VideoTile) "file:" + it.entry.path else it.key }
+                // Only actors: Play all, Shuffle and Take out… (a Custom folder has nothing to hide, they leave it).
+                val names = selectionActionsFor(keys.map(::tileKindOf).toSet(), custom = true)
+                FolderSelectionBar(
+                    count = keys.size,
+                    total = selectable.size,
+                    onClose = { f.hub.endFolderSelection() },
+                    onSelectAll = { f.hub.folderPage = page; f.hub.folderKeys = selectable.toSet() },
+                    actions = f.selectionButtons(names, { videosOf(keys) }) {},
+                    confirm = names.firstOrNull { it.startsWith("Take out") }?.let { label ->
+                        MenuAction(label, SkyIcon.Close) {
+                            f.organizer.takeOutOfOwn(folder.id, keys.filter { it.startsWith("dir:") }.map { it.removePrefix("dir:") }, pathsOf(keys))
+                            f.hub.endFolderSelection()
+                        }
+                    },
+                    confirmText = f.takeOutText(folder),
+                )
+            } else {
+                val folderCount = children.size + folder.folders.size + (if (folder.grouped) groups.size else 0)
+                val subtitle = "${plural(folderCount, "folder")} · ${plural(everything.size, "video")}"
+                FolderHeader(folder.name, subtitle, { f.go { ownId = folder.parentId; ownGroup = null } }, backFocus = backFocus) {
                     SkyIconButton(SkyIcon.Edit, "Rename ${folder.name}", {
                         f.dialogs.naming = NameSpec("Rename folder", folder.name, "Only the name in this app changes.", "Rename") { f.organizer.renameOwn(folder.id, it) }
                     })
@@ -719,25 +940,50 @@ private fun OwnPage(f: Folders) {
                             { f.organizer.setOwnGrouped(folder.id, !folder.grouped) },
                         )
                     }
+                    SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
+                    FolderSearchField(f.hub, "Search here", Modifier.width(200.dp).focusRequester(searchFocus))
+                    ViewButton(page, actors = true, videos = true)
+                    SkyMenuButton(SkyIcon.MoreVert, "Folder options", (if (folder.grouped) sortActions(f) else emptyList()) + layoutActions(f))
+                    SkyButton("Play all", { f.play(everything) }, enabled = everything.isNotEmpty(), icon = SkyIcon.Play)
                 }
-                if (group != null) SkyButton("Add more files/folders", { f.chooseOwn(folder) }, primary = false, icon = SkyIcon.Add)
-                SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
-                SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(200.dp), leading = SkyIcon.Search)
-                GridControls(f.organizer, page)
-                SkyMenuButton(SkyIcon.MoreVert, "Folder options", layoutActions(f))
-                SkyButton("Play all", { f.play(if (group == null) everything else groupVideos) }, enabled = (if (group == null) everything else groupVideos).isNotEmpty(), icon = SkyIcon.Play)
+            }
+            if (folder.isEmpty && children.isEmpty()) {
+                NoGridFocus(f, comeback, backFocus, entering)
+                EmptyAction("Nothing here yet", "Choose folders and videos for this folder.", "Choose folders and files") { f.chooseOwn(folder) }
+            } else {
+                TileGrid(
+                    tiles, f.hub.grid(page), f.organizer, page, f.history, f.onPlay, Modifier.weight(1f),
+                    emptyText = if (content == null) "Loading…" else "Nothing matches.",
+                    footer = "${plural(tiles.count { it is FolderTile }, "folder")} · ${plural(tiles.count { it is VideoTile } + (if (folder.grouped) singles.size else 0), "video")}",
+                    letters = !folder.grouped || sort == "NAME",
+                    lettersOnlyForActors = folder.grouped,
+                    focusKey = if (entering) f.hub.focusTile else null,
+                    onFocused = f::focusTaken,
+                    noCardFocus = backFocus,
+                    comeback = comeback,
+                )
             }
         }
-        if (folder.isEmpty && children.isEmpty() && group == null) {
-            EmptyAction("Nothing here yet", "Choose folders and videos for this folder.", "Choose folders and files") { f.chooseOwn(folder) }
-        } else {
-            TileGrid(
-                tiles, f.hub.grid(page), f.organizer, page, f.history, f.onPlay, Modifier.weight(1f),
-                emptyText = if (content == null) "Loading…" else "Nothing matches.",
-                footer = if (group == null) "${plural(tiles.count { it is FolderTile }, "folder")} · ${plural(tiles.count { it is VideoTile } + (if (folder.grouped) singles.size else 0), "video")}"
-                else plural(groupVideos.size, "video"),
-            )
-        }
+    }
+}
+
+/**
+ * Where the grid would be, while an empty folder's message shows instead: a focused card went with the grid, or a card
+ * to focus ([HubState.focusTile]) has no grid to land in, so the focus goes to Back (spec 5.10: focus is always visible).
+ */
+@Composable
+private fun NoGridFocus(f: Folders, comeback: FocusComeback, backFocus: FocusRequester, entering: Boolean) {
+    comeback.goneIf { true }
+    SideEffect { comeback.applied() }
+    // Only a card that goes from now on counts, not one that went while the grid still showed.
+    val start = remember { comeback.refocus.intValue }
+    val refocus = comeback.refocus.intValue
+    val wanted = if (entering) f.hub.focusTile else null
+    LaunchedEffect(refocus, wanted) {
+        if (refocus == start && wanted == null) return@LaunchedEffect
+        withFrameNanos {}
+        runCatching { backFocus.requestFocus() }
+        if (wanted != null) f.focusTaken()
     }
 }
 
@@ -790,7 +1036,7 @@ private fun VirtualList(f: Folders) {
             ListToolbar {
                 SkyButton("New virtual folder", { newSet() }, icon = SkyIcon.Add)
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = sets.isNotEmpty())
-                GridControls(f.organizer, page)
+                ViewButton(page, actors = true, videos = false)
                 SkyMenuButton(SkyIcon.MoreVert, "Folder options", layoutActions(f))
             }
         }
@@ -805,6 +1051,8 @@ private fun VirtualList(f: Folders) {
                 sets.map { f.setTile(it, page) }, f.hub.grid(page), f.organizer, page, f.history, f.onPlay, Modifier.weight(1f),
                 emptyText = "No matching folders.",
                 footer = plural(sets.size, "folder"),
+                focusKey = f.hub.focusTile,
+                onFocused = f::focusTaken,
             )
         }
     }
@@ -852,61 +1100,89 @@ private fun SetPage(f: Folders) {
     }
     val group = f.hub.setGroup
     val current = groups?.firstOrNull { it.identity == group }
-    // A subfolder that disappears (renamed, taken out, emptied by a scan) returns to the list.
+    // A subfolder that disappears (renamed into another, taken out, emptied by a scan) returns to the list. Renamed on its
+    // own page, it stays open under the new name once the subfolders show it.
     LaunchedEffect(groups != null, group, current == null) {
-        if (groups != null && group != null && current == null) f.hub.setGroup = null
-    }
-    val page = "set:" + set.id + (group?.let { "|$it" } ?: "")
-    val shownGroups = groups.orEmpty().filter { f.matches(it.title) }
-    val inside = current?.videos.orEmpty().filter { f.matches(it.file.name) }
-
-    val tiles: List<Tile> = if (group == null) {
-        children.filter { f.matches(it.name) }.map { f.setTile(it, null) } +
-            directFolders.filter { f.matches(leafOf(it.first)) }.map { (path, members) ->
-                FolderTile(
-                    "direct:$path", FolderLogic.originalLabel(leafOf(path)), plural(members.size, "video"), driveCoverKey(path), members,
-                    onOpen = { f.go { drivePath = path } },
-                    menu = listOfNotNull(
-                        MenuAction("Open", SkyIcon.Folder) { f.go { drivePath = path } },
-                        MenuAction("Play all", SkyIcon.Play, enabled = members.isNotEmpty()) { f.play(members) },
-                        f.coverAction(driveCoverKey(path), leafOf(path), members),
-                    ),
-                    selected = f.hub.ticked(page, "direct:$path"),
-                    onSelect = { f.hub.toggleFolder(page, "direct:$path") },
-                )
-            } + f.videoTiles(directSingles.filter { f.matches(it.file.name) }, page) + shownGroups.map { g ->
-            val key = "group:" + g.identity
-            FolderTile(
-                key, g.title, plural(g.videos.size, "video"), ArtworkKeys.virtualSub(set.id, g.identity), g.videos,
-                onOpen = { f.go { setGroup = g.identity } },
-                menu = listOfNotNull(
-                    MenuAction("Open", SkyIcon.Folder) { f.go { setGroup = g.identity } },
-                    MenuAction("Select", SkyIcon.Check) { f.hub.toggleFolder(page, key) },
-                    MenuAction("Play all", SkyIcon.Play) { f.play(g.videos) },
-                    f.coverAction(ArtworkKeys.virtualSub(set.id, g.identity), g.title, g.videos),
-                    MenuAction("Rename", SkyIcon.Edit) {
-                        f.dialogs.naming = NameSpec(
-                            "Rename folder", g.title,
-                            "Only the name in this app changes. Giving it the name of another subfolder joins the two. Your files keep their names.",
-                            "Rename",
-                        ) { f.organizer.renameSubfolder(set.id, g.identity, it) }
-                    },
-                    MenuAction("Details", SkyIcon.Info) {
-                        f.dialogs.info = "Details" to "${g.title}\n${plural(g.videos.size, "video")} · ${formatSize(g.totalSize)}\nSubfolder of ${set.name}\nA video listed in several subfolders is the same file, never a copy."
-                    },
-                    MenuAction("Take out of this folder", SkyIcon.Close) { f.organizer.hideSubfolders(set.id, listOf(g.identity)) },
-                ),
-                selected = f.hub.ticked(page, key),
-                onSelect = { f.hub.toggleFolder(page, key) },
-            )
+        if (groups != null && group != null && current == null) {
+            val renamed = f.hub.renamedActor?.takeIf { (from, to) -> from == group && groups.any { it.identity == to } }
+            f.hub.renamedActor = null
+            // Gone, not renamed: the focus, which went with the page, goes to its place on the grid.
+            if (renamed == null) f.hub.focusTile = actorFocusKey(group)
+            f.hub.setGroup = renamed?.second
         }
-    } else {
-        f.videoTiles(inside, page)
     }
+    val page = "set:" + set.id
+    val actors = f.actorEntries("actors:set:" + set.id, "set:" + set.id, groups) { groups.orEmpty() }
+    // The grid, or an actor's page with the photo moving between them (spec 5.4).
+    ActorSwitch(group) { shown, entering ->
+        if (shown != null) {
+            // A name subfolder is an actor's own page (spec 5.3); it waits until the subfolders are worked out.
+            val container = "set:" + set.id
+            val refs = remember(groups, set.id) {
+                groups.orEmpty().map { ActorRef(it.identity, it.title, ArtworkKeys.virtualSub(set.id, it.identity), actorKey(container, it.identity), it.videos) }
+            }
+            val actor = refs.firstOrNull { it.identity == shown }
+            if (actor == null) {
+                if (groups == null) EmptyNote("Loading…")
+                return@ActorSwitch
+            }
+            ActorPage(
+                actor, refs, f,
+                onOpenActor = { identity -> f.go { setGroup = identity } },
+                onBack = { f.hub.focusTile = actorFocusKey(actor.identity); f.go { setGroup = null } },
+                menuOf = { ref, here, playList ->
+                    f.actorMenuOf(
+                        ref.title, ref.videos, ref.photoKey, set.name, ActorRemoval.HIDE, here,
+                        onOpen = { f.go { setGroup = ref.identity } },
+                        rename = { name ->
+                            val renamed = f.organizer.renameSubfolder(set.id, ref.identity, name)
+                            // Renaming this page's actor keeps the page on it, unless the new name joins another actor.
+                            if (here) f.hub.renamedActor = followRename(ref.identity, renamed, refs.map { it.identity })?.let { ref.identity to it }
+                        },
+                        remove = { f.hideActors(set.id, listOf(ref.identity)) },
+                        playList = playList,
+                    ) { f.tickOnGrid(container, "group:" + ref.identity) { setGroup = null } }
+                },
+                add = MenuAction("Add to this subfolder", SkyIcon.Add) { f.addToSetGroup(set, actor.title) },
+                focusKey = if (entering) f.hub.focusTile else null,
+                entering = entering,
+            )
+            return@ActorSwitch
+        }
+        val searchFocus = remember { FocusRequester() }
+        // A focused card that leaves (hidden, renamed, gone in a scan) gives the focus to a card in view, else to Back.
+        val comeback = remember { FocusComeback() }
+        val backFocus = remember { FocusRequester() }
 
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (f.hub.folderPage == page) {
-            if (group == null) {
+        val tiles: List<Tile> = sectioned(
+            children.filter { f.matches(it.name) }.map { f.setTile(it, null) } +
+                directFolders.filter { f.matches(leafOf(it.first)) }.map { (path, members) ->
+                    FolderTile(
+                        "direct:$path", FolderLogic.originalLabel(leafOf(path)), plural(members.size, "video"), driveCoverKey(path), members,
+                        onOpen = { f.go { drivePath = path } },
+                        menu = { listOfNotNull(
+                            MenuAction("Open", SkyIcon.Folder) { f.go { drivePath = path } },
+                            MenuAction("Play all", SkyIcon.Play, enabled = members.isNotEmpty()) { f.play(members) },
+                            f.coverAction(driveCoverKey(path), leafOf(path), members),
+                        ) },
+                        selected = f.hub.ticked(page, "direct:$path"),
+                        onSelect = { f.hub.toggleFolder(page, "direct:$path") },
+                    )
+                },
+            actors.filter { f.matches(it.group.title) }.map { entry ->
+                val identity = entry.group.identity
+                f.actorTile(
+                    entry, page, ArtworkKeys.virtualSub(set.id, identity), set.name, ActorRemoval.HIDE,
+                    onOpen = { f.go { setGroup = identity } },
+                    rename = { name -> f.organizer.renameSubfolder(set.id, identity, name)?.let { f.hub.focusTile = actorFocusKey(it) } },
+                    remove = { f.hideActors(set.id, listOf(identity)) },
+                )
+            },
+            f.videoTiles(directSingles.filter { f.matches(it.file.name) }, page),
+        )
+
+        Column(Modifier.fillMaxSize().searchKey(searchFocus), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (f.hub.folderPage == page) {
                 val keys = f.hub.folderKeys
                 val allKeys = tiles.mapNotNull { tile ->
                     when (tile) {
@@ -915,18 +1191,23 @@ private fun SetPage(f: Folders) {
                         else -> null
                     }
                 }
+                val names = selectionActionsFor(keys.map(::tileKindOf).toSet(), custom = false)
+                val selectedVideos = {
+                    (keys.flatMap { k -> groups.orEmpty().firstOrNull { "group:" + it.identity == k }?.videos.orEmpty() } +
+                        keys.flatMap { k -> directFolders.firstOrNull { "direct:" + it.first == k }?.second.orEmpty() } +
+                        f.byPaths(keys.filter { it.startsWith("file:") }.map { it.removePrefix("file:") }))
+                        .distinctBy { it.path.lowercase(Locale.ROOT) }
+                }
                 FolderSelectionBar(
                     count = keys.size,
                     total = allKeys.size,
                     onClose = { f.hub.endFolderSelection() },
                     onSelectAll = { f.hub.folderPage = page; f.hub.folderKeys = allKeys.toSet() },
-                    actions = f.videoActions {
-                        (keys.flatMap { k -> groups.orEmpty().firstOrNull { "group:" + it.identity == k }?.videos.orEmpty() } +
-                            keys.flatMap { k -> directFolders.firstOrNull { "direct:" + it.first == k }?.second.orEmpty() } +
-                            f.byPaths(keys.filter { it.startsWith("file:") }.map { it.removePrefix("file:") }))
-                            .distinctBy { it.path.lowercase(Locale.ROOT) }
+                    actions = f.selectionButtons(names, selectedVideos) {
+                        f.hideActors(set.id, keys.filter { it.startsWith("group:") }.map { it.removePrefix("group:") })
+                        f.hub.endFolderSelection()
                     },
-                    confirm = MenuAction("Take out", SkyIcon.Close) {
+                    confirm = if ("Take out" !in names) null else MenuAction("Take out", SkyIcon.Close) {
                         val removeDirs = keys.filter { it.startsWith("direct:") }.map { it.removePrefix("direct:") }.toSet()
                         val removeFiles = keys.filter { it.startsWith("file:") }.map { it.removePrefix("file:") }.toSet()
                         if (removeDirs.isNotEmpty() || removeFiles.isNotEmpty()) f.organizer.setDirectSetMembers(set.id,
@@ -937,14 +1218,8 @@ private fun SetPage(f: Folders) {
                     confirmText = "The selected items are taken out of ${set.name}. Files on your disk are not touched.",
                 )
             } else {
-                VideoSelectionBar(f, page, inside)
-            }
-        } else {
-            val subtitle = if (group == null) "${plural(children.size + directFolders.size + (groups?.size ?: 0), "folder")} · ${plural(videos.size, "video")}" else plural(current?.videos?.size ?: 0, "video")
-            FolderHeader(current?.title ?: set.name, subtitle, {
-                if (group != null) f.go { setGroup = null } else f.go { setId = set.parentId; setGroup = null }
-            }) {
-                if (group == null) {
+                val subtitle = "${plural(children.size + directFolders.size + (groups?.size ?: 0), "folder")} · ${plural(videos.size, "video")}"
+                FolderHeader(set.name, subtitle, { f.go { setId = set.parentId; setGroup = null } }, backFocus = backFocus) {
                     SkyIconButton(SkyIcon.Edit, "Rename ${set.name}", {
                         f.dialogs.naming = NameSpec("Rename virtual folder", set.name, "Only the name in this app changes.", "Rename") { f.organizer.renameSet(set.id, it) }
                     })
@@ -956,32 +1231,41 @@ private fun SetPage(f: Folders) {
                     })
                     SkyButton("Add or remove files/folders", { f.chooseSet(set) }, primary = false, icon = SkyIcon.Edit)
                     SkyButton("Add SMB directly", { f.chooseDirectSet(set) }, primary = false, icon = SkyIcon.Add)
-                    if (set.hidden.isNotEmpty()) SkyIconButton(SkyIcon.Refresh, "Show folders you took out", { f.organizer.restoreSubfolders(set.id) })
+                    if (set.hidden.isNotEmpty()) {
+                        SkyButton("Show hidden actors (${set.hidden.size})", { f.organizer.restoreSubfolders(set.id) }, primary = false, icon = SkyIcon.Refresh)
+                    }
+                    SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
+                    FolderSearchField(f.hub, "Search here", Modifier.width(200.dp).focusRequester(searchFocus))
+                    ViewButton(page, actors = true, videos = true)
+                    SkyMenuButton(SkyIcon.MoreVert, "Folder options", sortActions(f) + layoutActions(f))
+                    SkyButton("Play all", { f.play(videos) }, enabled = videos.isNotEmpty(), icon = SkyIcon.Play)
                 }
-                if (group != null && current != null) SkyButton("Add to this subfolder", { f.addToSetGroup(set, current.title) }, primary = false, icon = SkyIcon.Add)
-                SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
-                SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(200.dp), leading = SkyIcon.Search)
-                GridControls(f.organizer, page)
-                SkyMenuButton(SkyIcon.MoreVert, "Folder options", (if (group == null) sortActions(f) else emptyList()) + layoutActions(f))
-                val playList = if (group == null) videos else inside
-                SkyButton("Play all", { f.play(playList) }, enabled = playList.isNotEmpty(), icon = SkyIcon.Play)
             }
-        }
-        when {
-            set.isEmpty && children.isEmpty() ->
-                EmptyAction("Nothing here yet", "Choose the folders and videos this virtual folder reads.", "Choose folders and files") { f.chooseSet(set) }
-            !set.isEmpty && groups != null && direct != null && groups.isEmpty() && children.isEmpty() && directFolders.isEmpty() && directSingles.isEmpty() && f.members != null ->
-                EmptyAction(
-                    "No videos found yet",
-                    "Subfolders appear once the chosen folders are in your library. Scan them again in Files if something is missing.",
-                    "Choose folders and files",
-                ) { f.chooseSet(set) }
-            else -> TileGrid(
-                tiles, f.hub.grid(page), f.organizer, page, f.history, f.onPlay, Modifier.weight(1f),
-                emptyText = if (groups == null) "Loading…" else "Nothing matches.",
-                footer = if (group == null) "${plural(tiles.count { it is FolderTile }, "folder")} · ${plural(videos.size, "video")}" else plural(inside.size, "video"),
-                letters = group != null || prefs.sort == "NAME",
-            )
+            when {
+                set.isEmpty && children.isEmpty() -> {
+                    NoGridFocus(f, comeback, backFocus, entering)
+                    EmptyAction("Nothing here yet", "Choose the folders and videos this virtual folder reads.", "Choose folders and files") { f.chooseSet(set) }
+                }
+                !set.isEmpty && groups != null && direct != null && groups.isEmpty() && children.isEmpty() && directFolders.isEmpty() && directSingles.isEmpty() && f.members != null -> {
+                    NoGridFocus(f, comeback, backFocus, entering)
+                    EmptyAction(
+                        "No videos found yet",
+                        "Subfolders appear once the chosen folders are in your library. Scan them again in Files if something is missing.",
+                        "Choose folders and files",
+                    ) { f.chooseSet(set) }
+                }
+                else -> TileGrid(
+                    tiles, f.hub.grid(page), f.organizer, page, f.history, f.onPlay, Modifier.weight(1f),
+                    emptyText = if (groups == null) "Loading…" else "Nothing matches.",
+                    footer = "${plural(tiles.count { it is FolderTile }, "folder")} · ${plural(videos.size, "video")}",
+                    letters = prefs.sort == "NAME",
+                    lettersOnlyForActors = true,
+                    focusKey = if (entering) f.hub.focusTile else null,
+                    onFocused = f::focusTaken,
+                    noCardFocus = backFocus,
+                    comeback = comeback,
+                )
+            }
         }
     }
 }
@@ -1000,7 +1284,7 @@ private fun physicalTile(
     val key = "dir:$path"
     return FolderTile(
         key, title, detail, driveCoverKey(path), videos, onOpen,
-        menu = listOfNotNull(
+        menu = { listOfNotNull(
             MenuAction("Open", SkyIcon.Folder, action = onOpen),
             MenuAction("Select", SkyIcon.Check) { f.hub.toggleFolder(page, key) },
             MenuAction("Play all", SkyIcon.Play, enabled = videos.isNotEmpty()) { f.play(videos) },
@@ -1008,7 +1292,7 @@ private fun physicalTile(
             MenuAction("Add to folder…", SkyIcon.Folder) { f.dialogs.filing = false to videos.map { it.path } },
             f.coverAction(driveCoverKey(path), title, videos),
             MenuAction("Details", SkyIcon.Info) { f.dialogs.info = leafOf(path) to "$path\n${plural(videos.size, "video")}" },
-        ),
+        ) },
         selected = f.hub.ticked(page, key),
         onSelect = { f.hub.toggleFolder(page, key) },
     )
@@ -1060,8 +1344,8 @@ private fun PhysicalFolderPage(f: Folders, path: String, onBack: () -> Unit, onO
             val subtitle = "${plural(content?.first?.size ?: 0, "folder")} · ${plural(everything.size, "video")}"
             FolderHeader(name, subtitle, onBack) {
                 SkyButton("Select", { f.hub.folderPage = page; f.hub.folderKeys = emptySet() }, primary = false, icon = SkyIcon.Check, enabled = tiles.isNotEmpty())
-                SkyField(f.hub.query, { f.hub.query = it }, "Search here", Modifier.width(220.dp), leading = SkyIcon.Search)
-                GridControls(f.organizer, page)
+                FolderSearchField(f.hub, "Search here", Modifier.width(220.dp))
+                ViewButton(page, actors = true, videos = true)
                 SkyMenuButton(SkyIcon.MoreVert, "Folder options", layoutActions(f))
                 SkyButton("Play all", { f.play(videos) }, enabled = videos.isNotEmpty(), icon = SkyIcon.Play)
             }
@@ -1070,6 +1354,8 @@ private fun PhysicalFolderPage(f: Folders, path: String, onBack: () -> Unit, onO
             tiles, f.hub.grid(page), f.organizer, page, f.history, f.onPlay, Modifier.weight(1f),
             emptyText = if (content == null) "Loading…" else "No videos in this folder.",
             footer = "${plural(subs.size, "folder")} · ${plural(videos.size, "video")}",
+            focusKey = f.hub.focusTile,
+            onFocused = f::focusTaken,
         )
     }
 }

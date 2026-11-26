@@ -156,6 +156,10 @@ internal val SegoeVariable: FontFamily = FontFamily(
     SystemFont("Segoe UI Variable Text", FontWeight.Bold),
 )
 
+/** The names on actor cards: Cambria, a Windows font with no file of our own; Compose uses its default font when it is missing. */
+@OptIn(ExperimentalTextApi::class)
+internal val SerifNames: FontFamily = FontFamily(SystemFont("Cambria"))
+
 private fun style(size: Int, line: Int, weight: FontWeight = FontWeight.Normal) =
     TextStyle(fontFamily = SegoeVariable, fontWeight = weight, fontSize = size.sp, lineHeight = line.sp)
 
