@@ -155,6 +155,16 @@ internal fun upNext(sorted: List<WindowsMediaEntry>, current: WindowsMediaEntry?
     return sorted.getOrNull(at + 1)
 }
 
+/** Studio's Up next: the video after the one the Continue card plays, by the current sort. */
+internal fun upNext(sorted: List<WindowsMediaEntry>, resume: ResumeChoice): WindowsMediaEntry? = upNext(
+    sorted,
+    when (resume) {
+        is ResumeChoice.Resume -> resume.entry
+        is ResumeChoice.Newest -> resume.entry
+        ResumeChoice.None -> null
+    },
+)
+
 internal fun videosText(n: Int) = if (n == 1) "1 video" else "$n videos"
 
 /** "24 videos · 9 watched · 2 new", leaving out the parts that are 0. */
@@ -379,7 +389,7 @@ internal fun ActorPage(
                     line = actorLine(actor.videos.size, info.watched.size, info.new.size),
                     resume = resume,
                     resumeLabel = resumeLabel,
-                    upNext = upNext(shown, (resume as? ResumeChoice.Resume)?.entry),
+                    upNext = upNext(shown, resume),
                     cards = showCards,
                     canPlay = shown.isNotEmpty(),
                     onResume = playResume,

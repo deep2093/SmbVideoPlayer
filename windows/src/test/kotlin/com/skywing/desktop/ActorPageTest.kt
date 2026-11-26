@@ -61,6 +61,18 @@ class ActorPageTest {
         assertEquals(a, upNext(listOf(a, b), gone))
     }
 
+    @Test fun upNextIsNotTheContinueVideo() {
+        val old = video("C:\\Clips\\Old.mp4", modified = 10)
+        val new = video("C:\\Clips\\New.mp4", modified = 30)
+        val middle = video("C:\\Clips\\Middle.mp4", modified = 20)
+        val sorted = sortVideos(listOf(old, new, middle), VideoSort.NEWEST) { null }
+        // Nothing half watched: Continue starts the newest video, so Up next is the one after it.
+        assertEquals(middle, upNext(sorted, pickResume(sorted, emptyMap())))
+        // Half watched: Up next follows the resumed video.
+        assertEquals(old, upNext(sorted, pickResume(sorted, history(record(middle, 100.0, 1000.0, 5)))))
+        assertEquals(new, upNext(sorted, ResumeChoice.None))
+    }
+
     @Test fun upNextNoneAfterLast() {
         val a = video("C:\\Clips\\A.mp4")
         val b = video("C:\\Clips\\B.mp4")
