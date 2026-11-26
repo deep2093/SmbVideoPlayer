@@ -244,8 +244,8 @@ private fun SkyWingDesktopShell(
     var currentFile by remember { mutableStateOf<File?>(null) }
     var queue by remember { mutableStateOf<List<File>>(emptyList()) }
     var queueIndex by remember { mutableStateOf(-1) }
-var queueAutoNext by remember { mutableStateOf(false) }
-var openCount by remember { mutableStateOf(0) }
+    var queueAutoNext by remember { mutableStateOf(false) }
+    var openCount by remember { mutableStateOf(0) }
     val historyStore = remember { WindowsPlaybackHistoryStore() }
     val records = remember { PlaybackRecords(historyStore, WindowsWatchedStore(), NewVideoStore()) }
     var historyRevision by remember { mutableStateOf(0) }
