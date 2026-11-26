@@ -63,6 +63,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import java.io.File
 import java.util.Locale
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
@@ -162,10 +163,11 @@ private fun typedChar(event: KeyEvent): Char? {
     return null
 }
 
-/** What type-to-jump has typed so far on one grid, and when. */
+/** What type-to-jump has typed so far on one grid, and when, and the jump it is making. */
 private class TypeAhead {
     var text = ""
     var at = 0L
+    var jump: Job? = null
 }
 
 /** Whether a grid still has to take the focus it takes when it first shows (the focusOnStart of [TileGrid]). */
@@ -397,7 +399,11 @@ internal fun TileGrid(
             val now = System.currentTimeMillis()
             ahead.text = typedText(ahead.text, ahead.at, char, now)
             ahead.at = now
-            typeToJump(current.map { if (it is LabelTile) "" else it.title }, ahead.text)?.let { index -> scope.launch { land(index) } }
+            typeToJump(current.map { if (it is LabelTile) "" else it.title }, ahead.text)?.let { index ->
+                // Only the latest name counts: a jump still on its way to an earlier match stops.
+                ahead.jump?.cancel()
+                ahead.jump = scope.launch { land(index) }
+            }
             true
         }.oneTabStop(exits, focusManager),
     ) {
